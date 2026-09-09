@@ -209,7 +209,7 @@ function durableQuestionNotification(): PentacleNotification {
     notification_id: 'durable-question-1',
     created_at: '2026-07-02T03:00:00.000Z',
     updated_at: '2026-07-02T03:00:00.000Z',
-    producer: 'question.v1',
+    producer: 'agent_question.v1',
     answer_to_stream_id: STREAM_ID,
     severity: 'info',
     title: 'Choose an option',
@@ -423,7 +423,7 @@ function makeTraceSetup(): TraceSetup {
 beforeEach(() => {
   resetState();
   jest.clearAllMocks();
-  (usePentacleToken as jest.Mock).mockReturnValue({ isReady: true, test: 'test' });
+  (usePentacleToken as jest.Mock).mockReturnValue({ isReady: true, token: 'test' });
   (usePentacleStreamActions as jest.Mock).mockReturnValue(mockActions);
   (usePentacleStreamSelectorWhen as jest.Mock).mockImplementation((_enabled, selector) => selector(mockState));
   (useUserPreference as jest.Mock).mockReturnValue([false, jest.fn()]);

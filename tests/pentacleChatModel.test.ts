@@ -1429,7 +1429,7 @@ test('selectSessionDetail pairs Claude JSONL TOOL_RESULT rows with TOOL_USE inpu
   expectPresent(detail);
   const resultRow = detail.transcriptItems.find((item) => item.id === '1222');
   expect(resultRow?.displayRule).toBe('activity:tool-output');
-  expect(resultRow?.text).toBe('Wrote 40 lines to ../../../tmp/synthetic-prompt.txt');
+  expect(resultRow?.text).toBe('Wrote 40 lines to ../tmp/synthetic-prompt.txt');
 });
 
 test('selectSessionDetail preserves Claude JSONL fenced assistant text for screen code parsing', () => {
@@ -1508,17 +1508,17 @@ test('selectSessionDetail shows no transcript rows for Claude JSONL no-draft sce
   expect(detail.draftText).toBe('');
 });
 
-test('selectMachineStatsTabs returns Alpha first with status and desktop-style stats', () => {
+test('selectMachineStatsTabs returns Host A first with status and desktop-style stats', () => {
   const tabs = selectMachineStatsTabs(buildState({
     hosts: {
-      alpha: {
-        host: 'alpha',
+      hosta: {
+        host: 'hosta',
         online: true,
         checked_at: '2026-04-28T10:00:00.000Z',
         session_count: 2,
       },
-      beta: {
-        host: 'beta',
+      hostb: {
+        host: 'hostb',
         online: false,
         checked_at: '2026-04-28T10:00:00.000Z',
         session_count: 0,
@@ -1526,8 +1526,8 @@ test('selectMachineStatsTabs returns Alpha first with status and desktop-style s
       },
     },
     machineStats: {
-      alpha: {
-        host: 'alpha',
+      hosta: {
+        host: 'hosta',
         cpu_load_1m: 1.2,
         memory_used_bytes: 8_000_000,
         memory_total_bytes: 16_000_000,
@@ -1539,20 +1539,20 @@ test('selectMachineStatsTabs returns Alpha first with status and desktop-style s
     },
   }));
 
-  expect(tabs[0]?.host).toBe('alpha');
-  expect(tabs[0]?.title).toBe('Alpha');
+  expect(tabs[0]?.host).toBe('hosta');
+  expect(tabs[0]?.title).toBe('Host A');
   expect(tabs[0]?.online).toBe(true);
   expect(tabs[0]?.stats?.cpu_load_1m).toBe(1.2);
-  expect(tabs[1]?.host).toBe('beta');
+  expect(tabs[1]?.host).toBe('hostb');
   expect(tabs[1]?.online).toBe(false);
-  expect(tabs[2]?.host).toBe('gamma');
+  expect(tabs[2]?.host).toBe('hostc');
 });
 
 test('selectMachineStatsTabs preserves offline host status fields', () => {
   const tabs = selectMachineStatsTabs(buildState({
     hosts: {
-      alpha: {
-        host: 'alpha',
+      hosta: {
+        host: 'hosta',
         online: false,
         checked_at: '2026-07-06T14:00:00.000Z',
         session_count: 0,
@@ -1562,7 +1562,7 @@ test('selectMachineStatsTabs preserves offline host status fields', () => {
     },
   }));
 
-  expect(tabs[0]?.host).toBe('alpha');
+  expect(tabs[0]?.host).toBe('hosta');
   expect(tabs[0]?.hostStatusReason).toBe('unreachable');
   expect(tabs[0]?.hostStatusSince).toBe('2026-07-06T13:30:00.000Z');
 });

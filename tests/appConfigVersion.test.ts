@@ -5,11 +5,6 @@ import {
 } from '../app.config';
 import path from 'node:path';
 
-jest.mock('node:child_process', () => ({
-  execSync: jest.fn(),
-}));
-
-const execSync = require('node:child_process').execSync as jest.Mock;
 const { execFileSync } = jest.requireActual('node:child_process') as typeof import('node:child_process');
 
 function runMarketingVersionHelper(buildNumber: string, bumpLevel?: string): string {
@@ -27,24 +22,26 @@ function runMarketingVersionHelper(buildNumber: string, bumpLevel?: string): str
 }
 
 beforeEach(() => {
-  execSync.mockReset();
+  delete process.env.PENTACLE_BUILD_NUMBER;
+  delete process.env.PENTACLE_PROD_BUILD;
+  delete process.env.EAS_BUILD_PROFILE;
 });
 
 test('computes default minor app version from build number', () => {
-  expect(computeAppVersion('390')).toBe('2.0.0');
-  expect(computeAppVersion('391')).toBe('2.1.0');
-  expect(computeAppVersion('392')).toBe('2.2.0');
+  expect(computeAppVersion('1')).toBe('1.0.0');
+  expect(computeAppVersion('2')).toBe('1.1.0');
+  expect(computeAppVersion('3')).toBe('1.2.0');
 });
 
 test('supports major and patch version bump overrides', () => {
-  expect(computeAppVersion('391', 'major')).toBe('3.0.0');
-  expect(computeAppVersion('391', 'patch')).toBe('2.0.1');
+  expect(computeAppVersion('2', 'major')).toBe('2.0.0');
+  expect(computeAppVersion('2', 'patch')).toBe('1.0.1');
 });
 
-test('native marketing-version helper matches app config at build 393', () => {
-  expect(runMarketingVersionHelper('393')).toBe('2.3.0');
-  expect(runMarketingVersionHelper('393', 'major')).toBe('5.0.0');
-  expect(runMarketingVersionHelper('393', 'patch')).toBe('2.0.3');
+test('native marketing-version helper matches app config at build 4', () => {
+  expect(runMarketingVersionHelper('4')).toBe('1.3.0');
+  expect(runMarketingVersionHelper('4', 'major')).toBe('4.0.0');
+  expect(runMarketingVersionHelper('4', 'patch')).toBe('1.0.3');
 });
 
 test('normalizes version bump override with minor default', () => {
@@ -53,21 +50,20 @@ test('normalizes version bump override with minor default', () => {
   expect(() => normalizeVersionBumpLevel('build')).toThrow(/PENTACLE_VERSION_BUMP/);
 });
 
-test('keeps build number derived from git commit count', () => {
-  execSync.mockImplementation((command: string) => {
-    if (command.includes('--is-shallow-repository')) return 'false\n';
-    if (command.includes('rev-list --count HEAD')) return '391\n';
-    throw new Error(`unexpected command ${command}`);
-  });
-
-  expect(computeBuildNumber()).toBe('391');
+test('development builds default to one and accept an explicit number', () => {
+  expect(computeBuildNumber()).toBe('1');
+  process.env.PENTACLE_BUILD_NUMBER = '42';
+  expect(computeBuildNumber()).toBe('42');
 });
 
-test('build number derivation rejects shallow clones', () => {
-  execSync.mockImplementation((command: string) => {
-    if (command.includes('--is-shallow-repository')) return 'true\n';
-    throw new Error(`unexpected command ${command}`);
-  });
+test.each(['PENTACLE_PROD_BUILD', 'EAS_BUILD_PROFILE'])('production profile %s requires a build number', (key) => {
+  process.env[key] = key === 'PENTACLE_PROD_BUILD' ? '1' : 'production';
+  expect(() => computeBuildNumber()).toThrow(/PENTACLE_BUILD_NUMBER is required/);
+  process.env.PENTACLE_BUILD_NUMBER = '42';
+  expect(computeBuildNumber()).toBe('42');
+});
 
-  expect(() => computeBuildNumber()).toThrow(/shallow clone/);
+test.each(['0', '-1', '1.5', 'abc'])('rejects invalid explicit build number %s', (value) => {
+  process.env.PENTACLE_BUILD_NUMBER = value;
+  expect(() => computeBuildNumber()).toThrow(/positive integer/);
 });

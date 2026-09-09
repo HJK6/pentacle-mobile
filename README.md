@@ -13,13 +13,8 @@ talks to a Pentacle daemon endpoint you configure.
 
 ## Install
 
-No lockfile is published; `npm install` resolves dependencies, including the
-vendored core via its in-repo `file:` path. A real `package-lock.json` is
-regenerated as your repository's first follow-up commit.
-
-```sh
-npm install
-```
+The lockfile pins dependencies, including the vendored core via its in-repo
+file path. Use npm ci for a reproducible checkout.
 
 `pentacle-chat-core` is vendored at `./pentacle-chat-core` and referenced as
 `"pentacle-chat-core": "file:./pentacle-chat-core"` — the in-repo path, never a
@@ -66,6 +61,8 @@ does not fetch a prebuilt package or a redirected artifact URL. Use fresh caches
 (`--clean`) so the fallback path is exercised end to end.
 
 
-## Known test gaps
+## Validation
 
-The default `npm test` / `npm run typecheck` suites are not fully green yet; the residuals are anonymization/config drift and selector logic, not privacy, install, or configure issues (anonymous dependency install and `expo prebuild --clean` pass). They are being greened in the open as the first follow-up: machine-tab label normalization (`selectMachineStatsTabs`), the app config version/build-number stamp, a telemetry path, and PentacleChatModel selector logic. Device/simulator tests are gated behind `PENTACLE_NATIVE_TESTS=1`.
+See [Testing](docs/TESTING.md) for offline checks and
+[Native builds](docs/PENTACLE_MOBILE_BUILD.md) for simulator and device setup.
+Unit tests do not establish live daemon connectivity or native runtime behavior.

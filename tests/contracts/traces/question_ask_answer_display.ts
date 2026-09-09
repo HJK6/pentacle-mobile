@@ -52,9 +52,9 @@ export const QUESTION_ASK_ANSWER_DISPLAY: TraceContract = {
       effect: 'question_preview_block_renders',
       assert: (snap) => {
         const preview = snap.observers.screen.queryTextByTestID('question-option-preview-text-0');
-        return (preview?.includes('TOTAL     88h') ?? false) || {
+        return (preview?.includes('Option B selected.') ?? false) || {
           ok: false,
-          msg: `selected option preview block should show 88h preview, got ${JSON.stringify(preview)}`,
+          msg: `selected option preview block should show Option B preview, got ${JSON.stringify(preview)}`,
         };
       },
       assertLabel: 'Bug E red replay: selected preview renders in the preview block',
@@ -70,7 +70,7 @@ export const QUESTION_ASK_ANSWER_DISPLAY: TraceContract = {
     {
       actor: 'user',
       action: 'question_enter_note',
-      payload: { text: 'Use the 88h submission.' },
+      payload: { text: 'Use option B.' },
       t: 'sameTick',
     },
     {
@@ -159,7 +159,7 @@ export const DURABLE_QUESTION_NOTIFICATION_DISPLAY: TraceContract = {
     {
       actor: 'user',
       action: 'durable_question_enter_note',
-      payload: { text: 'Use lane B.' },
+      payload: { text: 'Use option B.' },
       t: 'sameTick',
     },
     {

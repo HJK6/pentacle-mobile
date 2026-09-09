@@ -22,7 +22,8 @@
     "typecheck": "tsc --noEmit",
     "validate": "tsc --noEmit && npx expo export --platform ios --output-dir /tmp/expo-validate-build",
     "test": "jest",
-    "test:coverage": "jest --coverage"
+    "test:coverage": "jest --coverage",
+    "test:unit": "jest --runInBand"
   },
   "dependencies": {
     "@expo-google-fonts/cinzel": "^0.4.2",

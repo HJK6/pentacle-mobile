@@ -421,7 +421,7 @@ test('photo upload failure marks the already-visible optimistic row failed', asy
 // can ever reconcile the row. It must end failed (retryable), never "sending".
 test('a socket drop during the upload leg fails the row visibly and dispatches no send', async () => {
   imageCapture.pickImagesFromLibrary.mockResolvedValueOnce([libraryAsset(0)]);
-  attachmentUpload.uploadStagedAttachments.mockRejectedValueOnce(new Error('stream disconnected'));
+  attachmentUpload.uploadStagedAttachments.mockRejectedValueOnce(new Error('Pentacle stream disconnected'));
 
   render(<SessionScreen />);
   await stagePhotosViaLibrary();
@@ -435,7 +435,7 @@ test('a socket drop during the upload leg fails the row visibly and dispatches n
   expect(mockActions.sendTurn).toHaveBeenCalledTimes(1);
   expect(mockActions.markOptimisticFailed).toHaveBeenCalledWith(
     'optimistic_hostc_codex_one_1',
-    'stream disconnected',
+    'Pentacle stream disconnected',
   );
   expect(mockActions.sendMessage).not.toHaveBeenCalled();
   // The staged asset is retained for Retry (re-upload without re-picking).
@@ -451,7 +451,7 @@ test('a socket drop during the upload leg fails the row visibly and dispatches n
 test('a blob upload rejection mid-upload fails the row through the compose path', async () => {
   const actualUpload = jest.requireActual('../src/services/attachmentUpload') as typeof import('../src/services/attachmentUpload');
   attachmentUpload.uploadStagedAttachments.mockImplementation(actualUpload.uploadStagedAttachments);
-  mockUploadBlobBase64.mockRejectedValueOnce(new Error('stream disconnected'));
+  mockUploadBlobBase64.mockRejectedValueOnce(new Error('Pentacle stream disconnected'));
   imageCapture.pickImagesFromLibrary.mockResolvedValueOnce([libraryAsset(0)]);
 
   render(<SessionScreen />);
@@ -466,7 +466,7 @@ test('a blob upload rejection mid-upload fails the row through the compose path'
 
   expect(mockUploadBlobBase64).toHaveBeenCalledTimes(1);
   expect(mockActions.sendTurn).toHaveBeenCalledTimes(1);
-  expect(mockActions.markOptimisticFailed).toHaveBeenCalledWith('optimistic_hostc_codex_one_1', 'stream disconnected');
+  expect(mockActions.markOptimisticFailed).toHaveBeenCalledWith('optimistic_hostc_codex_one_1', 'Pentacle stream disconnected');
   expect(mockActions.sendMessage).not.toHaveBeenCalled();
   expect(mockActions.retainUploadForRetry).toHaveBeenCalledWith('optimistic_hostc_codex_one_1', expect.any(Function));
 });
@@ -478,7 +478,7 @@ test('a blob upload rejection mid-upload fails the row through the compose path'
 // is terminal, because it is the only leg nothing can replay or reconcile.
 test('upload ok, then send rejected before dispatch (socket not open) keeps the row for the reconnect resubmit', async () => {
   imageCapture.pickImagesFromLibrary.mockResolvedValueOnce([libraryAsset(0)]);
-  mockActions.sendMessage.mockRejectedValueOnce(new Error('stream is not connected'));
+  mockActions.sendMessage.mockRejectedValueOnce(new Error('Pentacle stream is not connected'));
 
   render(<SessionScreen />);
   await stagePhotosViaLibrary();
@@ -494,7 +494,7 @@ test('upload ok, then send rejected before dispatch (socket not open) keeps the 
 
 test('upload ok, then a drop after the send frame left keeps the row pending (ambiguous)', async () => {
   imageCapture.pickImagesFromLibrary.mockResolvedValueOnce([libraryAsset(0)]);
-  mockActions.sendMessage.mockRejectedValueOnce(new Error('stream disconnected'));
+  mockActions.sendMessage.mockRejectedValueOnce(new Error('Pentacle stream disconnected'));
 
   render(<SessionScreen />);
   await stagePhotosViaLibrary();

@@ -255,7 +255,7 @@ test('interpretPentacleEvent classifies and summarizes Claude JSONL file tool re
   expect(read.displayRule).toBe('activity:code-block');
   expect(write.caseId).toBe('tool-result');
   expect(write.displayRule).toBe('activity:tool-output');
-  expect(write.text).toBe('Wrote 40 lines to ../../../tmp/synthetic-prompt.txt');
+  expect(write.text).toBe('Wrote 40 lines to ../tmp/synthetic-prompt.txt');
   expect(edit.caseId).toBe('tool-result');
   expect(edit.displayRule).toBe('activity:tool-output');
   expect(edit.text).toBe('Added 6 lines, removed 1 line');

@@ -278,7 +278,7 @@ test('telemetry registry names are unique and case anchored', () => {
     } else if (optimisticOrphanTelemetryEvents.has(name)) {
       expectedRef = OPTIMISTIC_ORPHAN_TELEMETRY_REF;
     } else if (currentTailRecompositionEvents.has(name)) {
-      expectedRef = 'stale_feed_state_contract';
+      expectedRef = 'chat-current-tail-recomposition';
     } else if (e2eTelemetryFlowEvents.has(name)) {
       expectedRef = E2E_TELEMETRY_FLOWS_REF;
     } else if (notificationsL3Events.has(name)) {

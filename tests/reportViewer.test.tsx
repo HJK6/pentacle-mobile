@@ -20,7 +20,7 @@ const mockReport = {
   asset_id: "report-1",
   title: "Metadata title",
   content_type: "report",
-  producer: "user@example.com",
+  producer: "operator@example.com",
   read: false,
   read_at: null,
   updated_at: "2026-07-11T10:00:00Z",
@@ -84,7 +84,7 @@ let mockComments = [
     block_id: "para-1",
     excerpt: "Keep request_id stable.",
     body: "Please retain this.",
-    author: "user@example.com",
+    author: "operator@example.com",
   },
 ];
 const mockAdd = jest.fn();
@@ -162,7 +162,7 @@ beforeEach(() => {
       block_id: "para-1",
       excerpt: "Keep request_id stable.",
       body: "Please retain this.",
-      author: "user@example.com",
+      author: "operator@example.com",
     },
   ];
   mockReports = [mockReport];
@@ -217,7 +217,7 @@ test("renders the deterministic document types and preserves collapse interactio
   expect(StyleSheet.flatten(screen.getByTestId("report-table-content-table-1").props.style))
     .toEqual(expect.objectContaining({ width: 715 }));
   expect(screen.getByTestId("report-header-meta")).toHaveTextContent(
-    /user@example.com/,
+    /operator@example.com/,
   );
   expect(screen.getByTestId("report-chip-rail")).toBeTruthy();
   expect(screen.getByTestId("report-document-title").props.style).toEqual(

@@ -142,7 +142,7 @@ test('report inventory drives the header badge and Reports overflow row', () => 
   expect(screen.getByTestId('session-report-unread-badge')).toHaveTextContent('1');
   fireEvent.press(screen.getByTestId('session-header-menu-button'));
   expect(screen.getByTestId('chat-action-reports')).toBeTruthy();
-  expect(screen.getByText('1 from related tasks · 1 unread')).toBeTruthy();
+  expect(screen.getByText('1 from child agents · 1 unread')).toBeTruthy();
   fireEvent.press(screen.getByTestId('chat-action-reports'));
   expect(screen.getByTestId('mock-report-viewer')).toBeTruthy();
 });
