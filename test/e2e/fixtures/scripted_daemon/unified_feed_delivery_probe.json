@@ -1,0 +1,138 @@
+{
+  "schema_version": 1,
+  "name": "unified_feed_delivery_probe",
+  "stream": {
+    "stream_id": "mock-host:mock-session",
+    "host": "mock-host",
+    "provider": "codex",
+    "session_name": "mock-session",
+    "title": "Unified probe primary"
+  },
+  "snapshot": {
+    "sessions": [
+      {
+        "stream_id": "mock-host:mock-session",
+        "host": "mock-host",
+        "provider": "codex",
+        "session_name": "mock-session",
+        "title": "Unified probe primary",
+        "last_event_at": "2026-01-01T12:00:00.000Z",
+        "last_text": "",
+        "last_kind": "",
+        "draft": "",
+        "pending": false,
+        "working": false,
+        "online": true
+      },
+      {
+        "stream_id": "hostc:unified-two",
+        "host": "hostc",
+        "provider": "codex",
+        "session_name": "unified-two",
+        "title": "Unified probe secondary",
+        "last_event_at": "2026-01-01T12:00:00.000Z",
+        "last_text": "",
+        "last_kind": "",
+        "draft": "",
+        "pending": false,
+        "working": false,
+        "online": true
+      },
+      {
+        "stream_id": "hostb:unified-three",
+        "host": "hostb",
+        "provider": "claude",
+        "session_name": "unified-three",
+        "title": "Unified probe tertiary",
+        "last_event_at": "2026-01-01T12:00:00.000Z",
+        "last_text": "",
+        "last_kind": "",
+        "draft": "",
+        "pending": false,
+        "working": false,
+        "online": true
+      }
+    ],
+    "events": []
+  },
+  "frames": [
+    {
+      "id": "primary-live",
+      "at_ms": 250,
+      "type": "chat.event",
+      "wait_for_client": true,
+      "event": {
+        "kind": "ASSIST",
+        "daemon_seq": 1,
+        "timestamp": "2026-01-01T12:00:01.000Z",
+        "text": "primary live unified probe"
+      }
+    },
+    {
+      "id": "secondary-live",
+      "at_ms": 300,
+      "type": "chat.event",
+      "event": {
+        "kind": "ASSIST",
+        "daemon_seq": 2,
+        "timestamp": "2026-01-01T12:00:02.000Z",
+        "text": "secondary live unified probe",
+        "host": "hostc",
+        "provider": "codex",
+        "session_name": "unified-two",
+        "stream_id": "hostc:unified-two"
+      }
+    },
+    {
+      "id": "tertiary-live",
+      "at_ms": 350,
+      "type": "chat.event",
+      "close_after": true,
+      "event": {
+        "kind": "ASSIST",
+        "daemon_seq": 3,
+        "timestamp": "2026-01-01T12:00:03.000Z",
+        "text": "tertiary live unified probe",
+        "host": "hostb",
+        "provider": "claude",
+        "session_name": "unified-three",
+        "stream_id": "hostb:unified-three"
+      }
+    },
+    {
+      "id": "secondary-after-reconnect",
+      "at_ms": 900,
+      "type": "chat.event",
+      "after_reconnect": true,
+      "event": {
+        "kind": "ASSIST",
+        "daemon_seq": 4,
+        "timestamp": "2026-01-01T12:00:04.000Z",
+        "text": "secondary after reconnect unified probe",
+        "host": "hostc",
+        "provider": "codex",
+        "session_name": "unified-two",
+        "stream_id": "hostc:unified-two"
+      }
+    },
+    {
+      "id": "tertiary-after-reconnect",
+      "at_ms": 950,
+      "type": "chat.event",
+      "after_reconnect": true,
+      "event": {
+        "kind": "ASSIST",
+        "daemon_seq": 5,
+        "timestamp": "2026-01-01T12:00:05.000Z",
+        "text": "tertiary after reconnect unified probe",
+        "host": "hostb",
+        "provider": "claude",
+        "session_name": "unified-three",
+        "stream_id": "hostb:unified-three"
+      }
+    }
+  ],
+  "upload": {},
+  "send_echo": {}
+}
+

@@ -1,0 +1,4 @@
+{"type":"chat.event","event":{"daemon_seq":3,"stream_id":"hostb:codex:trace","host":"hostb","provider":"codex","session_id":"session","session_name":"trace","timestamp":"2026-06-30T12:00:03.000Z","kind":"ASSIST","text":"third"}}
+{"type":"chat.event","event":{"daemon_seq":2,"stream_id":"hostb:codex:trace","host":"hostb","provider":"codex","session_id":"session","session_name":"trace","timestamp":"2026-06-30T12:00:02.000Z","kind":"USER","text":"second"}}
+{"type":"chat.event","event":{"daemon_seq":42,"stream_id":"hostb:codex:trace","host":"hostb","provider":"codex","session_id":"session","session_name":"trace","timestamp":"2026-06-30T12:00:04.000Z","kind":"ASSIST","text":"seq 42"}}
+{"type":"chat.event","event":{"daemon_seq":41,"stream_id":"hostb:codex:trace","host":"hostb","provider":"codex","session_id":"session","session_name":"trace","timestamp":"2026-06-30T12:00:04.000Z","kind":"USER","text":"seq 41"}}

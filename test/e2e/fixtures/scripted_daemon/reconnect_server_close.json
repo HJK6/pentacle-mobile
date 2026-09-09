@@ -1,0 +1,56 @@
+{
+    "schema_version": 1,
+    "name": "reconnect_server_close",
+    "stream": {
+        "stream_id": "mock-host:mock-session",
+        "host": "mock-host",
+        "provider": "codex",
+        "session_name": "mock-session",
+        "title": "Mock server-initiated close reconnect"
+    },
+    "snapshot": {
+        "sessions": [
+            {
+                "stream_id": "mock-host:mock-session",
+                "host": "mock-host",
+                "provider": "codex",
+                "session_name": "mock-session",
+                "title": "Mock server-initiated close reconnect",
+                "last_event_at": "2026-07-09T16:00:20Z",
+                "last_kind": "ASSIST",
+                "last_text": "before server close",
+                "working": false
+            }
+        ],
+        "events": []
+    },
+    "frames": [
+        {
+            "id": "before-close",
+            "at_ms": 0,
+            "type": "chat.event",
+            "wait_for_client": true,
+            "close_after": true,
+            "event": {
+                "daemon_seq": 20,
+                "timestamp": "2026-07-09T16:00:20Z",
+                "kind": "ASSIST",
+                "text": "server about to close this client (slow_consumer-style)"
+            }
+        },
+        {
+            "id": "after-reconnect",
+            "at_ms": 50,
+            "type": "chat.event",
+            "after_reconnect": true,
+            "event": {
+                "daemon_seq": 21,
+                "timestamp": "2026-07-09T16:00:21Z",
+                "kind": "ASSIST",
+                "text": "delivered after the client reconnected"
+            }
+        }
+    ],
+    "upload": {},
+    "send_echo": {}
+}

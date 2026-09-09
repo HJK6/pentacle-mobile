@@ -1,0 +1,2 @@
+{"parentUuid":"u1","isSidechain":false,"message":{"role":"user","content":"line one\nline two"},"type":"user","uuid":"u1-id","timestamp":"2026-05-13T12:00:00.000Z"}
+{"parentUuid":"u1-id","isSidechain":false,"message":{"model":"claude-opus-4-7","id":"msg_ack","type":"message","role":"assistant","content":[{"type":"text","text":"got it"}],"stop_reason":"end_turn"},"requestId":"req_ack","type":"assistant","uuid":"a1-id","timestamp":"2026-05-13T12:00:01.000Z"}

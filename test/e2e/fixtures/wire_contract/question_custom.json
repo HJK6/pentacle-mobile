@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "case": "question_custom",
+  "question": {
+    "question_id": "wire-custom",
+    "title": "Choose rollout",
+    "body": "Select a path or provide a custom answer.",
+    "response_mode": "single_choice",
+    "allow_custom": true,
+    "options": [
+      {"label": "Proceed", "value": "proceed"},
+      {"label": "Wait", "value": "wait"}
+    ]
+  },
+  "answer": {"custom_text": "42contractcustom"}
+}

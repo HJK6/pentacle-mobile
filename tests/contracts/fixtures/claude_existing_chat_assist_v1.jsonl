@@ -1,0 +1,2 @@
+{"parentUuid":"a","isSidechain":false,"message":{"model":"claude-opus-4-7","id":"msg_existing","type":"message","role":"assistant","content":[{"type":"text","text":"I am Claude, continuing this thread."}],"stop_reason":"end_turn"},"requestId":"req_existing","type":"assistant","uuid":"b","timestamp":"2026-04-23T22:00:00.500Z"}
+{"type":"system","subtype":"turn_duration","durationMs":520,"timestamp":"2026-04-23T22:00:01.020Z"}

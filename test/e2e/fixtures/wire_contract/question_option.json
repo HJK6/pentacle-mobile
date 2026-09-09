@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "case": "question_option",
+  "question": {
+    "question_id": "wire-option",
+    "title": "Choose rollout",
+    "body": "Select one rollout path.",
+    "response_mode": "single_choice",
+    "options": [
+      {"label": "Proceed", "value": "proceed", "description": "Ship now"},
+      {"label": "Wait", "value": "wait", "description": "Hold the branch"}
+    ]
+  },
+  "answer": {"option_index": 0, "expected_selection": "proceed"}
+}

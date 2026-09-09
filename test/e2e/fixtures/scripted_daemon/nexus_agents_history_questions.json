@@ -1,0 +1,103 @@
+{
+  "schema_version": 1,
+  "name": "assistant_history_questions",
+  "stream": {
+    "stream_id": "mock-host:mock-session",
+    "host": "mock-host",
+    "provider": "codex",
+    "session_name": "mock-session",
+    "title": "Assistant history fixture"
+  },
+  "snapshot": {
+    "sessions": [
+      {
+        "stream_id": "mock-host:mock-session",
+        "host": "mock-host",
+        "provider": "codex",
+        "session_name": "mock-session",
+        "title": "Assistant history fixture",
+        "role": "assistant",
+        "session_generation": "parent-generation",
+        "last_event_at": "2026-01-01T12:00:00.000Z",
+        "last_text": "History fixture ready.",
+        "last_kind": "ASSIST",
+        "online": true,
+        "agents": [
+          {
+            "stream_id": "mock-host:child-worker",
+            "session_generation": "child-generation",
+            "display_name": "History worker",
+            "role": "worker",
+            "objective": "Render synthetic thread history.",
+            "state": "blocked",
+            "model": "gpt-5.6-luna",
+            "since": "2026-01-01T11:59:00.000Z"
+          }
+        ]
+      }
+    ],
+    "events": [],
+    "thread_history": {
+      "mock-host:mock-session|mock-host:child-worker": {
+        "parent_generation": "parent-generation",
+        "child_generation": "child-generation",
+        "pages": [
+          {
+            "cursor": null,
+            "next_cursor": "older",
+            "rows": [
+              {
+                "row_id": "tell:current",
+                "ref_id": "current",
+                "ts": "2026-01-01T12:01:00.000Z",
+                "direction": "parent_to_child",
+                "kind": "tell",
+                "text": "Render the visible roster and history.",
+                "truncated": false
+              }
+            ]
+          },
+          {
+            "cursor": "older",
+            "next_cursor": null,
+            "rows": [
+              {
+                "row_id": "brief:older",
+                "ref_id": "older",
+                "ts": "2026-01-01T12:00:00.000Z",
+                "direction": "parent_to_child",
+                "kind": "brief",
+                "text": "Older direct-child brief.",
+                "truncated": false
+              }
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "frames": [],
+  "notifications": [
+    {
+      "id": "durable-question",
+      "at_ms": 1,
+      "wait_for_client": true,
+      "notification": {
+        "producer": "agent_question.v1",
+        "state": "open",
+        "severity": "info",
+        "title": "History question",
+        "body": "Provide the exact free-text assertion.",
+        "actions": [{ "kind": "ack", "action_id": "ack-history" }],
+        "question": {
+          "question_id": "history-question",
+          "producer_stream_id": "mock-host:mock-session",
+          "response_mode": "free_text",
+          "options": [],
+          "ttl_seconds": 3600
+        }
+      }
+    }
+  ]
+}
+

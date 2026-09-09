@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.min.css">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { height: 100%; background: #0c1310; overflow: hidden; -webkit-touch-callout: none; }
+    #terminal { height: 100%; width: 100%; }
+    #status {
+      position: fixed; top: 0; left: 0; right: 0;
+      padding: 6px 12px; font-family: -apple-system, sans-serif;
+      font-size: 12px; text-align: center; z-index: 100;
+      transition: opacity 0.3s;
+    }
+    #status.connected { background: #1e4d2b; color: #56d364; opacity: 0; pointer-events: none; }
+    #status.connecting { background: #3b2f00; color: #d4a72c; opacity: 1; }
+    #status.error { background: #4b1113; color: #f47067; opacity: 1; }
+    .xterm { height: 100% !important; }
+  </style>
+</head>
+<body>
+  <div id="status" class="connecting">Connecting...</div>
+  <div id="terminal"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.min.js"></script>
+  <script>
+    // Pentacle dark green theme
+    const THEME = {
+      background: '#0c1310',
+      foreground: '#b5ccba',
+      cursor: '#3fb950',
+      cursorAccent: '#0c1310',
+      selectionBackground: '#1e4d2b',
+      black: '#0c1310',
+      red: '#f47067',
+      green: '#3fb950',
+      yellow: '#d4a72c',
+      blue: '#58a6ff',
+      magenta: '#a78bfa',
+      cyan: '#2dd4bf',
+      white: '#b5ccba',
+      brightBlack: '#4d6e56',
+      brightRed: '#f47067',
+      brightGreen: '#56d364',
+      brightYellow: '#e0af68',
+      brightBlue: '#79c0ff',
+      brightMagenta: '#b8a0fa',
+      brightCyan: '#56d4c4',
+      brightWhite: '#d6e8da',
+    };
+
+    let ws = null;
+    let term = null;
+    let fitAddon = null;
+    let reconnectDelay = 1000;
+    let reconnectTimer = null;
+    let attached = false;
+
+    const statusEl = document.getElementById('status');
+
+    function postToRN(msg) {
+      if (window.ReactNativeWebView) {
+        window.ReactNativeWebView.postMessage(JSON.stringify(msg));
+      }
+    }
+
+    function setStatus(cls, text) {
+      statusEl.className = cls;
+      statusEl.textContent = text;
+      postToRN({ type: 'status', value: cls, text: text });
+      // Auto-hide "connected" status after 2s
+      if (cls === 'connected') {
+        setTimeout(() => { statusEl.style.opacity = '0'; }, 2000);
+      } else {
+        statusEl.style.opacity = '1';
+      }
+    }
+
+    function connect() {
+      if (!window.BRIDGE_CONFIG) return;
+      const { url, token, session, cols, rows } = window.BRIDGE_CONFIG;
+
+      setStatus('connecting', 'Connecting...');
+      attached = false;
+
+      try {
+        ws = new WebSocket(url);
+      } catch (e) {
+        setStatus('error', 'Connection failed');
+        scheduleReconnect();
+        return;
+      }
+
+      ws.binaryType = 'arraybuffer';
+
+      ws.onopen = () => {
+        reconnectDelay = 1000;
+        // Authenticate
+        ws.send(JSON.stringify({ type: 'auth', token: token }));
+      };
+
+      ws.onmessage = (event) => {
+        if (event.data instanceof ArrayBuffer) {
+          // Binary PTY data
+          const text = new TextDecoder().decode(event.data);
+          if (term) term.write(text);
+          return;
+        }
+
+        let msg;
+        try { msg = JSON.parse(event.data); } catch { return; }
+
+        switch (msg.type) {
+          case 'authenticated':
+            setStatus('connecting', 'Attaching...');
+            // Calculate terminal size
+            const c = fitAddon ? term.cols : (cols || 80);
+            const r = fitAddon ? term.rows : (rows || 24);
+            ws.send(JSON.stringify({ type: 'attach', session: session, cols: c, rows: r }));
+            break;
+
+          case 'attached':
+            attached = true;
+            setStatus('connected', 'Connected');
+            // Resize to fit after attach
+            if (fitAddon) {
+              fitAddon.fit();
+              ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
+            }
+            break;
+
+          case 'exit':
+            setStatus('error', 'Session ended (exit ' + msg.code + ')');
+            attached = false;
+            break;
+
+          case 'detached':
+            attached = false;
+            break;
+
+          case 'error':
+            setStatus('error', msg.message || 'Error');
+            if (msg.message === 'invalid token') {
+              postToRN({ type: 'invalid_token' });
+              // Don't reconnect on auth failure
+              return;
+            }
+            break;
+        }
+      };
+
+      ws.onclose = () => {
+        if (attached) {
+          setStatus('connecting', 'Reconnecting...');
+          scheduleReconnect();
+        }
+      };
+
+      ws.onerror = () => {
+        setStatus('error', 'Connection error');
+      };
+    }
+
+    function scheduleReconnect() {
+      clearTimeout(reconnectTimer);
+      reconnectTimer = setTimeout(() => {
+        reconnectDelay = Math.min(reconnectDelay * 2, 30000);
+        connect();
+      }, reconnectDelay);
+    }
+
+    function disconnect() {
+      clearTimeout(reconnectTimer);
+      attached = false;
+      if (ws) {
+        try {
+          ws.send(JSON.stringify({ type: 'detach' }));
+          ws.close();
+        } catch {}
+        ws = null;
+      }
+    }
+
+    window.initTerminal = function() {
+      if (term) return; // Already initialized
+
+      term = new Terminal({
+        theme: THEME,
+        fontFamily: "'SF Mono', 'Menlo', 'Monaco', monospace",
+        fontSize: 12,
+        cursorBlink: true,
+        allowProposedApi: true,
+        scrollback: 1000,
+      });
+
+      fitAddon = new FitAddon.FitAddon();
+      term.loadAddon(fitAddon);
+      term.open(document.getElementById('terminal'));
+      fitAddon.fit();
+
+      // Forward user input to bridge
+      term.onData((data) => {
+        if (ws && ws.readyState === WebSocket.OPEN && attached) {
+          ws.send(JSON.stringify({ type: 'input', data: data }));
+        }
+      });
+
+      // Handle resize
+      const ro = new ResizeObserver(() => {
+        if (fitAddon) {
+          fitAddon.fit();
+          if (ws && ws.readyState === WebSocket.OPEN && attached) {
+            ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
+          }
+        }
+      });
+      ro.observe(document.getElementById('terminal'));
+
+      connect();
+    };
+
+    // Allow RN to trigger disconnect/reconnect
+    window.bridgeDisconnect = disconnect;
+    window.bridgeReconnect = function() {
+      disconnect();
+      reconnectDelay = 1000;
+      connect();
+    };
+
+    // Listen for messages from React Native
+    window.addEventListener('message', (event) => {
+      let msg;
+      try { msg = JSON.parse(event.data); } catch { return; }
+      if (msg.type === 'disconnect') disconnect();
+      if (msg.type === 'reconnect') window.bridgeReconnect();
+      if (msg.type === 'updateConfig') {
+        window.BRIDGE_CONFIG = msg.config;
+        window.bridgeReconnect();
+      }
+    });
+  </script>
+</body>
+</html>

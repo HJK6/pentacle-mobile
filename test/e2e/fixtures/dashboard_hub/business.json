@@ -1,0 +1,26 @@
+{
+  "dashboard_id": "hosta.business",
+  "schema_version": 1,
+  "updated_at": "2026-07-17T08:00:00Z",
+  "server_received_at": "2026-07-17T08:00:01Z",
+  "freshness_ttl_sec": 60,
+  "data": {
+    "default_batch": "brussels",
+    "all_batches": ["brussels"],
+    "snapshots": {
+      "brussels": {
+        "pipeline_stages": [{ "stage": "scrape", "state": "complete" }, { "stage": "enrich", "state": "complete" }, { "stage": "qualify", "state": "running" }, { "stage": "promote", "state": "waiting" }],
+        "scraped": 410,
+        "deduped": 382,
+        "qualified": 144,
+        "promoted": 38,
+        "by_area": { "Brussels": { "scraped": 240, "qualified": 90, "promoted": 25 } },
+        "by_source": { "google": { "scraped": 210, "qualified": 70, "promoted": 18 } },
+        "scraper_queue": { "jobs": [{ "run_id": "run-17", "platform": "google", "area": "Brussels", "status": "running", "pages": 4, "records_ingested": 120, "errors": 0 }], "running": 1 }
+      }
+    },
+    "crm_source_counts": { "staging": { "google": 20 }, "prod": { "google": 18 } },
+    "coverage_reports": [{ "source": "google", "area": "Brussels", "advertised_total": 250, "unique_ingested": 240, "coverage_pct": 96, "status": "ok" }],
+    "recent_errors": []
+  }
+}

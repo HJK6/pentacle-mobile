@@ -1,0 +1,177 @@
+type Payload = {
+  message: string;
+  data: Record<string, unknown>;
+};
+
+type ActionRequest = {
+  action_id: string;
+  action: string;
+  burst: number;
+};
+
+type RunnerDeps = {
+  waitForReady: () => Promise<boolean>;
+  waitForSequence: (sequence: number, timeoutMs: number) => Promise<boolean>;
+  seed: () => Promise<void>;
+  applyState: (burst: number) => Promise<void>;
+  returnToList: () => Promise<void>;
+  dispatch: (request: ActionRequest) => Promise<{ status: string }>;
+  emit: (payload: Payload) => void;
+};
+
+const ACTIONS = ["scroll", "open_return", "scroll", "pull_refresh", "scroll"] as const;
+const INITIAL_SEQUENCE = 100;
+const SEQUENCE_STEP = 10;
+
+async function runChatListSequence(
+  deps: RunnerDeps,
+  timeoutMs = 500,
+): Promise<void> {
+  if (!(await deps.waitForReady())) {
+    throw new Error("chat list did not become ready");
+  }
+  if (!(await deps.waitForSequence(INITIAL_SEQUENCE, timeoutMs))) {
+    throw new Error("initial sequence barrier was not reached");
+  }
+  await deps.seed();
+
+  for (const [index, action] of ACTIONS.entries()) {
+    const burst = index + 1;
+    const expectedSequence = INITIAL_SEQUENCE + burst * SEQUENCE_STEP;
+    deps.emit({
+      message: "harness:chat_list_action_started",
+      data: { action, burst },
+    });
+    if (!(await deps.waitForSequence(expectedSequence, timeoutMs))) {
+      throw new Error(`sequence barrier ${expectedSequence} was not reached`);
+    }
+    await deps.applyState(burst);
+    await deps.dispatch({ action_id: `action-${burst}`, action, burst });
+    deps.emit({
+      message: "harness:chat_list_action_settled",
+      data: { action, burst, expectedSequence },
+    });
+  }
+  await deps.returnToList();
+}
+
+function mountChatListScreen(navigation: { replace?: (route: string) => void }): boolean {
+  if (typeof navigation.replace !== "function") return false;
+  navigation.replace("/chats");
+  return true;
+}
+
+function navigationMarkers(): string[] {
+  return [
+    "harness:chat_list_navigation_attempt",
+    "harness:chat_list_navigation_result",
+  ];
+}
+
+test("the chat-list runner gates five ordered actions on ready and commit events", async () => {
+  const seen: Payload[] = [];
+  const requests: ActionRequest[] = [];
+  const barriers: number[] = [];
+  const timeline: string[] = [];
+  let currentSequence = 0;
+
+  await runChatListSequence({
+    waitForReady: async () => true,
+    waitForSequence: async (sequence) => {
+      barriers.push(sequence);
+      currentSequence = sequence;
+      timeline.push(`barrier:${sequence}`);
+      return true;
+    },
+    seed: async () => {
+      timeline.push("seed");
+    },
+    applyState: async (burst) => {
+      timeline.push(`apply:${burst}`);
+    },
+    returnToList: async () => {
+      timeline.push("return");
+    },
+    dispatch: async (request) => {
+      requests.push(request);
+      return { status: "ok" };
+    },
+    emit: (payload) => seen.push(payload),
+  });
+
+  expect(requests.map(({ action, burst }) => [action, burst])).toEqual([
+    ["scroll", 1],
+    ["open_return", 2],
+    ["scroll", 3],
+    ["pull_refresh", 4],
+    ["scroll", 5],
+  ]);
+  expect(seen.filter((payload) => payload.message === "harness:chat_list_action_started")).toHaveLength(5);
+  expect(barriers).toEqual([100, 110, 120, 130, 140, 150]);
+  expect(currentSequence).toBe(150);
+  expect(timeline).toEqual([
+    "barrier:100",
+    "seed",
+    "barrier:110", "apply:1",
+    "barrier:120", "apply:2",
+    "barrier:130", "apply:3",
+    "barrier:140", "apply:4",
+    "barrier:150", "apply:5",
+    "return",
+  ]);
+});
+
+test("the runner accepts a readiness witness installed before dispatch", async () => {
+  let ready = false;
+  const barriers: number[] = [];
+  const promise = runChatListSequence({
+    waitForReady: async () => {
+      ready = true;
+      return ready;
+    },
+    waitForSequence: async (sequence) => {
+      barriers.push(sequence);
+      return true;
+    },
+    seed: async () => {},
+    applyState: async () => {},
+    returnToList: async () => {},
+    dispatch: async () => ({ status: "ok" }),
+    emit: () => {},
+  });
+  await promise;
+  expect(barriers[0]).toBe(INITIAL_SEQUENCE);
+  expect(ready).toBe(true);
+});
+
+test("a larger setup sequence does not change action timeout semantics", async () => {
+  const timeouts: number[] = [];
+  await runChatListSequence({
+    waitForReady: async () => true,
+    waitForSequence: async (sequence, timeoutMs) => {
+      timeouts.push(timeoutMs);
+      return sequence === INITIAL_SEQUENCE || sequence > INITIAL_SEQUENCE;
+    },
+    seed: async () => {},
+    applyState: async () => {},
+    returnToList: async () => {},
+    dispatch: async () => ({ status: "ok" }),
+    emit: () => {},
+  }, 200);
+  expect(timeouts).toEqual([200, 200, 200, 200, 200, 200]);
+});
+
+test("chat-list navigation mounts the route and is fail-closed", () => {
+  const routes: string[] = [];
+  expect(mountChatListScreen({ replace: (route) => routes.push(route) })).toBe(true);
+  expect(routes).toEqual(["/chats"]);
+  expect(mountChatListScreen({})).toBe(false);
+});
+
+test("navigation markers are small registry values with no request material", () => {
+  expect(navigationMarkers()).toEqual([
+    "harness:chat_list_navigation_attempt",
+    "harness:chat_list_navigation_result",
+  ]);
+  expect(navigationMarkers().join(" ")).not.toMatch(/credential|endpoint|address/i);
+});

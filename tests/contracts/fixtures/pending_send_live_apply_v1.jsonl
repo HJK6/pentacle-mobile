@@ -1,0 +1,1 @@
+{"type":"chat.event","event":{"daemon_seq":33,"stream_id":"hostb:codex:trace","host":"hostb","provider":"codex","session_id":"session","session_name":"trace","timestamp":"2026-06-30T12:00:33.000Z","kind":"ASSIST","text":"committed assistant update"}}

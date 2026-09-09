@@ -1,0 +1,534 @@
+{
+  "cases": [
+    {
+      "name": "normal-user-message",
+      "expected": "Durable user text should render as a right-aligned user bubble.",
+      "event": {
+        "daemon_seq": 1,
+        "host": "alpha",
+        "provider": "codex",
+        "session_id": "alpha:chat-ui-qa",
+        "session_name": "chat-ui-qa",
+        "stream_id": "alpha:chat-ui-qa",
+        "timestamp": "2026-04-24T10:00:00.000Z",
+        "kind": "USER",
+        "text": "Clean up the mobile chat transcript UI."
+      }
+    },
+    {
+      "name": "codex-helper-suggestion",
+      "expected": "Short Codex starter prompts should be hidden so they do not look like user intent.",
+      "event": {
+        "daemon_seq": 2,
+        "host": "alpha",
+        "provider": "codex",
+        "session_id": "alpha:chat-ui-qa",
+        "session_name": "chat-ui-qa",
+        "stream_id": "alpha:chat-ui-qa",
+        "timestamp": "2026-04-24T10:00:01.000Z",
+        "kind": "USER",
+        "text": "summarize recent commits"
+      }
+    },
+    {
+      "name": "assistant-progress-note",
+      "expected": "Short in-progress assistant notes should become compact activity rows, not heavy bubbles.",
+      "event": {
+        "daemon_seq": 3,
+        "host": "alpha",
+        "provider": "codex",
+        "session_id": "alpha:chat-ui-qa",
+        "session_name": "chat-ui-qa",
+        "stream_id": "alpha:chat-ui-qa",
+        "timestamp": "2026-04-24T10:00:02.000Z",
+        "kind": "ASSIST",
+        "text": "I’m checking the renderer path against the websocket state now."
+      }
+    },
+    {
+      "name": "assistant-final-answer",
+      "expected": "Normal assistant output should stay as readable transcript text.",
+      "event": {
+        "daemon_seq": 4,
+        "host": "alpha",
+        "provider": "codex",
+        "session_id": "alpha:chat-ui-qa",
+        "session_name": "chat-ui-qa",
+        "stream_id": "alpha:chat-ui-qa",
+        "timestamp": "2026-04-24T10:00:03.000Z",
+        "kind": "ASSIST",
+        "text": "The desktop and mobile clients use the same websocket source, but mobile has its own reducer and display model."
+      }
+    },
+    {
+      "name": "explored-block",
+      "expected": "Explore/read/search output should become a compact explored activity row.",
+      "event": {
+        "daemon_seq": 5,
+        "host": "alpha",
+        "provider": "codex",
+        "session_id": "alpha:chat-ui-qa",
+        "session_name": "chat-ui-qa",
+        "stream_id": "alpha:chat-ui-qa",
+        "timestamp": "2026-04-24T10:00:04.000Z",
+        "kind": "ASSIST",
+        "text": "Explored\n└ Read app.js\n  Search renderSlotChat in app.js"
+      }
+    },
+    {
+      "name": "tool-read-action",
+      "expected": "Raw tool read/search actions should map to the same explored activity treatment.",
+      "event": {
+        "daemon_seq": 6,
+        "host": "alpha",
+        "provider": "codex",
+        "session_id": "alpha:chat-ui-qa",
+        "session_name": "chat-ui-qa",
+        "stream_id": "alpha:chat-ui-qa",
+        "timestamp": "2026-04-24T10:00:05.000Z",
+        "kind": "TOOL",
+        "text": "Read src/services/pentacleChatModel.ts"
+      }
+    },
+    {
+      "name": "edited-file-action",
+      "expected": "Edit/write actions should become compact file-change activity.",
+      "event": {
+        "daemon_seq": 7,
+        "host": "alpha",
+        "provider": "codex",
+        "session_id": "alpha:chat-ui-qa",
+        "session_name": "chat-ui-qa",
+        "stream_id": "alpha:chat-ui-qa",
+        "timestamp": "2026-04-24T10:00:06.000Z",
+        "kind": "ASSIST",
+        "text": "Edited src/services/pentacleChatModel.ts (+42 -18)"
+      }
+    },
+    {
+      "name": "command-action",
+      "expected": "Command execution should render as compact command activity.",
+      "event": {
+        "daemon_seq": 8,
+        "host": "alpha",
+        "provider": "codex",
+        "session_id": "alpha:chat-ui-qa",
+        "session_name": "chat-ui-qa",
+        "stream_id": "alpha:chat-ui-qa",
+        "timestamp": "2026-04-24T10:00:07.000Z",
+        "kind": "ASSIST",
+        "text": "Ran npm run test:unit\n└ all tests passed"
+      }
+    },
+    {
+      "name": "working-status-line",
+      "expected": "Raw Working status should be hidden from transcript and drive only status/dock behavior.",
+      "event": {
+        "daemon_seq": 9,
+        "host": "alpha",
+        "provider": "codex",
+        "session_id": "alpha:chat-ui-qa",
+        "session_name": "chat-ui-qa",
+        "stream_id": "alpha:chat-ui-qa",
+        "timestamp": "2026-04-24T10:00:08.000Z",
+        "kind": "ASSIST",
+        "text": "• Working (2m 08s • esc to interrupt) · 3 background terminals running"
+      }
+    },
+    {
+      "name": "background-terminal-noise",
+      "expected": "Background-terminal wait noise should be hidden.",
+      "event": {
+        "daemon_seq": 10,
+        "host": "alpha",
+        "provider": "codex",
+        "session_id": "alpha:chat-ui-qa",
+        "session_name": "chat-ui-qa",
+        "stream_id": "alpha:chat-ui-qa",
+        "timestamp": "2026-04-24T10:00:09.000Z",
+        "kind": "ASSIST",
+        "text": "Waited for background terminal · npm run test:unit"
+      }
+    },
+    {
+      "name": "queued-draft",
+      "expected": "Draft events should stay out of committed transcript rows and feed composer/draft state.",
+      "event": {
+        "daemon_seq": 11,
+        "host": "alpha",
+        "provider": "codex",
+        "session_id": "alpha:chat-ui-qa",
+        "session_name": "chat-ui-qa",
+        "stream_id": "alpha:chat-ui-qa",
+        "timestamp": "2026-04-24T10:00:10.000Z",
+        "kind": "DRAFT",
+        "text": "fix the transcript grouping",
+        "raw": {
+          "pending": true,
+          "draft": true
+        }
+      }
+    },
+    {
+      "name": "terminal-worked-divider",
+      "expected": "Terminal worked-for separators should span the transcript like a terminal divider.",
+      "event": {
+        "daemon_seq": 12,
+        "host": "alpha",
+        "provider": "codex",
+        "session_id": "alpha:chat-ui-qa",
+        "session_name": "chat-ui-qa",
+        "stream_id": "alpha:chat-ui-qa",
+        "timestamp": "2026-04-24T10:00:11.000Z",
+        "kind": "ASSIST",
+        "text": "─ Worked for 1m 11s ───────────────────────────────"
+      }
+    },
+    {
+      "name": "context-compacted",
+      "expected": "Context compaction should be styled as a distinct system milestone.",
+      "event": {
+        "daemon_seq": 13,
+        "host": "alpha",
+        "provider": "codex",
+        "session_id": "alpha:chat-ui-qa",
+        "session_name": "chat-ui-qa",
+        "stream_id": "alpha:chat-ui-qa",
+        "timestamp": "2026-04-24T10:00:12.000Z",
+        "kind": "SYSTEM",
+        "text": "Context Compacted"
+      }
+    },
+    {
+      "name": "claude-jsonl-user-message",
+      "expected": "Submitted Claude JSONL user record should pass through as USER.",
+      "event": {
+        "daemon_seq": 1001,
+        "host": "beta",
+        "provider": "claude",
+        "session_id": "216d5a11-f323-4b7e-acb0-7fb5c7301a66",
+        "session_name": "claude-jsonl-fixture",
+        "stream_id": "beta:claude-jsonl-fixture",
+        "timestamp": "2026-04-30T05:20:50.484Z",
+        "kind": "USER",
+        "text": "for the pentacle mobile ui, codex works great but claude formatting is off. the clauude formatting sucks. we need to fix it. ex the code blocks are not formatted. and the messages im typing in here are showing up as sent messages already. do an audit of the maping from the websocket state to the view state. we need to capture diffeernt states and make sure they have proper test coverage so we can clean this up in a sustainable way",
+        "raw": {
+          "source": "claude-jsonl",
+          "host": "beta",
+          "provider": "claude",
+          "session_name": "claude-jsonl-fixture",
+          "uuid": "89231842-71a5-4bc8-b08a-9767907598cf",
+          "parent_uuid": null,
+          "is_sidechain": false
+        }
+      }
+    },
+    {
+      "name": "claude-jsonl-assistant-text",
+      "expected": "Claude JSONL assistant text should render as assistant text.",
+      "event": {
+        "daemon_seq": 1002,
+        "host": "beta",
+        "provider": "claude",
+        "session_id": "216d5a11-f323-4b7e-acb0-7fb5c7301a66",
+        "session_name": "claude-jsonl-fixture",
+        "stream_id": "beta:claude-jsonl-fixture",
+        "timestamp": "2026-04-30T05:21:04.917Z",
+        "kind": "ASSIST_TEXT",
+        "text": "Got it — loading state added to the audit list. Let me continue mapping the code.",
+        "raw": {
+          "source": "claude-jsonl",
+          "host": "beta",
+          "provider": "claude",
+          "session_name": "claude-jsonl-fixture",
+          "uuid": "46060c93-463a-4939-90ca-526c714b6dd1",
+          "parent_uuid": "d64f6aaf-cc89-4c83-9b23-a645c14d5bc9",
+          "is_sidechain": false,
+          "stop_reason": "tool_use"
+        }
+      }
+    },
+    {
+      "name": "claude-jsonl-thinking",
+      "expected": "Claude JSONL thinking should become a thinking activity row.",
+      "event": {
+        "daemon_seq": 1003,
+        "host": "beta",
+        "provider": "claude",
+        "session_id": "216d5a11-f323-4b7e-acb0-7fb5c7301a66",
+        "session_name": "claude-jsonl-fixture",
+        "stream_id": "beta:claude-jsonl-fixture",
+        "timestamp": "2026-04-30T05:20:54.107Z",
+        "kind": "THINKING",
+        "text": "Thinking",
+        "raw": {
+          "source": "claude-jsonl",
+          "host": "beta",
+          "provider": "claude",
+          "session_name": "claude-jsonl-fixture",
+          "uuid": "7f0edfd9-90c5-4e1d-b2f2-66d5c9b8a429",
+          "parent_uuid": "978759f2-ffb0-4020-98d4-3be6885c5e45",
+          "is_sidechain": false,
+          "stop_reason": "tool_use",
+          "thinking": ""
+        }
+      }
+    },
+    {
+      "name": "claude-jsonl-tool-use-bash",
+      "expected": "Claude JSONL Bash tool_use should render as a tool row.",
+      "event": {
+        "daemon_seq": 1004,
+        "host": "beta",
+        "provider": "claude",
+        "session_id": "216d5a11-f323-4b7e-acb0-7fb5c7301a66",
+        "session_name": "claude-jsonl-fixture",
+        "stream_id": "beta:claude-jsonl-fixture",
+        "timestamp": "2026-04-30T05:20:58.159Z",
+        "kind": "TOOL_USE",
+        "text": "Bash(ls /Users/example/repos/pentacle-mobile/ 2>&1 | head -50)",
+        "raw": {
+          "source": "claude-jsonl",
+          "host": "beta",
+          "provider": "claude",
+          "session_name": "claude-jsonl-fixture",
+          "uuid": "2cc21cc8-db5a-493d-addb-5a13f3232756",
+          "parent_uuid": "9cd9dc78-cdc6-4942-9ea9-4878ab78ae65",
+          "is_sidechain": false,
+          "stop_reason": "tool_use",
+          "tool_use_id": "toolu_01MzMkTcsA1VopWx1kdNNfEA",
+          "tool_name": "Bash",
+          "tool_input": {
+            "command": "ls /Users/example/repos/pentacle-mobile/ 2>&1 | head -50",
+            "description": "List pentacle-mobile repo"
+          }
+        }
+      }
+    },
+    {
+      "name": "claude-jsonl-tool-result-read",
+      "expected": "Claude JSONL Read tool_result should render as monospace code.",
+      "event": {
+        "daemon_seq": 1005,
+        "host": "beta",
+        "provider": "claude",
+        "session_id": "216d5a11-f323-4b7e-acb0-7fb5c7301a66",
+        "session_name": "claude-jsonl-fixture",
+        "stream_id": "beta:claude-jsonl-fixture",
+        "timestamp": "2026-04-30T05:20:54.463Z",
+        "kind": "TOOL_RESULT",
+        "text": "1\t---\n2\tid: project_pentacle\n3\ttitle: Pentacle\n4\ttype: project\n5\tstatus: active\n6\tcanonical: true\n7\tcreated_at: 2026-04-24\n8\tupdated_at: 2026-04-25\n9\tsource_path: memory/projects/pentacle.md\n10\ttags:\n11\t  - pentacle\n12\t  - electron\n13\t  - tmux\n14\t  - desktop\n15\t  - chat\n16\tsummary: Electron terminal dashboard for Claude and Codex sessions, including the multi-machine chat mode and deploy workflow.\n17\trelated:\n18\t  - ability_codex_cli\n19\t  - project_gamma_botcomm\n20\t  - project_prediction_arb\n21\tpriority: medium\n22\taliases:\n23\t  - electron dashboard\n24\t  - tmux dashboard\n25\t  - multi machine chat\n26\t  - terminal redesign\n27\trepos:\n28\t  - name: pentacle\n29\t    path: /Users/example/repos/pentacle\n30\t    role: desktop-app\n31\t    description: Electron tmux dashboard for Claude and Codex sessions, dashboards, and multi-machine workflows.\n32\t  - name: pentacle-mobile\n33\t    path: /Users/example/repos/pentacle-mobile\n34\t    role: mobile-web-client\n35\t    description: Pentacle mobile/web client for terminal and agent session access.\n36\tnon_repo_paths:\n37\t  - path: /Users/example/agent-workspace/multi-machine-chat\n38\t    role: prototype\n39\t    description: Non-repo prototype for merged Claude/Codex multi-machine chat streams.\n40\tspecs:\n41\t  - path: /Users/example/agent-workspace/multi-machine-chat/README.md\n42\t    description: Multi-machine chat viewer run/test notes.\n43\t  - path: /Users/example/agent-workspace/multi-machine-chat/SPEC.md\n44\t    description: Recovered and corrected prototype spec for multi-machine chat streaming.\n45\t  - path: /Users/example/repos/pentacle/README.md\n46\t    description: Pentacle desktop app README and feature documentation.\n47\t  - path: /Users/example/repos/pentacle-mobile/docs/PENTACLE_MOBILE_BUILD.md\n48\t    description: Pentacle mobile validation, iOS device install, signing, and smoke-test procedure on Beta.\n49\t  - path: /Users/example/repos/pentacle-mobile/docs/PENTACLE_MOBILE_SPEC.md\n50\t    description: Pentacle mobile product, transport, security, and build/deploy specification.\n51\tlogs:\n52\t  - path: /Users/example/agent-workspace/multi-machine-chat/demo-*.log\n53\t    description: Prototype demo logs for merged multi-machine chat sessions.\n54\tmachine: publicdash\n55\towner: example\n56\tsupersedes: []\n57\tsuperseded_by: []\n58\t---\n59\t\n60\t## Overview\n61\t\n62\tPentacle is an Electron-based tmux session dashboard with embedded terminals. It also includes a websocket-backed structured chat mode for live Claude and Codex sessions across machines.\n63\t\n64\t## Architecture\n65\t\n66\t- Main process: `~/pentacle/main.js`\n67\t- Renderer: `~/pentacle/renderer/app.js`\n68\t- Preload bridge: `~/pentacle/preload.js`\n69\t- Packaging: `electron-builder` -> `app.asar` -> `/Applications/Pentacle.app`\n70\t\n71\t## Multi-Machine Chat\n72\t\n73\t- Streaming daemon: `~/agent-workspace/multi-machine-chat/chat_streamd.py`\n74\t- Transport: websocket snapshot plus incremental `chat.event` stream\n75\t- Current hosts: hosta, Beta, Gamma\n76\t- Current providers: Claude and Codex\n77\t\n78\tImportant constraints:\n79\t- tmux session remains the source of truth\n80\t- transcript normalization happens server-side\n81\t- draft state is emitted separately from committed transcript events\n82\t- Chat display titles should be human-readable tmux window names, not tmux session IDs. Session IDs stay stable/opaque for attach/trash/restore; Pentacle can generate friendly titles from pane context with Codex CLI and sync them across machines by `tmux rename-window`.\n83\t\n84\t## Terminal Redesign\n85\t\n86\tThe mobile terminal redesign belongs under Pentacle memory rather than as a standalone project because it shares the same tmux bridge and terminal-delivery architecture.\n87\t\n88\tCurrent state:\n89\t- the old mobile terminal path depended on a WebView plus xterm and was fragile on mobile networks\n90\t- the redesign replaces that path with native rendering plus HTTP polling of tmux pane output\n91\t- bridge-side work is already live\n92\t- client-side completion was blocked on the iOS build and signing path on Beta\n93\t\n94\t## Agent Spawn\n95\t\n96\tBoth Claude and Codex sessions spawn in `~/agent-workspace/`.\n97\t\n98\t- Claude: `~/.local/bin/claude --dangerously-skip-permissions`\n99\t- Codex: `codex`\n100\t\n101\t## Build And Deploy\n102\t\n103\t### Desktop\n104\t\n105\t- Dev: `npm start`\n106\t- Build: `npm run build`\n107\t- Deploy: `npm run deploy` or `./deploy.sh`\n108\t\n109\t### Mobile\n110\t\n111\t- Repo: `/Users/example/repos/pentacle-mobile`\n112\t- Validation: `npm run test:unit`, `npm run typecheck`, `npm run validate`\n113\t- Beta keychain unlock for signing: `/Users/example/agent-workspace/bin/unlock_beta_keychain`\n114\t- Non-interactive iPhone install: `npm run ios:device`\n115\t- Canonical build doc: `/Users/example/repos/pentacle-mobile/docs/PENTACLE_MOBILE_BUILD.md`\n116\t\n117\t## Update Completion\n118\t\n119\tFuture agents should treat a Pentacle source update as incomplete until the running Pentacle app has been restarted or redeployed.\n120\t\n121\t- Dev/source-run installs: restart the running Electron/Pentacle process after code changes so `main.js`, preload, and renderer code reload.\n122\t- Packaged installs: rebuild and relaunch because the packaged app contains bundled sources.\n123\t- On Gamma, Pentacle usually runs as Windows Electron from `C:\\Users\\example\\repos\\pentacle`; restart it with `wscript.exe C:\\Users\\example\\repos\\pentacle\\scripts\\restart-windows-hidden.vbs` so no `npm start` command window appears.\n124\t- Verify after restart by checking the Pentacle log for a fresh `--- Pentacle start ... ---` entry.\n125\t\n126\t## Desktop Sync\n127\t\n128\tPentacle desktop updates now use the same GitHub-to-SQS notification pattern as shared memory.\n129\t\n130\t- Pentacle workflow: `/Users/example/repos/pentacle/.github/workflows/desktop-sync.yml`\n131\t- Local updater: `/Users/example/repos/pentacle/scripts/sync-desktop-update.js`\n132\t- Receiver: `/Users/example/repos/agent-dashboard/orchestrator/pentacle_sync.py`\n133\t- Documentation: `/Users/example/repos/pentacle/docs/desktop_sync.md`\n134\t\n135\tFlow:\n136\t\n137\t1. Push to `HJK6/pentacle` `main`.\n138\t2. GitHub sends `pentacle_desktop_sync` messages to `PublicDashMemorySync-project`, `PublicDashMemorySync-gamma`, and `PublicDashMemorySync-beta`.\n139\t3. Each machine's local orchestrator consumes only its own queue.\n140\t4. Receiver runs the repo-local updater, which safely fast-forwards, installs dependencies if needed, runs syntax checks and `npm run test:chat-ui`, then restarts Pentacle.\n141\t5. Local status is written under `.pentacle-sync/state.json`; blocked work writes `.pentacle-sync/pending/*.json`.\n142\t\n143\tValidated on 2026-04-25:\n144\t\n145\t- Alpha bootstrapped from an older Pentacle checkout to `f5baacc`, verified, rebuilt/relaunched `/Applications/Pentacle.app`, and logged a fresh `--- Pentacle start ... ---` at `2026-04-25T19:27:56Z`.\n146\t- GitHub OIDC role `GitHubActionsAlphaMemorySync` now trusts both `HJK6/project-memory` and `HJK6/pentacle` on `main`.\n147\t- Gamma SSH remained unavailable during validation, so its final local repo/app state was not directly verified even though the sync queue drained.\n148\t",
+        "raw": {
+          "source": "claude-jsonl",
+          "host": "beta",
+          "provider": "claude",
+          "session_name": "claude-jsonl-fixture",
+          "uuid": "7bc4e5bf-2991-4008-a3f3-3acc4869ff61",
+          "parent_uuid": "e2a0cdc5-e57e-4d18-86e3-592e0c1b15ee",
+          "is_sidechain": false,
+          "tool_use_id": "toolu_01TTwYGKBEatUAERTNP1M8hj",
+          "tool_content": "1\t---\n2\tid: project_pentacle\n3\ttitle: Pentacle\n4\ttype: project\n5\tstatus: active\n6\tcanonical: true\n7\tcreated_at: 2026-04-24\n8\tupdated_at: 2026-04-25\n9\tsource_path: memory/projects/pentacle.md\n10\ttags:\n11\t  - pentacle\n12\t  - electron\n13\t  - tmux\n14\t  - desktop\n15\t  - chat\n16\tsummary: Electron terminal dashboard for Claude and Codex sessions, including the multi-machine chat mode and deploy workflow.\n17\trelated:\n18\t  - ability_codex_cli\n19\t  - project_gamma_botcomm\n20\t  - project_prediction_arb\n21\tpriority: medium\n22\taliases:\n23\t  - electron dashboard\n24\t  - tmux dashboard\n25\t  - multi machine chat\n26\t  - terminal redesign\n27\trepos:\n28\t  - name: pentacle\n29\t    path: /Users/example/repos/pentacle\n30\t    role: desktop-app\n31\t    description: Electron tmux dashboard for Claude and Codex sessions, dashboards, and multi-machine workflows.\n32\t  - name: pentacle-mobile\n33\t    path: /Users/example/repos/pentacle-mobile\n34\t    role: mobile-web-client\n35\t    description: Pentacle mobile/web client for terminal and agent session access.\n36\tnon_repo_paths:\n37\t  - path: /Users/example/agent-workspace/multi-machine-chat\n38\t    role: prototype\n39\t    description: Non-repo prototype for merged Claude/Codex multi-machine chat streams.\n40\tspecs:\n41\t  - path: /Users/example/agent-workspace/multi-machine-chat/README.md\n42\t    description: Multi-machine chat viewer run/test notes.\n43\t  - path: /Users/example/agent-workspace/multi-machine-chat/SPEC.md\n44\t    description: Recovered and corrected prototype spec for multi-machine chat streaming.\n45\t  - path: /Users/example/repos/pentacle/README.md\n46\t    description: Pentacle desktop app README and feature documentation.\n47\t  - path: /Users/example/repos/pentacle-mobile/docs/PENTACLE_MOBILE_BUILD.md\n48\t    description: Pentacle mobile validation, iOS device install, signing, and smoke-test procedure on Beta.\n49\t  - path: /Users/example/repos/pentacle-mobile/docs/PENTACLE_MOBILE_SPEC.md\n50\t    description: Pentacle mobile product, transport, security, and build/deploy specification.\n51\tlogs:\n52\t  - path: /Users/example/agent-workspace/multi-machine-chat/demo-*.log\n53\t    description: Prototype demo logs for merged multi-machine chat sessions.\n54\tmachine: publicdash\n55\towner: example\n56\tsupersedes: []\n57\tsuperseded_by: []\n58\t---\n59\t\n60\t## Overview\n61\t\n62\tPentacle is an Electron-based tmux session dashboard with embedded terminals. It also includes a websocket-backed structured chat mode for live Claude and Codex sessions across machines.\n63\t\n64\t## Architecture\n65\t\n66\t- Main process: `~/pentacle/main.js`\n67\t- Renderer: `~/pentacle/renderer/app.js`\n68\t- Preload bridge: `~/pentacle/preload.js`\n69\t- Packaging: `electron-builder` -> `app.asar` -> `/Applications/Pentacle.app`\n70\t\n71\t## Multi-Machine Chat\n72\t\n73\t- Streaming daemon: `~/agent-workspace/multi-machine-chat/chat_streamd.py`\n74\t- Transport: websocket snapshot plus incremental `chat.event` stream\n75\t- Current hosts: hosta, Beta, Gamma\n76\t- Current providers: Claude and Codex\n77\t\n78\tImportant constraints:\n79\t- tmux session remains the source of truth\n80\t- transcript normalization happens server-side\n81\t- draft state is emitted separately from committed transcript events\n82\t- Chat display titles should be human-readable tmux window names, not tmux session IDs. Session IDs stay stable/opaque for attach/trash/restore; Pentacle can generate friendly titles from pane context with Codex CLI and sync them across machines by `tmux rename-window`.\n83\t\n84\t## Terminal Redesign\n85\t\n86\tThe mobile terminal redesign belongs under Pentacle memory rather than as a standalone project because it shares the same tmux bridge and terminal-delivery architecture.\n87\t\n88\tCurrent state:\n89\t- the old mobile terminal path depended on a WebView plus xterm and was fragile on mobile networks\n90\t- the redesign replaces that path with native rendering plus HTTP polling of tmux pane output\n91\t- bridge-side work is already live\n92\t- client-side completion was blocked on the iOS build and signing path on Beta\n93\t\n94\t## Agent Spawn\n95\t\n96\tBoth Claude and Codex sessions spawn in `~/agent-workspace/`.\n97\t\n98\t- Claude: `~/.local/bin/claude --dangerously-skip-permissions`\n99\t- Codex: `codex`\n100\t\n101\t## Build And Deploy\n102\t\n103\t### Desktop\n104\t\n105\t- Dev: `npm start`\n106\t- Build: `npm run build`\n107\t- Deploy: `npm run deploy` or `./deploy.sh`\n108\t\n109\t### Mobile\n110\t\n111\t- Repo: `/Users/example/repos/pentacle-mobile`\n112\t- Validation: `npm run test:unit`, `npm run typecheck`, `npm run validate`\n113\t- Beta keychain unlock for signing: `/Users/example/agent-workspace/bin/unlock_beta_keychain`\n114\t- Non-interactive iPhone install: `npm run ios:device`\n115\t- Canonical build doc: `/Users/example/repos/pentacle-mobile/docs/PENTACLE_MOBILE_BUILD.md`\n116\t\n117\t## Update Completion\n118\t\n119\tFuture agents should treat a Pentacle source update as incomplete until the running Pentacle app has been restarted or redeployed.\n120\t\n121\t- Dev/source-run installs: restart the running Electron/Pentacle process after code changes so `main.js`, preload, and renderer code reload.\n122\t- Packaged installs: rebuild and relaunch because the packaged app contains bundled sources.\n123\t- On Gamma, Pentacle usually runs as Windows Electron from `C:\\Users\\example\\repos\\pentacle`; restart it with `wscript.exe C:\\Users\\example\\repos\\pentacle\\scripts\\restart-windows-hidden.vbs` so no `npm start` command window appears.\n124\t- Verify after restart by checking the Pentacle log for a fresh `--- Pentacle start ... ---` entry.\n125\t\n126\t## Desktop Sync\n127\t\n128\tPentacle desktop updates now use the same GitHub-to-SQS notification pattern as shared memory.\n129\t\n130\t- Pentacle workflow: `/Users/example/repos/pentacle/.github/workflows/desktop-sync.yml`\n131\t- Local updater: `/Users/example/repos/pentacle/scripts/sync-desktop-update.js`\n132\t- Receiver: `/Users/example/repos/agent-dashboard/orchestrator/pentacle_sync.py`\n133\t- Documentation: `/Users/example/repos/pentacle/docs/desktop_sync.md`\n134\t\n135\tFlow:\n136\t\n137\t1. Push to `HJK6/pentacle` `main`.\n138\t2. GitHub sends `pentacle_desktop_sync` messages to `PublicDashMemorySync-project`, `PublicDashMemorySync-gamma`, and `PublicDashMemorySync-beta`.\n139\t3. Each machine's local orchestrator consumes only its own queue.\n140\t4. Receiver runs the repo-local updater, which safely fast-forwards, installs dependencies if needed, runs syntax checks and `npm run test:chat-ui`, then restarts Pentacle.\n141\t5. Local status is written under `.pentacle-sync/state.json`; blocked work writes `.pentacle-sync/pending/*.json`.\n142\t\n143\tValidated on 2026-04-25:\n144\t\n145\t- Alpha bootstrapped from an older Pentacle checkout to `f5baacc`, verified, rebuilt/relaunched `/Applications/Pentacle.app`, and logged a fresh `--- Pentacle start ... ---` at `2026-04-25T19:27:56Z`.\n146\t- GitHub OIDC role `GitHubActionsAlphaMemorySync` now trusts both `HJK6/project-memory` and `HJK6/pentacle` on `main`.\n147\t- Gamma SSH remained unavailable during validation, so its final local repo/app state was not directly verified even though the sync queue drained.\n148\t",
+          "is_error": false,
+          "tool_name": "Read"
+        }
+      }
+    },
+    {
+      "name": "claude-jsonl-working-inflight",
+      "expected": "Derived WORKING true event should update working state.",
+      "event": {
+        "daemon_seq": 1006,
+        "host": "beta",
+        "provider": "claude",
+        "session_id": "216d5a11-f323-4b7e-acb0-7fb5c7301a66",
+        "session_name": "claude-jsonl-fixture",
+        "stream_id": "beta:claude-jsonl-fixture",
+        "timestamp": "2026-04-30T05:20:58.159Z",
+        "kind": "WORKING",
+        "text": "Bash",
+        "raw": {
+          "source": "claude-jsonl",
+          "host": "beta",
+          "provider": "claude",
+          "session_name": "claude-jsonl-fixture",
+          "uuid": "2cc21cc8-db5a-493d-addb-5a13f3232756",
+          "parent_uuid": "9cd9dc78-cdc6-4942-9ea9-4878ab78ae65",
+          "is_sidechain": false,
+          "stop_reason": "tool_use",
+          "working": true,
+          "working_label": "Bash"
+        }
+      }
+    },
+    {
+      "name": "claude-jsonl-working-resolved",
+      "expected": "Derived WORKING false event should clear working state.",
+      "event": {
+        "daemon_seq": 1007,
+        "host": "beta",
+        "provider": "claude",
+        "session_id": "216d5a11-f323-4b7e-acb0-7fb5c7301a66",
+        "session_name": "claude-jsonl-fixture",
+        "stream_id": "beta:claude-jsonl-fixture",
+        "timestamp": "2026-04-30T05:20:58.405Z",
+        "kind": "WORKING",
+        "text": "",
+        "raw": {
+          "source": "claude-jsonl",
+          "host": "beta",
+          "provider": "claude",
+          "session_name": "claude-jsonl-fixture",
+          "uuid": "e2f12531-0aa4-4056-ac8c-b2e7af7fd62e",
+          "parent_uuid": "2cc21cc8-db5a-493d-addb-5a13f3232756",
+          "is_sidechain": false,
+          "working": false,
+          "working_label": ""
+        }
+      }
+    },
+    {
+      "name": "claude-jsonl-codeblock-text",
+      "expected": "Claude JSONL fenced assistant text should keep code fences for rendering.",
+      "event": {
+        "daemon_seq": 1008,
+        "host": "beta",
+        "provider": "claude",
+        "session_id": "216d5a11-f323-4b7e-acb0-7fb5c7301a66",
+        "session_name": "claude-jsonl-fixture",
+        "stream_id": "beta:claude-jsonl-fixture",
+        "timestamp": "2026-04-30T05:23:52.595Z",
+        "kind": "ASSIST_TEXT",
+        "text": "## Audit findings\n\nThe pipeline: `pentacleStream` (ws) → `pentacleStreamReducer` (state) → `pentacleEventInterpreter` (per-event filtering/cleaning) → `pentacleChatModel.selectSessionDetail` (rows) → `app/pentacle/session/[streamId].tsx` (render). All existing tests use Codex fixtures only — there is no Claude-provider fixture in the entire repo. That's the root reason this drifted.\n\n**Symptom → likely bug location**\n\n| Symptom | Where it breaks | Why Codex is fine |\n|---|---|---|\n| Code blocks render plain | `pentacleEventInterpreter.ts:208` — `collapseCodeBlocks()` runs unconditionally, replacing ` ``` ` with `[code hidden]` *before* the screen's `parseTextBlocks` (`[streamId].tsx:744-831`) can style them | Codex assistant text rarely contains fenced blocks, so the loss is invisible there |\n| \"Swooping\" / waiting label missing | `pentacleStreamReducer.ts:188-190` only writes `session.working_label` on DRAFT events. Claude emits status as spinner ASSIST (`✻ Swooping…`) which is correctly hidden at `pentacleEventInterpreter.ts:228-229` but its label is never lifted into session state | Codex puts working state in `DRAFT.raw.working_label`, which the reducer already handles |\n| Draft echoes as sent | Reducer correctly drops `kind === 'DRAFT'` from events (`pentacleStreamReducer.ts:274`). Hypothesis: Claude's draft is arriving with a different `kind` (likely `ASSIST` + `raw.pending`). Need a real captured payload before patching |\n| Read/Bash split instead of single Explore | `pentacleChatModel.ts` row-building doesn't fold tool children under their parent agent. Each TOOL/TOOL-OUT becomes its own row | Codex's tool calls are flatter — single Bash, no agent-spawned sub-tools |\n\n**Distinct UI states worth fixturing:** idle, live, working+labeled, working+unlabeled (bug), draft-only, draft+working, code-block-rendered, code-block-collapsed (bug), tool-use-grouped (Explore parent), tool-use-flat (bug), thinking, terminal-divider, error/offline.\n\n## Proposed plan\n\nThe work is sequenced **fixtures → tests → fixes**, so each fix lands red-green:\n\n1. Capture real Claude payloads from the live ws on Beta into `tests/fixtures/claude-*.json` — one per state above. *Not synthesized — real captures, otherwise we'll re-introduce the same blind spots.*\n2. Write reducer + chat-model pipeline tests against those fixtures — they should fail with current code.\n3. Add screen-level snapshot tests for the four bug states.\n4. Fix the four bugs one at a time, watching tests flip green.\n\nTwo open questions before I start:\n\n- **Where do we capture from?** Beta is currently offline per `current_work.md`. Can we replay from a saved `chat_streamd.py` log, or do we wait for Beta? If you have a recorded session anywhere I should use that.\n- **Tool grouping fidelity** — should the mobile UI match the terminal's collapsed-by-default Explore (with a tap to expand), or always show the parent + child count inline?\n\nWant me to start with step 1 (fixtures) using whatever logs are reachable now, or hold until we can capture from a live Claude session?",
+        "raw": {
+          "source": "claude-jsonl",
+          "host": "beta",
+          "provider": "claude",
+          "session_name": "claude-jsonl-fixture",
+          "uuid": "899b7bc9-c620-43df-b8a3-b6c67f2a99b1",
+          "parent_uuid": "e664c0ae-5fcb-4809-b185-ae4e8dd986e5",
+          "is_sidechain": false,
+          "stop_reason": "end_turn"
+        }
+      }
+    }
+  ],
+  "scenarios": [
+    {
+      "name": "clean-mobile-transcript",
+      "expected": "The full selector output should keep user intent and final answer, compact progress/actions, and hide helper/status/noise/draft rows.",
+      "events": [
+        1,
+        2,
+        3,
+        5,
+        6,
+        9,
+        10,
+        4,
+        11
+      ],
+      "session": {
+        "stream_id": "alpha:chat-ui-qa",
+        "host": "alpha",
+        "provider": "codex",
+        "session_name": "chat-ui-qa",
+        "last_event_at": "2026-04-24T10:00:10.000Z",
+        "last_text": "The desktop and mobile clients use the same websocket source, but mobile has its own reducer and display model.",
+        "last_kind": "ASSIST",
+        "draft": "fix the transcript grouping",
+        "pending": true,
+        "working": true,
+        "working_label": "2m 08s",
+        "online": true
+      }
+    },
+    {
+      "name": "claude-jsonl-explore-grouping",
+      "expected": "Claude JSONL Agent tool use and its result should render as one collapsed parent row.",
+      "events": [
+        {
+          "daemon_seq": 1010,
+          "host": "beta",
+          "provider": "claude",
+          "session_id": "216d5a11-f323-4b7e-acb0-7fb5c7301a66",
+          "session_name": "claude-jsonl-fixture",
+          "stream_id": "beta:claude-jsonl-fixture",
+          "timestamp": "2026-04-30T05:21:45.310Z",
+          "kind": "TOOL_USE",
+          "text": "Agent: Audit pentacle-mobile ws→view mapping",
+          "raw": {
+            "source": "claude-jsonl",
+            "host": "beta",
+            "provider": "claude",
+            "session_name": "claude-jsonl-fixture",
+            "uuid": "ee56437a-eab7-4190-ad39-6f40f56c1040",
+            "parent_uuid": "77241a60-ce55-415a-aa5a-088132600d86",
+            "is_sidechain": false,
+            "stop_reason": "tool_use",
+            "tool_use_id": "toolu_01RWSdB4jpG1ZTYVvS1avxRe",
+            "tool_name": "Agent",
+            "tool_input": {
+              "description": "Audit pentacle-mobile ws→view mapping",
+              "subagent_type": "Explore",
+              "prompt": "Audit the websocket→view state pipeline in `/Users/example/repos/pentacle-mobile` for the Claude session formatting issues. The user reports three concrete symptoms in the mobile UI when viewing Claude (NOT Codex — Codex works fine):\n\n1. **Code blocks aren't formatted** — fenced ``` blocks render as plain text instead of monospace/styled blocks.\n2. **Draft echoes as sent** — text the user is typing in the composer appears as if it's already been sent into the transcript.\n3. **Waiting state missing** — when Claude is working (e.g. spinner labels like \"Swooping\"), the indicator doesn't show up.\n\nThese are the files to read in full (or near-full). Don't just grep — read them so you can describe how state flows:\n\n- `src/services/pentacleStream.ts` (606 lines) — websocket transport, event ingest\n- `src/services/pentacleStreamReducer.ts` (375 lines) — reducer that turns events into stream state\n- `src/services/pentacleChatModel.ts` (505 lines) — turns stream state into chat rows\n- `src/services/pentacleEventInterpreter.ts` (345 lines) — interprets raw events\n- `src/services/pentacleEventUtils.ts` (53 lines)\n- `app/pentacle/session/[streamId].tsx` (1432 lines) — the screen that renders the chat. Read in chunks if needed.\n- `tests/pentacleStreamReducer.test.ts`, `tests/pentacleChatModel.test.ts`, `tests/pentacleEventInterpreter.test.ts`, `tests/sessionFormatting.test.ts`, `tests/sessionScreenStructure.test.ts`, `tests/chatRow.test.tsx` — to know what's covered today\n\nFor each of the three symptoms, report:\n- **Where in the pipeline the bug likely lives** (file:line). Trace it: ws event arrives → reducer state → chat model row → screen render. Identify the layer where Claude diverges from Codex.\n- **Why Codex probably works but Claude doesn't** — look for provider-specific branches (`provider === 'claude'`, `kind === 'codex'`, etc.) in the interpreter or chat model. Claude transcripts likely have a different event shape (e.g. assistant text comes in `text` blocks vs Codex's `output_text`; tool_use blocks; thinking blocks; spinner/working events emitted differently).\n- **What test coverage exists today** for that path, and where it's missing.\n\nAlso produce:\n- A short inventory of the **distinct UI states** the screen renders (idle / streaming / waiting+labeled / draft-only / error / tool-use / code-block / etc.) — what should be testable as snapshot states.\n- The **shape of a Claude session event stream** vs **Codex event stream** as the code currently parses them, with file:line refs. This is the key thing for designing fixtures.\n- A list of **fixture files needed** to drive snapshot/state tests for each symptom (e.g. `claude-with-codeblock.json`, `claude-waiting-swooping.json`, `claude-draft-only.json`).\n\nWrite findings as a structured report with concrete file:line citations. Aim for ~600 words. Don't propose fixes yet — just the map and the gaps."
+            }
+          }
+        },
+        {
+          "daemon_seq": 1011,
+          "host": "beta",
+          "provider": "claude",
+          "session_id": "216d5a11-f323-4b7e-acb0-7fb5c7301a66",
+          "session_name": "claude-jsonl-fixture",
+          "stream_id": "beta:claude-jsonl-fixture",
+          "timestamp": "2026-04-30T05:22:53.454Z",
+          "kind": "TOOL_RESULT",
+          "text": "Now I have a complete picture. Let me compile the audit report:\n\n## WebSocket→View State Pipeline Audit: Claude Session Formatting Issues\n\n### SYMPTOM 1: Code Blocks Not Formatted (Plain Text Instead of Monospace)\n\n**Pipeline Layer Identification:**\n\nThe code block parsing happens in TWO independent locations:\n\n1. **Event Interpreter Level** (pentacleEventInterpreter.ts:128-129): `collapseCodeBlocks()` *strips* code blocks entirely for non-Claude. It replaces `\\`\\`\\`....\\`\\`\\`` with `[code hidden]` — a lossy transformation.\n\n2. **Screen Render Level** (session/[streamId].tsx:744-831): `parseTextBlocks()` *preserves* code blocks as structured `FormattedAssistantText` components, which renders them with monospace styling (styles.codeBlock, styles.codeText, line 676-679).\n\n**Why Codex Works, Claude Doesn't:**\n\n- **Codex path**: Events enter through the reducer, get filtered by `interpretPentacleEvent()` at line 204+. For Codex (provider=\"codex\"), Claude-specific text cleaners (`cleanClaudePaneText()`, `isClaudeStatusText()`) are skipped. Plain ASSIST text flows through to `parseTextBlocks()` which sees fenced blocks and renders them with styling.\n\n- **Claude path**: Events with Claude provider carry Claude's pane markers (`⏺`, `⎿`) and spinner symbols (`✢✻✳·`). The interpreter calls `displayTextForEvent()` (line 207, pentacleEventInterpreter.ts:100-107) which invokes `cleanClaudePaneText()` (line 101). This strips markers but **preserves** fenced blocks in raw text.\n  \n  However, the critical bug is at **pentacleEventInterpreter.ts:208**: \n  ```ts\n  const collapsedText = collapseCodeBlocks(stripWorkingStatus(displayText) || displayText).trim();\n  ```\n  This unconditionally collapses ALL code blocks for ALL providers. But then at screen render (session/[streamId].tsx:503), `parseAssistantBlocks()` receives the *already-collapsed* text `[code hidden]`, not the original fences. So `parseTextBlocks()` never sees `\\`\\`\\`...\\`\\`\\`` to reconstruct monospace styling.\n\n**Bug Location:** pentacleEventInterpreter.ts:208 — `collapseCodeBlocks()` is called for all event kinds/providers, destroying the block structure before it reaches the render layer.\n\n**Test Coverage Gap:** `sessionFormatting.test.ts` (line 9) has a test for `parseTextBlocks` handling code fences correctly, BUT it tests parseTextBlocks in isolation. No integration test passes a Claude event with code blocks through the full pipeline (interpretPentacleEvent → selectSessionDetail → render).\n\n---\n\n### SYMPTOM 2: Draft Echoes as Sent (Composer Text Appears in Transcript)\n\n**Pipeline Layer Identification:**\n\nDraft state flows through:\n1. **Reducer** (pentacleStreamReducer.ts:170-193): DRAFT events set `drafts[streamId]` and update session summary with `draft` field.\n2. **Chat Model** (pentacleChatModel.ts:359, 478): `selectSessionDetail()` reads `draftEvent` from state but checks `includeDraft` option (line 363). Default in screen is `includeDraft: false` (line 115).\n3. **Screen** (session/[streamId].tsx:111-119): Calls `selectSessionDetail(state, streamId, { visibleCount: visibleRows, includeDraft: false })`.\n\n**Why Codex Works, Claude Doesn't:**\n\nThe screen correctly excludes drafts from transcripts. But the symptom \"draft echoes as sent\" suggests one of these:\n\nA) **Session summary `draft` field is leaking into `last_text`**: At pentacleStreamReducer.ts:187, when a DRAFT event arrives:\n```ts\ndraft: event.text,\npending: Boolean(event.raw?.pending),\n```\n\nThe session summary keeps both `draft` (line 187) AND potentially overwrites `last_text` if the DRAFT has kind='DRAFT' only. But look at line 185: when a new DRAFT arrives, line 227 clears `draft: ''` on non-DRAFT events. This is correct.\n\n**However**, the real culprit is likely **pentacleChatModel.ts:478**: When building `PentacleSessionDetail`, it uses:\n```ts\ndraftText: includeDraft ? draftEvent?.text || session.draft || '' : '',\n```\n\nBut the *session summary* `working` and `working_label` fields (line 189-190) are updated when a DRAFT event comes in. This means the **status** dock shows \"Working\" + the draft's working_label, but the working_label might contain the draft text being composed. \n\nActually, checking closer: the *true* issue is that `working_label` from a Claude DRAFT event (raw.working_label) gets propagated to `session.working_label` (line 190), and the screen renders it in `WorkingDock` (line 396, session/[streamId].tsx:548).\n\nNo—the user says \"draft echoes as sent\" in the *transcript*, not the status dock. This means draft text is appearing as a row item.\n\nRe-reading: **Draft events should be filtered out at pentacleStreamReducer.ts:274**: \n```ts\nconst events = Array.isArray(message.events)\n  ? dedupeRecentEventsByStream(message.events.map(normalizeEvent).filter((event) => event.kind !== 'DRAFT' && !isTransientTranscriptNoise(event.text)), limit)\n```\n\nBut incoming **individual DRAFT events** (not in snapshot) go through `applyPentacleEvent()` at line 162-233. Line 170 branches on `event.kind === 'DRAFT'` and does NOT add to events array—it only updates drafts and session summary. So drafts should never reach transcriptItems.\n\n**Hypothesis: Claude-specific DRAFT events have a different `kind` value** (e.g., `kind='ASSISTANT'` instead of `kind='DRAFT'`), or the `raw.pending` flag is not being honored when determining if text is a draft.\n\n**Test Coverage Gap:** No test in pentacleStreamReducer.test.ts or pentacleChatModel.test.ts covers Claude DRAFT event handling. Tests use only `provider: 'codex'` and hardcoded events. No fixtures showing what a real Claude draft event JSON looks like.\n\n---\n\n### SYMPTOM 3: Waiting State Missing (Spinner Labels Don't Show)\n\n**Pipeline Layer Identification:**\n\nWorking state flows:\n1. **Reducer** (pentacleStreamReducer.ts:188-190): DRAFT events set `session.working` and `session.working_label`.\n2. **Chat Model** (pentacleChatModel.ts:118-124): `resolveLiveFlags()` reads both and normalizes label via `normalizeWorkingLabel()` (pentacleEventInterpreter.ts:109-126).\n3. **Screen** (session/[streamId].tsx:121, 262, 395-396): Shows `WorkingDock` if `isWorking` is true, passing `workingLabel`.\n\n**Why Codex Works, Claude Doesn't:**\n\n- **Codex**: Incoming events set `session.working=true` and `session.working_label='some text'`. The screen renders `WorkingDock` with the label.\n\n- **Claude**: The same should happen, BUT—look at pentacleEventInterpreter.ts:57-64, the `isClaudeStatusText()` function:\n  ```ts\n  export function isClaudeStatusText(text: string) {\n    const normalized = normalizedEventText(text).replace(/^⏺\\s*/, '').trim();\n    return /^[✢✽✶✻✳·]\\s+/.test(normalized) && (\n      /…|\\.\\.\\./.test(normalized) ||\n      /\\s+\\([^)]*\\d/.test(normalized) ||\n      /\\bfor\\s+\\d/.test(normalized)\n    );\n  }\n  ```\n\nThis identifies spinner status text (the symbols `✢✽✶✻✳·` are Claude's spinner glyphs). These come in as ASSIST events with text like `\"✻ Swooping…\"`.\n\nAt pentacleEventInterpreter.ts:228-229, such events are marked as `'working-status'` and **hidden**:\n```ts\nif ((kind === 'ASSIST' || kind === 'TOOL' || kind === 'TOOL-OUT') && isTransientTranscriptNoise(text)) {\n  return interpreted(event, isWorkingStatusText(text) ? 'working-status' : 'transient-noise', isWorkingStatusText(text) ? 'hidden:status' : 'hidden:noise', ...);\n}\n```\n\nSo the ASSIST event containing the spinner text is **not added to events** (hidden=true means it's filtered at pentacleChatModel.ts:383). The `workingLabel` instead should come from **`session.working_label`**, which is set via DRAFT events (pentacleStreamReducer.ts:190).\n\n**But here's the gap**: The reducer only updates `session.working_label` when a DRAFT event arrives (line 190). If Claude emits spinner status as standalone ASSIST events (not paired with DRAFT), the `session.working_label` never gets set. Then `resolveLiveFlags()` returns `workingLabel = ''` (pentacleChatModel.ts:122-123) even though `working=true` was inferred from the hidden spinner event.\n\n**Bug Location:** pentacleStreamReducer.ts lacks a handler for non-DRAFT ASSIST events that contain working status markers. Codex may emit working state differently (via DRAFT raw.working_label), but Claude emits it as ASSIST text with spinner symbols.\n\n**Test Coverage Gap:** \n- pentacleEventInterpreter.test.ts line 55-68 tests that Claude spinner status is hidden, but doesn't test the *full flow* of how working_label gets populated.\n- No test in pentacleStreamReducer.test.ts covers the case where a spinner ASSIST event arrives and should propagate working state to session.\n- No test in pentacleChatModel.test.ts verifies that WorkingDock renders when working=true even if events themselves are hidden.\n\n---\n\n## Distinct UI States Testable as Snapshots\n\n1. **Idle** – session has no events, no draft, offline or live\n2. **Live** – session has events, no spinner, last_event_at set\n3. **Working/Labeled** – session.working=true + session.working_label set (e.g., \"Swooping 3s\")\n4. **Working/Unlabeled** – session.working=true but working_label empty (bug case)\n5. **Draft-only** – draftEvent set, no recent non-draft events\n6. **Draft+Working** – both draft and working state active\n7. **Code-block-rendered** – ASSIST event with fenced code, should show monospace\n8. **Code-block-collapsed** – same event but renders as `[code hidden]` (bug case)\n9. **Tool-use** – TOOL event with exploration/command markers\n10. **Thinking** – THINK event visible\n11. **Terminal-divider** – `'Worked for Xm'` as full-width separator\n12. **Error/offline** – session.online=false\n\n---\n\n## Claude vs. Codex Event Stream Shapes\n\n**Codex Event Pattern:**\n- Kind values: USER, ASSIST, TOOL, TOOL-OUT, SYSTEM, DRAFT\n- ASSIST text: plain English, may include tool action summaries like \"Ran bash ls\"\n- DRAFT: kind='DRAFT', raw.pending=bool, raw.working=bool, raw.working_label optional\n- Working state: encoded in DRAFT event's raw fields\n\n**Claude Event Pattern (Inferred from code):**\n- Kind values: USER, ASSIST, TOOL, TOOL-OUT, THINK, SYSTEM, DRAFT\n- ASSIST text: includes Claude pane markers (⏺ = assistant pane, ⎿ = tool output pane) and spinner glyphs (✢✽✶✻✳·)\n- Example ASSIST: `\"✻ Swooping… (3s · ↓ 142 tokens)\"` — a working status that's hidden from transcript\n- THINK: Dedicated kind for model thinking, separate from ASSIST\n- Tool output: ASSIST events prefixed with ⎿ instead of separate TOOL-OUT kind\n- Working state: May come via spinner ASSIST events OR DRAFT raw.working_label\n\n**Key Difference Files:**\n- pentacleEventInterpreter.ts:57-107 (Claude-specific cleaners)\n- pentacleEventInterpreter.ts:232-234 (Claude tool output detection)\n- pentacleStreamReducer.ts:162-233 (event intake, no provider-specific branches)\n\n---\n\n## Fixture Files Needed for Snapshot Tests\n\n1. **`claude-with-codeblock.json`** – Claude ASSIST event containing fenced code, e.g.:\n   ```json\n   {\n     \"kind\": \"ASSIST\",\n     \"provider\": \"claude\",\n     \"text\": \"Here's the fix:\\n\\n```ts\\nconst x = 1;\\n```\\n\\nDone.\"\n   }\n   ```\n   Expected: Code renders as monospace block, not plain `[code hidden]`.\n\n2. **`claude-waiting-swooping.json`** – Spinner status ASSIST + DRAFT with working_label:\n   ```json\n   [\n     { \"kind\": \"ASSIST\", \"provider\": \"claude\", \"text\": \"✻ Swooping… (3s · ↓ 142 tokens)\" },\n     { \"kind\": \"DRAFT\", \"provider\": \"claude\", \"raw\": { \"working\": true, \"working_label\": \"Swooping 3s\" } }\n   ]\n   ```\n   Expected: WorkingDock shows \"Swooping 3s\", spinner ASSIST is hidden from transcript.\n\n3. **`claude-draft-only.json`** – Empty transcript + draft:\n   ```json\n   {\n     \"events\": [],\n     \"drafts\": {\n       \"streamId\": { \"kind\": \"DRAFT\", \"provider\": \"claude\", \"text\": \"User is typing...\" }\n     }\n   }\n   ```\n   Expected: No transcript rows, draft text NOT echoed in visible area.\n\n4. **`claude-draft-echo-bug.json`** – Test case where draft text appears as sent (for regression testing once fixed).\n\n5. **`claude-mixed-panes.json`** – Multi-block Claude response with command + output + assistant text:\n   ```json\n   { \"kind\": \"ASSIST\", \"provider\": \"claude\", \"text\": \"⏺ Bash(ls -la)\\n\\n⎿ total 42\\ndrwxr-xr-x  5 user...\\n\\n✻ Analyzing… (2s)\" }\n   ```\n   Expected: Bash command, tool output, and spinner all parse/hide correctly.\n\n6. **`codex-for-comparison.json`** – Codex equivalent to ensure regression (Codex should keep working).\n\n---\n\n## Summary: Bug Locations & Coverage\n\n| Symptom | File:Line | Root Cause | Test Gap |\n|---------|-----------|-----------|----------|\n| Code blocks plain text | pentacleEventInterpreter.ts:208 | `collapseCodeBlocks()` called unconditionally, destroying fence markers before screen parse | No integration test of Claude event→interpreted→rendered flow |\n| Draft echoes as sent | pentacleStreamReducer.ts:162–233 | Unclear—DRAFT events should never reach events array; hypothesis: Claude DRAFT kind value differs OR working state from spinner ASSIST events not being captured | No test of Claude DRAFT event shape; no test of session.working_label update from spinner ASSIST |\n| Waiting state missing | pentacleStreamReducer.ts + pentacleChatModel.ts:118–124 | No reducer handler for spinner ASSIST events to set session.working_label; working state isolated to DRAFT raw fields | No test of working_label population from spinner events; no snapshot test of WorkingDock with hidden spinner events |\n\n**Total Test Files:** 6 exist (eventInterpreter, chatModel, formatting, reducer, sessionStructure, chatRow). **All use Codex fixtures only**—no Claude provider-specific tests.",
+          "raw": {
+            "source": "claude-jsonl",
+            "host": "beta",
+            "provider": "claude",
+            "session_name": "claude-jsonl-fixture",
+            "uuid": "dda85ba9-4a53-48d3-baa4-83962cb1817a",
+            "parent_uuid": "ee56437a-eab7-4190-ad39-6f40f56c1040",
+            "is_sidechain": false,
+            "tool_use_id": "toolu_01RWSdB4jpG1ZTYVvS1avxRe",
+            "tool_content": "Now I have a complete picture. Let me compile the audit report:\n\n## WebSocket→View State Pipeline Audit: Claude Session Formatting Issues\n\n### SYMPTOM 1: Code Blocks Not Formatted (Plain Text Instead of Monospace)\n\n**Pipeline Layer Identification:**\n\nThe code block parsing happens in TWO independent locations:\n\n1. **Event Interpreter Level** (pentacleEventInterpreter.ts:128-129): `collapseCodeBlocks()` *strips* code blocks entirely for non-Claude. It replaces `\\`\\`\\`....\\`\\`\\`` with `[code hidden]` — a lossy transformation.\n\n2. **Screen Render Level** (session/[streamId].tsx:744-831): `parseTextBlocks()` *preserves* code blocks as structured `FormattedAssistantText` components, which renders them with monospace styling (styles.codeBlock, styles.codeText, line 676-679).\n\n**Why Codex Works, Claude Doesn't:**\n\n- **Codex path**: Events enter through the reducer, get filtered by `interpretPentacleEvent()` at line 204+. For Codex (provider=\"codex\"), Claude-specific text cleaners (`cleanClaudePaneText()`, `isClaudeStatusText()`) are skipped. Plain ASSIST text flows through to `parseTextBlocks()` which sees fenced blocks and renders them with styling.\n\n- **Claude path**: Events with Claude provider carry Claude's pane markers (`⏺`, `⎿`) and spinner symbols (`✢✻✳·`). The interpreter calls `displayTextForEvent()` (line 207, pentacleEventInterpreter.ts:100-107) which invokes `cleanClaudePaneText()` (line 101). This strips markers but **preserves** fenced blocks in raw text.\n  \n  However, the critical bug is at **pentacleEventInterpreter.ts:208**: \n  ```ts\n  const collapsedText = collapseCodeBlocks(stripWorkingStatus(displayText) || displayText).trim();\n  ```\n  This unconditionally collapses ALL code blocks for ALL providers. But then at screen render (session/[streamId].tsx:503), `parseAssistantBlocks()` receives the *already-collapsed* text `[code hidden]`, not the original fences. So `parseTextBlocks()` never sees `\\`\\`\\`...\\`\\`\\`` to reconstruct monospace styling.\n\n**Bug Location:** pentacleEventInterpreter.ts:208 — `collapseCodeBlocks()` is called for all event kinds/providers, destroying the block structure before it reaches the render layer.\n\n**Test Coverage Gap:** `sessionFormatting.test.ts` (line 9) has a test for `parseTextBlocks` handling code fences correctly, BUT it tests parseTextBlocks in isolation. No integration test passes a Claude event with code blocks through the full pipeline (interpretPentacleEvent → selectSessionDetail → render).\n\n---\n\n### SYMPTOM 2: Draft Echoes as Sent (Composer Text Appears in Transcript)\n\n**Pipeline Layer Identification:**\n\nDraft state flows through:\n1. **Reducer** (pentacleStreamReducer.ts:170-193): DRAFT events set `drafts[streamId]` and update session summary with `draft` field.\n2. **Chat Model** (pentacleChatModel.ts:359, 478): `selectSessionDetail()` reads `draftEvent` from state but checks `includeDraft` option (line 363). Default in screen is `includeDraft: false` (line 115).\n3. **Screen** (session/[streamId].tsx:111-119): Calls `selectSessionDetail(state, streamId, { visibleCount: visibleRows, includeDraft: false })`.\n\n**Why Codex Works, Claude Doesn't:**\n\nThe screen correctly excludes drafts from transcripts. But the symptom \"draft echoes as sent\" suggests one of these:\n\nA) **Session summary `draft` field is leaking into `last_text`**: At pentacleStreamReducer.ts:187, when a DRAFT event arrives:\n```ts\ndraft: event.text,\npending: Boolean(event.raw?.pending),\n```\n\nThe session summary keeps both `draft` (line 187) AND potentially overwrites `last_text` if the DRAFT has kind='DRAFT' only. But look at line 185: when a new DRAFT arrives, line 227 clears `draft: ''` on non-DRAFT events. This is correct.\n\n**However**, the real culprit is likely **pentacleChatModel.ts:478**: When building `PentacleSessionDetail`, it uses:\n```ts\ndraftText: includeDraft ? draftEvent?.text || session.draft || '' : '',\n```\n\nBut the *session summary* `working` and `working_label` fields (line 189-190) are updated when a DRAFT event comes in. This means the **status** dock shows \"Working\" + the draft's working_label, but the working_label might contain the draft text being composed. \n\nActually, checking closer: the *true* issue is that `working_label` from a Claude DRAFT event (raw.working_label) gets propagated to `session.working_label` (line 190), and the screen renders it in `WorkingDock` (line 396, session/[streamId].tsx:548).\n\nNo—the user says \"draft echoes as sent\" in the *transcript*, not the status dock. This means draft text is appearing as a row item.\n\nRe-reading: **Draft events should be filtered out at pentacleStreamReducer.ts:274**: \n```ts\nconst events = Array.isArray(message.events)\n  ? dedupeRecentEventsByStream(message.events.map(normalizeEvent).filter((event) => event.kind !== 'DRAFT' && !isTransientTranscriptNoise(event.text)), limit)\n```\n\nBut incoming **individual DRAFT events** (not in snapshot) go through `applyPentacleEvent()` at line 162-233. Line 170 branches on `event.kind === 'DRAFT'` and does NOT add to events array—it only updates drafts and session summary. So drafts should never reach transcriptItems.\n\n**Hypothesis: Claude-specific DRAFT events have a different `kind` value** (e.g., `kind='ASSISTANT'` instead of `kind='DRAFT'`), or the `raw.pending` flag is not being honored when determining if text is a draft.\n\n**Test Coverage Gap:** No test in pentacleStreamReducer.test.ts or pentacleChatModel.test.ts covers Claude DRAFT event handling. Tests use only `provider: 'codex'` and hardcoded events. No fixtures showing what a real Claude draft event JSON looks like.\n\n---\n\n### SYMPTOM 3: Waiting State Missing (Spinner Labels Don't Show)\n\n**Pipeline Layer Identification:**\n\nWorking state flows:\n1. **Reducer** (pentacleStreamReducer.ts:188-190): DRAFT events set `session.working` and `session.working_label`.\n2. **Chat Model** (pentacleChatModel.ts:118-124): `resolveLiveFlags()` reads both and normalizes label via `normalizeWorkingLabel()` (pentacleEventInterpreter.ts:109-126).\n3. **Screen** (session/[streamId].tsx:121, 262, 395-396): Shows `WorkingDock` if `isWorking` is true, passing `workingLabel`.\n\n**Why Codex Works, Claude Doesn't:**\n\n- **Codex**: Incoming events set `session.working=true` and `session.working_label='some text'`. The screen renders `WorkingDock` with the label.\n\n- **Claude**: The same should happen, BUT—look at pentacleEventInterpreter.ts:57-64, the `isClaudeStatusText()` function:\n  ```ts\n  export function isClaudeStatusText(text: string) {\n    const normalized = normalizedEventText(text).replace(/^⏺\\s*/, '').trim();\n    return /^[✢✽✶✻✳·]\\s+/.test(normalized) && (\n      /…|\\.\\.\\./.test(normalized) ||\n      /\\s+\\([^)]*\\d/.test(normalized) ||\n      /\\bfor\\s+\\d/.test(normalized)\n    );\n  }\n  ```\n\nThis identifies spinner status text (the symbols `✢✽✶✻✳·` are Claude's spinner glyphs). These come in as ASSIST events with text like `\"✻ Swooping…\"`.\n\nAt pentacleEventInterpreter.ts:228-229, such events are marked as `'working-status'` and **hidden**:\n```ts\nif ((kind === 'ASSIST' || kind === 'TOOL' || kind === 'TOOL-OUT') && isTransientTranscriptNoise(text)) {\n  return interpreted(event, isWorkingStatusText(text) ? 'working-status' : 'transient-noise', isWorkingStatusText(text) ? 'hidden:status' : 'hidden:noise', ...);\n}\n```\n\nSo the ASSIST event containing the spinner text is **not added to events** (hidden=true means it's filtered at pentacleChatModel.ts:383). The `workingLabel` instead should come from **`session.working_label`**, which is set via DRAFT events (pentacleStreamReducer.ts:190).\n\n**But here's the gap**: The reducer only updates `session.working_label` when a DRAFT event arrives (line 190). If Claude emits spinner status as standalone ASSIST events (not paired with DRAFT), the `session.working_label` never gets set. Then `resolveLiveFlags()` returns `workingLabel = ''` (pentacleChatModel.ts:122-123) even though `working=true` was inferred from the hidden spinner event.\n\n**Bug Location:** pentacleStreamReducer.ts lacks a handler for non-DRAFT ASSIST events that contain working status markers. Codex may emit working state differently (via DRAFT raw.working_label), but Claude emits it as ASSIST text with spinner symbols.\n\n**Test Coverage Gap:** \n- pentacleEventInterpreter.test.ts line 55-68 tests that Claude spinner status is hidden, but doesn't test the *full flow* of how working_label gets populated.\n- No test in pentacleStreamReducer.test.ts covers the case where a spinner ASSIST event arrives and should propagate working state to session.\n- No test in pentacleChatModel.test.ts verifies that WorkingDock renders when working=true even if events themselves are hidden.\n\n---\n\n## Distinct UI States Testable as Snapshots\n\n1. **Idle** – session has no events, no draft, offline or live\n2. **Live** – session has events, no spinner, last_event_at set\n3. **Working/Labeled** – session.working=true + session.working_label set (e.g., \"Swooping 3s\")\n4. **Working/Unlabeled** – session.working=true but working_label empty (bug case)\n5. **Draft-only** – draftEvent set, no recent non-draft events\n6. **Draft+Working** – both draft and working state active\n7. **Code-block-rendered** – ASSIST event with fenced code, should show monospace\n8. **Code-block-collapsed** – same event but renders as `[code hidden]` (bug case)\n9. **Tool-use** – TOOL event with exploration/command markers\n10. **Thinking** – THINK event visible\n11. **Terminal-divider** – `'Worked for Xm'` as full-width separator\n12. **Error/offline** – session.online=false\n\n---\n\n## Claude vs. Codex Event Stream Shapes\n\n**Codex Event Pattern:**\n- Kind values: USER, ASSIST, TOOL, TOOL-OUT, SYSTEM, DRAFT\n- ASSIST text: plain English, may include tool action summaries like \"Ran bash ls\"\n- DRAFT: kind='DRAFT', raw.pending=bool, raw.working=bool, raw.working_label optional\n- Working state: encoded in DRAFT event's raw fields\n\n**Claude Event Pattern (Inferred from code):**\n- Kind values: USER, ASSIST, TOOL, TOOL-OUT, THINK, SYSTEM, DRAFT\n- ASSIST text: includes Claude pane markers (⏺ = assistant pane, ⎿ = tool output pane) and spinner glyphs (✢✽✶✻✳·)\n- Example ASSIST: `\"✻ Swooping… (3s · ↓ 142 tokens)\"` — a working status that's hidden from transcript\n- THINK: Dedicated kind for model thinking, separate from ASSIST\n- Tool output: ASSIST events prefixed with ⎿ instead of separate TOOL-OUT kind\n- Working state: May come via spinner ASSIST events OR DRAFT raw.working_label\n\n**Key Difference Files:**\n- pentacleEventInterpreter.ts:57-107 (Claude-specific cleaners)\n- pentacleEventInterpreter.ts:232-234 (Claude tool output detection)\n- pentacleStreamReducer.ts:162-233 (event intake, no provider-specific branches)\n\n---\n\n## Fixture Files Needed for Snapshot Tests\n\n1. **`claude-with-codeblock.json`** – Claude ASSIST event containing fenced code, e.g.:\n   ```json\n   {\n     \"kind\": \"ASSIST\",\n     \"provider\": \"claude\",\n     \"text\": \"Here's the fix:\\n\\n```ts\\nconst x = 1;\\n```\\n\\nDone.\"\n   }\n   ```\n   Expected: Code renders as monospace block, not plain `[code hidden]`.\n\n2. **`claude-waiting-swooping.json`** – Spinner status ASSIST + DRAFT with working_label:\n   ```json\n   [\n     { \"kind\": \"ASSIST\", \"provider\": \"claude\", \"text\": \"✻ Swooping… (3s · ↓ 142 tokens)\" },\n     { \"kind\": \"DRAFT\", \"provider\": \"claude\", \"raw\": { \"working\": true, \"working_label\": \"Swooping 3s\" } }\n   ]\n   ```\n   Expected: WorkingDock shows \"Swooping 3s\", spinner ASSIST is hidden from transcript.\n\n3. **`claude-draft-only.json`** – Empty transcript + draft:\n   ```json\n   {\n     \"events\": [],\n     \"drafts\": {\n       \"streamId\": { \"kind\": \"DRAFT\", \"provider\": \"claude\", \"text\": \"User is typing...\" }\n     }\n   }\n   ```\n   Expected: No transcript rows, draft text NOT echoed in visible area.\n\n4. **`claude-draft-echo-bug.json`** – Test case where draft text appears as sent (for regression testing once fixed).\n\n5. **`claude-mixed-panes.json`** – Multi-block Claude response with command + output + assistant text:\n   ```json\n   { \"kind\": \"ASSIST\", \"provider\": \"claude\", \"text\": \"⏺ Bash(ls -la)\\n\\n⎿ total 42\\ndrwxr-xr-x  5 user...\\n\\n✻ Analyzing… (2s)\" }\n   ```\n   Expected: Bash command, tool output, and spinner all parse/hide correctly.\n\n6. **`codex-for-comparison.json`** – Codex equivalent to ensure regression (Codex should keep working).\n\n---\n\n## Summary: Bug Locations & Coverage\n\n| Symptom | File:Line | Root Cause | Test Gap |\n|---------|-----------|-----------|----------|\n| Code blocks plain text | pentacleEventInterpreter.ts:208 | `collapseCodeBlocks()` called unconditionally, destroying fence markers before screen parse | No integration test of Claude event→interpreted→rendered flow |\n| Draft echoes as sent | pentacleStreamReducer.ts:162–233 | Unclear—DRAFT events should never reach events array; hypothesis: Claude DRAFT kind value differs OR working state from spinner ASSIST events not being captured | No test of Claude DRAFT event shape; no test of session.working_label update from spinner ASSIST |\n| Waiting state missing | pentacleStreamReducer.ts + pentacleChatModel.ts:118–124 | No reducer handler for spinner ASSIST events to set session.working_label; working state isolated to DRAFT raw fields | No test of working_label population from spinner events; no snapshot test of WorkingDock with hidden spinner events |\n\n**Total Test Files:** 6 exist (eventInterpreter, chatModel, formatting, reducer, sessionStructure, chatRow). **All use Codex fixtures only**—no Claude provider-specific tests.",
+            "is_error": false
+          }
+        }
+      ],
+      "session": {
+        "stream_id": "beta:claude-jsonl-fixture",
+        "host": "beta",
+        "provider": "claude",
+        "session_name": "claude-jsonl-fixture",
+        "last_event_at": "2026-04-30T05:22:53.454Z",
+        "last_text": "Agent: Audit pentacle-mobile ws→view mapping",
+        "last_kind": "TOOL_USE",
+        "draft": "",
+        "pending": false,
+        "working": false,
+        "online": true
+      }
+    },
+    {
+      "name": "claude-jsonl-no-draft-echo",
+      "expected": "Claude JSONL has no draft records, so typing before submit should not create transcript rows.",
+      "events": [],
+      "session": {
+        "stream_id": "beta:claude-jsonl-fixture",
+        "host": "beta",
+        "provider": "claude",
+        "session_name": "claude-jsonl-fixture",
+        "last_event_at": "2026-04-30T05:20:50.484Z",
+        "last_text": "",
+        "last_kind": "",
+        "draft": "",
+        "pending": false,
+        "working": false,
+        "online": true
+      }
+    }
+  ]
+}

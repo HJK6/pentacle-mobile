@@ -1,0 +1,1 @@
+# Stdlib-only harness scaffold. Install libimobiledevice and Xcode tools outside pip.

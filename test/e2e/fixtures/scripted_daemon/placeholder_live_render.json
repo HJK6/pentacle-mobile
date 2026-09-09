@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "name": "placeholder_live_render",
+  "stream": {
+    "stream_id": "mock-host:mock-session",
+    "host": "mock-host",
+    "provider": "codex",
+    "session_name": "mock-session",
+    "title": "Placeholder live render"
+  },
+  "snapshot": {
+    "sessions": [],
+    "events": []
+  },
+  "frames": [
+    {
+      "id": "placeholder-anchor",
+      "at_ms": 0,
+      "type": "chat.event",
+      "wait_for_client": true,
+      "event": {
+        "kind": "USER",
+        "daemon_seq": 90,
+        "timestamp": "2026-07-09T15:00:00.000Z",
+        "text": "placeholder stream ready"
+      }
+    },
+    {
+      "id": "live-assist",
+      "at_ms": 700,
+      "type": "chat.event",
+      "wait_for_client": true,
+      "event": {
+        "kind": "ASSIST",
+        "daemon_seq": 91,
+        "timestamp": "2026-07-09T15:00:01.000Z",
+        "text": "assistant live into placeholder"
+      }
+    },
+    {
+      "id": "queued-terminal-user",
+      "at_ms": 900,
+      "type": "chat.event",
+      "event": {
+        "kind": "USER",
+        "daemon_seq": 92,
+        "timestamp": "2026-07-09T15:00:02.000Z",
+        "text": "queued terminal steering message",
+        "raw": {
+          "source": "terminal"
+        }
+      }
+    }
+  ],
+  "send_echo": {
+    "daemon_seq": 93,
+    "timestamp": "2026-07-09T15:00:03.000Z",
+    "wait_for_send_s": 30
+  },
+  "upload": {
+    "required": true
+  }
+}

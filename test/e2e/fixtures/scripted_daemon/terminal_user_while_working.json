@@ -1,0 +1,65 @@
+{
+  "schema_version": 1,
+  "name": "terminal_user_while_working",
+  "stream": {
+    "stream_id": "mock-host:mock-session",
+    "host": "mock-host",
+    "provider": "codex",
+    "session_name": "mock-session",
+    "title": "Terminal user while working"
+  },
+  "snapshot": {
+    "sessions": [
+      {
+        "stream_id": "mock-host:mock-session",
+        "host": "mock-host",
+        "provider": "codex",
+        "session_name": "mock-session",
+        "title": "Terminal user while working",
+        "last_event_at": "2026-07-03T16:00:19Z",
+        "last_kind": "WORKING",
+        "last_text": "Working 4s",
+        "working": true,
+        "working_label": "Working 4s"
+      }
+    ],
+    "events": []
+  },
+  "frames": [
+    {
+      "id": "working-start",
+      "at_ms": 0,
+      "type": "chat.event",
+      "wait_for_client": true,
+      "event": {
+        "daemon_seq": 20,
+        "timestamp": "2026-07-03T16:00:20Z",
+        "kind": "USER",
+        "text": "operator started a working turn",
+        "raw": {
+          "source": "terminal",
+          "working": true,
+          "working_label": "Working 4s"
+        }
+      }
+    },
+    {
+      "id": "terminal-latest",
+      "at_ms": 250,
+      "type": "chat.event",
+      "event": {
+        "daemon_seq": 21,
+        "timestamp": "2026-07-03T16:00:21Z",
+        "kind": "USER",
+        "text": "latest operator terminal message must render while working",
+        "raw": {
+          "source": "terminal",
+          "working": true,
+          "working_label": "Working 5s"
+        }
+      }
+    }
+  ],
+  "upload": {},
+  "send_echo": {}
+}

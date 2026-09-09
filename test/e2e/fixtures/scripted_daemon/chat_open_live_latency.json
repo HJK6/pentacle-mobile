@@ -1,0 +1,103 @@
+{
+  "schema_version": 1,
+  "name": "mock_chat_open_live_latency",
+  "stream": {
+    "stream_id": "mock-host:mock-session",
+    "host": "mock-host",
+    "provider": "codex",
+    "session_name": "mock-session",
+    "title": "Mock chat open live latency"
+  },
+  "snapshot": {
+    "sessions": [],
+    "events": []
+  },
+  "frames": [
+    {
+      "id": "session-anchor",
+      "at_ms": 0,
+      "type": "chat.event",
+      "wait_for_client": true,
+      "expected_sort_index": 1,
+      "event": {
+        "kind": "USER",
+        "daemon_seq": 90,
+        "timestamp": "2026-07-09T14:00:00.000Z",
+        "text": "fixture session ready"
+      }
+    },
+    {
+      "id": "live-burst-1",
+      "at_ms": 900,
+      "type": "chat.event",
+      "wait_for_client": true,
+      "expected_sort_index": 2,
+      "event": {
+        "kind": "ASSIST",
+        "daemon_seq": 101,
+        "timestamp": "2026-07-09T14:00:01.000Z",
+        "text": "live burst one"
+      }
+    },
+    {
+      "id": "live-burst-2",
+      "at_ms": 1000,
+      "type": "chat.event",
+      "wait_for_client": true,
+      "expected_sort_index": 3,
+      "event": {
+        "kind": "ASSIST",
+        "daemon_seq": 102,
+        "timestamp": "2026-07-09T14:00:02.000Z",
+        "text": "live burst two"
+      }
+    },
+    {
+      "id": "live-burst-3",
+      "at_ms": 1100,
+      "type": "chat.event",
+      "wait_for_client": true,
+      "expected_sort_index": 4,
+      "event": {
+        "kind": "ASSIST",
+        "daemon_seq": 103,
+        "timestamp": "2026-07-09T14:00:03.000Z",
+        "text": "live burst three"
+      }
+    },
+    {
+      "id": "live-burst-4",
+      "at_ms": 1200,
+      "type": "chat.event",
+      "wait_for_client": true,
+      "expected_sort_index": 5,
+      "event": {
+        "kind": "ASSIST",
+        "daemon_seq": 104,
+        "timestamp": "2026-07-09T14:00:04.000Z",
+        "text": "live burst four"
+      }
+    },
+    {
+      "id": "live-burst-5",
+      "at_ms": 1300,
+      "type": "chat.event",
+      "wait_for_client": true,
+      "expected_sort_index": 6,
+      "event": {
+        "kind": "ASSIST",
+        "daemon_seq": 105,
+        "timestamp": "2026-07-09T14:00:05.000Z",
+        "text": "live burst five"
+      }
+    }
+  ],
+  "upload": {
+    "required": true
+  },
+  "send_echo": {
+    "daemon_seq": 106,
+    "timestamp": "2026-07-09T14:00:06.000Z",
+    "wait_for_send_s": 30
+  }
+}

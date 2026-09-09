@@ -1,0 +1,25 @@
+appId: com.example.pentacle.mobile
+---
+- launchApp
+- extendedWaitUntil:
+    visible:
+      id: "chat-row-example-codex-primary"
+    timeout: 20000
+- tapOn:
+    id: "chat-row-example-codex-primary"
+- extendedWaitUntil:
+    visible:
+      id: "composer-bar"
+    timeout: 5000
+- tapOn:
+    point: "9%,12%"
+- extendedWaitUntil:
+    visible:
+      id: "new-chat-button"
+    timeout: 10000
+- tapOn:
+    id: "chat-row-example-codex-secondary"
+- extendedWaitUntil:
+    visible:
+      id: "composer-bar"
+    timeout: 5000

@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "case": "null_corr_tail_freeze",
+  "current_tail": [
+    {
+      "daemon_seq": 356645,
+      "correlatedDaemonSeq": null,
+      "timestamp": "2026-08-02T23:45:07.880Z",
+      "kind": "ASSIST",
+      "text": "Newest daemon tail with no correlation"
+    }
+  ]
+}

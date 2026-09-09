@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "case": "spawn_controls",
+  "spawn": {
+    "host": "hosta",
+    "provider": "codex",
+    "model": "gpt-5.6-luna",
+    "effort": "max",
+    "spawn_profile": "example",
+    "resolution_source": "explicit_override"
+  }
+}
+

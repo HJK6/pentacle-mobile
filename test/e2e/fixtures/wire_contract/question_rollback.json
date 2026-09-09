@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "case": "question_rollback",
+  "question": {
+    "question_id": "wire-rollback",
+    "title": "Confirm rollback proof",
+    "body": "This answer is rejected by the deterministic delivery seam.",
+    "response_mode": "single_choice",
+    "options": [
+      {"label": "Proceed", "value": "proceed"},
+      {"label": "Wait", "value": "wait"}
+    ]
+  },
+  "answer": {"option_index": 0, "expected_selection": "proceed"},
+  "failure": {"seam": "answer.question", "message": "answer_delivery_failed", "delay_ms": 900}
+}

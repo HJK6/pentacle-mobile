@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "case": "mobile_live_defects",
+  "question": {
+    "question_id": "wire-send-recovery",
+    "title": "Choose recovery",
+    "body": "Select the recovery path.",
+    "response_mode": "single_choice",
+    "options": [
+      {"label": "Proceed", "value": "proceed", "description": "Submit through the injected cut"},
+      {"label": "Wait", "value": "wait", "description": "Leave the question open"}
+    ]
+  },
+  "answer": {"option_index": 0, "expected_selection": "proceed"},
+  "session_status_sequence": [
+    {
+      "pane_status": "pane_unresponsive",
+      "pane_status_reason": "tmux_probe_timeout",
+      "pane_status_since": "2026-08-01T12:00:00Z",
+      "working": true
+    },
+    {
+      "pane_status": "pane_confirmed",
+      "pane_status_reason": null,
+      "pane_status_since": null,
+      "working": false
+    }
+  ]
+}

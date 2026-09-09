@@ -1,0 +1,9 @@
+appId: quest.pentacle.mobile
+---
+- tapOn:
+    point: "9%,12%"
+- extendedWaitUntil:
+    visible:
+      id: "new-chat-button"
+    timeout: 10000
+- assertNotVisible: "Loading chats..."

@@ -1,0 +1,4 @@
+{"session_id":"thread-1","ts":1777002000,"text":"hello from codex"}
+{"type":"progressive_update","message":{"id":"msg_codex_1","role":"assistant","content":[{"type":"text","text":"codex rep"}]},"timestamp":"2026-04-23T22:00:00.500Z"}
+{"type":"assistant","message":{"id":"msg_codex_1","role":"assistant","content":[{"type":"text","text":"codex reply"}]},"timestamp":"2026-04-23T22:00:01.000Z"}
+{"kind":"SYSTEM","text":"─ Worked for 1m 14s ─────────────────────────────────────────────────────────────────────────────","timestamp":"2026-04-23T22:00:04.000Z"}

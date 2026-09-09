@@ -1,0 +1,74 @@
+[
+  {
+    "line": 1,
+    "events": [
+      {
+        "daemon_seq": 2000,
+        "host": "hostb",
+        "provider": "claude",
+        "session_id": "",
+        "session_name": "claude-jsonl-fixture",
+        "stream_id": "hostb:claude-jsonl-fixture",
+        "timestamp": "2026-01-01T00:00:00.000Z",
+        "kind": "SYSTEM",
+        "text": "Synthetic session started",
+        "raw": {
+          "source": "claude-jsonl",
+          "host": "hostb",
+          "provider": "claude",
+          "session_name": "claude-jsonl-fixture",
+          "uuid": "synthetic-system-1",
+          "is_sidechain": false
+        }
+      }
+    ]
+  },
+  {
+    "line": 2,
+    "events": [
+      {
+        "daemon_seq": 2010,
+        "host": "hostb",
+        "provider": "claude",
+        "session_id": "",
+        "session_name": "claude-jsonl-fixture",
+        "stream_id": "hostb:claude-jsonl-fixture",
+        "timestamp": "2026-01-01T00:00:01.000Z",
+        "kind": "ASSIST_TEXT",
+        "text": "Synthetic assistant response",
+        "raw": {
+          "source": "claude-jsonl",
+          "host": "hostb",
+          "provider": "claude",
+          "session_name": "claude-jsonl-fixture",
+          "uuid": "synthetic-assistant-1",
+          "is_sidechain": false
+        }
+      }
+    ]
+  },
+  {
+    "line": 3,
+    "events": [
+      {
+        "daemon_seq": 2020,
+        "host": "hostb",
+        "provider": "claude",
+        "session_id": "",
+        "session_name": "claude-jsonl-fixture",
+        "stream_id": "hostb:claude-jsonl-fixture",
+        "timestamp": "2026-01-01T00:00:02.000Z",
+        "kind": "USER",
+        "text": "Synthetic user request",
+        "raw": {
+          "source": "claude-jsonl",
+          "host": "hostb",
+          "provider": "claude",
+          "session_name": "claude-jsonl-fixture",
+          "uuid": "synthetic-user-1",
+          "is_sidechain": false
+        }
+      }
+    ]
+  }
+]

@@ -1,0 +1,29 @@
+{
+  "dashboard_id": "hosta.foreclosure",
+  "schema_version": 1,
+  "updated_at": "2026-07-17T08:00:00Z",
+  "server_received_at": "2026-07-17T08:00:01Z",
+  "freshness_ttl_sec": 60,
+  "data": {
+    "default_batch": "2026-07-17",
+    "all_batches": ["2026-07-17", "2026-07-16"],
+    "snapshots": {
+      "2026-07-17": {
+        "batch": "2026-07-17",
+        "pipeline_summary": { "current_stage": "qualify", "current_state": "running", "state_machine_batch": "2026-07-17", "skiptrace_gate": "closed" },
+        "pipeline_stages": [
+          { "stage": "scrape", "state": "complete", "count": 128 },
+          { "stage": "cad", "state": "complete", "count": 121 },
+          { "stage": "qualify", "state": "running", "count": 84 },
+          { "stage": "skipmatrix_csv", "state": "waiting", "count": 84 },
+          { "stage": "prod_hydrate_promote", "state": "waiting", "count": 0 }
+        ]
+      },
+      "2026-07-16": {
+        "batch": "2026-07-16",
+        "pipeline_summary": { "current_stage": "skipmatrix_csv", "current_state": "waiting", "state_machine_batch": "2026-07-16", "skiptrace_gate": "closed" },
+        "pipeline_stages": [{ "stage": "scrape", "state": "complete", "count": 96 }, { "stage": "skipmatrix_csv", "state": "waiting", "count": 62 }]
+      }
+    }
+  }
+}

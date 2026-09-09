@@ -1,0 +1,42 @@
+{
+    "schema_version": 1,
+    "name": "reconnect_silent_half_open",
+    "stream": {
+        "stream_id": "mock-host:mock-session",
+        "host": "mock-host",
+        "provider": "codex",
+        "session_name": "mock-session",
+        "title": "Mock silent half-open reconnect"
+    },
+    "snapshot": {
+        "sessions": [
+            {
+                "stream_id": "mock-host:mock-session",
+                "host": "mock-host",
+                "provider": "codex",
+                "session_name": "mock-session",
+                "title": "Mock silent half-open reconnect",
+                "last_event_at": "2026-07-09T16:00:20Z",
+                "last_kind": "ASSIST",
+                "last_text": "transcript settled",
+                "working": false
+            }
+        ],
+        "events": []
+    },
+    "frames": [
+        {
+            "id": "hello-settle",
+            "at_ms": 0,
+            "type": "chat.event",
+            "event": {
+                "daemon_seq": 1,
+                "timestamp": "2026-07-09T16:00:20Z",
+                "kind": "ASSIST",
+                "text": "transcript settled; daemon now goes silent (dead half-open)"
+            }
+        }
+    ],
+    "upload": {},
+    "send_echo": {}
+}

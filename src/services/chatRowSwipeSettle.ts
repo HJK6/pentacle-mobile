@@ -1,0 +1,1 @@
+export const CHAT_ROW_SWIPE_OPEN_THRESHOLD = 40;

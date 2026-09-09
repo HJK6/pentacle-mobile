@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "name": "large_history_resume",
+  "stream": {
+    "stream_id": "mock-host:mock-session",
+    "host": "mock-host",
+    "provider": "codex",
+    "session_name": "mock-session",
+    "title": "Mock large history resume"
+  },
+  "snapshot": {
+    "sessions": [
+      {
+        "stream_id": "mock-host:mock-session",
+        "host": "mock-host",
+        "provider": "codex",
+        "session_name": "mock-session",
+        "title": "Mock large history resume",
+        "last_text": "history row 48",
+        "last_event_at": "2026-07-09T05:14:48.000Z"
+      }
+    ],
+    "events": []
+  },
+  "history": {
+    "close_after_chunks": 1,
+    "close_once": true,
+    "event_count": 48
+  },
+  "frames": [
+    {
+      "id": "live-burst-during-disconnect",
+      "at_ms": 0,
+      "type": "chat.event",
+      "wait_for_client": false,
+      "wait_for_disconnect": true,
+      "expected_sort_index": 49,
+      "event": {
+        "kind": "ASSIST",
+        "daemon_seq": 49,
+        "timestamp": "2026-07-09T05:14:49.000Z",
+        "text": "live burst while history resumes"
+      }
+    }
+  ],
+  "upload": {},
+  "send_echo": {}
+}

@@ -1,0 +1,3 @@
+{"type":"snapshot","sessions":[{"stream_id":"hostb:codex:hydrate","host":"hostb","provider":"codex","session_name":"hydrate","last_event_at":"2026-06-30T12:00:00.000Z","last_kind":"","last_text":"","working":false}]}
+{"type":"request_stream_events.error","request_id":"history-1","error":"temporary failure"}
+{"type":"request_stream_events.ok","request_id":"history-2","events":[{"daemon_seq":9,"stream_id":"hostb:codex:hydrate","host":"hostb","provider":"codex","session_id":"session","session_name":"hydrate","timestamp":"2026-06-30T12:00:09.000Z","kind":"ASSIST","text":"history line after retry"}]}

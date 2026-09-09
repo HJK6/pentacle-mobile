@@ -1,0 +1,4 @@
+{"type":"chat.event","event":{"daemon_seq":101,"parent_seq":100,"stream_id":"fixture:assistant:render-order","host":"hostc","provider":"codex","session_name":"render-order","timestamp":"2026-05-08T00:00:01Z","kind":"ASSIST","text":"First streamed chunk"}}
+{"type":"chat.event","event":{"daemon_seq":103,"parent_seq":101,"stream_id":"fixture:assistant:render-order","host":"hostc","provider":"codex","session_name":"render-order","timestamp":"2026-05-08T00:00:03Z","kind":"ASSIST","text":"Coalesced chunk after tool output","coalesce_key":"assistant-stream"}}
+{"type":"chat.event","event":{"daemon_seq":102,"parent_seq":101,"stream_id":"fixture:assistant:render-order","host":"hostc","provider":"codex","session_name":"render-order","timestamp":"2026-05-08T00:00:02Z","kind":"TOOL","text":"Tool result inserted between assistant chunks"}}
+

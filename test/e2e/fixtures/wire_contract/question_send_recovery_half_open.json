@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "case": "question_send_recovery",
+  "question": {
+    "question_id": "wire-send-recovery",
+    "title": "Choose recovery",
+    "body": "Select the recovery path.",
+    "response_mode": "single_choice",
+    "options": [
+      {"label": "Proceed", "value": "proceed", "description": "Submit through the injected cut"},
+      {"label": "Wait", "value": "wait", "description": "Leave the question open"}
+    ]
+  },
+  "answer": {"option_index": 0, "expected_selection": "proceed"},
+  "fault": {
+    "mode": "half_open",
+    "expected_side_effects": 1,
+    "response_type": "notification.resolve.ok",
+    "requires_restart": false
+  }
+}
