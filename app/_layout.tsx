@@ -92,7 +92,10 @@ if (process.env.EXPO_PUBLIC_HARNESS === '1') {
   });
   const runtimeErrorCollector = require('../src/harness/runtimeErrorCollector') as typeof import('../src/harness/runtimeErrorCollector');
   const rejectionTracking = require('promise/setimmediate/rejection-tracking') as { enable: (options: Record<string, unknown>) => void };
-  const rejectionOptionsModule = require('react-native/Libraries/promiseRejectionTrackingOptions') as { default?: Record<string, unknown> } | Record<string, unknown>;
+  // Native rejection options import NativeModules, which is unavailable on web.
+  const rejectionOptionsModule = (Platform.OS === 'web'
+    ? {}
+    : require('react-native/Libraries/promiseRejectionTrackingOptions')) as { default?: Record<string, unknown> } | Record<string, unknown>;
   runtimeErrorCollector.installHarnessRuntimeErrorCollector({
     log: (payload) => telemetry.logTelemetry(
       'harness:runtime_error' as Parameters<typeof telemetry.logTelemetry>[0],

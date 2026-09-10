@@ -78,8 +78,8 @@ test('bucket truth preserves unrelated-stream identity and exposes a frozen comp
 });
 
 test('the compatibility projection stays frozen in production builds', () => {
-  const prior = process.env.NODE_ENV;
-  process.env.NODE_ENV = 'production';
+  const prior = process.env;
+  process.env = { ...prior, NODE_ENV: 'production' };
   try {
     const state = mutatePentacleEventBuckets(
       legacyState([event('hostc:codex:a', 1)], ['hostc:codex:a']),
@@ -89,7 +89,7 @@ test('the compatibility projection stays frozen in production builds', () => {
     expect(Object.isFrozen(state.events[0])).toBe(true);
     expect(Object.isFrozen(state.eventBucketsByStream?.['hostc:codex:a']?.events)).toBe(true);
   } finally {
-    process.env.NODE_ENV = prior;
+    process.env = prior;
   }
 });
 

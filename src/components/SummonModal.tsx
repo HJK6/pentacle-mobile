@@ -102,13 +102,11 @@ export default function SummonModal({
 
   const grid = useMemo(
     () =>
-      MACHINE_ORDER.map((name) => {
-        const live = machines.find((machine) => canonicalMachineName(machine.title) === name);
-        return {
-          name,
-          machine: live,
-          meta: MACHINES[name],
-        };
+      machines.map((machine, index) => {
+        const name = canonicalMachineName(machine.title)
+          || canonicalMachineName(machine.host)
+          || MACHINE_ORDER[index % MACHINE_ORDER.length];
+        return { name, machine, meta: MACHINES[name] };
       }),
     [machines],
   );
@@ -153,8 +151,8 @@ export default function SummonModal({
                 const enabled = Boolean(machine?.online);
                 return (
                   <Pressable
-                    key={name}
-                    testID={`summon-machine-${name}`}
+                    key={machine.host}
+                    testID={`summon-machine-${machine.host}`}
                     disabled={!enabled}
                     onPress={() => machine && setSelected(machine)}
                     style={[
@@ -167,7 +165,7 @@ export default function SummonModal({
                     ]}
                   >
                     <ArcaneRingFrame machine={name} size={58} sigilSize={36} />
-                    <Text style={styles.machineName}>{name}</Text>
+                    <Text style={styles.machineName}>{machine.title}</Text>
                   </Pressable>
                 );
               })}

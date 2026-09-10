@@ -346,7 +346,7 @@ test('the FAB is disabled when no machine is online and offline machines are dis
 });
 
 test('an online machine renders its grid entry enabled and offline peers disabled', () => {
-  mockState.hosts = { hostc: { host: 'hostc', online: true, checked_at: '', session_count: 0 } };
+  mockState.hosts = { hostc: { host: 'hostc', online: true, checked_at: '', session_count: 0 }, hosta: { host: 'hosta', online: false, checked_at: '', session_count: 0 } };
   render(<ChatsScreen />);
 
   fireEvent.press(screen.getByTestId('new-chat-button'));

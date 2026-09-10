@@ -111,3 +111,14 @@ test('a multi-line objective is rejected (single line only)', async () => {
   expect(screen.getByTestId('summon-submit').props.accessibilityState?.disabled).toBe(true);
 });
 
+
+test('a configured host outside the example palette can spawn using its exact identity', async () => {
+  mockState.hosts = { local: { host: 'local', online: true, checked_at: '', session_count: 0 } };
+  render(<ChatsScreen />);
+  fireEvent.press(screen.getByTestId('new-chat-button'));
+  fireEvent.press(screen.getByTestId('summon-machine-local'));
+  await screen.findByTestId('summon-model-gpt-5.6-sol');
+  fireEvent.changeText(screen.getByTestId('summon-objective'), 'Verify the public client');
+  await act(async () => { fireEvent.press(screen.getByTestId('summon-submit')); });
+  await waitFor(() => expect(mockActions.spawnSessionV2).toHaveBeenCalledWith(expect.objectContaining({host: 'local'})));
+});

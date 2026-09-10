@@ -1199,8 +1199,8 @@ export default function ChatsScreen() {
   }, [allChatsHarnessActive, chats, harnessCommitTick, harnessStateRevision, isFocused]);
 
   const summonMachines: SummonMachine[] = useMemo(
-    () => activeMachines.map((machine) => ({ host: machine.host, title: machine.title, online: machine.online })),
-    [activeMachines],
+    () => machines.map((machine) => ({ host: machine.host, title: machine.title, online: machine.online })),
+    [machines],
   );
   const unresolvedActionCount = chats.reduce((count, chat) => count + chat.openQuestions.length, 0);
 
