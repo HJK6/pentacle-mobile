@@ -1,4 +1,4 @@
-import { orderSessionTranscriptRows } from '../app/pentacle/session/[streamId]';
+import { orderSessionTranscriptRows, formatNotificationAnswerTellItem, suppressLocalQuestionAnswerEchoes } from '../app/pentacle/session/[streamId]';
 import type { PentacleTranscriptItem } from 'pentacle-chat-core';
 
 jest.mock('expo-constants', () => require('./helpers/stubs/expoConstants.cjs'));
@@ -117,4 +117,43 @@ test('a duplicate notification anchor is consumed once — no double insertion',
   const ordered = orderSessionTranscriptRows(detailItems, projections);
   const answers = ordered.filter((item) => item.id === 'session-question-answer-a');
   expect(answers).toHaveLength(1);
+});
+
+
+test('a resolved plaintext answer keeps its received position after its echo is deduplicated', () => {
+  const notificationId = 'received-question';
+  const echo = formatNotificationAnswerTellItem(detailRow('509', 'user-message',
+    '[notification.answer]\nnotification_id=received-question\ntext=Proceed with the documented checks\nby=operator',
+    { isUser: true, timestampLabel: '07:44 PM' }));
+  const later = detailRow('581', 'assistant-message', 'later deployment update');
+  const source = [echo, detailRow('560', 'user-message', 'use the simulator'), later];
+  const filtered = suppressLocalQuestionAnswerEchoes(source, new Set([notificationId]));
+  const projections = [answerProjection('received', 'Operator answered: Proceed with the documented checks', notificationId)];
+  const ordered = orderSessionTranscriptRows(filtered, projections, source);
+  expect(idsBottomToTop(ordered)).toEqual(['581', '560', 'session-question-answer-received']);
+  expect(ordered[2].timestampLabel).toBe('07:44 PM');
+  const next = detailRow('600', 'assistant-message', 'more progress');
+  expect(idsBottomToTop(orderSessionTranscriptRows([...filtered, next], projections, [...source, next])))
+    .toEqual(['600', '581', '560', 'session-question-answer-received']);
+  expect(ordered.filter((item) => item.eventCase === 'agent-question-answer')).toHaveLength(1);
+});
+
+test('the actual answer receipt takes precedence over an older ask anchor', () => {
+  const source = [
+    detailRow('1', 'agent-question-ask', 'question', { notificationId: 'q' }),
+    detailRow('2', 'assistant-message', 'work before answer'),
+    detailRow('3', 'agent-question-answer', 'answer echo', { notificationId: 'q' }),
+    detailRow('4', 'assistant-message', 'work after answer'),
+  ];
+  const filtered = suppressLocalQuestionAnswerEchoes(source, new Set(['q']));
+  expect(idsBottomToTop(orderSessionTranscriptRows(filtered, [answerProjection('a', 'answer', 'q')], source)))
+    .toEqual(['4', 'session-question-answer-a', '2', '1']);
+});
+
+test('a restored resolved answer without a loaded echo uses its recorded time, not the newest end', () => {
+  const source = [detailRow('1', 'assistant-message', 'before'), detailRow('2', 'assistant-message', 'after')];
+  const projection = { ...answerProjection('a', 'answer', 'q'), answerTimestamp: '2026-09-10T00:44:02.971Z' };
+  const times = new Map([['1', '2026-09-10T00:43:00Z'], ['2', '2026-09-10T00:48:16.961Z']]);
+  expect(idsBottomToTop(orderSessionTranscriptRows(source, [projection], source, times)))
+    .toEqual(['2', 'session-question-answer-a', '1']);
 });

@@ -7,7 +7,7 @@
 
 import React from 'react';
 import { act, fireEvent, render, screen, within } from '@testing-library/react-native';
-import { StyleSheet } from 'react-native';
+import { FlatList, StyleSheet } from 'react-native';
 import SessionScreen, { SESSION_QUESTION_SUBMISSION_TIMEOUT_MS } from '../app/pentacle/session/[streamId]';
 import usePentacleToken from '../src/hooks/usePentacleToken';
 import { usePentacleStreamActions, usePentacleStreamSelectorWhen } from '../src/services/pentacleStream';
@@ -1356,3 +1356,35 @@ test('scan_incomplete pager shows one active card and enables submit once answer
   expect(enabledSubmit.props.accessibilityState?.disabled).toBe(false);
 });
 
+
+test('resolved answer stays at its receipt between messages after backfill and later updates', () => {
+  resetState(CLAUDE_STREAM_ID, { working: true });
+  const answeredAt = '2026-05-25T12:01:00.000Z';
+  const notification = durableQuestionNotification('n-received-order');
+  notification.state = 'resolved';
+  notification.updated_at = '2026-05-25T12:09:00.000Z';
+  notification.resolved_at = answeredAt;
+  notification.resolution = { by: 'operator', at: answeredAt, action_kind: 'yes_no' };
+  notification.question = { ...notification.question!, state: 'answered', answer: { text: 'Proceed with the checks' } };
+  mockState.notifications = [notification];
+  const event = (daemon_seq: number, timestamp: string, text: string, kind = 'ASSIST_TEXT'): PentacleEvent => ({
+    daemon_seq, timestamp, text, kind, stream_id: CLAUDE_STREAM_ID,
+    host: CLAUDE_STREAM_ID.split(':')[0], provider: 'claude', session_id: 'one', session_name: 'one',
+  });
+  mockState.events = [
+    event(501, '2026-05-25T12:00:00.000Z', 'Before answer'),
+    event(509, '2026-05-25T12:02:00.000Z', '[notification.answer]\nnotification_id=n-received-order\ntext=Proceed with the checks\nby=operator', 'USER'),
+    event(581, '2026-05-25T12:05:00.000Z', 'After answer'),
+  ];
+  const view = render(<SessionScreen />);
+  const rows = () => screen.UNSAFE_getByType(FlatList).props.data as Array<{ id: string; text: string; timestampLabel: string }>;
+  expect(rows().map((row) => row.text)).toEqual(['After answer', 'Operator answered: Proceed with the checks', 'Before answer']);
+  expect(rows()[1].timestampLabel).toBe(new Date('2026-05-25T12:02:00Z').toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+  // Reopening without the echo uses immutable resolution time, never updated_at.
+  view.unmount();
+  mockState.events = mockState.events.filter((row) => row.daemon_seq !== 509);
+  mockState.events.push(event(600, '2026-05-25T12:10:00Z', 'Newest update'));
+  render(<SessionScreen />);
+  expect(rows().map((row) => row.text)).toEqual(['Newest update', 'After answer', 'Operator answered: Proceed with the checks', 'Before answer']);
+  expect(rows().filter((row) => row.text.startsWith('Operator answered:'))).toHaveLength(1);
+});

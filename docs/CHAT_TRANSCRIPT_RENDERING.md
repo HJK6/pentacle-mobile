@@ -82,15 +82,9 @@ primary and uniform for optimistic, live, and history rows; malformed or
 ordinary text falls back to a normal user bubble. The on-wire text is not
 changed, so copy still returns the raw answer grammar.
 
-An answer remains immediately after its originating question. The row merger
-matches projections by `notificationId`; it uses the ask row's actual position
-and falls back to the end only when that row is outside the loaded window. A
-duplicate anchor is consumed once and partial multi-question answers remain
-together.
+An answer keeps the position and timestamp of its matching transcript receipt, even when a resolved-notification projection replaces that receipt during deduplication. If the receipt is outside the loaded window, immutable `resolved_at` or `resolution.at` orders the answer among real event timestamps. Later notification `updated_at` values never move it. Local answers capture submission time once. Legacy untimed records retain their original question anchor when available.
 
-If an offline durable answer later fails terminally, its settled projection is
-removed and the question card becomes answerable again. A still-pending retry
-and rows from other sources are preserved.
+Complete multi-question coverage is still required before suppressing the echoed answer. Partial coverage preserves the echo so no child answer disappears, and each replacement projection is inserted once. Tests cover plaintext answer receipts, later arrivals, and reopening without the receipt in the loaded window.
 
 ## Peer messages
 

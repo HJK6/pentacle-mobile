@@ -100,7 +100,7 @@ import type { InterruptSendResult, PendingSessionClose, StreamOpenEntrySource } 
 import { isPentacleSessionSendEligible } from '../../../src/services/sessionInputReadiness';
 import { useUserPreference } from '../../../src/services/userPreferences';
 import { getHostTheme } from '../../../src/config/local';
-import { interpretPentacleEvent, invalidateSessionDetailCache, MAX_CHAT_ATTACHMENTS, SESSION_SENDING_VISIBLE_AFTER_MS, parsePeerAgentMessage, type ChatAttachment, type ChildAgent, type PentacleTranscriptItem } from 'pentacle-chat-core';
+import { interpretPentacleEvent, peekEventsForStream, invalidateSessionDetailCache, MAX_CHAT_ATTACHMENTS, SESSION_SENDING_VISIBLE_AFTER_MS, parsePeerAgentMessage, type ChatAttachment, type ChildAgent, type PentacleTranscriptItem } from 'pentacle-chat-core';
 import { parseMarkdown, parseInline, type MdInline, type MdBlock } from 'pentacle-chat-core';
 import { stripClaudeExpandHint } from 'pentacle-chat-core';
 import { MISSING_SESSION_REDIRECT_MS, shouldArmRedirectTimer } from '../../../src/services/sessionScreenRedirect';
@@ -151,6 +151,7 @@ type SessionQuestionAnswerProjection = {
   key: string;
   attemptId: number;
   source: 'pane' | 'durable';
+  answeredAt?: string;
   notificationId?: string;
   childCount?: number;
   text: string;
@@ -795,7 +796,7 @@ export function formatNotificationAnswerTellItem(item: PentacleTranscriptItem): 
   };
 }
 
-function resolvedDurableQuestionProjections(notification: PentacleNotification) {
+export function resolvedDurableQuestionProjections(notification: PentacleNotification) {
   const model = durableQuestionCardModel(notification);
   const payload = notification.question as (PentacleNotification['question'] & {
     questions?: Array<{ answer?: Record<string, unknown> | null }>;
@@ -836,6 +837,8 @@ function resolvedDurableQuestionProjections(notification: PentacleNotification) 
       // notification yields one projection PER CHILD, so the echo row may only be suppressed
       // once every child is projected (see transcriptData).
       childCount: model.items.length,
+      // Resolution time is immutable; updated_at changes again when the agent consumes it.
+      answeredAt: notification.resolved_at || notification.resolution?.at || undefined,
       text: buildDurableQuestionAnswerText({
         notificationId: notification.notification_id,
         questionId: item.questionId,
@@ -851,7 +854,15 @@ function resolvedDurableQuestionProjections(notification: PentacleNotification) 
   });
 }
 
-export function sessionQuestionProjectionItem(projection: Pick<SessionQuestionAnswerProjection, 'key' | 'text' | 'pending'>): PentacleTranscriptItem {
+type QuestionTimelineItem = PentacleTranscriptItem & { answerTimestamp?: string };
+
+function answerClock(timestamp?: string) {
+  const date = timestamp ? new Date(timestamp) : null;
+  return date && Number.isFinite(date.getTime())
+    ? date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+}
+
+export function sessionQuestionProjectionItem(projection: Pick<SessionQuestionAnswerProjection, 'key' | 'text' | 'pending' | 'answeredAt'>): QuestionTimelineItem {
   const interpreted = interpretPentacleEvent({
     daemon_seq: -1,
     host: '',
@@ -865,7 +876,8 @@ export function sessionQuestionProjectionItem(projection: Pick<SessionQuestionAn
   });
   return {
     id: `session-question-answer-${projection.key}`,
-    timestampLabel: '',
+    timestampLabel: answerClock(projection.answeredAt),
+    answerTimestamp: projection.answeredAt,
     label: interpreted.label,
     tone: interpreted.tone,
     provider: '',
@@ -881,48 +893,54 @@ export function sessionQuestionProjectionItem(projection: Pick<SessionQuestionAn
   };
 }
 
-// Merge answer projections (authoritative + optimistic) into the chronological
-// transcript so an answered question KEEPS ITS ORIGINAL POSITION. Each projection
-// is placed immediately after its originating `agent-question-ask` row, matched by
-// notificationId (the durable question's stable id — no fabricated daemon seq).
-// Projections whose ask row is not in the loaded window fall back to the newest
-// end (prior behavior; the question is out of view anyway). `detailItems` arrive
-// oldest->newest; the result is newest->oldest for the inverted FlatList.
-// All projections sharing a notificationId (partial multi-question answers,
-// pending+authoritative) are inserted together in the given order, updating in
-// place across pending -> resolved -> replayed.
+// Dedupe may remove the echoed answer from detailItems, but its original position
+// remains authoritative. Use that receipt first, then immutable resolution time.
+// Legacy answers with neither retain the ask anchor. Never derive time from a
+// formatted clock or invent a daemon sequence for a notification projection.
 export function orderSessionTranscriptRows(
   detailItems: readonly PentacleTranscriptItem[],
-  answerProjectionItems: readonly PentacleTranscriptItem[],
+  answerProjectionItems: readonly QuestionTimelineItem[],
+  sourceItems: readonly PentacleTranscriptItem[] = detailItems,
+  eventTimestamps: ReadonlyMap<string, string> = new Map(),
 ): PentacleTranscriptItem[] {
-  const byNotification = new Map<string, PentacleTranscriptItem[]>();
-  const unanchored: PentacleTranscriptItem[] = [];
-  for (const projection of answerProjectionItems) {
-    const notificationId = projection.notificationId;
-    if (notificationId) {
-      const bucket = byNotification.get(notificationId);
-      if (bucket) bucket.push(projection);
-      else byNotification.set(notificationId, [projection]);
-    } else {
-      unanchored.push(projection);
+  const retained = new Set(detailItems.map((item) => item.id));
+  const echoed = new Set(sourceItems
+    .filter((item) => item.eventCase === 'agent-question-answer' && item.notificationId)
+    .map((item) => item.notificationId!));
+  const consumed = new Set<string>();
+  const ordered: PentacleTranscriptItem[] = [];
+  const timed = answerProjectionItems
+    .filter((item) => Number.isFinite(Date.parse(item.answerTimestamp || '')))
+    .slice().sort((a, b) => Date.parse(a.answerTimestamp!) - Date.parse(b.answerTimestamp!));
+  const append = (projection: QuestionTimelineItem, anchor?: PentacleTranscriptItem) => {
+    if (consumed.has(projection.id)) return;
+    consumed.add(projection.id);
+    ordered.push(anchor ? {
+      ...projection,
+      timestampLabel: anchor.timestampLabel || answerClock(eventTimestamps.get(anchor.id)) || projection.timestampLabel,
+    } : projection);
+  };
+  for (const item of sourceItems) {
+    const itemTime = Date.parse(eventTimestamps.get(item.id) || '');
+    if (Number.isFinite(itemTime)) {
+      for (const projection of timed) {
+        if (!echoed.has(projection.notificationId || '') && Date.parse(projection.answerTimestamp!) < itemTime) {
+          append(projection);
+        }
+      }
+    }
+    if (retained.has(item.id)) ordered.push(item);
+    if (!item.notificationId) continue;
+    for (const projection of answerProjectionItems) {
+      if (projection.notificationId !== item.notificationId) continue;
+      if (item.eventCase === 'agent-question-answer') append(projection, item);
+      else if (item.eventCase === 'agent-question-ask' &&
+        !echoed.has(item.notificationId) && !Number.isFinite(Date.parse(projection.answerTimestamp || ''))) {
+        append(projection);
+      }
     }
   }
-  const ordered: PentacleTranscriptItem[] = [];
-  const consumed = new Set<string>();
-  for (const item of detailItems) {
-    ordered.push(item);
-    if (item.eventCase !== 'agent-question-ask') continue;
-    const notificationId = item.notificationId;
-    if (!notificationId || consumed.has(notificationId)) continue;
-    const bucket = byNotification.get(notificationId);
-    if (!bucket) continue;
-    ordered.push(...bucket);
-    consumed.add(notificationId);
-  }
-  for (const [notificationId, bucket] of byNotification) {
-    if (!consumed.has(notificationId)) ordered.push(...bucket);
-  }
-  ordered.push(...unanchored);
+  for (const projection of answerProjectionItems) append(projection);
   return ordered.reverse();
 }
 
@@ -1272,6 +1290,14 @@ export default function PentacleSessionScreen() {
     }).catch(() => undefined);
   }, [connectionSlice.connected, isFocused, params.reports, streamId]);
   const hasQuestionAnswerProjection = Object.keys(questionAnswerProjections).length > 0 || authoritativeQuestionAnswerProjections.length > 0;
+  const questionTimelineEvents = usePentacleStreamSelectorWhen(
+    isFocused && hasQuestionAnswerProjection,
+    (snapshot) => peekEventsForStream(snapshot, streamId),
+    (left, right) => left === right || (left.length === right.length && left.every((event, index) => event === right[index])),
+  );
+  const questionEventTimestamps = useMemo(() => new Map(
+    questionTimelineEvents.map((event) => [String(event.daemon_seq), event.timestamp]),
+  ), [questionTimelineEvents]);
   const hasOptimisticPending = Boolean(
     detail?.transcriptItems.some((item) => item.pending) ||
     Object.values(questionAnswerProjections).some((projection) => projection.pending),
@@ -1560,6 +1586,7 @@ export default function PentacleSessionScreen() {
         attemptId,
         source,
         text,
+        answeredAt: new Date().toISOString(),
         pending: true,
         ...(notificationId ? { notificationId } : {}),
         ...(childCount ? { childCount } : {}),
@@ -1914,8 +1941,8 @@ export default function PentacleSessionScreen() {
       .filter((projection) => !authoritativeKeys.has(projection.key))
       .filter((projection) => projection.source !== 'pane' || !userTexts.has(projection.text))
       .map(sessionQuestionProjectionItem);
-    return orderSessionTranscriptRows(detailItems, [...authoritativeItems, ...optimisticItems]);
-  }, [authoritativeQuestionAnswerProjections, detail?.transcriptItems, questionAnswerProjections]);
+    return orderSessionTranscriptRows(detailItems, [...authoritativeItems, ...optimisticItems], normalizedDetailItems, questionEventTimestamps);
+  }, [authoritativeQuestionAnswerProjections, detail?.transcriptItems, questionAnswerProjections, questionEventTimestamps]);
   useEffect(() => {
     const correlationId = chatOpenCorrelationIdRef.current;
     const firstAuthoritative = transcriptData.find((item) => !String(item.id).startsWith('fallback:'));
