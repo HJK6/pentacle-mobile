@@ -208,7 +208,7 @@ test('unfocused empty fleet remains renderable with cached limits', () => {
   render(<SettingsScreen />);
   expect((usePentacleStreamSelectorWhen as jest.Mock).mock.calls.at(-1)?.[0]).toBe(false);
   expect(screen.getByTestId('limits-row-claude')).toBeTruthy();
-  expect(screen.getAllByText('hosta').length).toBeGreaterThanOrEqual(1);
+  expect(screen.queryByText('hosta')).toBeNull();
 });
 
 test('machine selector equality detects every UI-relevant fleet change', () => {

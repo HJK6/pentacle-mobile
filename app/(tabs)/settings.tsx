@@ -51,34 +51,17 @@ const HOST_TO_MACHINE: Record<string, MachineName> = {
   hostd: 'hostd',
 };
 
-function machineNameFor(hostOrTitle: string): MachineName {
-  const key = String(hostOrTitle || '').trim().toLowerCase();
-  return HOST_TO_MACHINE[key] || 'hosta';
-}
-
 type DisplayMachineStatsCard = PentacleMachineStatsCard & {
   machineName: MachineName;
 };
 
-function buildMachineTabs(machines: PentacleMachineStatsCard[]): DisplayMachineStatsCard[] {
-  const byMachine = new Map<MachineName, PentacleMachineStatsCard>();
-  machines.forEach((machine) => {
-    byMachine.set(machineNameFor(machine.title || machine.host), machine);
-  });
-
-  return MACHINE_ORDER.map((machineName) => {
-    const existing = byMachine.get(machineName);
-    if (existing) return { ...existing, machineName };
-    return {
-      host: machineName.toLowerCase(),
-      title: machineName,
-      online: false,
-      sessionCount: 0,
-      statusLabel: 'Offline',
-      stats: undefined,
-      machineName,
-    };
-  });
+export function buildMachineTabs(machines: PentacleMachineStatsCard[]): DisplayMachineStatsCard[] {
+  // Machine skins are presentation, never host identity. The selector already
+  // supplies configured offline hosts; preserve every host and its actual data.
+  return machines.map((machine, index) => ({
+    ...machine,
+    machineName: HOST_TO_MACHINE[machine.host.toLowerCase()] || MACHINE_ORDER[index % MACHINE_ORDER.length],
+  }));
 }
 
 // A daemon-owned sample older than this is rendered stale (matches the desktop

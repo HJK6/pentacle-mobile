@@ -2,7 +2,7 @@ import React from 'react';
 import { act, render, screen, waitFor } from '@testing-library/react-native';
 import { Switch } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import SettingsScreen from '../app/(tabs)/settings';
+import SettingsScreen, { buildMachineTabs } from '../app/(tabs)/settings';
 import usePentacleToken from '../src/hooks/usePentacleToken';
 import useLimits from '../src/hooks/useLimits';
 import { usePentacleStreamActions, usePentacleStreamSelectorWhen } from '../src/services/pentacleStream';
@@ -12,6 +12,19 @@ import {
 } from '../src/services/userPreferences';
 
 const mockStorage: Record<string, string> = {};
+
+test('machine tabs retain distinct custom hosts even when display titles match', () => {
+  const machines = [
+    { host: 'local', title: 'Workstation', online: true, sessionCount: 2, statusLabel: 'Online' },
+    { host: 'build-server', title: 'Workstation', online: false, sessionCount: 0, statusLabel: 'Offline' },
+  ];
+  const tabs = buildMachineTabs(machines);
+  expect(tabs.map(({ host, online, sessionCount }) => ({ host, online, sessionCount }))).toEqual([
+    { host: 'local', online: true, sessionCount: 2 },
+    { host: 'build-server', online: false, sessionCount: 0 },
+  ]);
+  expect(buildMachineTabs([])).toEqual([]);
+});
 
 jest.mock('@react-native-async-storage/async-storage', () => ({
   getItem: jest.fn(async (key: string) => mockStorage[key] ?? null),
@@ -113,4 +126,3 @@ test('show turn duration toggle persists through AsyncStorage', async () => {
     JSON.stringify({ showToolActions: false, showTurnDuration: true }),
   );
 });
-

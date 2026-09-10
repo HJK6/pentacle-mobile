@@ -110,6 +110,18 @@ The app exchanges the short code with the daemon, stores the credential in
 SecureStore and opens Chats. Allow any required device authentication prompt.
 No private enrollment service is needed.
 
+## Limits, machine stats, shared memory and questions
+
+On the daemon/agent computers, follow the
+[agent metrics and memory guide](https://github.com/HJK6/pentacle/blob/main/docs/AGENT_METRICS_AND_MEMORY.md).
+It covers Claude account-limit collection, local/remote machine stats,
+Syncthing memory synchronization and Updates-only operator questions. These
+are host-side services: do not place provider credentials or the synced memory
+filesystem on the phone. Verify limits and each configured machine in mobile
+Settings after host setup. Claude seats launched through Pentacle already have
+native `AskUserQuestion` disabled; agents ask through `agent-orch prompt ask`
+and consume the full durable answer, including its note.
+
 ## Verify and hand over
 
 In Chats, create a session on `local`, send a short message and observe the
