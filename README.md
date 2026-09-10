@@ -5,20 +5,17 @@ It connects to the daemon in [**HJK6/pentacle**](https://github.com/HJK6/pentacl
 which runs on the computer where your agents work. Set up that daemon first;
 the phone app does not run it. The desktop app is optional for mobile users.
 
-## Recommended setup: give an agent this guide
+## Getting started
 
-Start a coding agent such as Fable or Astra on your Mac. Give it the path to
-[docs/FRIEND_SETUP.md](docs/FRIEND_SETUP.md), or this README, and ask:
+1. Set up the [Pentacle daemon](https://github.com/HJK6/pentacle) on the computer
+   where your coding agents run. The desktop app is optional.
+2. Build and install this app on a simulator or phone.
+3. Connect and enroll the app with your daemon, then open Chats.
 
-> Set up Pentacle Mobile by following `/path/to/pentacle-mobile/docs/FRIEND_SETUP.md`.
-> Set up or reuse the daemon, configure and build the app, enroll it, and verify
-> a real conversation. Complete everything you can and tell me only about any
-> account, signing or device action I must do myself.
-
-The guide covers the real daemon, network address, signing, enrollment and
-verification. Have your provider account ready. A physical iPhone also needs
-your signing identity, device trust and Developer Mode. Start with a simulator
-if you want to try it before installing on a phone.
+The recommended way is to let a coding agent such as Fable or Astra handle
+setup. Give it the path to [AGENT_SETUP.md](AGENT_SETUP.md). That separate guide
+contains the full agent checklist. You may still need to complete provider
+login, Apple signing or a device trust/unlock prompt yourself.
 
 ## Do I need chat-core separately?
 
@@ -41,7 +38,7 @@ cp pentacle.config.example.ts pentacle.config.local.ts
 ```
 
 Set the endpoint, app identifiers and host names using
-[the setup guide](docs/FRIEND_SETUP.md#configure-the-app). Keep credentials out
+[the setup guide](AGENT_SETUP.md#configure-the-app). Keep credentials out
 of this ignored config file. Then, for a simulator:
 
 ```sh
@@ -50,7 +47,7 @@ npx expo prebuild --platform ios
 npm run ios
 ```
 
-Finally, [enroll the app](docs/FRIEND_SETUP.md#enroll-the-app) using a fresh link
+Finally, [enroll the app](AGENT_SETUP.md#enroll-the-app) using a fresh link
 issued on the daemon host. For a physical iPhone, follow the guide's device and
 network steps. `npm start` runs Metro; it does not install or enroll an app.
 
