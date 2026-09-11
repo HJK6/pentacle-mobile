@@ -2,8 +2,11 @@ import Constants from 'expo-constants';
 import type { HostTheme } from '../../pentacle.config.example';
 import type { PentacleStreamState } from 'pentacle-chat-core';
 import { normalizePentacleHost } from 'pentacle-chat-core';
+import { MACHINES, MACHINE_ORDER, type MachineName, type MachineSigilKind } from '../../constants/Colors';
 
-export type RuntimeHostTheme = Required<HostTheme> & {
+// `sigil` is a presentation hint resolved by getHostMachineName, not part of the
+// runtime color theme, so it is not required on RuntimeHostTheme.
+export type RuntimeHostTheme = Required<Omit<HostTheme, 'sigil'>> & {
   color: string;
 };
 
@@ -103,4 +106,31 @@ export function getHostOrder(state?: Pick<PentacleStreamState, 'hosts' | 'sessio
     Object.values(state.machineStats || {}).forEach((stats) => push(stats.host || ''));
   }
   return ordered;
+}
+
+const SIGIL_TO_MACHINE: Record<MachineSigilKind, MachineName> = (
+  Object.keys(MACHINES) as MachineName[]
+).reduce((acc, name) => {
+  acc[MACHINES[name].kind] = name;
+  return acc;
+}, {} as Record<MachineSigilKind, MachineName>);
+
+// Resolve a configured host id to the arcane sigil skin it should wear. This is the
+// single host→sigil mapping in the app; every call site (chat rows, roster strip,
+// session header, settings tabs, summon grid) delegates here.
+//   1. explicit `sigil` on the host's config wins;
+//   2. else positional over the configured hostOrder (legacy behavior — preserved for
+//      configs without sigils, not the intended skin);
+//   3. else the first machine.
+export function getHostMachineName(host: string): MachineName {
+  const hostId = normalizePentacleHost(host);
+  const sigil = configuredHosts()[hostId]?.sigil;
+  if (sigil && SIGIL_TO_MACHINE[sigil]) {
+    return SIGIL_TO_MACHINE[sigil];
+  }
+  const index = getConfiguredHostOrder().indexOf(hostId);
+  if (index >= 0 && index < MACHINE_ORDER.length) {
+    return MACHINE_ORDER[index];
+  }
+  return MACHINE_ORDER[0];
 }

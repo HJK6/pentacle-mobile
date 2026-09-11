@@ -51,7 +51,11 @@ Preserve an existing local config instead of replacing it. Set:
 - `apple.bundleId`: your iOS identifier, such as `com.example.pentacle.mobile`.
 - `apple.androidPackage`: your Android identifier if building Android.
 - `hosts`: the daemon key with a readable label and color. Rename the example
-  `laptop` key to `local` when following the default daemon setup.
+  `laptop` key to `local` when following the default daemon setup. Add an optional
+  `sigil` (`djinni` | `sun` | `mage` | `flower`) to pick the arcane skin that host
+  wears in chat rows, the roster strip, the session header, settings tabs and the
+  summon grid. Without `sigil` the app skins hosts positionally over `hostOrder`,
+  which only preserves legacy positions — set `sigil` for the intended skin.
 - `hostOrder`: `['local']` for that single-host setup.
 - `apple.expoOwner` and `apple.easProjectId`: your Expo/EAS values if using EAS;
   leave them empty for a local Xcode build instead of using example placeholders.

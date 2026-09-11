@@ -99,7 +99,7 @@ import * as pentacleStreamRuntime from '../../../src/services/pentacleStream';
 import type { InterruptSendResult, PendingSessionClose, StreamOpenEntrySource } from '../../../src/services/pentacleStream';
 import { isPentacleSessionSendEligible } from '../../../src/services/sessionInputReadiness';
 import { useUserPreference } from '../../../src/services/userPreferences';
-import { getHostTheme } from '../../../src/config/local';
+import { getHostTheme, getHostMachineName } from '../../../src/config/local';
 import { interpretPentacleEvent, peekEventsForStream, invalidateSessionDetailCache, MAX_CHAT_ATTACHMENTS, SESSION_SENDING_VISIBLE_AFTER_MS, parsePeerAgentMessage, type ChatAttachment, type ChildAgent, type PentacleTranscriptItem } from 'pentacle-chat-core';
 import { parseMarkdown, parseInline, type MdInline, type MdBlock } from 'pentacle-chat-core';
 import { stripClaudeExpandHint } from 'pentacle-chat-core';
@@ -490,20 +490,6 @@ function logHarnessHeaderStatusRender(
   });
 }
 
-const HOST_MACHINE: Record<string, MachineName> = {
-  hosta: 'hosta',
-  hostc: 'hostc',
-  hostb: 'hostb',
-  hostd: 'hostd',
-};
-
-function machineNameFor(host: string, label?: string): MachineName {
-  const key = String(host || '').trim().toLowerCase();
-  if (HOST_MACHINE[key]) return HOST_MACHINE[key];
-  const labelKey = String(label || '').trim().toLowerCase();
-  return HOST_MACHINE[labelKey] || 'hosta';
-}
-
 export type HostChrome = {
   header: string;
   accent: string;
@@ -515,7 +501,7 @@ export type HostChrome = {
 
 export function hostChrome(host: string): HostChrome {
   const theme = getHostTheme(host);
-  const machineName = machineNameFor(host, theme.label);
+  const machineName = getHostMachineName(host);
   const machine = MACHINES[machineName];
   return {
     header: Tokens.palette.ink,

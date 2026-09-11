@@ -5,12 +5,12 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   Fonts,
   MACHINES,
-  MACHINE_ORDER,
   SCREEN_PAD,
   TOP_INSET,
   Tokens,
   type MachineName,
 } from '@/constants/Colors';
+import { getHostMachineName } from '../../src/config/local';
 import ArcaneRingFrame from '../../src/components/ArcaneRingFrame';
 import Starfield from '../../src/components/Starfield';
 import { Bar, Spinner } from '../../src/components/ArcaneAtoms';
@@ -44,13 +44,6 @@ const P = {
   offline: Tokens.palette.muted,
 };
 
-const HOST_TO_MACHINE: Record<string, MachineName> = {
-  hosta: 'hosta',
-  hostc: 'hostc',
-  hostb: 'hostb',
-  hostd: 'hostd',
-};
-
 type DisplayMachineStatsCard = PentacleMachineStatsCard & {
   machineName: MachineName;
 };
@@ -58,9 +51,9 @@ type DisplayMachineStatsCard = PentacleMachineStatsCard & {
 export function buildMachineTabs(machines: PentacleMachineStatsCard[]): DisplayMachineStatsCard[] {
   // Machine skins are presentation, never host identity. The selector already
   // supplies configured offline hosts; preserve every host and its actual data.
-  return machines.map((machine, index) => ({
+  return machines.map((machine) => ({
     ...machine,
-    machineName: HOST_TO_MACHINE[machine.host.toLowerCase()] || MACHINE_ORDER[index % MACHINE_ORDER.length],
+    machineName: getHostMachineName(machine.host),
   }));
 }
 

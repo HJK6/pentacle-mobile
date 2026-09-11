@@ -26,6 +26,7 @@ import {
   Tokens,
   type MachineName,
 } from '@/constants/Colors';
+import { getHostMachineName } from '../../src/config/local';
 import ArcaneRingFrame from '../../src/components/ArcaneRingFrame';
 import Bevel from '../../src/components/Bevel';
 import Starfield from '../../src/components/Starfield';
@@ -167,18 +168,6 @@ export function allChatsHarnessRowDigest(rows: SmartChatListItem[]) {
   return (hash >>> 0).toString(16).padStart(8, '0');
 }
 type ProviderId = 'codex' | 'claude';
-
-const HOST_TO_MACHINE: Record<string, MachineName> = {
-  hosta: 'hosta',
-  hostc: 'hostc',
-  hostb: 'hostb',
-  hostd: 'hostd',
-};
-
-function machineNameFor(host: string, title?: string): MachineName {
-  const byTitle = MACHINE_ORDER.find((name) => title?.toLowerCase() === name.toLowerCase());
-  return byTitle ?? HOST_TO_MACHINE[host.toLowerCase()] ?? 'hosta';
-}
 
 function testIdForStream(streamId: string) {
   return `chat-row-${streamId.replace(/[^a-zA-Z0-9_-]/g, '-')}`;
@@ -498,7 +487,7 @@ export function selectSmartChatList(
   const visibleAt = harnessTiming ? globalThis.performance.now() : 0;
   const next = visible
     .map((chat) => {
-      const machineName = machineNameFor(chat.host, chat.hostTitle);
+      const machineName = getHostMachineName(chat.host);
       const session = sessionsByStream.get(chat.streamId);
       const candidate: SmartChatListItem = {
         ...chat,
@@ -1308,7 +1297,7 @@ export default function ChatsScreen() {
       <Starfield />
       <View style={[styles.roster, { paddingTop: Math.max(insets.top, TOP_INSET) }]}>
         {MACHINE_ORDER.map((name) => {
-          const machine = machines.find((item) => machineNameFor(item.host, item.title) === name);
+          const machine = machines.find((item) => getHostMachineName(item.host) === name);
           const online = Boolean(machine?.online);
           const selected = machine?.host === filter;
           const badge = machine ? offlineBadgeLabel({
@@ -1429,7 +1418,7 @@ export default function ChatsScreen() {
       />
 
       {reportsStreamId || (process.env.EXPO_PUBLIC_SCREENSHOT_HARNESS === '1' && params.reportHarness === '1') ? (
-        <ReportViewerModal visible streamId={reportsStreamId || 'hosta:prediction-arb'} accent={MACHINES[machineNameFor(chats.find((chat) => chat.streamId === (reportsStreamId || 'hosta:prediction-arb'))?.host || '')].accent} onClose={() => setReportsStreamId(null)} />
+        <ReportViewerModal visible streamId={reportsStreamId || 'hosta:prediction-arb'} accent={MACHINES[getHostMachineName(chats.find((chat) => chat.streamId === (reportsStreamId || 'hosta:prediction-arb'))?.host || '')].accent} onClose={() => setReportsStreamId(null)} />
       ) : null}
     </View>
   );
@@ -1547,7 +1536,7 @@ export const ChatRow = memo(function ChatRow({
       : 'Delete pending — waiting for active work to finish')
     : null;
   const machineName = useMemo(
-    () => smartChat.machineName ?? machineNameFor(chat.host, chat.hostTitle),
+    () => smartChat.machineName ?? getHostMachineName(chat.host),
     [smartChat.machineName, chat.host, chat.hostTitle],
   );
   const machine = MACHINES[machineName];

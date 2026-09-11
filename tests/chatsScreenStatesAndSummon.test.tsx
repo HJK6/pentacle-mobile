@@ -52,6 +52,10 @@ jest.mock('react-native', () => {
     },
   });
 });
+// Host sigils resolve from configured hosts (src/config/local.getHostMachineName);
+// the stub's default hostOrder (['hosta','hostb','hostc']) skins each placeholder host
+// to its positional machine, so the roster button for host 'hostc' is labeled 'hostc'.
+jest.mock('expo-constants', () => require('./helpers/stubs/expoConstants.cjs'));
 jest.mock('expo-router', () => require('./helpers/mocks/expoRouter').makeMock());
 jest.mock('@expo/vector-icons/FontAwesome', () => 'FontAwesome');
 jest.mock('@react-navigation/native', () => ({ useIsFocused: () => true }));

@@ -6,6 +6,7 @@ import ProviderTag from './ProviderTag';
 import { modelDisplayName } from '../services/modelDisplay';
 import type { SpawnCatalog, SpawnProvider } from '../services/pentacleStream';
 import { OBJECTIVE_MAX_CODE_POINTS, validateSpawnObjective } from '../services/spawnObjective';
+import { getHostMachineName } from '../config/local';
 
 export type SummonMachine = {
   host: string;
@@ -34,10 +35,6 @@ type Props = {
     objective: string;
   }) => void | Promise<void>;
 };
-
-function canonicalMachineName(title: string): MachineName | undefined {
-  return MACHINE_ORDER.find((name) => title.toLowerCase() === name.toLowerCase());
-}
 
 export default function SummonModal({
   visible,
@@ -102,16 +99,14 @@ export default function SummonModal({
 
   const grid = useMemo(
     () =>
-      machines.map((machine, index) => {
-        const name = canonicalMachineName(machine.title)
-          || canonicalMachineName(machine.host)
-          || MACHINE_ORDER[index % MACHINE_ORDER.length];
+      machines.map((machine) => {
+        const name = getHostMachineName(machine.host);
         return { name, machine, meta: MACHINES[name] };
       }),
     [machines],
   );
 
-  const selectedName = selected ? canonicalMachineName(selected.title) : undefined;
+  const selectedName = selected ? getHostMachineName(selected.host) : undefined;
   const selectedMeta = selectedName ? MACHINES[selectedName] : MACHINES[MACHINE_ORDER[0]];
   const profileDefault = catalog?.profiles.desktop_manual?.[provider];
   const selection = byProvider[provider] || (profileDefault ? { model: profileDefault[0], effort: profileDefault[1] } : null);
