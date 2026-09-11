@@ -50,6 +50,9 @@ jest.mock('react-native', () => {
     },
   });
 });
+// Host sigils resolve from configured hosts; the stub's default hostOrder
+// (['hosta','hostb','hostc']) skins host 'hostc' as its positional machine (mage).
+jest.mock('expo-constants', () => require('./helpers/stubs/expoConstants.cjs'));
 jest.mock('expo-router', () => {
   const mock = require('./helpers/mocks/expoRouter').makeMock();
   return {
