@@ -86,6 +86,22 @@ The composer remains editable during an in-flight turn so the user may draft a
 next message. Only the Send action is disabled while the turn phase is not
 `idle`; the screen does not implement a local queue.
 
+## Close reply frames
+
+A close RPC (`{type:'close', host, session_name, defer_if_working:true}`) settles on
+exactly one v2 reply frame, mirroring the desktop rule:
+
+- `close.ok` / `close.degraded` → success (`closed` unless the frame sets `deferred`).
+- `close.already_closed` → success (`closed: true`); the session was already gone.
+- `close.deferred` → deferred; the pending-close queue waits for authoritative inventory
+  removal rather than retrying.
+- `close.failed` → rejection carrying the frame's `reason` as the error code. `reason:
+  'ssh_unreachable'` is **non-transient**: it never enters the retry/backoff loop and is
+  presented as `host_offline` with the honest message "<host label> is offline".
+
+Force delete of an offline-host row sends `{type:'close', force:true, operator_confirm:true}`
+so the daemon's operator-confirmed offline close applies.
+
 ## Invariants
 
 - A focused session survives transient missing inventory during reconnect.

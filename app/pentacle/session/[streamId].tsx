@@ -3141,12 +3141,17 @@ export default function PentacleSessionScreen() {
   const handleDelete = () => {
     setMenuVisible(false);
     if (pendingClose) {
+      const hostOffline = pendingClose.errorCode === 'host_offline';
       const exhausted = pendingClose.state === 'exhausted' || pendingClose.state === 'failed';
       Alert.alert(
-        exhausted ? 'Delete stalled' : 'Delete pending',
-        exhausted
-          ? (pendingClose.errorMessage || 'Automatic retries were exhausted. Choose how to continue.')
-          : `${title} will be removed when its active work finishes.`,
+        hostOffline
+          ? (pendingClose.errorMessage || 'Host is offline')
+          : exhausted ? 'Delete stalled' : 'Delete pending',
+        hostOffline
+          ? `${title} can't be reached on its host. Force delete?`
+          : exhausted
+            ? (pendingClose.errorMessage || 'Automatic retries were exhausted. Choose how to continue.')
+            : `${title} will be removed when its active work finishes.`,
         exhausted
           ? [
             { text: 'Retry', onPress: () => void actions.retryPendingClose(streamId).catch(showDeleteActionError) },

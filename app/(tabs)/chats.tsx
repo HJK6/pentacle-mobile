@@ -834,15 +834,20 @@ export default function ChatsScreen() {
   const handleRowDelete = useCallback(
     (chat: DeletableChatListItem) => {
       if (chat.pendingClose) {
+        const hostOffline = chat.pendingClose.errorCode === 'host_offline';
         const exhausted = chat.pendingClose.state === 'exhausted' || chat.pendingClose.state === 'failed';
         const showActionError = (error: unknown) => {
           Alert.alert('Pentacle', error instanceof Error ? error.message : 'Delete action failed');
         };
         Alert.alert(
-          exhausted ? 'Delete stalled' : 'Delete pending',
-          exhausted
-            ? (chat.pendingClose.errorMessage || 'Automatic retries were exhausted. Choose how to continue.')
-            : `${chat.title} will be removed when its active work finishes.`,
+          hostOffline
+            ? (chat.pendingClose.errorMessage || 'Host is offline')
+            : exhausted ? 'Delete stalled' : 'Delete pending',
+          hostOffline
+            ? `${chat.title} can't be reached on its host. Force delete?`
+            : exhausted
+              ? (chat.pendingClose.errorMessage || 'Automatic retries were exhausted. Choose how to continue.')
+              : `${chat.title} will be removed when its active work finishes.`,
           exhausted
             ? [
               { text: 'Retry', onPress: () => void actions.retryPendingClose(chat.streamId).catch(showActionError) },
@@ -1533,9 +1538,11 @@ export const ChatRow = memo(function ChatRow({
   const displayChat = questionError && questionRetryChat ? questionRetryChat : chat;
   const smartChat = displayChat as Partial<SmartChatListItem>;
   const closeStatusLabel = smartChat.pendingClose
-    ? (smartChat.pendingClose.state === 'exhausted' || smartChat.pendingClose.state === 'failed'
-      ? 'Delete stalled — tap delete for options'
-      : 'Delete pending — waiting for active work to finish')
+    ? (smartChat.pendingClose.errorCode === 'host_offline'
+      ? `${smartChat.pendingClose.errorMessage || 'Host is offline'} — tap to force delete`
+      : smartChat.pendingClose.state === 'exhausted' || smartChat.pendingClose.state === 'failed'
+        ? 'Delete stalled — tap delete for options'
+        : 'Delete pending — waiting for active work to finish')
     : null;
   const machineName = useMemo(
     () => smartChat.machineName ?? getHostMachineName(chat.host),

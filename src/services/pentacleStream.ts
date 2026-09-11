@@ -3,7 +3,7 @@ import { AppState, type AppStateStatus } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useSyncExternalStoreWithSelector } from 'use-sync-external-store/shim/with-selector';
 import { getDefaultPentacleWsUrl } from '../config/pentacle';
-import { decodeThreadRead, logTelemetry } from 'pentacle-chat-core';
+import { decodeThreadRead, logTelemetry, getHostTheme } from 'pentacle-chat-core';
 import { buildDaemonQuestionAnswer } from './daemonQuestionAnswer';
 import { TELEMETRY_EVENTS } from 'pentacle-chat-core';
 import * as harnessRuntime from '../utils/harnessRuntime';
@@ -218,6 +218,19 @@ function closeSessionErrorFromMessage(message: Record<string, unknown>) {
   return new CloseSessionError(
     String(detail?.code || message.error_code || scalarError || 'close_failed'),
     String(detail?.message || scalarError || message.error_code || 'Close failed'),
+    message.work_state,
+  );
+}
+
+// The v2 daemon emits `close.failed` (e.g. `{reason: 'ssh_unreachable'}`) when it cannot
+// reach the host. Carry the reason as the error code so classification can recognise a
+// non-transient offline failure instead of letting the promise time out.
+function closeFailedErrorFromMessage(message: Record<string, unknown>) {
+  const reason = typeof message.reason === 'string' ? message.reason : undefined;
+  const scalarError = typeof message.error === 'string' ? message.error : undefined;
+  return new CloseSessionError(
+    reason || String(message.error_code || 'close_failed'),
+    String(scalarError || message.detail || reason || 'Close failed'),
     message.work_state,
   );
 }
@@ -1067,16 +1080,30 @@ function pendingCloseRetryDelay(attempt: number) {
   return PENDING_CLOSE_BACKOFF_MS[Math.min(Math.max(0, attempt), PENDING_CLOSE_BACKOFF_MS.length - 1)];
 }
 
+// An unreachable host / failed close is a settled, honest failure — not a transport hiccup —
+// so it must never enter the retry loop that a timeout previously produced.
+const NON_TRANSIENT_CLOSE_CODES = ['ssh_unreachable', 'host_offline', 'close_failed'];
+
 function isTransientCloseError(error: unknown) {
   if (error instanceof CloseSessionError) {
+    if (NON_TRANSIENT_CLOSE_CODES.includes(error.errorCode)) return false;
     return ['session_working', 'daemon_unavailable', 'session_unreachable', 'request_timeout'].includes(error.errorCode);
   }
   const message = error instanceof Error ? error.message.toLowerCase() : '';
   return message.includes('not connected') || message.includes('disconnected') || message.includes('timed out');
 }
 
-function pendingCloseErrorFields(error: unknown) {
+function pendingCloseErrorFields(error: unknown, host?: string) {
   if (error instanceof CloseSessionError) {
+    // An unreachable host is offline, not a transient transport failure. Relabel it with an
+    // honest, host-named message and a stable `host_offline` code the row copy keys on.
+    if (error.errorCode === 'ssh_unreachable' || error.errorCode === 'host_offline') {
+      const label = host ? getHostTheme(host).label : '';
+      return {
+        errorCode: 'host_offline',
+        errorMessage: `${label || 'The host'} is offline`,
+      };
+    }
     return {
       errorCode: error.errorCode,
       errorMessage: error.errorCode === 'session_working'
@@ -1144,7 +1171,7 @@ async function finalizeAbsentPendingCloses() {
 
 async function markPendingCloseRetry(pending: PendingSessionClose, error: unknown) {
   const now = Date.now();
-  const errorFields = pendingCloseErrorFields(error);
+  const errorFields = pendingCloseErrorFields(error, pending.host);
   const exhausted = now - pending.requestedAt >= PENDING_CLOSE_TTL_MS;
   const next: PendingSessionClose = {
     ...pending,
@@ -3885,7 +3912,7 @@ function handleMessageInner(raw: string) {
   }
 
   if (
-    (message.type === 'send.ok' || message.type === 'spawn.ok' || message.type === 'rename.ok' || message.type === 'close.ok' || message.type === 'close.degraded' || message.type === 'register_push.ok') &&
+    (message.type === 'send.ok' || message.type === 'spawn.ok' || message.type === 'rename.ok' || message.type === 'close.ok' || message.type === 'close.degraded' || message.type === 'close.already_closed' || message.type === 'close.deferred' || message.type === 'register_push.ok') &&
     typeof message.request_id === 'string'
   ) {
     const pending = pendingRequests.get(message.request_id);
@@ -3921,10 +3948,12 @@ function handleMessageInner(raw: string) {
             resolution_source: message.session?.resolution_source ?? message.resolution_source,
             catalog_version: message.session?.catalog_version ?? message.catalog_version,
           }
-          : (message.type === 'close.ok' || message.type === 'close.degraded')
+          : (message.type === 'close.ok' || message.type === 'close.degraded' || message.type === 'close.already_closed' || message.type === 'close.deferred')
+            // Mirror the desktop rule: .ok/.already_closed settle as success; .deferred settles
+            // as deferred (the pending-close queue waits for authoritative inventory removal).
             ? {
-              closed: message.deferred !== true,
-              deferred: message.deferred === true,
+              closed: message.type === 'close.deferred' ? false : message.deferred !== true,
+              deferred: message.type === 'close.deferred' ? true : message.deferred === true,
               queued: false,
               intentId: typeof message.intent_id === 'string' ? message.intent_id : undefined,
               sessionGeneration: typeof message.session_generation === 'string' ? message.session_generation : undefined,
@@ -3996,7 +4025,7 @@ function handleMessageInner(raw: string) {
   }
 
   if (
-    (message.type === 'send.error' || message.type === 'spawn.error' || message.type === 'rename.error' || message.type === 'close.error' || message.type === 'register_push.error') &&
+    (message.type === 'send.error' || message.type === 'spawn.error' || message.type === 'rename.error' || message.type === 'close.error' || message.type === 'close.failed' || message.type === 'register_push.error') &&
     typeof message.request_id === 'string'
   ) {
     if (message.type === 'send.error') {
@@ -4020,7 +4049,9 @@ function handleMessageInner(raw: string) {
       } else {
         pending.reject(message.type === 'close.error'
           ? closeSessionErrorFromMessage(message)
-          : new Error(String(message.error || 'Command failed')));
+          : message.type === 'close.failed'
+            ? closeFailedErrorFromMessage(message)
+            : new Error(String(message.error || 'Command failed')));
       }
     }
     return;
@@ -5500,7 +5531,10 @@ async function performPendingSessionClose(
         type: 'close',
         host: pending.host,
         session_name: pending.sessionName,
-        ...(options.force ? { force: true } : { defer_if_working: true }),
+        // Force delete of an offline host is operator-confirmed: the operator has seen the
+        // "<host> is offline" state and chosen Force delete, so send operator_confirm so the
+        // daemon's operator-confirmed offline close applies (desktop parity).
+        ...(options.force ? { force: true, operator_confirm: true } : { defer_if_working: true }),
       },
       options.force ? 'close-force' : 'close',
       { requestId: options.force ? requestId('close-force') : pending.requestId },
@@ -5544,7 +5578,7 @@ async function performPendingSessionClose(
       ...current,
       state: 'failed',
       nextAttemptAt: 0,
-      ...pendingCloseErrorFields(error),
+      ...pendingCloseErrorFields(error, current.host),
     });
     refreshPendingClosePresentation();
     await persistPendingSessionCloses();
@@ -5810,7 +5844,7 @@ export async function cancelPendingSessionClose(streamId: string) {
         ...pending,
         state: 'failed',
         nextAttemptAt: 0,
-        ...pendingCloseErrorFields(error),
+        ...pendingCloseErrorFields(error, pending.host),
       });
       refreshPendingClosePresentation();
       await persistPendingSessionCloses();
@@ -5822,7 +5856,7 @@ export async function cancelPendingSessionClose(streamId: string) {
       ...pending,
       state: 'failed',
       nextAttemptAt: 0,
-      ...pendingCloseErrorFields(error),
+      ...pendingCloseErrorFields(error, pending.host),
     });
     refreshPendingClosePresentation();
     await persistPendingSessionCloses();
@@ -5836,7 +5870,7 @@ export async function cancelPendingSessionClose(streamId: string) {
       ...pending,
       state: 'failed',
       nextAttemptAt: 0,
-      ...pendingCloseErrorFields(error),
+      ...pendingCloseErrorFields(error, pending.host),
     });
     refreshPendingClosePresentation();
     await persistPendingSessionCloses();
