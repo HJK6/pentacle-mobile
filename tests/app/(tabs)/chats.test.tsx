@@ -196,6 +196,24 @@ test('exhausted delete stays visible and offers Retry, Cancel, and Force actions
   expect(mockActions.retryPendingClose).toHaveBeenCalledWith('hostc:codex:delete-me');
 });
 
+test('first delete of an offline host surfaces the offline state and Force delete immediately', async () => {
+  mockActions.closeSession.mockRejectedValueOnce(Object.assign(new Error('ssh_unreachable'), { errorCode: 'ssh_unreachable' }));
+  mockState.sessions = [session('hostc:codex:offline-one', 'Offline chat')];
+  render(<ChatsScreen />);
+
+  fireEvent.press(screen.getByTestId('chat-row-delete-hostc-codex-offline-one'));
+  const confirm = (mockAlert.mock.calls.at(-1)?.[2] as Array<{ text: string; onPress?: () => void }>).find((b) => b.text === 'Delete');
+  await act(async () => { await confirm?.onPress?.(); });
+
+  // The raw ssh_unreachable rejection is not shown; the next alert is the honest offline prompt.
+  const offline = mockAlert.mock.calls.at(-1);
+  expect(String(offline?.[0])).toMatch(/is offline$/);
+  const buttons = offline?.[2] as Array<{ text: string; onPress?: () => void }>;
+  expect(buttons.map((b) => b.text)).toEqual(['Cancel', 'Force delete']);
+  await act(async () => { buttons.find((b) => b.text === 'Force delete')?.onPress?.(); });
+  expect(mockActions.forcePendingClose).toHaveBeenCalledWith('hostc:codex:offline-one');
+});
+
 test('cold renders with empty data', () => {
   render(<ChatsScreen />);
 

@@ -862,6 +862,9 @@ export default function ChatsScreen() {
         );
         return;
       }
+      const showActionError = (error: unknown) => {
+        Alert.alert('Pentacle', error instanceof Error ? error.message : 'Delete action failed');
+      };
       Alert.alert('Delete chat?', `Remove ${chat.title} from ${chat.hostTitle}?`, [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -875,6 +878,20 @@ export default function ChatsScreen() {
                 streamId: chat.streamId,
               });
             } catch (error) {
+              const code = (error as { errorCode?: string })?.errorCode;
+              if (code === 'ssh_unreachable' || code === 'host_offline') {
+                // Offline host: surface the honest state and offer Force delete on the FIRST
+                // rejection, rather than a raw error the operator must dismiss and re-tap.
+                Alert.alert(
+                  `${chat.hostTitle} is offline`,
+                  `${chat.title} can't be reached on its host. Force delete?`,
+                  [
+                    { text: 'Cancel', style: 'cancel' },
+                    { text: 'Force delete', style: 'destructive', onPress: () => void actions.forcePendingClose(chat.streamId).catch(showActionError) },
+                  ],
+                );
+                return;
+              }
               Alert.alert('Pentacle', error instanceof Error ? error.message : 'Failed to delete chat');
             }
           },

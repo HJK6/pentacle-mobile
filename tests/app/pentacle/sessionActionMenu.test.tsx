@@ -206,6 +206,26 @@ test('Delete → confirm calls closeSession and returns to chats', async () => {
   alertSpy.mockRestore();
 });
 
+test('first delete of an offline host surfaces the offline state and Force delete immediately', async () => {
+  mockActions.closeSession.mockRejectedValueOnce(Object.assign(new Error('ssh_unreachable'), { errorCode: 'ssh_unreachable' }));
+  const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+  render(<SessionScreen />);
+
+  fireEvent.press(screen.getByTestId('session-header-menu-button'));
+  fireEvent.press(screen.getByTestId('chat-action-delete'));
+  const confirm = (alertSpy.mock.calls[0][2] as Array<{ text?: string; onPress?: () => void }>).find((b) => b.text === 'Delete');
+  await act(async () => { await confirm?.onPress?.(); });
+
+  // The rejection is not shown as a raw error; the second alert is the honest offline prompt.
+  const offline = alertSpy.mock.calls[1];
+  expect(String(offline[0])).toMatch(/is offline$/);
+  const buttons = offline[2] as Array<{ text?: string; onPress?: () => void }>;
+  expect(buttons.map((b) => b.text)).toEqual(['Cancel', 'Force delete']);
+  await act(async () => { buttons.find((b) => b.text === 'Force delete')?.onPress?.(); });
+  expect(mockActions.forcePendingClose).toHaveBeenCalledWith('hostc:codex:one');
+  alertSpy.mockRestore();
+});
+
 test('a stalled pending delete exposes Retry, Cancel, and Force actions on the detail screen', async () => {
   mockState.sessions[0].pending_close = {
     streamId: 'hostc:codex:one', host: 'hostc', sessionName: 'one', requestId: 'close-1',

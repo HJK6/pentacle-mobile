@@ -493,6 +493,19 @@ export type SpawnChatThenSendDeps = {
   closeTimeoutMs?: number;
 };
 
+// Decide the objective for a harness spawn. Objectives are a child-agent concept, so a top-level
+// harness spawn omits one and the daemon derives it (`{ ok: true }` with no objective). A fixture
+// may pass an explicit `spawn_objective` to exercise the objective path; when it does, validate it
+// the way the daemon measures — a non-empty-but-invalid value aborts before any frame is sent
+// (`{ ok: false }`). Exported for unit coverage of the absent / valid / invalid branches.
+export function resolveHarnessSpawnObjective(raw: unknown):
+  { ok: true; objective?: string } | { ok: false } {
+  if (raw == null || String(raw).length === 0) return { ok: true };
+  const check = validateSpawnObjective(raw);
+  if (!check.ok) return { ok: false };
+  return { ok: true, objective: check.value };
+}
+
 export async function runSpawnChatThenSend(deps: SpawnChatThenSendDeps): Promise<void> {
   const text = deps.text || DEFAULT_SEND_TEXT;
   // Navigate to Chats tab so the spawn path matches the in-app user flow
@@ -539,24 +552,16 @@ export async function runSpawnChatThenSend(deps: SpawnChatThenSendDeps): Promise
       effort,
       catalog_version: catalog.catalog_version,
     });
-    // Objectives are a child-agent concept, not part of a top-level spawn. A fixture may still
-    // pass an explicit `spawn_objective` to exercise the objective path; when it does, validate
-    // it (a non-empty-but-invalid value fails before any frame is sent) and send it. When it is
-    // absent, spawn without an objective and let the daemon derive it.
-    const rawObjective = harnessRuntime.getParam('spawn_objective');
-    let objective: string | undefined;
-    if (rawObjective != null && String(rawObjective).length > 0) {
-      const objectiveCheck = validateSpawnObjective(rawObjective);
-      if (!objectiveCheck.ok) {
-        logTelemetry(TELEMETRY_EVENTS.HARNESS_SPAWN_CHAT_THEN_SEND_SENT, {
-          status: 'objective_invalid',
-          host: deps.host,
-          provider: deps.provider,
-        });
-        return;
-      }
-      objective = objectiveCheck.value;
+    const objectiveDecision = resolveHarnessSpawnObjective(harnessRuntime.getParam('spawn_objective'));
+    if (!objectiveDecision.ok) {
+      logTelemetry(TELEMETRY_EVENTS.HARNESS_SPAWN_CHAT_THEN_SEND_SENT, {
+        status: 'objective_invalid',
+        host: deps.host,
+        provider: deps.provider,
+      });
+      return;
     }
+    const objective = objectiveDecision.objective;
     const result = await executeSpawnIntent(
       spawnIntentKeeper,
       {

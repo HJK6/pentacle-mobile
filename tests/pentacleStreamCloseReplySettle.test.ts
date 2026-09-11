@@ -122,6 +122,33 @@ test('close.deferred resolves as deferred', async () => {
   unsubscribe();
 });
 
+test('a transient close error (session_working) stays in the retry loop and re-dispatches', async () => {
+  const { stream, socket, unsubscribe } = connect();
+  socket.message({
+    type: 'session.inventory',
+    sessions: [{ stream_id: OFFLINE.streamId, host: 'amaterasu', provider: 'codex', session_name: OFFLINE.sessionName, title: 'A', online: true }],
+  });
+  const { pending, sent } = await startClose(stream, socket);
+  const sentAfterFirst = socket.sent.length;
+
+  // A working session is a genuine transient close error: it resolves as queued and re-dispatches
+  // on the backoff, unlike the non-transient ssh_unreachable path.
+  socket.message({ type: 'close.error', request_id: sent.request_id, error_code: 'session_working' });
+  await expect(pending).resolves.toMatchObject({ queued: true, closed: false });
+  await flush();
+
+  const row = stream.getPentacleStreamState().sessions.find((s) => s.stream_id === OFFLINE.streamId) as
+    (Record<string, any> | undefined);
+  expect(row?.pending_close?.state).toBe('retrying');
+  expect(row?.pending_close?.errorCode).toBe('session_working');
+
+  // The scheduled backoff re-dispatches a fresh close frame.
+  jest.advanceTimersByTime(2000);
+  await flush();
+  expect(socket.sent.length).toBeGreaterThan(sentAfterFirst);
+  unsubscribe();
+});
+
 test('force delete sends force + operator_confirm so the daemon offline close applies', async () => {
   const { stream, socket, unsubscribe } = connect();
   // Seed inventory so the pending-close drain (gated on the inventory generation) will run.

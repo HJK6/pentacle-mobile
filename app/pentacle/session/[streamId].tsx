@@ -3180,6 +3180,20 @@ export default function PentacleSessionScreen() {
             });
             returnToChats();
           } catch (error) {
+            const code = (error as { errorCode?: string })?.errorCode;
+            if (code === 'ssh_unreachable' || code === 'host_offline') {
+              // Offline host: surface the honest state and offer Force delete on the FIRST
+              // rejection, rather than a raw error the operator must dismiss and re-tap.
+              Alert.alert(
+                `${hostTitle} is offline`,
+                `${title} can't be reached on its host. Force delete?`,
+                [
+                  { text: 'Cancel', style: 'cancel' },
+                  { text: 'Force delete', style: 'destructive', onPress: () => void actions.forcePendingClose(streamId).catch(showDeleteActionError) },
+                ],
+              );
+              return;
+            }
             Alert.alert('Pentacle', error instanceof Error ? error.message : 'Failed to delete chat');
           }
         },

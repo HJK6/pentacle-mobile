@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { Fonts, MACHINE_ORDER, MACHINES, Tokens, type MachineName, type ProviderName } from '@/constants/Colors';
+import { Fonts, MACHINE_ORDER, MACHINES, Tokens, type ProviderName } from '@/constants/Colors';
 import ArcaneRingFrame from './ArcaneRingFrame';
 import ProviderTag from './ProviderTag';
 import { modelDisplayName } from '../services/modelDisplay';

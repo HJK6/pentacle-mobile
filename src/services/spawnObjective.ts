@@ -1,8 +1,9 @@
 // A spawn objective is the child's single goal for its whole life, shown to the operator on
-// the parent's sub-agent roster. The live daemon (SpawnRequestV2 objective cutover, window A)
-// refuses an objective-less spawn with `objective_required`, so mobile requires a one-line
-// objective of 1–120 code points before it will submit. Client validation only explains the
-// problem locally; daemon admission stays authoritative.
+// the parent's sub-agent roster. Objectives are a child-agent concept: a top-level mobile spawn
+// (the summon sheet) sends none and the daemon derives it. This validator is for the programmatic
+// paths that DO pass one — an explicit harness/child objective — enforcing a single line of
+// 1–120 code points. Client validation only explains the problem locally; daemon admission stays
+// authoritative.
 // public_behavior_spec.
 
 export const OBJECTIVE_MAX_CODE_POINTS = 120;
