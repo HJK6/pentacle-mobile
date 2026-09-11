@@ -4772,10 +4772,13 @@ export function spawnPentacleSessionV2(args: {
   spawnProfile: 'desktop_manual';
   catalogVersion: string;
   resolutionSource: 'profile_default' | 'explicit_override';
-  // The child's single goal for its whole life (1–120 code points, one line). The daemon
-  // refuses an objective-less spawn with `objective_required` at the window-A cutover, so
-  // it is required on every SpawnRequestV2 the client emits.
-  objective: string;
+  // Optional. Objectives are a child-agent concept surfaced on the parent's status-card
+  // roster; a top-level operator spawn carries none, so the daemon derives it (as it does
+  // for desktop spawns, which never send one). When omitted the `objective` key is left off
+  // the wire entirely — presence of the key, not its value, puts the daemon on its strict
+  // branch. A caller that passes a non-empty objective (harness/child use) has it validated
+  // and sent unchanged.
+  objective?: string;
   // Optional D2 watch opt-out. Omitted by default (watch enabled at bounce B); there is no
   // mobile watch UI, but the field is carried consistently when a caller sets it.
   no_watch?: boolean;
@@ -4796,7 +4799,9 @@ export function spawnPentacleSessionV2(args: {
     spawn_profile: args.spawnProfile,
     catalog_version: args.catalogVersion,
     resolution_source: args.resolutionSource,
-    objective: args.objective,
+    // Omit the key entirely when there is no objective (not `objective: ''`), so the daemon
+    // takes its derived branch instead of the strict branch that key-presence triggers.
+    ...(args.objective ? { objective: args.objective } : {}),
     ...(args.no_watch ? { no_watch: true } : {}),
     ...(args.idempotencyKey ? { idempotency_key: args.idempotencyKey } : {}),
   }, 'spawn.v2', {

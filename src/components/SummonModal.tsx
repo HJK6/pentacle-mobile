@@ -1,11 +1,10 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Fonts, MACHINE_ORDER, MACHINES, Tokens, type MachineName, type ProviderName } from '@/constants/Colors';
 import ArcaneRingFrame from './ArcaneRingFrame';
 import ProviderTag from './ProviderTag';
 import { modelDisplayName } from '../services/modelDisplay';
 import type { SpawnCatalog, SpawnProvider } from '../services/pentacleStream';
-import { OBJECTIVE_MAX_CODE_POINTS, validateSpawnObjective } from '../services/spawnObjective';
 import { getHostMachineName } from '../config/local';
 
 export type SummonMachine = {
@@ -32,7 +31,6 @@ type Props = {
     model: string;
     effort: string;
     resolutionSource: 'profile_default' | 'explicit_override';
-    objective: string;
   }) => void | Promise<void>;
 };
 
@@ -51,11 +49,6 @@ export default function SummonModal({
   const [selected, setSelected] = useState<SummonMachine | null>(null);
   const [provider, setProvider] = useState<SpawnProvider>('codex');
   const [byProvider, setByProvider] = useState<Partial<Record<SpawnProvider, { model: string; effort: string }>>>({});
-  const [objective, setObjective] = useState('');
-  const objectiveCheck = useMemo(() => validateSpawnObjective(objective), [objective]);
-  // Explain a local problem only once the operator has typed something; an untouched empty
-  // field just leaves submit disabled with no red text.
-  const objectiveError = objective.length > 0 && !objectiveCheck.ok ? objectiveCheck.error : null;
   // The sheet owns its own pending state. Routing the pending paint through the parent's
   // `submitting` prop means it lands only after the chats screen commits, and that commit is slow
   // enough on a loaded list to read as a freeze — the dead window in which the operator's extra
@@ -76,7 +69,6 @@ export default function SummonModal({
       setSelected(null);
       setProvider('codex');
       setByProvider({});
-      setObjective('');
       releasePending();
     }
   }, [visible]);
@@ -119,7 +111,6 @@ export default function SummonModal({
     !catalogLoading &&
     catalog &&
     !catalogError &&
-    objectiveCheck.ok &&
     models.some(([model]) => model === selection.model) &&
     efforts.includes(selection.effort),
   );
@@ -229,24 +220,6 @@ export default function SummonModal({
                 </>
               ) : null}
 
-              <Text style={styles.sectionLabel}>Objective</Text>
-              <TextInput
-                testID="summon-objective"
-                style={styles.objectiveInput}
-                value={objective}
-                onChangeText={setObjective}
-                editable={!pending}
-                placeholder="One line — the agent's goal for its whole life"
-                placeholderTextColor={Tokens.palette.muted}
-                maxLength={OBJECTIVE_MAX_CODE_POINTS * 2}
-                multiline={false}
-                accessibilityLabel="Agent objective"
-                returnKeyType="done"
-              />
-              {objectiveError ? (
-                <Text testID="summon-objective-error" style={styles.errorText}>{objectiveError}</Text>
-              ) : null}
-
               {submitError ? <Text testID="summon-submit-error" style={styles.errorText}>{submitError}</Text> : null}
               <Pressable
                 testID="summon-submit"
@@ -265,7 +238,6 @@ export default function SummonModal({
                     resolutionSource: profileDefault && profileDefault[0] === selection.model && profileDefault[1] === selection.effort
                       ? 'profile_default'
                       : 'explicit_override',
-                    objective: objectiveCheck.value,
                   })).catch(() => undefined).then(releasePending);
                 }}
               ><Text style={styles.submitText}>{pending ? 'Starting…' : 'Start agent'}</Text></Pressable>
@@ -355,16 +327,6 @@ const styles = StyleSheet.create({
   choiceChip: { borderWidth: 1, borderColor: Tokens.palette.line, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10 },
   choiceSelected: { borderColor: Tokens.palette.green, backgroundColor: `${Tokens.palette.green}18` },
   choiceText: { color: Tokens.palette.text, fontFamily: Fonts.rajdhani.semiBold, fontSize: 14 },
-  objectiveInput: {
-    borderWidth: 1,
-    borderColor: Tokens.palette.line,
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    color: Tokens.palette.text,
-    fontFamily: Fonts.rajdhani.medium,
-    fontSize: 15,
-  },
   submitButton: { alignItems: 'center', borderRadius: 8, backgroundColor: Tokens.palette.green, paddingVertical: 13 },
   submitDisabled: { opacity: 0.42 },
   submitText: { color: Tokens.palette.ink, fontFamily: Fonts.rajdhani.bold, fontSize: 16 },

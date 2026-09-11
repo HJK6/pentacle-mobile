@@ -434,7 +434,6 @@ test('primary action opens summon modal and spawns a selected provider', async (
   expect(screen.getByText('Summon')).toBeTruthy();
   fireEvent.press(screen.getByTestId('summon-machine-hostc'));
   await screen.findByTestId('summon-submit');
-  fireEvent.changeText(screen.getByTestId('summon-objective'), 'Summon a codex agent');
   await waitFor(() => expect(screen.getByTestId('summon-submit').props.accessibilityState?.disabled).toBe(false));
   await act(async () => {
     fireEvent.press(screen.getByTestId('summon-provider-codex'));
@@ -448,8 +447,9 @@ test('primary action opens summon modal and spawns a selected provider', async (
     effort: 'high',
     spawnProfile: 'desktop_manual',
     catalogVersion: 'spawn-catalog-v1',
-    objective: 'Summon a codex agent',
   })));
+  // Top-level spawn: no objective flows from the sheet.
+  expect(mockActions.spawnSessionV2.mock.calls[0][0].objective).toBeUndefined();
 });
 
 test('renders an error state when hydration has no chats', () => {

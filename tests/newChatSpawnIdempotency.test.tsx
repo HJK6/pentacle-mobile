@@ -102,7 +102,6 @@ async function openSummonSheet() {
   fireEvent.press(screen.getByTestId('new-chat-button'));
   fireEvent.press(screen.getByTestId('summon-machine-hostc'));
   await screen.findByTestId('summon-submit');
-  fireEvent.changeText(screen.getByTestId('summon-objective'), 'Spawn exactly one chat');
   await waitFor(() =>
     expect(screen.getByTestId('summon-submit').props.accessibilityState?.disabled).toBe(false),
   );
@@ -150,7 +149,6 @@ test('the submit control paints its pending state without waiting on the screen 
   );
   fireEvent.press(screen.getByTestId('summon-machine-hostc'));
   await screen.findByTestId('summon-submit');
-  fireEvent.changeText(screen.getByTestId('summon-objective'), 'Paint pending without re-render');
   await waitFor(() =>
     expect(screen.getByTestId('summon-submit').props.accessibilityState?.disabled).toBe(false),
   );

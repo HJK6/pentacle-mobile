@@ -925,7 +925,7 @@ export default function ChatsScreen() {
     model: string;
     effort: string;
     resolutionSource: 'profile_default' | 'explicit_override';
-    objective: string;
+    objective?: string;
   }) => {
     if (!spawnCatalog || spawnInFlightRef.current) return;
     spawnInFlightRef.current = true;
@@ -951,6 +951,8 @@ export default function ChatsScreen() {
             spawnProfile: 'desktop_manual',
             catalogVersion: spawnCatalog.catalog_version,
             resolutionSource: selection.resolutionSource,
+            // Top-level operator spawn: no objective; the daemon derives it. Serializer
+            // omits the key when this is undefined.
             objective: selection.objective,
             idempotencyKey,
           });

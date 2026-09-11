@@ -130,6 +130,27 @@ test('catalog and V2 wrappers expose dispatch-attempt and socket-send-return met
   unsubscribe();
 });
 
+test('a top-level spawn without an objective omits the objective key entirely', async () => {
+  const { stream, socket, unsubscribe } = connect();
+  // No `objective` given: the daemon strict branch triggers on key presence, so the client
+  // must leave the key off the wire (not send `objective: ''`) to take the derived branch.
+  const spawnPending = stream.spawnPentacleSessionV2({
+    host: 'hostc', provider: 'claude', model: 'claude-opus-4-8', effort: 'high',
+    spawnProfile: 'desktop_manual', catalogVersion: 'catalog-1', resolutionSource: 'profile_default',
+  });
+  const payload = JSON.parse(socket.sent.at(-1) || '{}');
+  expect(payload.schema).toBe('SpawnRequestV2');
+  expect(payload).not.toHaveProperty('objective');
+  socket.message({
+    type: 'spawn.ok',
+    request_id: payload.request_id,
+    state: 'starting',
+    session: { stream_id: 'hostc:v2-derived', host: 'hostc', provider: 'claude', session_name: 'v2-derived' },
+  });
+  await expect(spawnPending).resolves.toMatchObject({ session: { stream_id: 'hostc:v2-derived' } });
+  unsubscribe();
+});
+
 test('harness receipt metadata distinguishes matched and unmatched V2 responses', async () => {
   const { stream, telemetry, socket, unsubscribe } = connect();
   const events: Array<{ message?: string; data?: Record<string, unknown> }> = [];

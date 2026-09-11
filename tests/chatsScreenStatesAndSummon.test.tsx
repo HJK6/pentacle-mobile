@@ -196,8 +196,7 @@ test('summon sends the selected catalog model and effort through the complete V2
   fireEvent.press(screen.getByTestId('summon-model-gpt-5.6-terra'));
   await waitFor(() => expect(screen.getByTestId('summon-model-gpt-5.6-terra').props.accessibilityState?.selected).toBe(true));
   fireEvent.press(screen.getByTestId('summon-effort-xhigh'));
-  // The service requires a one-line objective on every SpawnRequestV2.
-  fireEvent.changeText(screen.getByTestId('summon-objective'), 'Investigate the sample conversation');
+  // A top-level operator spawn carries no objective; the daemon derives it.
   await act(async () => {
     fireEvent.press(screen.getByTestId('summon-submit'));
   });
@@ -210,10 +209,12 @@ test('summon sends the selected catalog model and effort through the complete V2
     spawnProfile: 'desktop_manual',
     catalogVersion: 'spawn-catalog-v1',
     resolutionSource: 'explicit_override',
-    objective: 'Investigate the sample conversation',
     // One client intent id per submission; its rules are covered in tests/spawnIntent.test.ts.
     idempotencyKey: expect.any(String),
   }));
+  // No objective flows from the top-level sheet (the serializer then omits the wire key —
+  // see tests/summonObjective.test.tsx for the SpawnRequestV2 wire contract).
+  expect(mockActions.spawnSessionV2.mock.calls[0][0].objective).toBeUndefined();
   expect(mockActions.spawnSession).not.toHaveBeenCalled();
   expect(require('expo-router').router.push).toHaveBeenCalledWith('/pentacle/session/hostc%3Acodex%3Anew');
 });
@@ -259,7 +260,6 @@ test('an in-flight summon disables duplicate submits', async () => {
   fireEvent.press(screen.getByTestId('new-chat-button'));
   fireEvent.press(screen.getByTestId('summon-machine-hostc'));
   await screen.findByTestId('summon-submit');
-  fireEvent.changeText(screen.getByTestId('summon-objective'), 'Drive the in-flight summon');
   await waitFor(() => expect(screen.getByTestId('summon-submit').props.accessibilityState?.disabled).toBe(false));
   fireEvent.press(screen.getByTestId('summon-submit'));
 
@@ -284,7 +284,6 @@ test('a failed V2 summon keeps the modal and selected tuple retryable', async ()
   await screen.findByTestId('summon-submit');
   fireEvent.press(screen.getByTestId('summon-model-gpt-5.6-terra'));
   await waitFor(() => expect(screen.getByTestId('summon-model-gpt-5.6-terra').props.accessibilityState?.selected).toBe(true));
-  fireEvent.changeText(screen.getByTestId('summon-objective'), 'Retry the refused spawn');
   await act(async () => {
     fireEvent.press(screen.getByTestId('summon-submit'));
   });
@@ -325,7 +324,6 @@ test('catalog conflict invalidates stale submit until one refresh completes', as
 
   fireEvent.press(screen.getByTestId('new-chat-button'));
   fireEvent.press(screen.getByTestId('summon-machine-hostc'));
-  fireEvent.changeText(screen.getByTestId('summon-objective'), 'Drive the catalog conflict');
   await waitFor(() => expect(screen.getByTestId('summon-submit').props.accessibilityState?.disabled).toBe(false));
   await act(async () => fireEvent.press(screen.getByTestId('summon-submit')));
 

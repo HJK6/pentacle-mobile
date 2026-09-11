@@ -54,7 +54,7 @@ type StreamActionsLike = {
     spawnProfile: 'desktop_manual';
     catalogVersion: string;
     resolutionSource: 'profile_default';
-    objective: string;
+    objective?: string;
     no_watch?: boolean;
     idempotencyKey: string;
     onDispatched?: (requestId: string, generation: number) => void;
@@ -539,16 +539,23 @@ export async function runSpawnChatThenSend(deps: SpawnChatThenSendDeps): Promise
       effort,
       catalog_version: catalog.catalog_version,
     });
-    // The daemon refuses an objective-less SpawnRequestV2; a fixture that omits `spawn_objective`
-    // must fail here, before any frame is sent, rather than emit an empty objective.
-    const objectiveCheck = validateSpawnObjective(harnessRuntime.getParam('spawn_objective'));
-    if (!objectiveCheck.ok) {
-      logTelemetry(TELEMETRY_EVENTS.HARNESS_SPAWN_CHAT_THEN_SEND_SENT, {
-        status: 'objective_invalid',
-        host: deps.host,
-        provider: deps.provider,
-      });
-      return;
+    // Objectives are a child-agent concept, not part of a top-level spawn. A fixture may still
+    // pass an explicit `spawn_objective` to exercise the objective path; when it does, validate
+    // it (a non-empty-but-invalid value fails before any frame is sent) and send it. When it is
+    // absent, spawn without an objective and let the daemon derive it.
+    const rawObjective = harnessRuntime.getParam('spawn_objective');
+    let objective: string | undefined;
+    if (rawObjective != null && String(rawObjective).length > 0) {
+      const objectiveCheck = validateSpawnObjective(rawObjective);
+      if (!objectiveCheck.ok) {
+        logTelemetry(TELEMETRY_EVENTS.HARNESS_SPAWN_CHAT_THEN_SEND_SENT, {
+          status: 'objective_invalid',
+          host: deps.host,
+          provider: deps.provider,
+        });
+        return;
+      }
+      objective = objectiveCheck.value;
     }
     const result = await executeSpawnIntent(
       spawnIntentKeeper,
@@ -567,7 +574,7 @@ export async function runSpawnChatThenSend(deps: SpawnChatThenSendDeps): Promise
         spawnProfile: 'desktop_manual',
         catalogVersion: catalog.catalog_version,
         resolutionSource: 'profile_default',
-        objective: objectiveCheck.value,
+        objective,
         idempotencyKey,
         ...spawnRpcDispatchHooks('spawn', 'spawn.v2', 'SpawnRequestV2'),
       }),

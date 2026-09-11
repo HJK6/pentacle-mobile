@@ -3,11 +3,13 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-
 import ChatsScreen from '../app/(tabs)/chats';
 import usePentacleToken from '../src/hooks/usePentacleToken';
 import { usePentacleStreamActions, usePentacleStreamSelectorWhen } from '../src/services/pentacleStream';
+import { OBJECTIVE_MAX_CODE_POINTS, validateSpawnObjective } from '../src/services/spawnObjective';
 
-// The live daemon (window A, SpawnRequestV2 objective cutover) refuses an objective-less
-// spawn with objective_required. Mobile must collect a required one-line objective
-// (1–120 code points), block submit before it is valid with a local explanation, and
-// serialize it on SpawnRequestV2. question_free_text_contract.
+// The mobile new-chat sheet is an operator top-level spawn. Objectives are a child-agent
+// concept surfaced on the parent's status-card roster, so the sheet collects none: submit is
+// enabled once machine/provider/model are chosen, and the daemon derives the objective exactly
+// as it does for desktop spawns. validateSpawnObjective is retained for the programmatic
+// (harness/child) path that still passes an explicit objective.
 
 let mockState: any;
 const mockActions = {
@@ -73,44 +75,22 @@ async function openConfigured() {
   fireEvent.press(screen.getByTestId('summon-effort-xhigh'));
 }
 
-test('submit is blocked until a non-empty objective is entered', async () => {
+test('the sheet renders no objective input and submit is enabled once machine/provider/model are chosen', async () => {
   await openConfigured();
-  expect(screen.getByTestId('summon-submit').props.accessibilityState?.disabled).toBe(true);
-  fireEvent.changeText(screen.getByTestId('summon-objective'), '   ');
-  expect(screen.getByTestId('summon-submit').props.accessibilityState?.disabled).toBe(true);
+  expect(screen.queryByTestId('summon-objective')).toBeNull();
+  await waitFor(() => expect(screen.getByTestId('summon-submit').props.accessibilityState?.disabled).toBe(false));
 });
 
-test('a valid objective enables submit and is serialized on SpawnRequestV2', async () => {
+test('a top-level spawn sends SpawnRequestV2 with no objective (daemon derives)', async () => {
   await openConfigured();
-  fireEvent.changeText(screen.getByTestId('summon-objective'), 'Investigate the freeze regression on chat open');
-  await waitFor(() => expect(screen.getByTestId('summon-submit').props.accessibilityState?.disabled).toBe(false));
   await act(async () => { fireEvent.press(screen.getByTestId('summon-submit')); });
   await waitFor(() => expect(mockActions.spawnSessionV2).toHaveBeenCalledWith(expect.objectContaining({
     host: 'hostc', provider: 'codex', model: 'gpt-5.6-terra', effort: 'xhigh',
-    objective: 'Investigate the freeze regression on chat open',
   })));
+  // No objective flows from the sheet; the serializer then omits the wire key
+  // (asserted against the real serializer in pentacleStream.spawnDiagnostics.test.ts).
+  expect(mockActions.spawnSessionV2.mock.calls[0][0].objective).toBeUndefined();
 });
-
-test('an over-cap objective (121 code points) blocks submit with a local explanation', async () => {
-  await openConfigured();
-  fireEvent.changeText(screen.getByTestId('summon-objective'), 'x'.repeat(121));
-  expect(screen.getByTestId('summon-objective-error')).toBeTruthy();
-  expect(screen.getByTestId('summon-submit').props.accessibilityState?.disabled).toBe(true);
-});
-
-test('exactly 120 code points of astral emoji is accepted (code points, not UTF-16 units)', async () => {
-  await openConfigured();
-  fireEvent.changeText(screen.getByTestId('summon-objective'), '😀'.repeat(120));
-  await waitFor(() => expect(screen.getByTestId('summon-submit').props.accessibilityState?.disabled).toBe(false));
-});
-
-test('a multi-line objective is rejected (single line only)', async () => {
-  await openConfigured();
-  fireEvent.changeText(screen.getByTestId('summon-objective'), 'line one\nline two');
-  expect(screen.getByTestId('summon-objective-error')).toBeTruthy();
-  expect(screen.getByTestId('summon-submit').props.accessibilityState?.disabled).toBe(true);
-});
-
 
 test('a configured host outside the example palette can spawn using its exact identity', async () => {
   mockState.hosts = { local: { host: 'local', online: true, checked_at: '', session_count: 0 } };
@@ -118,7 +98,24 @@ test('a configured host outside the example palette can spawn using its exact id
   fireEvent.press(screen.getByTestId('new-chat-button'));
   fireEvent.press(screen.getByTestId('summon-machine-local'));
   await screen.findByTestId('summon-model-gpt-5.6-sol');
-  fireEvent.changeText(screen.getByTestId('summon-objective'), 'Verify the public client');
   await act(async () => { fireEvent.press(screen.getByTestId('summon-submit')); });
-  await waitFor(() => expect(mockActions.spawnSessionV2).toHaveBeenCalledWith(expect.objectContaining({host: 'local'})));
+  await waitFor(() => expect(mockActions.spawnSessionV2).toHaveBeenCalledWith(expect.objectContaining({ host: 'local' })));
+});
+
+// Retained programmatic-objective validation (harness/child path). The UI no longer collects
+// an objective, but a caller that passes one must still be validated the way the daemon measures.
+describe('validateSpawnObjective (programmatic path)', () => {
+  test('rejects an empty objective', () => {
+    expect(validateSpawnObjective('   ').ok).toBe(false);
+  });
+  test('accepts a one-line objective and trims it', () => {
+    expect(validateSpawnObjective('  Investigate the freeze  ')).toEqual({ ok: true, value: 'Investigate the freeze', error: null });
+  });
+  test('rejects a multi-line objective', () => {
+    expect(validateSpawnObjective('line one\nline two').ok).toBe(false);
+  });
+  test('enforces the cap in code points, accepting exactly 120 astral emoji', () => {
+    expect(validateSpawnObjective('😀'.repeat(OBJECTIVE_MAX_CODE_POINTS)).ok).toBe(true);
+    expect(validateSpawnObjective('x'.repeat(OBJECTIVE_MAX_CODE_POINTS + 1)).ok).toBe(false);
+  });
 });
