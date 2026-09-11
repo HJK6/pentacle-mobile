@@ -24,7 +24,7 @@ import {
   type PentacleDisclosurePresentation,
   type PentacleInterpretedEvent,
 } from './pentacleEventInterpreter';
-import { isSystemEndOfTurnEvent } from './pentacleStreamReducer';
+import { isSystemEndOfTurnEvent, serverUserEchoMatchesAttachmentWrapper } from './pentacleStreamReducer';
 import {
   eventsForStream,
   pentacleEventContentVersion,
@@ -1812,12 +1812,25 @@ function buildSessionTranscriptRows(
     (includeTools || !isToolActionRow(fallbackSuffixInterpretation)) &&
     !fallbackSuffixAlreadyRendered,
   );
+  // An image send's session-summary fallback carries the daemon wrapper text,
+  // not the caption. The reducer already replaced the wrapper event with the
+  // reconciled caption row (client-origin, with attachments), so appending the
+  // wrapper-shaped fallback on top of it re-introduces the second bubble this
+  // fix removes. Treat the wrapper fallback as already represented when a
+  // rendered client-origin image row matches it by attachment key (+ caption).
+  const fallbackMatchesRenderedImageSend = String(fallbackKind || '').toUpperCase() === 'USER' &&
+    dedupedEvents.some((item) => (
+      item.event.client_origin === true &&
+      (item.event.attachments?.length ?? 0) > 0 &&
+      serverUserEchoMatchesAttachmentWrapper(item.event.attachments, item.text.trim(), fallbackText)
+    ));
   const shouldAppendFallback = Boolean(
     fallbackCompareText &&
     !fallbackMatchesReturnedToPrompt &&
     !fallbackInterpretation.hidden &&
     !isTransientTranscriptNoise(fallbackText) &&
     !fallbackMatchesHeldEvent &&
+    !fallbackMatchesRenderedImageSend &&
     // Never surface the session-summary fallback while the agent is WORKING.
     // session.last_text churns through transient states during a turn
     // ("Thinking" -> "Ran 1 shell command" -> "Worked for 4s · 8 msgs" -> a

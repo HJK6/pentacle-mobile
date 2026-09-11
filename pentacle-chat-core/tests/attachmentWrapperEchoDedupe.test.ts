@@ -141,6 +141,29 @@ test('a plain (no-attachment) send still collapses only on exact text equality',
   assert.equal(detail?.transcriptItems[0]?.text, 'hello there');
 });
 
+test('a wrapper-shaped session summary does not append a second bubble on snapshot', () => {
+  const state = ackedImageSend();
+  const echo = wrapperEcho();
+  const replayed = applySnapshotWithOptimisticReconciliation(state, {
+    events: [echo],
+    sessions: [session({ last_text: echo.text, last_kind: 'USER', last_event_at: '2026-09-11T12:00:01.000Z' })],
+  });
+  const detail = selectSessionDetail(replayed, STREAM_ID, { visibleCount: 'all' });
+  assert.equal(detail?.transcriptItems.length, 1);
+  assert.equal(detail?.transcriptItems[0]?.text, CAPTION);
+});
+
+test('wrapper session summary stays collapsed after live reconcile/prune then snapshot replay', () => {
+  const afterLive = applyPentacleEvent(ackedImageSend(), wrapperEcho());
+  const replay = applySnapshotWithOptimisticReconciliation(afterLive, {
+    events: [],
+    sessions: [session({ last_text: wrapperEcho().text, last_kind: 'USER', last_event_at: '2026-09-11T12:00:01.000Z' })],
+  });
+  const detail = selectSessionDetail(replay, STREAM_ID, { visibleCount: 'all' });
+  assert.equal(detail?.transcriptItems.length, 1);
+  assert.equal(detail?.transcriptItems[0]?.text, CAPTION);
+});
+
 test('an unrelated server USER row is not swallowed by an image send awaiting its echo', () => {
   const state = ackedImageSend();
   const unrelated = wrapperEcho({ daemon_seq: 43, text: 'a totally different agent message' });

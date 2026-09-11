@@ -1021,7 +1021,7 @@ function isServerUserEcho(event: PentacleEvent) {
 // sha256 keys make key-containment an unambiguous correlator.
 const ATTACHMENT_WRAPPER_MARKER = /(?:Look at the image files? at |Images? at )/;
 
-function serverUserEchoMatchesAttachmentWrapper(
+export function serverUserEchoMatchesAttachmentWrapper(
   attachments: ChatAttachment[] | undefined,
   caption: string,
   eventText: string,
