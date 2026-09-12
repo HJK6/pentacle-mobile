@@ -8,7 +8,7 @@ type Props = {
   reportCount?: number;
   reportUnreadCount?: number;
   onReports?: () => void;
-  onRename: () => void;
+  onRename?: () => void;
   onDelete?: () => void;
   onClose: () => void;
 };
@@ -43,6 +43,7 @@ export default function ChatActionSheet({ visible, reportCount = 0, reportUnread
             </Pressable>
           ) : null}
 
+          {onRename ? (
           <Pressable
             testID="chat-action-rename"
             style={[styles.row, { borderColor: `${Tokens.palette.green}55` }]}
@@ -53,6 +54,8 @@ export default function ChatActionSheet({ visible, reportCount = 0, reportUnread
             <Text style={[styles.glyph, { color: Tokens.palette.green }]}>✎</Text>
             <Text style={styles.rowLabel}>Rename</Text>
           </Pressable>
+
+          ) : null}
 
           {onDelete ? (
             <Pressable

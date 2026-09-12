@@ -3204,10 +3204,12 @@ export default function PentacleSessionScreen() {
     ]);
   };
   const openRename = () => {
+    if (assistantProtected) return;
     setMenuVisible(false);
     setRenameVisible(true);
   };
   const submitRename = async (value: string) => {
+    if (assistantProtected) return;
     setRenameVisible(false);
     const displayName = value.trim();
     if (!displayName || displayName === currentTitle) return;
@@ -3293,7 +3295,7 @@ export default function PentacleSessionScreen() {
           setMenuVisible(false);
           setReportsVisible(true);
         }}
-        onRename={openRename}
+          onRename={assistantProtected ? undefined : openRename}
         onDelete={assistantProtected ? undefined : handleDelete}
         onClose={() => setMenuVisible(false)}
       />

@@ -138,12 +138,12 @@ test('kebab opens an action menu with Rename and Delete', () => {
 
   fireEvent.press(screen.getByTestId('session-header-menu-button'));
 
-  expect(screen.getByTestId('chat-action-rename')).toBeTruthy();
+    expect(screen.getByTestId('chat-action-rename')).toBeTruthy();
   expect(screen.getByTestId('chat-action-delete')).toBeTruthy();
   expect(screen.queryByText('Chat options')).toBeNull();
 });
 
-test('configured assistant detail keeps ordinary actions but hides delete, retry, and force-delete controls', () => {
+  test('configured assistant detail hides Rename, delete, retry, and force-delete controls', () => {
   (getAssistantRole as jest.Mock).mockReturnValue('assistant');
   mockState.sessions[0] = {
     ...mockState.sessions[0],
@@ -157,7 +157,7 @@ test('configured assistant detail keeps ordinary actions but hides delete, retry
   render(<SessionScreen />);
   fireEvent.press(screen.getByTestId('session-header-menu-button'));
 
-  expect(screen.getByTestId('chat-action-rename')).toBeTruthy();
+    expect(screen.queryByTestId('chat-action-rename')).toBeNull();
   expect(screen.queryByTestId('chat-action-delete')).toBeNull();
   expect(screen.queryByText('Retry')).toBeNull();
   expect(screen.queryByText('Force delete')).toBeNull();

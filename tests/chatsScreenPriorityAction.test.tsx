@@ -1,5 +1,6 @@
 import React from 'react';
 import { StyleSheet } from 'react-native';
+import { Swipeable } from 'react-native-gesture-handler';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { ChatRow, cardActionAccessibilityLabel, selectCardAction } from '../app/(tabs)/chats';
 import type { PentacleChatListItem } from 'pentacle-chat-core';
@@ -177,9 +178,10 @@ test('every CardAction kind renders one 30x30 top-right footprint', () => {
   }
 });
 
-test('an assistant-role protected row keeps its attention indicator but exposes no delete swipe action', () => {
+  test('an assistant-role protected row keeps attention but renders no swipe wrapper or delete action', () => {
   const ordinary = renderRow(smartChat());
-  expect(screen.getByTestId('chat-row-delete-hostc-claude-geometry')).toBeTruthy();
+    expect(screen.getByTestId('chat-row-delete-hostc-claude-geometry')).toBeTruthy();
+    expect(ordinary.UNSAFE_queryAllByType(Swipeable)).toHaveLength(1);
   ordinary.unmount();
 
   const protectedChat = {
@@ -189,7 +191,8 @@ test('an assistant-role protected row keeps its attention indicator but exposes 
   };
   const protectedRow = renderRow(protectedChat);
   expect(screen.getByTestId('chat-question-attention-bar-hostc-claude-geometry')).toBeTruthy();
-  expect(screen.queryByTestId('chat-row-delete-hostc-claude-geometry')).toBeNull();
+    expect(screen.queryByTestId('chat-row-delete-hostc-claude-geometry')).toBeNull();
+    expect(protectedRow.UNSAFE_queryAllByType(Swipeable)).toHaveLength(0);
   protectedRow.unmount();
 });
 

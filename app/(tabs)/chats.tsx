@@ -280,6 +280,8 @@ export type SmartChatListItem = StatusCardChatListItem & {
   agents: readonly ChildAgent[];
 };
 
+const isAssistantRole = (session: Partial<SmartChatListItem>): boolean => session.isAssistantRole === true;
+
 const smartChatListCache = new Map<string, SmartChatListItem[]>();
 
 type QuestionSubmission = {
@@ -1540,6 +1542,10 @@ export function sameChatRowProps(left: ChatRowProps, right: ChatRowProps) {
     && left.onSubmitQuestions === right.onSubmitQuestions;
 }
 
+const NoSwipeable = React.forwardRef<Swipeable, React.ComponentProps<typeof Swipeable>>(
+  ({ children }, _ref) => <>{children}</>,
+);
+
 export const ChatRow = memo(function ChatRow({
   chat,
   expanded = false,
@@ -1559,6 +1565,7 @@ export const ChatRow = memo(function ChatRow({
 }: ChatRowProps) {
   const displayChat = questionError && questionRetryChat ? questionRetryChat : chat;
   const smartChat = displayChat as Partial<SmartChatListItem>;
+  const RowSwipeable = isAssistantRole(smartChat) ? NoSwipeable : Swipeable;
   const closeStatusLabel = !smartChat.isAssistantRole && smartChat.pendingClose
     ? (smartChat.pendingClose.errorCode === 'host_offline'
       ? `${smartChat.pendingClose.errorMessage || 'Host is offline'} — tap to force delete`
@@ -1613,10 +1620,11 @@ export const ChatRow = memo(function ChatRow({
   });
 
   const handleRename = useCallback(() => {
+    if (isAssistantRole(smartChat)) return;
     swipeSettleReasonRef.current = 'action';
     swipeRef.current?.close();
     onRename(chat);
-  }, [chat, onRename]);
+  }, [chat, onRename, smartChat]);
 
   const handleDelete = useCallback(() => {
     if (smartChat.isAssistantRole) return;
@@ -1674,7 +1682,7 @@ export const ChatRow = memo(function ChatRow({
   );
 
   return (
-    <Swipeable
+    <RowSwipeable
       ref={swipeRef}
       renderRightActions={renderRightActions}
       overshootRight={false}
@@ -1786,7 +1794,7 @@ export const ChatRow = memo(function ChatRow({
           ) : null}
         </View>
       </Bevel>
-    </Swipeable>
+    </RowSwipeable>
   );
 }, sameChatRowProps);
 
