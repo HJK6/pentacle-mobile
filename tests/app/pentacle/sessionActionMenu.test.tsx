@@ -3,6 +3,7 @@ import { Alert } from 'react-native';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import SessionScreen from '../../../app/pentacle/session/[streamId]';
 import usePentacleToken from '../../../src/hooks/usePentacleToken';
+import { getAssistantRole } from '../../../src/config/local';
 import { usePentacleStreamActions, usePentacleStreamSelectorWhen } from '../../../src/services/pentacleStream';
 import { INITIAL_PENTACLE_LIMITS } from 'pentacle-chat-core';
 
@@ -52,6 +53,10 @@ jest.mock('@expo/vector-icons/FontAwesome', () => 'FontAwesome');
 jest.mock('@react-navigation/native', () => ({ useIsFocused: () => true }));
 jest.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ bottom: 0, left: 0, right: 0, top: 0 }) }));
 jest.mock('../../../src/hooks/usePentacleToken', () => jest.fn());
+jest.mock('../../../src/config/local', () => ({
+  ...jest.requireActual('../../../src/config/local'),
+  getAssistantRole: jest.fn(),
+}));
 jest.mock('../../../src/components/ReportViewerModal', () => {
   const React = require('react');
   const { Text } = require('react-native');
@@ -116,6 +121,7 @@ beforeEach(() => {
     workingStates: {},
   };
   (usePentacleToken as jest.Mock).mockReturnValue({ isReady: true, token: 'test' });
+  (getAssistantRole as jest.Mock).mockReturnValue('');
   (usePentacleStreamActions as jest.Mock).mockReturnValue(mockActions);
   (usePentacleStreamSelectorWhen as jest.Mock).mockImplementation((_enabled, selector) => selector(mockState));
   mockActions.closeSession.mockResolvedValue(undefined);
@@ -135,6 +141,28 @@ test('kebab opens an action menu with Rename and Delete', () => {
   expect(screen.getByTestId('chat-action-rename')).toBeTruthy();
   expect(screen.getByTestId('chat-action-delete')).toBeTruthy();
   expect(screen.queryByText('Chat options')).toBeNull();
+});
+
+test('configured assistant detail keeps ordinary actions but hides delete, retry, and force-delete controls', () => {
+  (getAssistantRole as jest.Mock).mockReturnValue('assistant');
+  mockState.sessions[0] = {
+    ...mockState.sessions[0],
+    role: 'assistant',
+    pending_close: {
+      streamId: 'hostc:codex:one', host: 'hostc', sessionName: 'one', requestId: 'close-protected',
+      requestedAt: 0, attempt: 1, nextAttemptAt: 0, state: 'failed', errorCode: 'close_protected', errorMessage: 'Protected',
+    },
+  };
+
+  render(<SessionScreen />);
+  fireEvent.press(screen.getByTestId('session-header-menu-button'));
+
+  expect(screen.getByTestId('chat-action-rename')).toBeTruthy();
+  expect(screen.queryByTestId('chat-action-delete')).toBeNull();
+  expect(screen.queryByText('Retry')).toBeNull();
+  expect(screen.queryByText('Force delete')).toBeNull();
+  expect(mockActions.retryPendingClose).not.toHaveBeenCalled();
+  expect(mockActions.forcePendingClose).not.toHaveBeenCalled();
 });
 
 test('report inventory drives the header badge and Reports overflow row', () => {

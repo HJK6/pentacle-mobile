@@ -1,8 +1,10 @@
 import {
+  buildExpoExtra,
   computeAppVersion,
   computeBuildNumber,
   normalizeVersionBumpLevel,
 } from '../app.config';
+import type { PentacleConfig } from '../pentacle.config.example';
 import path from 'node:path';
 
 const { execFileSync } = jest.requireActual('node:child_process') as typeof import('node:child_process');
@@ -25,6 +27,25 @@ beforeEach(() => {
   delete process.env.PENTACLE_BUILD_NUMBER;
   delete process.env.PENTACLE_PROD_BUILD;
   delete process.env.EAS_BUILD_PROFILE;
+});
+
+const configFixture: PentacleConfig = {
+  apple: {
+    bundleId: 'com.example.pentacle',
+    androidPackage: 'com.example.pentacle',
+    expoOwner: 'example',
+    easProjectId: 'example-project',
+  },
+  backend: { wsUrl: 'ws://192.0.2.1:7791' },
+  hosts: {},
+};
+
+test('Expo extra carries an enabled assistant role and omits the feature when public config leaves it absent', () => {
+  const enabled = buildExpoExtra({ ...configFixture, features: { assistantRole: 'assistant' } }, configFixture.backend.wsUrl);
+  const publicDefault = buildExpoExtra(configFixture, configFixture.backend.wsUrl);
+
+  expect(enabled.features).toEqual({ assistantRole: 'assistant' });
+  expect(publicDefault).not.toHaveProperty('features');
 });
 
 test('computes default minor app version from build number', () => {

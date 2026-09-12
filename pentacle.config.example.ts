@@ -27,6 +27,10 @@ export type PentacleConfig = {
   };
   hosts: Record<string, HostTheme>;
   hostOrder?: string[];
+  // Optional local opt-in. Omit or leave assistantRole empty in public builds.
+  features?: {
+    assistantRole?: string;
+  };
 };
 
 const config: PentacleConfig = {

@@ -695,6 +695,29 @@ test('selector event work grows no faster than 2.25x per doubled corpus', () => 
   expect(reads[2] / reads[1]).toBeLessThanOrEqual(2.25);
 });
 
+test('smart chat selector leaves assistant roles unpinned unless configured and pins an exact configured role ahead of attention', () => {
+  const assistant = { ...session('hostc:codex:assistant', 'Assistant'), role: 'assistant', last_event_at: '2026-07-05T08:00:00.000Z' };
+  const action = { ...session('hostc:codex:action', 'Needs answer'), last_event_at: '2026-07-05T10:00:00.000Z' };
+  const working = { ...session('hostc:codex:working', 'Still working'), working: true, last_event_at: '2026-07-05T09:00:00.000Z' };
+  mockState.sessions = [assistant, action, working];
+  mockState.notifications = [agentQuestionNotification('hostc:codex:action')];
+
+  expect(selectSmartChatList(mockState).map((item) => item.streamId)).toEqual([
+    'hostc:codex:action',
+    'hostc:codex:working',
+    'hostc:codex:assistant',
+  ]);
+
+  const pinned = selectSmartChatList(mockState, 'all', undefined, 'assistant');
+  expect(pinned.map((item) => item.streamId)).toEqual([
+    'hostc:codex:assistant',
+    'hostc:codex:action',
+    'hostc:codex:working',
+  ]);
+  expect(pinned[0].isAssistantRole).toBe(true);
+  expect(smartChatAttention(pinned[1])).toBe(true);
+});
+
 test('smart chat selector sorts action rows, then working rows, then recency', () => {
   const action = { ...session('hostc:codex:action', 'Needs answer'), last_event_at: '2026-07-05T10:00:00.000Z' };
   const working = { ...session('hostc:codex:working', 'Still working'), working: true, last_event_at: '2026-07-05T09:00:00.000Z' };

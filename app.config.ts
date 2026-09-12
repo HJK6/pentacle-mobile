@@ -84,6 +84,18 @@ function loadLocalConfig(): PentacleConfig {
   }
 }
 
+export function buildExpoExtra(config: PentacleConfig, wsUrl: string) {
+  return {
+    router: {},
+    wsUrl,
+    dashboardHubUrl: config.dashboardHub?.url,
+    hosts: config.hosts,
+    hostOrder: config.hostOrder || [],
+    ...(config.features ? { features: config.features } : {}),
+    eas: { projectId: config.apple.easProjectId },
+  };
+}
+
 export default function defineConfig(_context: ConfigContext): ExpoConfig {
   const prodBuild = require('./scripts/prod-build.cjs') as {
     guardProductionExpoPublicEnv: (env: Record<string, string | undefined>, label?: string) => void;
@@ -146,14 +158,7 @@ export default function defineConfig(_context: ConfigContext): ExpoConfig {
         cameraPermission: 'Pentacle uses the camera so you can take a photo to attach photos to a chat message.',
       }],
     ],
-    extra: {
-      router: {},
-      wsUrl: effectiveWsUrl,
-      dashboardHubUrl: config.dashboardHub?.url,
-      hosts: config.hosts,
-      hostOrder: config.hostOrder || [],
-      eas: { projectId: config.apple.easProjectId },
-    },
+    extra: buildExpoExtra(config, effectiveWsUrl),
     experiments: { typedRoutes: true },
     android: {
       permissions: [

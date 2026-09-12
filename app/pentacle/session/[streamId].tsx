@@ -99,7 +99,7 @@ import * as pentacleStreamRuntime from '../../../src/services/pentacleStream';
 import type { InterruptSendResult, PendingSessionClose, StreamOpenEntrySource } from '../../../src/services/pentacleStream';
 import { isPentacleSessionSendEligible } from '../../../src/services/sessionInputReadiness';
 import { useUserPreference } from '../../../src/services/userPreferences';
-import { getHostTheme, getHostMachineName } from '../../../src/config/local';
+import { getAssistantRole, getHostTheme, getHostMachineName } from '../../../src/config/local';
 import { interpretPentacleEvent, peekEventsForStream, invalidateSessionDetailCache, MAX_CHAT_ATTACHMENTS, SESSION_SENDING_VISIBLE_AFTER_MS, parsePeerAgentMessage, type ChatAttachment, type ChildAgent, type PentacleTranscriptItem } from 'pentacle-chat-core';
 import { parseMarkdown, parseInline, type MdInline, type MdBlock } from 'pentacle-chat-core';
 import { stripClaudeExpandHint } from 'pentacle-chat-core';
@@ -3134,12 +3134,15 @@ export default function PentacleSessionScreen() {
     });
   };
   const currentTitle = title || session.session_name;
+  const assistantRole = getAssistantRole();
+  const assistantProtected = Boolean(assistantRole) && session.role === assistantRole;
   const pendingClose = (session as PentacleSessionSummary & { pending_close?: PendingSessionClose }).pending_close;
   const showDeleteActionError = (error: unknown) => {
     Alert.alert('Pentacle', error instanceof Error ? error.message : 'Delete action failed');
   };
   const handleDelete = () => {
     setMenuVisible(false);
+    if (assistantProtected) return;
     if (pendingClose) {
       const hostOffline = pendingClose.errorCode === 'host_offline';
       const exhausted = pendingClose.state === 'exhausted' || pendingClose.state === 'failed';
@@ -3291,7 +3294,7 @@ export default function PentacleSessionScreen() {
           setReportsVisible(true);
         }}
         onRename={openRename}
-        onDelete={handleDelete}
+        onDelete={assistantProtected ? undefined : handleDelete}
         onClose={() => setMenuVisible(false)}
       />
       <RenameChatModal

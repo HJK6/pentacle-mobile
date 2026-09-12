@@ -23,6 +23,13 @@ function extraConfig(): Record<string, unknown> {
   return (Constants.expoConfig?.extra || {}) as Record<string, unknown>;
 }
 
+export function getAssistantRole() {
+  const features = extraConfig().features;
+  if (!features || typeof features !== 'object' || Array.isArray(features)) return '';
+  const assistantRole = (features as Record<string, unknown>).assistantRole;
+  return typeof assistantRole === 'string' ? assistantRole.trim() : '';
+}
+
 function titlecaseHost(id: string) {
   const value = String(id || '').trim();
   if (!value) return 'Unknown';

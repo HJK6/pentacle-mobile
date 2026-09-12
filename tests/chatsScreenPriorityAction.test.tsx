@@ -177,6 +177,22 @@ test('every CardAction kind renders one 30x30 top-right footprint', () => {
   }
 });
 
+test('an assistant-role protected row keeps its attention indicator but exposes no delete swipe action', () => {
+  const ordinary = renderRow(smartChat());
+  expect(screen.getByTestId('chat-row-delete-hostc-claude-geometry')).toBeTruthy();
+  ordinary.unmount();
+
+  const protectedChat = {
+    ...smartChat({ openQuestions: [{ kind: 'legacy', id: 'legacy:q', question: legacyQuestion, host: 'hostc', sessionName: 'geometry' }] }),
+    role: 'assistant',
+    isAssistantRole: true,
+  };
+  const protectedRow = renderRow(protectedChat);
+  expect(screen.getByTestId('chat-question-attention-bar-hostc-claude-geometry')).toBeTruthy();
+  expect(screen.queryByTestId('chat-row-delete-hostc-claude-geometry')).toBeNull();
+  protectedRow.unmount();
+});
+
 test('pressing the action never opens the row (propagation isolated)', () => {
   for (const fixture of actionFixtures()) {
     if (fixture.seedReports) mockReportsByStream['hostc:claude:geometry'] = fixture.seedReports;

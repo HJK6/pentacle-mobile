@@ -1093,6 +1093,10 @@ function isTransientCloseError(error: unknown) {
   return message.includes('not connected') || message.includes('disconnected') || message.includes('timed out');
 }
 
+function isTerminalCloseError(error: unknown) {
+  return error instanceof CloseSessionError && error.errorCode === 'close_protected';
+}
+
 function pendingCloseErrorFields(error: unknown, host?: string) {
   if (error instanceof CloseSessionError) {
     // An unreachable host is offline, not a transient transport failure. Relabel it with an
@@ -5564,6 +5568,15 @@ async function performPendingSessionClose(
   } catch (error) {
     const current = pendingSessionCloses.get(pending.streamId);
     if (!current) throw error;
+    // A daemon-authoritative protected session must never leave a failed row that
+    // advertises retry or force-delete controls the client has intentionally hidden.
+    if (isTerminalCloseError(error)) {
+      pendingSessionCloses.delete(pending.streamId);
+      refreshPendingClosePresentation();
+      await persistPendingSessionCloses();
+      schedulePendingCloseRetry();
+      throw error;
+    }
     if (!options.force && isTransientCloseError(error)) {
       const next = await markPendingCloseRetry(current, error);
       return {

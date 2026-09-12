@@ -41,6 +41,11 @@ Set the endpoint, app identifiers and host names using
 [the setup guide](AGENT_SETUP.md#configure-the-app). Keep credentials out
 of this ignored config file. Then, for a simulator:
 
+`features.assistantRole` is an optional local-only protected-session role. Leave
+it absent or empty in public configuration. An exact daemon `session.role` match
+pins and protects that row; its delete controls are omitted, and a
+`close_protected` daemon reply is terminal rather than retried.
+
 ```sh
 npm run validate
 npx expo prebuild --platform ios

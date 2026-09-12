@@ -1,10 +1,10 @@
-import { getHostMachineName } from '../../src/config/local';
+import { getAssistantRole, getHostMachineName } from '../../src/config/local';
 
 jest.mock('expo-constants', () => require('../helpers/stubs/expoConstants.cjs'));
 
-function setConfig(hosts: Record<string, unknown>, hostOrder: string[]) {
+function setConfig(hosts: Record<string, unknown>, hostOrder: string[], features?: Record<string, unknown>) {
   (globalThis as Record<string, unknown>).__PENTACLE_EXPO_CONFIG__ = {
-    extra: { wsUrl: 'ws://10.0.0.0:7791', hosts, hostOrder },
+    extra: { wsUrl: 'ws://10.0.0.0:7791', hosts, hostOrder, ...(features ? { features } : {}) },
   };
 }
 
@@ -19,6 +19,17 @@ const OWNER_HOSTS = {
   amaterasu: { label: 'Amaterasu', color: '#ff4d5e', sigil: 'sun' },
 };
 const OWNER_ORDER = ['bart', 'merlin', 'amaterasu'];
+
+test('assistant-role pinning is off by default and accepts only a nonempty local role', () => {
+  setConfig(OWNER_HOSTS, OWNER_ORDER);
+  expect(getAssistantRole()).toBe('');
+
+  setConfig(OWNER_HOSTS, OWNER_ORDER, { assistantRole: ' assistant ' });
+  expect(getAssistantRole()).toBe('assistant');
+
+  setConfig(OWNER_HOSTS, OWNER_ORDER, { assistantRole: 7 });
+  expect(getAssistantRole()).toBe('');
+});
 
 test('configured sigil wins: owner-shaped config maps bart/merlin/amaterasu to djinni/mage/sun machines', () => {
   setConfig(OWNER_HOSTS, OWNER_ORDER);

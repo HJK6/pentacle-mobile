@@ -26,7 +26,7 @@ import {
   Tokens,
   type MachineName,
 } from '@/constants/Colors';
-import { getHostMachineName } from '../../src/config/local';
+import { getAssistantRole, getHostMachineName } from '../../src/config/local';
 import ArcaneRingFrame from '../../src/components/ArcaneRingFrame';
 import Bevel from '../../src/components/Bevel';
 import Starfield from '../../src/components/Starfield';
@@ -275,6 +275,7 @@ export type SmartChatListItem = StatusCardChatListItem & {
   lastEventMs: number;
   pendingClose?: PendingSessionClose;
   role: string | null;
+  isAssistantRole: boolean;
   sessionGeneration: string | null;
   agents: readonly ChildAgent[];
 };
@@ -468,6 +469,7 @@ export function selectSmartChatList(
   state: PentacleStreamState,
   filter: 'all' | string = 'all',
   selectVisible: typeof selectVisibleChatList = selectVisibleChatList,
+  assistantRole = getAssistantRole(),
 ): SmartChatListItem[] {
   const harnessTiming = process.env.EXPO_PUBLIC_HARNESS === '1' && harnessRuntime.hasAction(ALL_CHATS_HARNESS_ACTION);
   const startedAt = harnessTiming ? globalThis.performance.now() : 0;
@@ -499,6 +501,7 @@ export function selectSmartChatList(
         spec_issues: session?.spec_issues ?? null,
         pendingClose: (session as (PentacleSessionSummary & { pending_close?: PendingSessionClose }) | undefined)?.pending_close,
         role: session?.role ?? null,
+        isAssistantRole: Boolean(assistantRole) && session?.role === assistantRole,
         sessionGeneration: session?.session_generation ?? null,
         agents: session?.agents ?? [],
         openQuestions: openQuestionsForStream(
@@ -515,9 +518,10 @@ export function selectSmartChatList(
       return previous && sameSmartChatItem(previous, candidate) ? previous : candidate;
     })
     .sort((left, right) => {
+      const assistantRoleOrder = Number(right.isAssistantRole) - Number(left.isAssistantRole);
       const leftTier = smartChatAttention(left) ? 0 : left.status === 'working' ? 1 : 2;
       const rightTier = smartChatAttention(right) ? 0 : right.status === 'working' ? 1 : 2;
-      return leftTier - rightTier || right.lastEventMs - left.lastEventMs || left.streamId.localeCompare(right.streamId);
+      return assistantRoleOrder || leftTier - rightTier || right.lastEventMs - left.lastEventMs || left.streamId.localeCompare(right.streamId);
     });
   if (harnessTiming) {
     const finishedAt = globalThis.performance.now();
@@ -578,6 +582,7 @@ function sameSmartChatItem(item: SmartChatListItem, other: SmartChatListItem | u
         item.spec_issues === other.spec_issues &&
         item.pendingClose === other.pendingClose &&
         item.role === other.role &&
+        item.isAssistantRole === other.isAssistantRole &&
         item.sessionGeneration === other.sessionGeneration &&
         item.agents === other.agents &&
         item.openQuestions.map(questionSignature).join('\n') === other.openQuestions.map(questionSignature).join('\n') &&
@@ -1554,7 +1559,7 @@ export const ChatRow = memo(function ChatRow({
 }: ChatRowProps) {
   const displayChat = questionError && questionRetryChat ? questionRetryChat : chat;
   const smartChat = displayChat as Partial<SmartChatListItem>;
-  const closeStatusLabel = smartChat.pendingClose
+  const closeStatusLabel = !smartChat.isAssistantRole && smartChat.pendingClose
     ? (smartChat.pendingClose.errorCode === 'host_offline'
       ? `${smartChat.pendingClose.errorMessage || 'Host is offline'} — tap to force delete`
       : smartChat.pendingClose.state === 'exhausted' || smartChat.pendingClose.state === 'failed'
@@ -1614,10 +1619,11 @@ export const ChatRow = memo(function ChatRow({
   }, [chat, onRename]);
 
   const handleDelete = useCallback(() => {
+    if (smartChat.isAssistantRole) return;
     swipeSettleReasonRef.current = 'action';
     swipeRef.current?.close();
     onDelete(chat);
-  }, [chat, onDelete]);
+  }, [chat, onDelete, smartChat.isAssistantRole]);
 
   const logSwipeSettled = useCallback((state: 'open' | 'closed', reason: 'threshold' | 'parent_scroll' | 'action') => {
     logTelemetry(MOBILE_TELEMETRY_EVENTS.CHAT_ROW_SWIPE_SETTLED as Parameters<typeof logTelemetry>[0], {
@@ -1650,19 +1656,21 @@ export const ChatRow = memo(function ChatRow({
             icon="pencil"
             actionStyle={styles.swipeRename}
           />
-          <SwipeAction
-            progress={progress}
-            offset={SWIPE_ACTION_WIDTH}
-            testID={`chat-row-delete-${sid}`}
-            accessibilityLabel={`Delete ${chat.title}`}
-            onPress={handleDelete}
-            icon="trash"
-            actionStyle={styles.swipeDelete}
-          />
+          {!smartChat.isAssistantRole ? (
+            <SwipeAction
+              progress={progress}
+              offset={SWIPE_ACTION_WIDTH}
+              testID={`chat-row-delete-${sid}`}
+              accessibilityLabel={`Delete ${chat.title}`}
+              onPress={handleDelete}
+              icon="trash"
+              actionStyle={styles.swipeDelete}
+            />
+          ) : null}
         </View>
       );
     },
-    [chat.streamId, chat.title, handleRename, handleDelete],
+    [chat.streamId, chat.title, handleRename, handleDelete, smartChat.isAssistantRole],
   );
 
   return (

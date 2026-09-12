@@ -106,6 +106,24 @@ test('a failed close on an offline host labels the row host_offline with an hone
   unsubscribe();
 });
 
+test('close_protected is terminal: it rejects once, clears pending presentation, and never retries', async () => {
+  const { stream, socket, unsubscribe } = connect();
+  socket.message({
+    type: 'session.inventory',
+    sessions: [{ stream_id: OFFLINE.streamId, host: 'amaterasu', provider: 'codex', session_name: OFFLINE.sessionName, title: 'Assistant', online: true, role: 'assistant' }],
+  });
+  const { pending, sent } = await startClose(stream, socket);
+  const sentBefore = socket.sent.length;
+  socket.message({ type: 'close.failed', request_id: sent.request_id, reason: 'close_protected' });
+  await expect(pending).rejects.toMatchObject({ errorCode: 'close_protected' });
+  await flush();
+
+  const row = stream.getPentacleStreamState().sessions.find((session) => session.stream_id === OFFLINE.streamId) as Record<string, any> | undefined;
+  expect(row?.pending_close).toBeUndefined();
+  expect(socket.sent.length).toBe(sentBefore);
+  unsubscribe();
+});
+
 test('close.already_closed resolves as success', async () => {
   const { stream, socket, unsubscribe } = connect();
   const { pending, sent } = await startClose(stream, socket);

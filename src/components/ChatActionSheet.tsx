@@ -9,7 +9,7 @@ type Props = {
   reportUnreadCount?: number;
   onReports?: () => void;
   onRename: () => void;
-  onDelete: () => void;
+  onDelete?: () => void;
   onClose: () => void;
 };
 
@@ -54,16 +54,18 @@ export default function ChatActionSheet({ visible, reportCount = 0, reportUnread
             <Text style={styles.rowLabel}>Rename</Text>
           </Pressable>
 
-          <Pressable
-            testID="chat-action-delete"
-            style={[styles.row, { borderColor: `${Tokens.palette.red}66` }]}
-            onPress={onDelete}
-            accessibilityRole="button"
-              accessibilityLabel="Delete chat"
-          >
-            <Text style={[styles.glyph, { color: Tokens.palette.red }]}>🗑</Text>
-            <Text style={[styles.rowLabel, styles.destructiveLabel]}>Delete</Text>
-          </Pressable>
+          {onDelete ? (
+            <Pressable
+              testID="chat-action-delete"
+              style={[styles.row, { borderColor: `${Tokens.palette.red}66` }]}
+              onPress={onDelete}
+              accessibilityRole="button"
+                accessibilityLabel="Delete chat"
+            >
+              <Text style={[styles.glyph, { color: Tokens.palette.red }]}>🗑</Text>
+              <Text style={[styles.rowLabel, styles.destructiveLabel]}>Delete</Text>
+            </Pressable>
+          ) : null}
 
           <Pressable
             testID="chat-action-cancel"
