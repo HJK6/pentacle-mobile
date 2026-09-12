@@ -1913,7 +1913,7 @@ export function applyPentacleEvent(
       const merged = sameOptimisticClientReplacement
         ? event
         : prior.client_origin === true && prior.optimistic_id && event.client_origin !== true
-          ? reconciledOptimisticEvent(prior.optimistic_id, event, prior.attachments, prior.queued_at, prior)
+          ? reconciledOptimisticEvent(prior.optimistic_id, event, prior.attachments, prior.queued_at, prior, prior.text)
           : mergeProgressiveUpdate(prior, event);
       if (!merged || merged === prior) return state;
       const frozenMerged = freezeEventInDev(merged);

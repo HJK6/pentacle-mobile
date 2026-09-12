@@ -171,3 +171,19 @@ test('an unrelated server USER row is not swallowed by an image send awaiting it
   // The optimistic image bubble plus the unrelated row: two rows, wrapper not matched.
   assert.equal(detail?.transcriptItems.length, 2);
 });
+
+test('a duplicate LIVE wrapper echo re-delivery keeps one caption bubble (no wrapper text re-render)', () => {
+  // First live echo reconciles into the optimistic image bubble (image + caption).
+  const afterFirst = applyPentacleEvent(ackedImageSend(), wrapperEcho());
+  // A duplicate LIVE delivery of the same wrapper echo (same daemon_seq) re-enters
+  // the seq-correlated merge path. Without the optimistic caption it would re-render
+  // the daemon wrapper text (wrapper + caption fallback = two bubbles).
+  const afterDuplicate = applyPentacleEvent(afterFirst, wrapperEcho());
+  const detail = selectSessionDetail(afterDuplicate, STREAM_ID, { visibleCount: 'all' });
+  assert.equal(detail?.transcriptItems.length, 1);
+  const row = detail?.transcriptItems[0];
+  assert.equal(row?.text, CAPTION);
+  assert.equal(row?.optimisticId, OPTIMISTIC_ID);
+  assert.equal(row?.attachments?.length, 1);
+  assert.equal(row?.attachments?.[0].key, SHA);
+});
