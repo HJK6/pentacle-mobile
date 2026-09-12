@@ -8,8 +8,8 @@ const { assertProvisionPin } = require('./check-provision-pin.cjs');
 
 const ROOT = path.resolve(__dirname, '..');
 const pin = JSON.parse(fs.readFileSync(path.join(ROOT, 'config', 'pentacle-chat-core-pin.json'), 'utf8'));
-const target = path.join(ROOT, pin.path);
-const telemetry = path.join(target, 'src', 'utils', 'telemetryEvents.ts');
+const telemetryRelative = path.join(pin.path, 'src', 'utils', 'telemetryEvents.ts');
+const telemetry = path.join(ROOT, telemetryRelative);
 
 function git(cwd, args) {
   const result = spawnSync('git', args, { cwd, encoding: 'utf8' });
@@ -21,30 +21,17 @@ function git(cwd, args) {
 }
 
 function verify() {
-  if (git(target, ['rev-parse', 'HEAD']) !== pin.commit) throw new Error('TEST_PROVISION_CHAT_CORE_SHA');
-  if (git(target, ['ls-files', '--error-unmatch', 'src/utils/telemetryEvents.ts']) !== 'src/utils/telemetryEvents.ts' || !fs.existsSync(telemetry)) {
+  if (git(ROOT, ['ls-files', '--error-unmatch', telemetryRelative]) !== telemetryRelative || !fs.existsSync(telemetry)) {
     throw new Error('TEST_PROVISION_TELEMETRY_REGISTRY_MISSING');
   }
 }
 
 function main() {
-  if (pin.schema !== 1 || pin.path !== 'pentacle-chat-core' || !/^[0-9a-f]{40}$/.test(pin.commit) || typeof pin.remote !== 'string') {
+  if (pin.schema !== 2 || pin.path !== 'pentacle-chat-core' || !/^[0-9a-f]{40}$/.test(pin.tree)) {
     throw new Error('TEST_PROVISION_PIN_INVALID');
   }
-  if (fs.existsSync(path.join(ROOT, '.git'))) {
-    assertProvisionPin(ROOT);
-    git(ROOT, ['submodule', 'update', '--init', '--recursive']);
-    verify();
-    return;
-  }
-
-  if (fs.existsSync(target)) {
-    if (fs.readdirSync(target).length) throw new Error('TEST_PROVISION_ARCHIVE_TARGET_NOT_EMPTY');
-    fs.rmdirSync(target);
-  }
-  const remote = process.env.PENTACLE_CHAT_CORE_PROVISION_REMOTE || pin.remote;
-  git(ROOT, ['-c', 'protocol.file.allow=always', 'clone', '--quiet', '--no-checkout', remote, target]);
-  git(target, ['checkout', '--quiet', '--detach', pin.commit]);
+  if (!fs.existsSync(path.join(ROOT, '.git'))) throw new Error('TEST_PROVISION_TREE_PROVENANCE_REQUIRED');
+  assertProvisionPin(ROOT);
   verify();
 }
 

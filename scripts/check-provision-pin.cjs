@@ -24,29 +24,29 @@ function readPin(root) {
   } catch (error) {
     throw new Error(`TEST_PROVISION_PIN_INVALID:${error.message}`);
   }
-  if (pin.schema !== 1 || pin.path !== 'pentacle-chat-core' || !/^[0-9a-f]{40}$/.test(pin.commit)) {
+  if (pin.schema !== 2 || pin.path !== 'pentacle-chat-core' || !/^[0-9a-f]{40}$/.test(pin.tree)) {
     throw new Error('TEST_PROVISION_PIN_INVALID');
   }
   return pin;
 }
 
-function gitlinkSha(root, relativePath) {
+function trackedTreeSha(root, relativePath) {
   const entry = git(root, ['ls-tree', 'HEAD', '--', relativePath]).split(/\r?\n/).find(Boolean);
   const fields = entry ? entry.trim().split(/\s+/) : [];
-  if (fields[0] !== '160000' || fields[1] !== 'commit' || !/^[0-9a-f]{40}$/.test(fields[2] || '')) return null;
+  if (fields[0] !== '040000' || fields[1] !== 'tree' || !/^[0-9a-f]{40}$/.test(fields[2] || '')) return null;
   return fields[2];
 }
 
 function assertProvisionPin(root = ROOT) {
   const pin = readPin(root);
-  const observed = gitlinkSha(root, pin.path);
-  if (observed !== pin.commit) {
+  const observed = trackedTreeSha(root, pin.path);
+  if (observed !== pin.tree) {
     throw new Error(
-      `TEST_PROVISION_PIN_DRIFT: ${pin.path} gitlink ${observed || '<missing>'} does not match `
-      + `${PIN_FILE} commit ${pin.commit}; run the align-pin chore before pushing this commit.`,
+      `TEST_PROVISION_PIN_DRIFT: ${pin.path} tracked tree ${observed || '<missing>'} does not match `
+      + `${PIN_FILE} tree ${pin.tree}; update the tracked tree pin before pushing this commit.`,
     );
   }
-  return { path: pin.path, commit: observed };
+  return { path: pin.path, tree: observed };
 }
 
 if (require.main === module) {
@@ -58,4 +58,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { assertProvisionPin, gitlinkSha, readPin };
+module.exports = { assertProvisionPin, trackedTreeSha, readPin };
