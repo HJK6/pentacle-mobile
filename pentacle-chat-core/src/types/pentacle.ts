@@ -15,7 +15,7 @@ export type PentacleEventKind =
   | string;
 
 // Cross-lane attachment contract (spec
-// public protocol contract, ## Attachment model).
+// pentacle-mobile__photo_send_and_queued_messages_2026_06_17, ## Attachment model).
 // Both lanes code against this single shape: the mobile lane builds the `send`
 // RPC payload + renders the bubble; the daemon/chat-core lane resolves the blob
 // `key` and injects an agent-local path. Authored here (the platform-neutral
@@ -116,7 +116,7 @@ export interface PentacleSpecStatusCapability {
 }
 
 // Agent-written per-session status card set via `agent-orch status`
-// (public-session-status-card). The daemon stamps updated_at
+// (spec_pentacle__session_status_card_2026_07). The daemon stamps updated_at
 // on every successful write; all other fields are optional partial state.
 export interface SessionStatusCard {
   goal?: string;
@@ -309,6 +309,11 @@ export interface PentacleNotificationResolution {
   selections?: unknown[];
   note?: string | null;
   spawned_stream_id?: string;
+  // Answer persistence and delivery are separate daemon-owned facts. An
+  // unconfirmed delivery must never imply that another paste is safe.
+  delivery_status?: 'pending' | 'queued' | 'delivered' | 'failed' | 'unconfirmed';
+  delivery_reason?: string;
+  delivery_next_action?: string;
   // run_command outcome (mirrors the daemon's resolution.result shape).
   result?: {
     command_id?: string;

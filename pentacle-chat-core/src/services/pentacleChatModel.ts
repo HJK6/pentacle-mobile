@@ -292,8 +292,21 @@ function receiptCaptionForLatestUserEvent(event: PentacleEvent): PentacleReceipt
   if (!event.client_origin || !event.optimistic_id) return undefined;
   if (!Number.isFinite(Number(event.correlatedDaemonSeq))) return 'sending';
   if (!isDirectMatchedUserEcho(event)) return undefined;
-  if (normalizedReceiptField(event, 'receipt_state') === 'landed') return 'sent';
-  if (normalizedReceiptField(event, 'receipt_delivery') === 'proof_unavailable') return 'failed';
+  const receiptState = normalizedReceiptField(event, 'receipt_state');
+  const receiptDelivery = normalizedReceiptField(event, 'receipt_delivery');
+  if (receiptState === 'landed') return 'sent';
+  // A message accepted into the target's queue was committed to the seat; its
+  // submission-into-turn proof can lag (proof_unavailable / committed_pending_proof)
+  // but it is NOT a failure. Operator ruling: accepted-into-queue => SENT, never
+  // Failed. spec_pentacle__mobile_send_status_reconcile_2026_09 (the phone/Nexus
+  // false "send failed"). A truly rejected send (receipt_state=not_landed) is
+  // failed at the send.result/durable row path, not swallowed here.
+  if (
+    receiptState === 'accepted' ||
+    receiptDelivery === 'accepted' ||
+    receiptDelivery === 'committed_pending_proof' ||
+    receiptDelivery === 'proof_unavailable'
+  ) return 'sent';
   if (!hasReceiptField(event, 'receipt_state') && !hasReceiptField(event, 'receipt_delivery')) return 'sent';
   return 'sending';
 }

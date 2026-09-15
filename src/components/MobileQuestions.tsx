@@ -197,7 +197,7 @@ export function useMobileQuestionFlow<T>(entries: readonly MobileQuestionEntry<T
 export function QuestionFab({ count, accent, onPress }: { count: number; accent: string; onPress: () => void }) {
   if (count <= 0) return null;
   return (
-    <View pointerEvents="box-none" style={styles.fabDock}>
+    <View testID="question-fab-dock" pointerEvents="box-none" style={styles.fabDock}>
       <View style={[styles.fabPulse, { borderColor: `${accent}66` }]} />
       <Pressable
         testID="question-fab"
@@ -622,7 +622,7 @@ export function QuestionCardSurface<T>({ entries, activeIndex, flow, accent, sub
 }
 
 const styles = StyleSheet.create({
-  fabDock: { position: 'absolute', right: 18, bottom: 96, width: 66, height: 66, alignItems: 'center', justifyContent: 'center', zIndex: 80 },
+  fabDock: { alignSelf: 'flex-end', marginRight: 4, width: 66, height: 66, alignItems: 'center', justifyContent: 'center', zIndex: 80 },
   fabPulse: { position: 'absolute', width: 62, height: 62, borderRadius: 31, borderWidth: 1.5, opacity: 0.72 },
   fab: { width: 58, height: 58, borderRadius: 29, alignItems: 'center', justifyContent: 'center', shadowOpacity: 0.8, shadowRadius: 13, shadowOffset: { width: 0, height: 2 }, elevation: 8 },
   fabBadge: { position: 'absolute', right: -3, top: -3, minWidth: 21, height: 21, borderRadius: 11, borderWidth: 1.5, backgroundColor: Tokens.palette.ink, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 5 },

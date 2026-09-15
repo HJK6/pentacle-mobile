@@ -815,28 +815,32 @@ test('cached list fallback separates options and invalidates metadata and same-c
   assert.notEqual(metadataDetail, cleanDetail, 'session/working/draft signature changes must invalidate metadata');
   assert.equal(metadataDetail?.draftText, '');
 
-  const failedReceiptEvent: PentacleEvent = {
+  // A partial receipt captions 'sending'; the later landed receipt captions 'sent',
+  // giving a genuine same-count caption transition to exercise the selector cache.
+  // (accepted/proof_unavailable is now 'sent' — spec_pentacle__mobile_send_status_reconcile_2026_09 —
+  // so it can no longer serve as the distinct "before" caption here.)
+  const pendingReceiptEvent: PentacleEvent = {
     ...userEvent,
     client_origin: true,
     optimistic_id: 'preview-cache-receipt',
     correlatedDaemonSeq: 1,
     receiptDirectMatch: true,
-    raw: { receipt_state: 'accepted', receipt_delivery: 'proof_unavailable' },
+    raw: { receipt_state: '' },
   };
   const landedReceiptEvent: PentacleEvent = {
-    ...failedReceiptEvent,
+    ...pendingReceiptEvent,
     raw: { receipt_state: 'landed', receipt_delivery: 'accepted' },
   };
   const receiptSession = { ...currentSession, last_event_at: timestamp, last_text: userEvent.text, last_kind: 'USER' };
   const receiptBefore = normalizePentacleEventBuckets({
     ...initialPentacleStreamState,
     sessions: [receiptSession],
-    events: [failedReceiptEvent],
+    events: [pendingReceiptEvent],
   });
   const receiptSelector = createChatListSelector();
   assert.equal(receiptSelector(receiptBefore)[0]?.previewText, userEvent.text);
-  const failedReceiptDetail = selectSessionDetail(receiptBefore, streamId, { includeDraft: false, visibleCount: 'all' });
-  assert.equal(failedReceiptDetail?.transcriptItems[0]?.receiptCaption, 'failed');
+  const pendingReceiptDetail = selectSessionDetail(receiptBefore, streamId, { includeDraft: false, visibleCount: 'all' });
+  assert.equal(pendingReceiptDetail?.transcriptItems[0]?.receiptCaption, 'sending');
   const receiptAfter = normalizePentacleEventBuckets({
     ...initialPentacleStreamState,
     sessions: [receiptSession],
@@ -845,7 +849,7 @@ test('cached list fallback separates options and invalidates metadata and same-c
   assert.equal(receiptAfter.events.length, receiptBefore.events.length, 'receipt reconciliation must not add content');
   assert.equal(receiptSelector(receiptAfter)[0]?.previewText, userEvent.text);
   const landedReceiptDetail = selectSessionDetail(receiptAfter, streamId, { includeDraft: false, visibleCount: 'all' });
-  assert.notEqual(landedReceiptDetail, failedReceiptDetail, 'same-count content change must invalidate the cache');
+  assert.notEqual(landedReceiptDetail, pendingReceiptDetail, 'same-count content change must invalidate the cache');
   assert.equal(landedReceiptDetail?.transcriptItems[0]?.receiptCaption, 'sent');
 
   const answerPayload = JSON.stringify({

@@ -34,7 +34,7 @@ const mockActions = {
   resolveNotification: jest.fn(),
   answerPrompt: jest.fn(),
 };
-const mockKeyboardAddListener = jest.fn(() => ({ remove: jest.fn() }));
+const mockKeyboardAddListener = jest.fn((_event: string, _listener: (event: any) => void) => ({ remove: jest.fn() }));
 const mockRunAfterInteractions = jest.fn((callback: () => void) => {
   callback();
   return { cancel: jest.fn() };
@@ -436,6 +436,34 @@ beforeEach(() => {
 
 afterEach(() => {
   rendered?.unmount();
+});
+
+test.each([[142, 0], [222, 320], [166, 216]])('pending question and transcript hit regions remain disjoint with composer %i and keyboard %i', (height, keyboard) => {
+  applyQuestionSummary();
+  mockState.events = [event({ text: 'Retained bottom message' })];
+  rendered = render(<SessionScreen />);
+  const composer = screen.getByTestId('composer-wrap');
+  // A pending question must occupy measured space, so a bottom-most Retry
+  // stays inside the transcript rather than underneath the question button.
+  expect(within(composer).getByTestId('question-fab')).toBeTruthy();
+  const dock = StyleSheet.flatten(screen.getByTestId('question-fab-dock').props.style);
+  expect(dock.position).not.toBe('absolute');
+  expect(dock.height).toBeGreaterThanOrEqual(StyleSheet.flatten(screen.getByTestId('question-fab').props.style).height);
+  fireEvent(composer, 'layout', { nativeEvent: { layout: { height, width: 402, x: 0, y: 874 - height } } });
+  const keyboardShowListeners = mockKeyboardAddListener.mock.calls.filter(([name]) => name === 'keyboardWillShow' || name === 'keyboardDidShow').map(([, listener]) => listener);
+  expect(keyboardShowListeners.length).toBeGreaterThan(0);
+  act(() => keyboardShowListeners.forEach((listener) => listener({ endCoordinates: { height: keyboard } })));
+  const reserved = StyleSheet.flatten(screen.getByTestId('transcript-list').props.style).marginBottom;
+  const composerBottom = StyleSheet.flatten(screen.getByTestId('composer-wrap').props.style).bottom;
+  const screenHeight = 874;
+  const transcriptBottom = screenHeight - reserved;
+  const questionDockTop = screenHeight - composerBottom - height;
+  expect(transcriptBottom).toBeLessThanOrEqual(questionDockTop);
+  expect(reserved).toBeGreaterThanOrEqual(height + keyboard);
+  fireEvent.press(screen.getByTestId('question-fab'));
+  expect(screen.getByTestId('question-overlay')).toBeTruthy();
+  fireEvent.press(screen.getByTestId('question-overlay-cancel'));
+  expect(within(screen.getByTestId('composer-wrap')).getByTestId('question-fab')).toBeTruthy();
 });
 
 test('question overlay uses the mock body, FAB, and single disabled submit affordance', () => {

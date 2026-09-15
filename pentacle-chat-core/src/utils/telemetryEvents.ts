@@ -1,13 +1,13 @@
-export const TELEMETRY_BUG_REF = 'telemetry-bug';
-export const CHAT_UI_BUG_BATCH_REF = 'chat-ui-bug-batch';
-export const E2E_TELEMETRY_FLOWS_REF = 'public-e2e-telemetry-flows';
-export const NOTIFICATIONS_L3_REF = 'public-notifications-l3-coverage';
-export const QUESTION_L3_REF = 'public-chat-agent-question-parsing';
-export const CHAT_UI_PARITY_BATCH3_REF = 'public-chat-ui-parity-batch3';
-export const CHAT_RENDER_STABILITY_REF = 'chat-render-stability';
-export const CHAT_QUICK_WINS_REF = 'chat-quick-wins';
-export const TURN_PHASE_DERIVED_REF = 'turn-phase-derived';
-export const OPTIMISTIC_ORPHAN_TELEMETRY_REF = 'optimistic-orphan-telemetry';
+export const TELEMETRY_BUG_REF = 'spec_pentacle_mobile_test_migration_and_coverage';
+export const CHAT_UI_BUG_BATCH_REF = 'chat_ui_bug_batch_2026_05_12';
+export const E2E_TELEMETRY_FLOWS_REF = 'spec_pentacle_mobile_e2e_telemetry_flows_2026_05_13';
+export const NOTIFICATIONS_L3_REF = 'spec_pentacle_mobile_notifications_l3_coverage';
+export const QUESTION_L3_REF = 'spec_pentacle__chat_agent_question_parsing_2026_05_27';
+export const CHAT_UI_PARITY_BATCH3_REF = 'spec_pentacle_mobile__chat_ui_parity_batch3_2026_05_27';
+export const CHAT_RENDER_STABILITY_REF = 'spec_pentacle_mobile__chat_render_stability_2026_05_27';
+export const CHAT_QUICK_WINS_REF = 'spec_pentacle_mobile_chat_quick_wins_2026_06_10';
+export const TURN_PHASE_DERIVED_REF = 'spec_pentacle_mobile__chat_detail_working_indicator_missing_2026_06_16';
+export const OPTIMISTIC_ORPHAN_TELEMETRY_REF = 'spec_pentacle__chat_streamd_optimistic_send_orphan_telemetry';
 
 const HARNESS_PREFIX = 'harness';
 const HARNESS_ARMED = 'harness_armed';
@@ -77,8 +77,9 @@ export const TELEMETRY_EVENTS = {
   // otherwise-invisible turn-phase derivation is observable for diagnosis and
   // validation. Data: {streamId, phase, source: 'fetch'|'live'|'resync',
   // drivingEventKey}. Spec:
-  // turn-phase-derived.
+  // spec_pentacle_mobile__chat_detail_working_indicator_missing_2026_06_16.
   CHAT_TURN_PHASE_DERIVED: 'chat:turn_phase_derived',
+  CHAT_IMAGE_LOAD_STATE: 'chat:image_load_state',
   AUTH_BIOMETRIC_PROMPT_SCHEDULED: 'auth:biometric_prompt_scheduled',
   AUTH_BIOMETRIC_PROMPT_RESOLVED: 'auth:biometric_prompt_resolved',
   PUSH_NOTIFICATION_RECEIVED: 'push:notification_received',
@@ -87,7 +88,7 @@ export const TELEMETRY_EVENTS = {
   // the chat:* domain events: emitted from pentacleStream's notification.*
   // message handlers and NotificationCard render, NOT gated on
   // EXPO_PUBLIC_HARNESS. Captured by idevicesyslog in L3 runs. Spec:
-  // public-notifications-l3-coverage.
+  // spec_pentacle_mobile_notifications_l3_coverage.
   NOTIFICATION_FRAME_APPLIED: 'notification:frame_applied',
   NOTIFICATION_LIST_SETTLED: 'notification:list_settled',
   NOTIFICATION_RESOLVE_SENT: 'notification:resolve_sent',
@@ -98,7 +99,7 @@ export const TELEMETRY_EVENTS = {
   // notification:card_rendered render event: emitted from the QuestionCard
   // render when a session carries a pending question, NOT gated on
   // EXPO_PUBLIC_HARNESS. Captured by idevicesyslog in L3 runs. Spec:
-  // public-chat-agent-question-parsing.
+  // spec_pentacle__chat_agent_question_parsing_2026_05_27.
   QUESTION_CARD_RENDERED: 'question:card_rendered',
   QUESTION_REOPEN_FETCH_ATTEMPT: 'question:reopen_fetch_attempt',
   QUESTION_REOPEN_FETCH_FAILED: 'question:reopen_fetch_failed',
@@ -109,7 +110,7 @@ export const TELEMETRY_EVENTS = {
   QUESTION_INPUT_FOCUSED: 'question:input_focused',
   // Always-on chat-surface copy telemetry (prod + harness). Emitted when
   // mobile chat copy affordances copy message or raw code source text. Spec:
-  // public-chat-ui-parity-batch3.
+  // spec_pentacle_mobile__chat_ui_parity_batch3_2026_05_27.
   CHAT_COPY_INVOKED: 'chat:copy_invoked',
   HARNESS_HARNESS_ARMED: `${HARNESS_PREFIX}:${HARNESS_ARMED}`,
   HARNESS_AUTOACCEPT_BIOMETRIC_SCHEDULED: `${HARNESS_PREFIX}:${HARNESS_AUTOACCEPT_BIOMETRIC}`,
@@ -174,12 +175,13 @@ export const TELEMETRY_EVENT_BUG_REFS: Record<TelemetryEvent, string> = {
     TelemetryEvent,
     string
   >,
+  [TELEMETRY_EVENTS.CHAT_IMAGE_LOAD_STATE]: 'spec_pentacle_mobile__decoded_photo_spinner_overlay_2026_09',
   [TELEMETRY_EVENTS.CHAT_SURFACE_TRAILING_BLANK_DROPPED]: CHAT_UI_BUG_BATCH_REF,
   [TELEMETRY_EVENTS.CHAT_COMPOSE_OPTIMISTIC_INSERT]: CHAT_UI_BUG_BATCH_REF,
   [TELEMETRY_EVENTS.CHAT_COMPOSE_OPTIMISTIC_RECONCILED]: CHAT_UI_BUG_BATCH_REF,
   [TELEMETRY_EVENTS.CHAT_COMPOSE_OPTIMISTIC_FAILED]: CHAT_UI_BUG_BATCH_REF,
   [TELEMETRY_EVENTS.CHAT_COMPOSE_OPTIMISTIC_ORPHAN_SUSPECTED]: OPTIMISTIC_ORPHAN_TELEMETRY_REF,
-  [TELEMETRY_EVENTS.CHAT_CURRENT_TAIL_RECOMPOSITION]: 'chat-current-tail-recomposition',
+  [TELEMETRY_EVENTS.CHAT_CURRENT_TAIL_RECOMPOSITION]: 'spec_pentacle_mobile__stale_feed_client_state_clobber_2026_08',
   [TELEMETRY_EVENTS.CHAT_SESSION_FIRST_EVENT_AFTER_SEND]: CHAT_UI_BUG_BATCH_REF,
   [TELEMETRY_EVENTS.CHAT_SESSION_SPAWN_SUMMARY_APPLIED]: CHAT_UI_BUG_BATCH_REF,
   [TELEMETRY_EVENTS.CHAT_SEND_WHILE_NOT_IDLE]: CHAT_UI_BUG_BATCH_REF,

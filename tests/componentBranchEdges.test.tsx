@@ -30,7 +30,7 @@ test('media bubble reserves safe fallback geometry and transitions through loadi
   fireEvent(screen.getByTestId('media-img'), 'load');
   expect(screen.queryByTestId('media-loading')).toBeNull();
   fireEvent(screen.getByTestId('media-img'), 'loadStart');
-  expect(screen.getByTestId('media-loading')).toBeTruthy();
+  expect(screen.queryByTestId('media-loading')).toBeNull();
   fireEvent(screen.getByTestId('media-img'), 'error');
   expect(screen.getByTestId('media-broken')).toBeTruthy();
   expect(rendered.UNSAFE_queryByType(Image)).toBeNull();

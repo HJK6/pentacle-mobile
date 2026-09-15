@@ -75,6 +75,15 @@ export default function NotificationCard({ notification, informational = false }
   }).client_resolution_pending === true;
 
   const isOpen = notification.state === 'open';
+  const delivery = notification.resolution;
+  const answerSaved = !isOpen && typeof delivery?.delivery_status === 'string';
+  const deliveryLabel = delivery?.delivery_status === 'delivered'
+    ? 'Delivered'
+    : delivery?.delivery_status === 'pending' || delivery?.delivery_status === 'queued'
+      ? 'Saved · delivery pending'
+      : delivery?.delivery_status === 'failed' && delivery.delivery_reason === 'question_producer_gone'
+        ? 'Not delivered'
+        : 'Delivery unconfirmed';
   const freeTextQuestion = String(notification.question?.response_mode || '') === 'free_text' ? notification.question : null;
   // The card is interactive while OPEN and not mid-submit. `running` is a live
   // (broadcast-driven) terminal-progress state: buttons are gone, the inline
@@ -90,8 +99,10 @@ export default function NotificationCard({ notification, informational = false }
     logTelemetry(TELEMETRY_EVENTS.NOTIFICATION_CARD_RENDERED, {
       notification_id: notification.notification_id,
       state: notification.state,
+      delivery_status: delivery?.delivery_status,
+      delivery_reason: delivery?.delivery_reason,
     });
-  }, [notification.notification_id, notification.state]);
+  }, [notification.notification_id, notification.state, delivery?.delivery_status, delivery?.delivery_reason]);
 
   // A live broadcast that moves the card off `open` settles any in-flight
   // submit (the optimistic Working…/Running… label hands off to the
@@ -230,6 +241,7 @@ export default function NotificationCard({ notification, informational = false }
     // fallback only fires for a generic terminal state, so it can't shadow an
     // explicit `resolved`/`expired`.
     if (state === 'resolved' || state === 'expired') {
+      if (state === 'resolved' && answerSaved) return null;
       return (
         <View testID="notification-decision" style={styles.decision}>
           <Text style={styles.decisionText}>{state === 'expired' ? 'Expired' : 'Resolved'}</Text>
@@ -334,12 +346,20 @@ export default function NotificationCard({ notification, informational = false }
             style={[styles.freeTextInput, { borderColor: `${accent}66` }]}
           />
         ) : null}
-        {clientResolutionPending ? (
+        {clientResolutionPending && !answerSaved ? (
           <View testID="notification-resolution-pending" style={styles.decision}>
             <Text style={styles.decisionRunning}>Resolving…</Text>
           </View>
         ) : isOpen && !informational ? renderActionButtons() : !isOpen ? renderDecision() : null}
-        {actionError || clientResolutionError ? (
+        {answerSaved ? (
+          <View testID="notification-answer-delivery" style={styles.decision}>
+            <Text style={styles.decisionText}>{deliveryLabel}</Text>
+            {delivery?.delivery_next_action && delivery.delivery_status !== 'delivered' ? (
+              <Text style={styles.decisionText}>{delivery.delivery_next_action}</Text>
+            ) : null}
+          </View>
+        ) : null}
+        {!answerSaved && (actionError || clientResolutionError) ? (
           <Text testID="notification-action-error" style={styles.errorText}>
             {actionError || clientResolutionError}
           </Text>

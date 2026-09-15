@@ -1,4 +1,5 @@
 import { useCallback, useSyncExternalStore } from 'react';
+import { fromByteArray, toByteArray } from 'base64-js';
 import { AppState, type AppStateStatus } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useSyncExternalStoreWithSelector } from 'use-sync-external-store/shim/with-selector';
@@ -3755,7 +3756,7 @@ function handleMessageInner(raw: string) {
     if (pending) {
       const chunks = pendingFetchBlobChunks.get(message.request_id) ?? [];
       if (typeof message.content_b64 === 'string') chunks.push(message.content_b64);
-      const content_b64 = chunks.join('');
+      const content_b64 = assembleFetchBlobChunks(chunks);
       settlePendingRequest(message.request_id);
       pending.resolve({
         blob_sha: String(message.blob_sha || ''),
@@ -5275,19 +5276,42 @@ export function markOptimisticFailed(optimistic_id: string, reason = 'send_error
   setState(markOptimisticFailedByOptimisticId(state, optimistic_id, reason));
 }
 
-// FEAT-SEND-RETRY: the user tapped Retry on a "failed sending" overlay. Re-arm
-// the row back to "sending" and re-transmit it by optimistic_id. The dispatch
-// rejection (RPC timeout / disconnect) is swallowed — the row stays "sending"
-// and reconciles on the daemon echo (live or recovery refetch); only an explicit
-// daemon reject (send.result / send.error) re-fails it.
-export function retryOptimisticSend(optimisticId: string): Promise<boolean> {
+// Explicit Retry also drives the existing connection owner: a retained upload
+// must not wait on passive reconnect backoff after the link has recovered.
+// Undispatched failures stay retryable; possibly dispatched sends retain the
+// existing receipt reconciliation and logical-send identity.
+function waitForRetryConnection(optimisticId: string, sendRequestId: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const finish = (ready: boolean) => {
+      clearTimeout(timeout);
+      listeners.delete(observe);
+      resolve(ready);
+    };
+    const observe = () => {
+      const row = state.optimisticSends?.[optimisticId];
+      if (!subscribers || !row || row.request_id !== sendRequestId || row.status !== 'dispatched') {
+        finish(false);
+      } else if (state.connected && ws?.readyState === WebSocket.OPEN) {
+        finish(true);
+      }
+    };
+    // This bounds one deliberate attempt; connect() still owns every socket
+    // and reconnect timer. Repeated taps cannot re-arm a dispatched row.
+    const timeout = setTimeout(() => finish(false), 15_000);
+    listeners.add(observe);
+    connect();
+    observe();
+  });
+}
+
+export async function retryOptimisticSend(optimisticId: string): Promise<boolean> {
   const optimistic = state.optimisticSends?.[optimisticId];
-  if (!optimistic || optimistic.status !== 'failed') return Promise.resolve(false);
+  if (!optimistic || optimistic.status !== 'failed') return false;
   const session = state.sessions.find((item) => item.stream_id === optimistic.stream_id);
-  if (!session) return Promise.resolve(false);
+  if (!session) return false;
   // idempotent_mobile_send §A: explicit retry mints a NEW request_id (keeping
-  // optimistic_id) so the server treats it as a fresh logical send rather than a
-  // replay of the failed one. Re-arm via the reducer, then rotate the request_id
+  // optimistic_id) so the attempt has a fresh receipt correlation while the
+  // logical send remains stable. Re-arm via the reducer, then rotate the request_id
   // client-side; dispatchHeldSend re-reads the rotated request_id from state.
   const priorRequestId = optimistic.request_id;
   const newRequestId = requestId('send');
@@ -5304,6 +5328,16 @@ export function retryOptimisticSend(optimisticId: string): Promise<boolean> {
     newRequestId,
   ));
   emitRetryTelemetry(retryTelemetry, 'retry_requested', 'pending');
+  if (!state.connected || ws?.readyState !== WebSocket.OPEN) {
+    const ready = await waitForRetryConnection(optimisticId, newRequestId);
+    const current = state.optimisticSends?.[optimisticId];
+    if (!current || current.request_id !== newRequestId || current.status !== 'dispatched') return false;
+    if (!ready) {
+      markOptimisticFailed(optimisticId, 'Pentacle stream is not connected');
+      emitRetryTelemetry(retryTelemetry, 'transport_undispatched', 'failed');
+      return false;
+    }
+  }
   const dispatch = (attachments?: ChatAttachment[]) => dispatchHeldSend(
     optimisticId,
     session,
@@ -5490,6 +5524,33 @@ export async function uploadBlobBase64(
     sendBlobChunk(request_id, chunks[index], false);
   }
   return sendBlobChunk(request_id, chunks[chunks.length - 1], true);
+}
+
+/**
+ * Assemble the base64 payload of a fetch_blob response from its streamed chunks.
+ *
+ * The daemon streams blobs >1 MiB as multiple `fetch_blob.chunk` frames, each
+ * INDEPENDENTLY base64-encoded. A non-final chunk whose byte length is not a
+ * multiple of 3 (e.g. the 1 MiB = 1048576-byte chunk boundary) carries `=`
+ * padding, so concatenating the base64 STRINGS and decoding once truncates the
+ * blob at the first padded boundary (the historical "only first 1 MiB renders"
+ * bug). Decode each chunk to bytes independently, concatenate the bytes, then
+ * re-encode once into a single valid base64 string, preserving the
+ * `FetchBlobResult.content_b64` contract consumed by attachmentFetch.ts.
+ */
+export function assembleFetchBlobChunks(chunks: string[]): string {
+  if (chunks.length === 0) return '';
+  // Single chunk (the <1 MiB path) is already a complete, valid base64 payload.
+  if (chunks.length === 1) return chunks[0];
+  const parts = chunks.map((chunk) => toByteArray(chunk));
+  const total = parts.reduce((sum, part) => sum + part.length, 0);
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const part of parts) {
+    bytes.set(part, offset);
+    offset += part.length;
+  }
+  return fromByteArray(bytes);
 }
 
 export function fetchBlobBase64(blobSha: string): Promise<FetchBlobResult> {

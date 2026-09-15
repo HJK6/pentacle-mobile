@@ -261,10 +261,10 @@ export type PeerAgentMessage = {
 };
 
 // Agent-orch / inter-agent delivery envelope, e.g.
-//   "[from host_c:claude-host_c-1b7d6cb6] [tell:abc]\nbody"
-//   "[from host_b:codex-...] [handoff:x]\nbody"            (any anchor word)
+//   "[from merlin:claude-merlin-122ad529] [tell:abc]\nbody"
+//   "[from bart:codex-...] [handoff:x]\nbody"            (any anchor word)
 //   "[from <daemon-liveness>] [tell:...]\nbody"          (non-stream-id markers)
-//   "[from host_c:claude-...]\nbody"                     (no anchor)
+//   "[from merlin:claude-...]\nbody"                     (no anchor)
 // The trailing line break is the discriminator that keeps human text safe: a real
 // agent-orch delivery prepends "[from <id>]" and puts the body on the next line,
 // whereas ordinary prose like "[from 3:30pm] meeting" has no newline and stays a
@@ -275,25 +275,25 @@ export type PeerAgentMessage = {
 // permissive (\S+?) so non-stream-id markers like <daemon-liveness> still match.
 // The trailing `(?:[^\S\r\n]+enqueued_at=\S*)?` accepts the one metadata stamp the daemon appends
 // after the anchor, on the same line as the header: ` enqueued_at=<iso>`, which `_stamped_peer_text`
-// (daemon transport) adds for QUEUED and redelivered tells but not
+// (services/chat-stream/daemon_peer_delivery.py:145) adds for QUEUED and redelivered tells but not
 // for directly delivered ones. Without it, every queued tell failed to parse and fell through to
 // the raw `bubble:user` branch — which is how raw notification.answer JSON reached the transcript
-// (public-notification-answer-raw-json-bubble).
+// (spec_pentacle__notification_answer_raw_json_bubble_2026_07).
 //
 // Deliberately pinned to the literal `enqueued_at` key AND the daemon's ISO-8601 UTC grammar
 // rather than a generic `key=value` run: this pattern changes attribution and visibility, so every
 // character of slack here can swallow a real human message. `enqueued_at=tomorrow` or a bare
 // `enqueued_at=` is a human writing prose, not the
 // daemon — the daemon always emits `datetime.now(timezone.utc).isoformat()` with `+00:00` replaced
-// by `Z` (daemon transport :145). If the daemon adds another stamp, widen this to
+// by `Z` (daemon_peer_delivery.py:1370-1372, :145). If the daemon adds another stamp, widen this to
 // that specific key and grammar, and add a fixture for it.
 // Exactly the daemon's lexical form, not a family of things that resemble it:
 //   * ONE ASCII space — `_stamped_peer_text` interpolates `f" enqueued_at={enqueued_at}"`
-//     (daemon transport). Tabs and runs of spaces are human typing.
+//     (daemon_peer_delivery.py:145). Tabs and runs of spaces are human typing.
 //   * A semantically valid UTC timestamp — month 01-12, day 01-31, hour 00-23, min/sec 00-59.
 //     `2026-13-45T99:99:99Z` has the right shape but no daemon ever emitted it.
 //   * Microseconds either absent or exactly six digits — Python's `datetime.isoformat()` emits
-//     six, and omits the fraction entirely when microsecond == 0 (daemon transport).
+//     six, and omits the fraction entirely when microsecond == 0 (daemon_peer_delivery.py:1370-1372).
 //
 // KNOWN, ACCEPTED COLLISION: a human who types the exact wire form — `[from <token>]` optionally
 // followed by a `[word:...]` anchor and a byte-exact UTC stamp, then a newline — is still read as
@@ -305,7 +305,7 @@ const ENQUEUED_AT_STAMP = String.raw`enqueued_at=\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-
 const PEER_STAMP_ENQUEUED_AT = String.raw` ${ENQUEUED_AT_STAMP}`;
 const PEER_AGENT_MESSAGE = new RegExp(
   // Separators are single ASCII spaces, exactly as the daemon emits them
-  // (`f"[from {from_stream_id}]{anchor}{queued}\n{text}"`, daemon transport where
+  // (`f"[from {from_stream_id}]{anchor}{queued}\n{text}"`, daemon_peer_delivery.py:146, where
   // `anchor` itself begins with one space). The previous `\s+` also accepted tabs, NBSP, runs of
   // spaces and even a newline after `[from` — none of which the daemon produces, all of which are
   // a human typing. That slack only became reachable once stamped headers parsed, so narrowing it
@@ -382,7 +382,7 @@ function parseNotificationAnswerDisplay(text: string): AgentQuestionAnswerDispla
   const fallbackValue = stringValue(answer.value);
   const actionKind = stringValue(answer.action_kind);
   const labelAnswer = label && label.toLowerCase() !== actionKind.toLowerCase() ? label : '';
-  // A bare yes/no carries its meaning only in `choice` (daemon transport), with no free
+  // A bare yes/no carries its meaning only in `choice` (chat_streamd.py:9098), with no free
   // text, selections or value to fall back on.
   const choiceAnswer = typeof answer.choice === 'boolean' ? (answer.choice ? 'Yes' : 'No') : '';
   const displayAnswer = freeText ||
@@ -393,7 +393,7 @@ function parseNotificationAnswerDisplay(text: string): AgentQuestionAnswerDispla
     choiceAnswer;
   const note = stringValue(answer.note);
   // Accept the id from either position: the daemon nests it inside `answer`
-  // (daemon transport) but the envelope has also been observed with it at the top level.
+  // (chat_streamd.py:9089) but the envelope has also been observed with it at the top level.
   const notificationId = stringValue(answer.notification_id) || stringValue(payload.notification_id);
   // Deliberately NOT `return null` when nothing is displayable. This parser is what keeps a
   // recognized protocol envelope out of the generic `bubble:user` branch, so bailing here is
@@ -572,7 +572,7 @@ export function interpretPentacleEvent(
 
   if (kind === 'TELL') {
     // Typed peer delivery (raw.sender/raw.peer_payload from the daemon envelope).
-    // Same visibility rules as the USER-prefix peer branch below: a synthetic peer
+    // Same visibility rules as the USER-prefix peer branch below: a real peer
     // tell/send is visible; only daemon housekeeping and malformed protocol
     // payloads are suppressed. (Always-hiding typed TELL hid these on mobile.)
     const sender = String(event.raw?.sender || '').trim();
@@ -659,6 +659,16 @@ export function interpretPentacleEvent(
   if (kind === 'DRAFT') {
     const pending = Boolean(event.raw?.pending);
     return interpreted(event, pending ? 'queued-draft' : 'draft', 'draft:composer', 'assistant', 'Draft', text, true, 'Draft state is rendered outside committed transcript rows.');
+  }
+
+  // An agent-authored image rides as an ASSIST event carrying attachments (the
+  // `send_image` daemon path). Render it as the agent's own image bubble and
+  // never let the empty-caption furniture/noise heuristics below suppress it —
+  // the mirror of the operator USER-attachment exemption on the next guard.
+  if (kind === 'ASSIST' && event.attachments?.length) {
+    const provider = String(event.provider || '').toLowerCase();
+    const assistCase = classifyAssistantText(normalized, { provider });
+    return interpreted(event, assistCase, 'bubble:assistant', 'assistant', assistantLabel, collapsedText, false, 'Agent-authored image attachment.');
   }
 
   if (isTerminalFurnitureText(text, kind) && !(kind === 'USER' && event.attachments?.length)) {

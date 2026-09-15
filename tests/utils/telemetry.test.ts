@@ -265,7 +265,9 @@ test('telemetry registry names are unique and case anchored', () => {
   ]);
   for (const name of TELEMETRY_EVENT_NAMES) {
     let expectedRef: string;
-    if (chatUiBugBatchEvents.has(name)) {
+    if (name === TELEMETRY_EVENTS.CHAT_IMAGE_LOAD_STATE) {
+      expectedRef = 'spec_pentacle_mobile__decoded_photo_spinner_overlay_2026_09';
+    } else if (chatUiBugBatchEvents.has(name)) {
       expectedRef = CHAT_UI_BUG_BATCH_REF;
     } else if (chatUiParityBatch3Events.has(name)) {
       expectedRef = CHAT_UI_PARITY_BATCH3_REF;
@@ -278,7 +280,7 @@ test('telemetry registry names are unique and case anchored', () => {
     } else if (optimisticOrphanTelemetryEvents.has(name)) {
       expectedRef = OPTIMISTIC_ORPHAN_TELEMETRY_REF;
     } else if (currentTailRecompositionEvents.has(name)) {
-      expectedRef = 'chat-current-tail-recomposition';
+      expectedRef = 'spec_pentacle_mobile__stale_feed_client_state_clobber_2026_08';
     } else if (e2eTelemetryFlowEvents.has(name)) {
       expectedRef = E2E_TELEMETRY_FLOWS_REF;
     } else if (notificationsL3Events.has(name)) {

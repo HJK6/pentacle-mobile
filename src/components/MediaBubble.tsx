@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import { logTelemetry, TELEMETRY_EVENTS } from 'pentacle-chat-core';
 import {
   View,
   Image,
@@ -48,7 +49,13 @@ export interface MediaBubbleProps {
   borderColor: string;
 }
 
-export function MediaBubble({
+export function MediaBubble(props: MediaBubbleProps) {
+  // A source owns its loading/error state. Replacing it also isolates callbacks
+  // from the previous native image request.
+  return <MediaBubbleSource key={props.uri} {...props} />;
+}
+
+function MediaBubbleSource({
   uri,
   width,
   height,
@@ -59,6 +66,12 @@ export function MediaBubble({
   const [loading, setLoading] = useState(true);
   const [broken, setBroken] = useState(false);
   const box = reservedSize(width, height);
+  const loadState = broken || !uri ? 'failed' : loading ? 'loading' : 'loaded';
+  const sourceKind = uri.startsWith('file:') ? 'local' : uri.startsWith('http') ? 'remote' : 'other';
+  useEffect(() => {
+    // Report state without attachment URLs, local paths or image content.
+    logTelemetry(TELEMETRY_EVENTS.CHAT_IMAGE_LOAD_STATE, { state: loadState, source: sourceKind });
+  }, [loadState, sourceKind]);
 
   return (
     <TouchableOpacity
@@ -72,7 +85,9 @@ export function MediaBubble({
           source={{ uri }}
           style={styles.image}
           resizeMode="cover"
-          onLoadStart={() => setLoading(true)}
+          // Fabric may report a cached completion before its loadStart event.
+          // Initial state already represents loading; completion stays terminal
+          // for this source instead of a late start restoring the spinner.
           onLoad={() => setLoading(false)}
           onError={() => {
             setLoading(false);

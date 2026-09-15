@@ -3522,6 +3522,17 @@ export default function PentacleSessionScreen() {
             setComposerHeight((current) => (Math.abs(current - nextHeight) > 1 ? nextHeight : current));
           }}
         >
+          {/* Keep question controls inside the measured composer inset so they
+              cannot intercept a Retry or message in the transcript. */}
+          <QuestionFab
+            count={questionOverlayOpen ? 0 : visibleQuestionFlow.unansweredCount}
+            accent={chrome.accent}
+            onPress={() => {
+              setQuestionPageIndex(0);
+              setQuestionSubmitError(null);
+              setQuestionOverlayOpen(true);
+            }}
+          />
           {/* B1/C (working cancel): visible whenever the session is working — gated on
               showWorking (the daemon's authoritative session.working OR a local
               turn) so a daemon-reported-working session with no local optimistic
@@ -3553,15 +3564,6 @@ export default function PentacleSessionScreen() {
             onError={presentSendError}
           />
         </View>
-        <QuestionFab
-          count={questionOverlayOpen ? 0 : visibleQuestionFlow.unansweredCount}
-          accent={chrome.accent}
-          onPress={() => {
-            setQuestionPageIndex(0);
-            setQuestionSubmitError(null);
-            setQuestionOverlayOpen(true);
-          }}
-        />
       </View>
       {questionOverlayOpen ? (
         <View testID="question-card" style={styles.questionOverlayHost}>
@@ -3821,8 +3823,8 @@ export const TranscriptRow = memo(function TranscriptRow({
   isLatestThinking?: boolean;
   onCopy?: CopyHandler;
   showTurnDuration?: boolean;
-  // A1 (photo/camera send): image thumbs to render in this (user) bubble, FIFO.
-  // Sourced from the transcript row. Tapping one opens the viewer.
+  // Image thumbs to render in this transcript row, FIFO. This is populated for
+  // both operator USER rows and agent ASSIST rows. Tapping one opens the viewer.
   attachments?: RenderAttachment[];
   // B1 (send-while-working queue): this USER row was sent while the agent was
   // working, so it shows the native-CC-style queued affordance until delivery.
@@ -4128,6 +4130,21 @@ export const TranscriptRow = memo(function TranscriptRow({
   const messageTargetId = messageCopyTargetId(item.id);
   return (
     <Animated.View style={[styles.assistantRow, animatedStyle]}>
+      {attachments?.length ? (
+        <View style={styles.assistantAttachments} testID={`assistant-message-attachments-${item.id}`}>
+          {attachments.map((att, i) => (
+            <MediaBubble
+              key={i}
+              uri={att.uri}
+              width={att.width}
+              height={att.height}
+              borderColor={chrome.border}
+              testID={`assistant-message-image-${i}`}
+              onPress={() => onPressAttachment?.(att.uri)}
+            />
+          ))}
+        </View>
+      ) : null}
       <Pressable
         testID={`message-card-${item.id}`}
         accessible={false}
@@ -6256,6 +6273,9 @@ const styles = StyleSheet.create({
   },
   assistantRow: {
     alignSelf: 'stretch',
+  },
+  assistantAttachments: {
+    alignItems: 'flex-start',
   },
   agentRow: {
     alignSelf: 'stretch',

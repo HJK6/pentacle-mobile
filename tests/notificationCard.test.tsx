@@ -15,7 +15,7 @@ function notification(overrides: Partial<PentacleNotification> = {}): PentacleNo
     notification_id: 'n1',
     created_at: '2026-05-25T12:00:00.000Z',
     updated_at: '2026-05-25T12:00:00.000Z',
-    producer: 'example-producer',
+    producer: 'altum',
     severity: 'warning',
     title: 'Lead needs a decision',
     body: 'Approve outreach?',
@@ -101,7 +101,7 @@ spacing  `;
         actions: [{ kind: 'ack', action_id: 'ack0' }],
         question: {
           question_id: 'q-free',
-          producer_stream_id: 'hostc:codex:asker',
+          producer_stream_id: 'merlin:codex:asker',
           response_mode: 'free_text' as any,
           options: [],
           state: 'open',
@@ -160,21 +160,21 @@ test('two same-kind actions: each tap forwards its own action_id', () => {
   // Only ONE testID per kind exists, so render them one at a time to assert each
   // forwards its own id. Render-instance 1 → a; instance 2 → b.
   const actionsA: PentacleNotification['actions'] = [
-    { kind: 'run_command', action_id: 'cmd-a', command_id: 'restart', host: 'hosta', label: 'Restart hosta' },
+    { kind: 'run_command', action_id: 'cmd-a', command_id: 'restart', host: 'bart', label: 'Restart Bart' },
   ];
   const actionsB: PentacleNotification['actions'] = [
-    { kind: 'run_command', action_id: 'cmd-b', command_id: 'restart', host: 'hostc', label: 'Restart hostc' },
+    { kind: 'run_command', action_id: 'cmd-b', command_id: 'restart', host: 'merlin', label: 'Restart Merlin' },
   ];
 
   const a = render(<NotificationCard notification={notification({ actions: actionsA })} />);
-  fireEvent.press(a.getByText('Restart hosta'));
+  fireEvent.press(a.getByText('Restart Bart'));
   expect(mockResolveNotification).toHaveBeenLastCalledWith(
     expect.objectContaining({ action_id: 'cmd-a', action_kind: 'run_command' }),
   );
   a.unmount();
 
   const b = render(<NotificationCard notification={notification({ actions: actionsB })} />);
-  fireEvent.press(b.getByText('Restart hostc'));
+  fireEvent.press(b.getByText('Restart Merlin'));
   expect(mockResolveNotification).toHaveBeenLastCalledWith(
     expect.objectContaining({ action_id: 'cmd-b', action_kind: 'run_command' }),
   );
@@ -185,12 +185,12 @@ test('two same-kind actions co-resident in one card: tap resolves ONLY the click
   // run_command buttons, both rendered together. Selecting by distinct label
   // proves the click resolves ONLY the clicked action (the other is untouched).
   const actions: PentacleNotification['actions'] = [
-    { kind: 'run_command', action_id: 'cmd-a', command_id: 'restart', host: 'hosta', label: 'Restart hosta' },
-    { kind: 'run_command', action_id: 'cmd-b', command_id: 'restart', host: 'hostc', label: 'Restart hostc' },
+    { kind: 'run_command', action_id: 'cmd-a', command_id: 'restart', host: 'bart', label: 'Restart Bart' },
+    { kind: 'run_command', action_id: 'cmd-b', command_id: 'restart', host: 'merlin', label: 'Restart Merlin' },
   ];
   render(<NotificationCard notification={notification({ actions })} />);
-  expect(screen.getByText('Restart hosta')).toBeTruthy();
-  fireEvent.press(screen.getByText('Restart hostc'));
+  expect(screen.getByText('Restart Bart')).toBeTruthy();
+  fireEvent.press(screen.getByText('Restart Merlin'));
   expect(mockResolveNotification).toHaveBeenCalledTimes(1);
   expect(mockResolveNotification).toHaveBeenCalledWith({
     notification_id: 'n1',
@@ -296,12 +296,12 @@ test('in-place annotation: spawned shows the spawned stream id', () => {
           at: '2026-05-25T12:01:00.000Z',
           action_kind: 'spawn_worker',
           action_id: 's0',
-          spawned_stream_id: 'claude-hosta-abc123',
+          spawned_stream_id: 'claude-bart-abc123',
         },
       })}
     />,
   );
-  expect(screen.getByText('Spawned claude-hosta-abc123')).toBeTruthy();
+  expect(screen.getByText('Spawned claude-bart-abc123')).toBeTruthy();
 });
 
 test('in-place annotation: run_command done shows exit code + stdout tail', () => {
@@ -370,3 +370,43 @@ test('running state renders the Running… lifecycle annotation (no buttons)', (
   expect(screen.queryByTestId('notification-action-run_command')).toBeNull();
 });
 
+
+test.each([
+  ['pending', undefined, 'Saved · delivery pending'],
+  ['queued', undefined, 'Saved · delivery pending'],
+  ['delivered', undefined, 'Delivered'],
+  ['unconfirmed', 'unconfirmed_after_bound', 'Delivery unconfirmed'],
+  ['failed', 'question_producer_gone', 'Not delivered'],
+  ['failed', 'unrecognized_future_reason', 'Delivery unconfirmed'],
+])('saved answer shows truthful %s delivery independently of save acknowledgment', (status, reason, label) => {
+  render(<NotificationCard notification={notification({
+    state: 'resolved', client_resolution_pending: true,
+    resolution: { by: 'operator', at: '2026-09-15T00:00:00Z', action_kind: 'yes_no',
+      delivery_status: status, delivery_reason: reason,
+      delivery_next_action: status === 'unconfirmed' ? 'Inspect the original transcript; do not resend.' : undefined,
+    },
+  } as Partial<PentacleNotification>)} />);
+  expect(screen.getByText(label!)).toBeTruthy();
+  expect(screen.queryByTestId('notification-resolution-pending')).toBeNull();
+  expect(screen.queryByText('Sending')).toBeNull();
+  if (status === 'unconfirmed') expect(screen.getByText('Inspect the original transcript; do not resend.')).toBeTruthy();
+  expect(mockResolveNotification).not.toHaveBeenCalled();
+});
+
+test('durable save and late delivery proof replace a stale transport error without another answer', () => {
+  const saved = notification({
+    state: 'resolved',
+    resolution: {
+      by: 'operator', at: '2026-09-15T00:00:00Z', action_kind: 'yes_no',
+      delivery_status: 'unconfirmed', delivery_reason: 'unconfirmed_after_bound',
+      delivery_next_action: 'Inspect the original transcript; do not resend.',
+    },
+  });
+  const view = render(<NotificationCard notification={{ ...saved, client_resolution_error: 'Connection lost' } as PentacleNotification} />);
+  expect(screen.getByText('Delivery unconfirmed')).toBeTruthy();
+  expect(screen.queryByTestId('notification-action-error')).toBeNull();
+  view.rerender(<NotificationCard notification={{ ...saved, resolution: { ...saved.resolution!, delivery_status: 'delivered' } }} />);
+  expect(screen.getByText('Delivered')).toBeTruthy();
+  expect(screen.queryByText('Inspect the original transcript; do not resend.')).toBeNull();
+  expect(mockResolveNotification).not.toHaveBeenCalled();
+});

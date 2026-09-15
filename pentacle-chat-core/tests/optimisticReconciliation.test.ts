@@ -129,8 +129,11 @@ test('latest direct-ID receipt caption matrix is deterministic', () => {
   const cases = [
     { name: 'landed proof delivery', raw: { receipt_state: 'landed', receipt_delivery: 'proof_unavailable' }, expected: 'sent' },
     { name: 'landed unknown delivery', raw: { receipt_state: 'landed', receipt_delivery: 'something_else' }, expected: 'sent' },
-    { name: 'accepted proof delivery', raw: { receipt_state: 'accepted', receipt_delivery: 'proof_unavailable' }, expected: 'failed' },
-    { name: 'missing state proof delivery', raw: { receipt_delivery: 'proof_unavailable' }, expected: 'failed' },
+    // accepted-into-queue (committed; proof lagging) is SENT, not Failed —
+    // spec_pentacle__mobile_send_status_reconcile_2026_09.
+    { name: 'accepted proof delivery', raw: { receipt_state: 'accepted', receipt_delivery: 'proof_unavailable' }, expected: 'sent' },
+    { name: 'accepted committed_pending_proof delivery', raw: { receipt_state: 'accepted', receipt_delivery: 'committed_pending_proof' }, expected: 'sent' },
+    { name: 'missing state proof delivery', raw: { receipt_delivery: 'proof_unavailable' }, expected: 'sent' },
     { name: 'legacy no fields', raw: undefined, expected: 'sent' },
     { name: 'present but partial', raw: { receipt_state: '' }, expected: 'sending' },
   ] as const;
@@ -184,7 +187,8 @@ test('later landed echo supersedes proof on one direct-ID row', () => {
       raw: { receipt_state: 'accepted', receipt_delivery: 'proof_unavailable' },
     }),
   );
-  assert.equal(selectSessionDetail(proof, STREAM_ID, { visibleCount: 'all' })?.transcriptItems[0]?.receiptCaption, 'failed');
+  // accepted-into-queue is Sent (not Failed); a later landed echo keeps it Sent.
+  assert.equal(selectSessionDetail(proof, STREAM_ID, { visibleCount: 'all' })?.transcriptItems[0]?.receiptCaption, 'sent');
 
   const landed = applyPentacleEvent(proof, serverUserEvent({
     optimistic_id: OPTIMISTIC_ID,
@@ -218,7 +222,46 @@ test('later proof echo does not downgrade a direct landed row', () => {
   assert.equal(selectSessionDetail(proof, STREAM_ID, { visibleCount: 'all' })?.transcriptItems[0]?.receiptCaption, 'sent');
 });
 
-test('direct proof remains Failed through a no-fields snapshot replay', () => {
+test('accepted-into-queue echo (proof_unavailable / committed_pending_proof) shows Sent, never Failed', () => {
+  // spec_pentacle__mobile_send_status_reconcile_2026_09 (bug_ref: send-status-reconcile):
+  // a message accepted into a busy target's queue carries receipt_state=accepted with
+  // delivery proof_unavailable or committed_pending_proof. It was DELIVERED, so the
+  // caption must be Sent (operator ruling: accepted-into-queue => SENT), never Failed.
+  for (const delivery of ['proof_unavailable', 'committed_pending_proof']) {
+    const accepted = reconcileOptimisticSendWithServerEvent(
+      createOptimistic(),
+      OPTIMISTIC_ID,
+      serverUserEvent({
+        optimistic_id: OPTIMISTIC_ID,
+        raw: { receipt_state: 'accepted', receipt_delivery: delivery },
+      }),
+    );
+    const caption = selectSessionDetail(accepted, STREAM_ID, { visibleCount: 'all' })
+      ?.transcriptItems[0]?.receiptCaption;
+    assert.equal(caption, 'sent', `accepted/${delivery} must be Sent, not ${caption}`);
+  }
+});
+
+test('a genuinely not_landed echo is never shown as Sent', () => {
+  // Guard: the queue-recognition fix maps accepted-into-queue to Sent; it must NOT
+  // also swallow a truly rejected send. A not_landed echo caption stays 'sending'
+  // (its user-facing failure is surfaced by the send.result/durable row path, which
+  // marks the optimistic row failed); the invariant here is that it is never 'sent'.
+  const rejected = reconcileOptimisticSendWithServerEvent(
+    createOptimistic(),
+    OPTIMISTIC_ID,
+    serverUserEvent({
+      optimistic_id: OPTIMISTIC_ID,
+      raw: { receipt_state: 'not_landed', receipt_delivery: 'not_landed' },
+    }),
+  );
+  const caption = selectSessionDetail(rejected, STREAM_ID, { visibleCount: 'all' })
+    ?.transcriptItems[0]?.receiptCaption;
+  assert.notEqual(caption, 'sent');
+  assert.equal(caption, 'sending');
+});
+
+test('direct accepted (proof) row stays Sent through a no-fields snapshot replay', () => {
   const proof = reconcileOptimisticSendWithServerEvent(
     createOptimistic(),
     OPTIMISTIC_ID,
@@ -233,20 +276,26 @@ test('direct proof remains Failed through a no-fields snapshot replay', () => {
     CREATED_AT + 1_000,
   );
 
+  // accepted-into-queue is Sent; the selector-cache path must preserve it through
+  // a no-fields snapshot replay. spec_pentacle__mobile_send_status_reconcile_2026_09.
   const row = selectSessionDetail(replayed, STREAM_ID, { visibleCount: 202 })?.transcriptItems[0];
-  assert.equal(row?.receiptCaption, 'failed');
+  assert.equal(row?.receiptCaption, 'sent');
 });
 
-test('a direct landed snapshot invalidates the Failed receipt selector cache', () => {
+test('a direct landed snapshot invalidates a cached non-Sent receipt caption', () => {
+  // Start from a partial receipt (caption 'sending') so the later landed snapshot
+  // produces a genuine caption change ('sending' -> 'sent'), proving the selector
+  // cache is invalidated. (Previously this started from an accepted/proof echo that
+  // the model wrongly captioned 'failed'; accepted-into-queue is now 'sent'.)
   const proof = reconcileOptimisticSendWithServerEvent(
     createOptimistic(),
     OPTIMISTIC_ID,
     serverUserEvent({
       optimistic_id: OPTIMISTIC_ID,
-      raw: { receipt_state: 'accepted', receipt_delivery: 'proof_unavailable' },
+      raw: { receipt_state: '' },
     }),
   );
-  assert.equal(selectSessionDetail(proof, STREAM_ID, { visibleCount: 'all' })?.transcriptItems[0]?.receiptCaption, 'failed');
+  assert.equal(selectSessionDetail(proof, STREAM_ID, { visibleCount: 'all' })?.transcriptItems[0]?.receiptCaption, 'sending');
   const landed = applySnapshotWithOptimisticReconciliation(
     proof,
     { sessions: [session()], events: [serverUserEvent({
@@ -259,7 +308,7 @@ test('a direct landed snapshot invalidates the Failed receipt selector cache', (
   assert.equal(selectSessionDetail(landed, STREAM_ID, { visibleCount: 'all' })?.transcriptItems[0]?.receiptCaption, 'sent');
 });
 
-test('direct proof remains Failed through a no-fields history backfill', () => {
+test('direct accepted (proof) row stays Sent through a no-fields history backfill', () => {
   const proof = reconcileOptimisticSendWithServerEvent(
     createOptimistic(),
     OPTIMISTIC_ID,
@@ -273,8 +322,9 @@ test('direct proof remains Failed through a no-fields history backfill', () => {
     [serverUserEvent({ raw: { source: 'history' } })],
   );
 
+  // accepted-into-queue is Sent and stays Sent across a no-fields history backfill.
   const row = selectSessionDetail(replayed, STREAM_ID, { visibleCount: 203 })?.transcriptItems[0];
-  assert.equal(row?.receiptCaption, 'failed');
+  assert.equal(row?.receiptCaption, 'sent');
 });
 
 test('direct legacy echo is Sent only when no receipt state was previously observed', () => {
@@ -299,7 +349,9 @@ test('direct receipt lattice covers every state and echo kind', () => {
       OPTIMISTIC_ID,
       serverUserEvent({ optimistic_id: OPTIMISTIC_ID, raw: noFieldsRaw }),
     ),
-    Failed: () => reconcileOptimisticSendWithServerEvent(
+    // Accepted-into-queue (proof_unavailable) is a committed/Sent receipt, not Failed
+    // (spec_pentacle__mobile_send_status_reconcile_2026_09).
+    AcceptedProof: () => reconcileOptimisticSendWithServerEvent(
       createOptimistic(),
       OPTIMISTIC_ID,
       serverUserEvent({ optimistic_id: OPTIMISTIC_ID, raw: proofRaw }),
@@ -319,10 +371,13 @@ test('direct receipt lattice covers every state and echo kind', () => {
     { name: 'id matched', optimisticId: OPTIMISTIC_ID, expectedKey: 'matched' },
     { name: 'no id', optimisticId: undefined, expectedKey: 'unmatched' },
   ] as const;
+  // echoKinds order: [no fields, proof unavailable, landed]. A proof-unavailable echo
+  // is accepted-into-queue => Sent, never Failed; the caption model no longer emits
+  // 'failed' (row-level rejection is surfaced by sendState via the send.result path).
   const expected = {
-    Sending: { matched: ['sent', 'failed', 'sent'], unmatched: [undefined, undefined, undefined] },
-    LegacySent: { matched: ['sent', 'failed', 'sent'], unmatched: ['sent', 'sent', 'sent'] },
-    Failed: { matched: ['failed', 'failed', 'sent'], unmatched: ['failed', 'failed', 'failed'] },
+    Sending: { matched: ['sent', 'sent', 'sent'], unmatched: [undefined, undefined, undefined] },
+    LegacySent: { matched: ['sent', 'sent', 'sent'], unmatched: ['sent', 'sent', 'sent'] },
+    AcceptedProof: { matched: ['sent', 'sent', 'sent'], unmatched: ['sent', 'sent', 'sent'] },
     Landed: { matched: ['sent', 'sent', 'sent'], unmatched: ['sent', 'sent', 'sent'] },
   } as const;
 
@@ -357,13 +412,14 @@ test('no-ID proof and landed replays preserve direct receipt states', () => {
       ),
       expected: 'sent',
     },
-    Failed: {
+    AcceptedProof: {
+      // proof_unavailable is accepted-into-queue => Sent, preserved across no-ID replays.
       make: () => reconcileOptimisticSendWithServerEvent(
         createOptimistic(),
         OPTIMISTIC_ID,
         serverUserEvent({ optimistic_id: OPTIMISTIC_ID, raw: proofRaw }),
       ),
-      expected: 'failed',
+      expected: 'sent',
     },
     Landed: {
       make: () => reconcileOptimisticSendWithServerEvent(
@@ -1236,7 +1292,7 @@ test('session detail rows use optimistic id after reconcile and surface correlat
 
 test('render-stability telemetry exports the transcript-mounted harness event and ref', () => {
   assert.equal(TELEMETRY_EVENTS.HARNESS_TRANSCRIPT_ITEM_MOUNTED, 'harness:transcript_item_mounted');
-  assert.equal(CHAT_RENDER_STABILITY_REF, 'chat-render-stability');
+  assert.equal(CHAT_RENDER_STABILITY_REF, 'spec_pentacle_mobile__chat_render_stability_2026_05_27');
   assert.equal(
     TELEMETRY_EVENT_BUG_REFS[TELEMETRY_EVENTS.HARNESS_TRANSCRIPT_ITEM_MOUNTED],
     CHAT_RENDER_STABILITY_REF,

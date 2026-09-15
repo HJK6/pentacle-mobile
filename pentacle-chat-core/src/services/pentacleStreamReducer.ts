@@ -45,7 +45,7 @@ export const OPTIMISTIC_SNAPSHOT_RECONCILE_WINDOW_MS = 60_000;
 // grace, applyPentacleSessionInventory + applyPentacleSnapshotMessage drop
 // the optimistic and the subsequent USER chat.event arrives to an empty
 // optimisticSends map — reconcile silently misses. Spec:
-// public-inventory-wipes-recent-optimistic.
+// spec_pentacle_mobile_inventory_wipes_recent_optimistic_2026_05_17.
 export const OPTIMISTIC_INVENTORY_GRACE_MS = 60_000;
 
 // Event immutability contract (Stage 5a).
@@ -105,9 +105,9 @@ export const initialPentacleStreamState: PentacleStreamState = {
 // provider just end a turn?" Used by the reducer to transition workingByStream
 // to `phase: 'idle'`. Covers:
 //   - Claude jsonl: SYSTEM event with raw.subtype='turn-summary' (from
-//     daemon transport turn_duration record).
+//     pentacle/services/chat-stream/claude_jsonl.py turn_duration record).
 //   - Codex pane parse: SYSTEM event with text '─ Worked for ...' or '────────'
-//     (from daemon transport _parse_pane_events).
+//     (from pentacle/services/chat-stream/chat_streamd.py _parse_pane_events).
 //   - Any provider emitting subtype/displayRule='terminal-divider' or
 //     'activity:turn-summary' in raw.
 export function isSystemEndOfTurnEvent(event: PentacleEvent | null | undefined) {
@@ -143,7 +143,7 @@ function streamEventKey(event: PentacleEvent) {
 // request_stream_events backfill derivation; 'resync' = the snapshot/inventory
 // reconcile. Emitted as `chat:turn_phase_derived` so the otherwise-invisible
 // turn-phase derivation is observable for diagnosis + validation
-// (turn-phase-derived).
+// (spec_pentacle_mobile__chat_detail_working_indicator_missing_2026_06_16).
 type TurnPhaseSource = 'fetch' | 'live' | 'resync';
 
 interface TurnPhaseDerivation {
@@ -386,7 +386,7 @@ function withTurnTransition(
 // ground truth: the all-chats LIST derives its row status from that flag, but
 // the chat-DETAIL spinner + composer lock read workingByStream. Without this a
 // resync updates the list to idle while the detail stays "working" with the
-// composer locked (public protocol contract).
+// composer locked (chat_detail_stale_working_flag_2026_06_15).
 //
 // Only a 'working' turn (server-acknowledged: an event already advanced it past
 // 'pending') is closed here, mirroring the falling-edge close in
@@ -1846,9 +1846,14 @@ export function applyPentacleEvent(
 
   if (
     !isClaudeJsonlEvent(event) &&
+    (event.attachments?.length ?? 0) === 0 &&
     (event.kind === 'ASSIST' || event.kind === 'TOOL' || event.kind === 'TOOL-OUT') &&
     isTransientTranscriptNoise(event.text)
   ) {
+    // An attachment-bearing event (an operator or agent image, incl. a
+    // caption-less one with empty text) is durable content, never transient
+    // noise — mirror the USER/ASSIST attachment exemption in the interpreter
+    // and in the fetched/snapshot filters below.
     return state;
   }
 
@@ -1964,7 +1969,7 @@ export function applyPentacleEvent(
   // snapshot rebuild for the rare droppable/malformed event so the whole-list
   // cleanup semantics stay byte-identical. This is the fix for the
   // O(total-per-delivery) build-1155 regression (spec
-  // incremental projection contract).
+  // tap_shell_layout_regression_build_1155).
   const keptByDedupe = event.client_origin === true
     ? Boolean(event.optimistic_id)
     : Number.isFinite(Number(event.daemon_seq));
@@ -2226,7 +2231,7 @@ function applyLiveFetchedStreamEvents(
   // bucket appends + the already-built flat list, instead of a snapshot-replace
   // that re-groups every stream and re-runs compatibilityProjection each batch —
   // the O(total) allocation that starved the 19.2k freeze burst (spec
-  // incremental projection contract S3).
+  // tap_shell_layout_regression_build_1155 S3).
   const appendedTail = nextEvents.slice(state.events.length);
   const appendedByStream = new Map<string, PentacleEvent[]>();
   for (const event of appendedTail) {
@@ -2337,7 +2342,7 @@ function normalizeFetchedIncomingEvents(rawEvents: PentacleEvent[] | undefined):
     event.kind !== 'DRAFT' &&
     event.kind !== 'WORKING' &&
     !isHelperSuggestionEvent(event) &&
-    (isClaudeJsonlEvent(event) || !isTransientTranscriptNoise(event.text))
+    (isClaudeJsonlEvent(event) || (event.attachments?.length ?? 0) > 0 || !isTransientTranscriptNoise(event.text))
   ));
 }
 
@@ -2445,7 +2450,7 @@ export function applyFetchedStreamEvents(
   }
   // Derive the turn phase from the fetched history itself (in-band, event-only)
   // so a turn that started before the detail was opened renders as Working on
-  // open (public protocol contract). This NEVER reads
+  // open (chat_detail_working_indicator_missing_2026_06_16). This NEVER reads
   // the lagging session.working summary: doing so could race-close a live turn
   // that a content event already advanced to 'working' before the daemon's
   // working:true summary landed (the chat_detail_stale_working_flag 007d127
@@ -2538,7 +2543,7 @@ export function applyPentacleSnapshotMessage(
       event.kind !== 'DRAFT' &&
       event.kind !== 'WORKING' &&
       !isHelperSuggestionEvent(event) &&
-      (isClaudeJsonlEvent(event) || !isTransientTranscriptNoise(event.text))
+      (isClaudeJsonlEvent(event) || (event.attachments?.length ?? 0) > 0 || !isTransientTranscriptNoise(event.text))
     )), limit).map(freezeEventInDev)
     : state.events.filter((event) => survivingStreamIds.has(event.stream_id));
   const drafts: Record<string, PentacleEvent> = {};

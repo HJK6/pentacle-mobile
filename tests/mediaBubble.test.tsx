@@ -33,7 +33,20 @@ function userItem(overrides: Partial<PentacleTranscriptItem> = {}): PentacleTran
   } as unknown as PentacleTranscriptItem;
 }
 
-const chrome = { border: '#222', surface: '#111', header: '#000', color: '#0f0', accent: '#0f0', label: 'hostc' } as any;
+function assistantImageItem(overrides: Partial<PentacleTranscriptItem> = {}): PentacleTranscriptItem {
+  return {
+    id: 'assist_1',
+    kind: 'ASSIST',
+    text: '',
+    isUser: false,
+    displayRule: 'bubble:assistant',
+    tone: 'assistant',
+    label: 'Agent',
+    ...overrides,
+  } as unknown as PentacleTranscriptItem;
+}
+
+const chrome = { border: '#222', surface: '#111', header: '#000', color: '#0f0', accent: '#0f0', label: 'merlin' } as any;
 
 const twoThumbs: RenderAttachment[] = [
   { uri: 'file:///tmp/a.jpg', width: 100, height: 200 },
@@ -46,7 +59,7 @@ test('a user bubble renders one MediaBubble per attachment (FIFO) and tap calls 
     <TranscriptRow
       item={userItem()}
       chrome={chrome}
-      streamId="hostc:codex:one"
+      streamId="merlin:codex:one"
       attachments={twoThumbs}
       onPressAttachment={onPressAttachment}
     />,
@@ -68,7 +81,7 @@ test('a photo-only user row (no text) renders the image without an empty text bu
     <TranscriptRow
       item={userItem({ text: '' })}
       chrome={chrome}
-      streamId="hostc:codex:one"
+      streamId="merlin:codex:one"
       attachments={[twoThumbs[0]]}
       onPressAttachment={jest.fn()}
     />,
@@ -86,7 +99,7 @@ test('an ordinary pending user row renders a sending affordance', () => {
       // sending row off that caption, not the raw sendState.
       item={userItem({ receiptCaption: 'sending' } as Partial<PentacleTranscriptItem>)}
       chrome={chrome}
-      streamId="hostc:codex:one"
+      streamId="merlin:codex:one"
       attachments={[twoThumbs[0]]}
       onPressAttachment={jest.fn()}
     />,
@@ -103,7 +116,7 @@ test('a failed attachment send renders a failed affordance without dropping the 
     <TranscriptRow
       item={userItem({ text: '', sendState: 'failed', pending: false } as Partial<PentacleTranscriptItem>)}
       chrome={chrome}
-      streamId="hostc:codex:one"
+      streamId="merlin:codex:one"
       attachments={[twoThumbs[0]]}
       onPressAttachment={jest.fn()}
     />,
@@ -117,12 +130,30 @@ test('a user row without attachments renders no image bubble (text-only unaffect
     <TranscriptRow
       item={userItem()}
       chrome={chrome}
-      streamId="hostc:codex:one"
+      streamId="merlin:codex:one"
       onPressAttachment={jest.fn()}
     />,
   );
   expect(screen.getByText('look at these')).toBeTruthy();
   expect(screen.queryByTestId('message-image-0')).toBeNull();
+});
+
+test('an assistant image row renders the existing MediaBubble and opens the existing viewer', () => {
+  const onPressAttachment = jest.fn();
+  render(
+    <TranscriptRow
+      item={assistantImageItem()}
+      chrome={chrome}
+      streamId="merlin:codex:one"
+      attachments={[twoThumbs[0]]}
+      onPressAttachment={onPressAttachment}
+    />,
+  );
+
+  expect(screen.getByTestId('assistant-message-attachments-assist_1')).toBeTruthy();
+  expect(screen.getByTestId('assistant-message-image-0')).toBeTruthy();
+  fireEvent.press(screen.getByTestId('assistant-message-image-0'));
+  expect(onPressAttachment).toHaveBeenCalledWith('file:///tmp/a.jpg');
 });
 
 test('ImageViewerModal shows the tapped image and closes', () => {
@@ -137,4 +168,3 @@ test('ImageViewerModal shows the tapped image and closes', () => {
   rerender(<ImageViewerModal uri={null} onClose={onClose} />);
   expect(screen.queryByTestId('image-viewer-image')).toBeNull();
 });
-
