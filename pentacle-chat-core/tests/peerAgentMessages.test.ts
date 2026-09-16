@@ -273,7 +273,7 @@ test('curated transcript preserves prose and maps terminal tool echoes to compac
   assert.deepEqual(tool.disclosure, {
     mode: 'collapsed-preview',
     previewText: 'Ran npm test',
-    previewTail: '… +1 line',
+    previewTail: '',
     expandable: true,
     expandedText: toolEcho,
   });
@@ -295,7 +295,7 @@ test('core owns disclosure previews and exact furniture negatives', () => {
   assert.deepEqual(peer.disclosure, {
     mode: 'collapsed-preview',
     previewText: 'first line',
-    previewTail: '… +1 line',
+    previewTail: '',
     expandable: true,
     expandedText: 'first line\nsecond line',
   });

@@ -1,7 +1,7 @@
 'use strict';
 const os = require('node:os');
 const path = require('node:path');
-const SETTINGS = Object.freeze(['ONLY_ACTIVE_ARCH=YES', 'COMPILATION_CACHE_ENABLE_CACHING=YES', 'COMPILATION_CACHE_ENABLE_DIAGNOSTIC_REMARKS=YES']);
+const SETTINGS = Object.freeze(['ONLY_ACTIVE_ARCH=YES', 'IPHONEOS_DEPLOYMENT_TARGET=15.1', 'COMPILATION_CACHE_ENABLE_CACHING=YES', 'COMPILATION_CACHE_ENABLE_DIAGNOSTIC_REMARKS=YES']);
 function buildArguments(workspace, derivedData, bundleId = '') {
   const args = ['xcodebuild', '-workspace', workspace, '-scheme', 'Pentacle', '-configuration', 'Release',
     '-destination', 'generic/platform=iOS Simulator', '-derivedDataPath', derivedData, '-jobs', '4',

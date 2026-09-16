@@ -22,6 +22,23 @@ const {
   waitForLaunchReadiness,
 } = require('./full-gate.cjs');
 
+test('storage gate selects the first iPhone type supported by the newest runtime', () => {
+  const source = fs.readFileSync(path.join(__dirname, 'storage-gate.cjs'), 'utf8');
+  const start = source.indexOf('function selectCompatibleSimulatorType');
+  const end = source.indexOf('\n}\n\nfunction createSimulator', start) + 2;
+  assert.ok(start >= 0 && end > start, 'compatible simulator selector must remain independently testable');
+  const select = new Function(`${source.slice(start, end)}; return selectCompatibleSimulatorType;`)();
+  const types = [
+    { name: 'iPhone 18 Pro', identifier: 'type-18' },
+    { name: 'iPhone 17 Pro', identifier: 'type-17' },
+    { name: 'iPhone 16 Pro', identifier: 'type-16' },
+  ];
+  const runtime = { supportedDeviceTypes: [{ identifier: 'type-17' }, { identifier: 'type-16' }] };
+  assert.equal(select(runtime, types), types[1]);
+  assert.equal(select({ supportedDeviceTypes: [] }, types), undefined);
+  assert.equal(select(undefined, types), undefined);
+});
+
 function readinessFixture(idleFractions, processes = [], loadavg = [190, 80, 50]) {
   let elapsed = 0;
   let previous = 0;
@@ -221,6 +238,7 @@ test('release smoke polls native readiness for the built override and preserves 
         if (name === 'release-sim-build') {
           assert.ok(args.includes('PRODUCT_BUNDLE_IDENTIFIER=quest.pentacle.mobile'));
           assert.ok(args.includes('ONLY_ACTIVE_ARCH=YES'));
+          assert.ok(args.includes('IPHONEOS_DEPLOYMENT_TARGET=15.1'));
         }
         if (name === 'release-sim-launch') {
           const input = JSON.parse(args.at(-1));
@@ -721,6 +739,8 @@ test('preflight rejects a derived root with external node_modules', () => {
   const artifactDir = path.join(tempRoot, 'artifacts');
   const candidateRoot = cleanCandidateClone(tempRoot);
   const nativeRoot = derivedClone(tempRoot, candidateRoot, { externalNodeModules: true });
+  fs.appendFileSync(path.join(nativeRoot, '.git', 'info', 'exclude'), '\n/node_modules\n');
+  assert.equal(execFileSync('git', ['status', '--porcelain'], { cwd: nativeRoot, encoding: 'utf8' }), '');
   const result = preflight(nativeRoot, artifactDir, candidateRoot);
   assert.notEqual(result.status, 0);
   assert.match(`${result.stdout}\n${result.stderr}`, /own node_modules/);

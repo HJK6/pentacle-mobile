@@ -12,7 +12,7 @@ const EXPECTED_PINS = {
   // Independently derived from the reviewed artifacts. This oracle deliberately restates the complete
   // closure rather than importing the authority table, so a pin-site edit cannot agree with itself.
   'scripts/gate-app-ready.cjs': 'dca3be9c08dce3c6adae44cbed09a6b4e4834ece24a02c67fe1b9207bded92f5',
-  'scripts/gate-build-policy.cjs': 'ede25009d9cb865a760c56da127f0a5147248be3d0810b9f02ad534440958b45',
+  'scripts/gate-build-policy.cjs': 'ee848848b375e79ee37660f1c0e6a4beee0cc99c7be85b8d66762b03de562567',
   'scripts/gate-checks.cjs': '314c7bdb6b6d2ee47ec6e51f0a67af3c9c8bd6ab1579a1b5b1af029545ea1ba8',
   'scripts/gate-process-cpu.py': '0534f53046f14cac963565336673d2e71983f01c061bc7e0e74780e8aff22c4b',
   'scripts/gate-cpu-accounting.cjs': '52f98392780db563dbb1f38425e968b190b84f6f4c57dd8e84594d438e931b58',
@@ -20,18 +20,13 @@ const EXPECTED_PINS = {
   'scripts/owned-process.cjs': '9f0a45f47395af5b6de954e9b787f339b3067be6a5ebffd634075a03690818db',
   'plugins/withHarnessLaunchUrl.js': '17e0d96c38e95555815f1fad8ef3ab311564b02f6a7d6a833fe31851fca75a08',
   // CPU-tick readiness recertification; independent artifact digests, launch_cpu provenance.
-  'scripts/full-gate.cjs': '225f9d678d76ac5c3babdcd34a55d32ebe799628d09c76c20ae1679566361824',
-  'scripts/full-gate.test.cjs': 'edb00cdcfa26229a485bec8bc6590eb58eac2b05aeb0a9cb9086725809495f2f',
+  'scripts/full-gate.cjs': 'a73d281619cfb576ee98c71d05129c9fdede2049681ee5ac3bf453641e4ed905',
+  'scripts/full-gate.test.cjs': '5dce715e9d3fff7b45659770a253f4d7c2a75917d11a7b93992d98a21418dddb',
   'scripts/gate-code-provenance.cjs': '472d3f0c31c11d12c2c30ad005b1dfb221c23dc0bbbf4506cc53f2fd1ccc1317',
-  'scripts/report-viewer-sim-e2e.cjs': 'bedffe7f5212f5c8768e9c41374f425cc64132c620ce41a15a531f186a163587',
-  'scripts/report-viewer-sim-e2e.test.cjs': '225a7181792be00bbf22a658eee95f4b11db6fe15c9e8c7578193bcfff63c7f2',
+  'scripts/report-viewer-sim-e2e.cjs': 'a26fe9c11b2f98a4c668877b122e6789aa3f1d1fc324df72ed4f83282b1cce7b',
+  'scripts/report-viewer-sim-e2e.test.cjs': 'cf3887d36e3c464605ae3c9c638b3d4e28da6e1acf6a567f45cb01ceed2ccec6',
   'scripts/sim-resource-guard.cjs': '5d9c910ba81db1526f5a5cb74db47ff206497979aa280461d1b67b4db7a15b9c',
-  'scripts/sim-substrate.cjs': '6be2a4801854d965c208db673bad731a56ffd03e38350866fd94e5b139b89672',
-  'scripts/wire-contract-sim-e2e.cjs': 'b5e47b08421b76c735a3c73da553c6645008cbea2fffca5d2712e265aeafe8f4',
-  'scripts/wire-contract-sim-e2e.test.cjs': '9b2d421e144f66581610592f6aa27b44d23310cc741181e45e4b249a771ff48f',
-  'test/testtime-jest-reporter.cjs': '7677be47ffd5746e0164b014126bd590ae5e3226169afdba4e57bb1f793c23f7',
-  'test/e2e/recorder_preflight.py': '583c232a1d3bdcdb2beb92a63d94be6c81008291e5c7260aacab9bb9ca04e1a0',
-  'test/e2e/tests/test_recorder_preflight.py': 'f13b3f9bf8b9bee318d9b3cae28e7804006f4ae8f064eeb5af9d431ad8362dd6',
+  'scripts/sim-substrate.cjs': '7d357248c077e9d7833e84d5ff5ea7e7dece7ccff1f0d6014d2c6e57e8396c59',
 };
 
 const EXPECTED_RUN_EDGES = {

@@ -22,7 +22,7 @@ const { reapStaleSimulatorSubstrate } = require('./sim-substrate.cjs');
 const buildCache = require('./storage-build-cache.cjs');
 const cacheStore = buildCache.bind(mutationCapability);
 const surfaceTrigger = require('./storage-surface-trigger.cjs');
-const { createCaseCompletionTrigger } = surfaceTrigger;
+const { createCaseCompletionTrigger, resolveSimulatorSurfaceApp } = surfaceTrigger;
 const { terminateOwnedSurface } = surfaceTrigger.bind(mutationCapability);
 
 function fsyncDirectory(directory) { const descriptor = fs.openSync(directory, fs.constants.O_RDONLY); try { fs.fsyncSync(descriptor); } finally { fs.closeSync(descriptor); } }
@@ -353,14 +353,18 @@ function validateSurfaceTriggerEvidence(root, runId, gateStatus) {
   const record = JSON.parse(fs.readFileSync(path.join(root, 'storage-surface-trigger.json'), 'utf8'));
   const exact = (value, keys) => value && JSON.stringify(Object.keys(value).sort()) === JSON.stringify([...keys].sort());
   if (!exact(record, ['schema', 'run_id', 'status', 'reason', 'observed_results', 'required_results', 'launch', 'cleanup', 'completed_at']) || record.schema !== 1 || record.run_id !== runId || !['fired', 'skipped'].includes(record.status) || typeof record.reason !== 'string' || !Number.isInteger(record.observed_results) || record.observed_results < 0 || record.required_results !== reportViewerResultsBeforeKeyboard() || !Number.isFinite(Date.parse(record.completed_at))) throw new Error('EVIDENCE_SURFACE_TRIGGER_INVALID');
-  if (!exact(record.launch, ['status', 'error', 'pids']) || !['launched', 'failed', 'not-attempted'].includes(record.launch.status) || !(record.launch.error === null || typeof record.launch.error === 'string') || !Array.isArray(record.launch.pids) || record.launch.pids.some((pid) => !Number.isInteger(pid) || pid <= 1) || new Set(record.launch.pids).size !== record.launch.pids.length) throw new Error('EVIDENCE_SURFACE_TRIGGER_LAUNCH');
-  if ((record.launch.status === 'launched' && (record.launch.error !== null || record.launch.pids.length !== 1)) || (record.launch.status === 'failed' && typeof record.launch.error !== 'string') || (record.launch.status === 'not-attempted' && (record.launch.error !== null || record.launch.pids.length))) throw new Error('EVIDENCE_SURFACE_TRIGGER_LAUNCH');
+  if (!exact(record.launch, ['status', 'error', 'pids']) || !['launched', 'failed', 'not-available', 'not-attempted'].includes(record.launch.status) || !(record.launch.error === null || typeof record.launch.error === 'string') || !Array.isArray(record.launch.pids) || record.launch.pids.some((pid) => !Number.isInteger(pid) || pid <= 1) || new Set(record.launch.pids).size !== record.launch.pids.length) throw new Error('EVIDENCE_SURFACE_TRIGGER_LAUNCH');
+  if ((record.launch.status === 'launched' && (record.launch.error !== null || record.launch.pids.length !== 1)) || (['failed', 'not-available'].includes(record.launch.status) && typeof record.launch.error !== 'string') || (record.launch.status === 'not-attempted' && (record.launch.error !== null || record.launch.pids.length))) throw new Error('EVIDENCE_SURFACE_TRIGGER_LAUNCH');
   if (!exact(record.cleanup, ['status', 'error', 'outcomes']) || !['verified', 'not-required'].includes(record.cleanup.status) || record.cleanup.error !== null || !Array.isArray(record.cleanup.outcomes) || record.cleanup.outcomes.some((entry) => !exact(entry, ['pid', 'outcome']) || !record.launch.pids.includes(entry.pid) || !['terminated', 'already-exited'].includes(entry.outcome))) throw new Error('EVIDENCE_SURFACE_TRIGGER_CLEANUP');
   if (record.status === 'fired') {
     if (record.observed_results < record.required_results || record.launch.status === 'not-attempted') throw new Error('EVIDENCE_SURFACE_TRIGGER_FIRED');
   } else if (record.observed_results >= record.required_results || record.launch.status !== 'not-attempted' || record.launch.pids.length || record.cleanup.status !== 'not-required') throw new Error('EVIDENCE_SURFACE_TRIGGER_SKIPPED');
   if (record.launch.pids.length ? record.cleanup.status !== 'verified' || record.cleanup.outcomes.length !== record.launch.pids.length : record.cleanup.status !== 'not-required' || record.cleanup.outcomes.length) throw new Error('EVIDENCE_SURFACE_TRIGGER_OWNERSHIP');
-  if (gateStatus === 0 && (record.status !== 'fired' || record.reason !== 'case-results-complete' || record.launch.status !== 'launched' || record.cleanup.status !== 'verified')) throw new Error('EVIDENCE_SURFACE_TRIGGER_REQUIRED');
+  const supportedHostSkip = record.status === 'fired' && record.reason === 'host-no-simulator-surface-app'
+    && record.launch.status === 'not-available'
+    && record.launch.error.includes("Unable to find application named 'Simulator'")
+    && record.launch.pids.length === 0 && record.cleanup.status === 'not-required';
+  if (gateStatus === 0 && !supportedHostSkip && (record.status !== 'fired' || record.reason !== 'case-results-complete' || record.launch.status !== 'launched' || record.cleanup.status !== 'verified')) throw new Error('EVIDENCE_SURFACE_TRIGGER_REQUIRED');
   return record;
 }
 
@@ -532,6 +536,18 @@ function validateReportViewer(root, files, outcome = 'passed') {
     const resultEntry = indexed.get(resultRelative);
     if (!resultEntry || resultEntry.sha256 !== item.sha256) throw new Error('EVIDENCE_CASE_RESULT_DIGEST');
     const payload = JSON.parse(fs.readFileSync(path.join(runs, item.result), 'utf8'));
+    if (payload.verdict === 'SKIPPED') {
+      const exactPayload = JSON.stringify(Object.keys(payload).sort()) === JSON.stringify(['launch_services_error', 'reason', 'scenario', 'verdict']);
+      const supportedHostSkip = caseIndex === plan.length - 1
+        && item.scenario === 'report_viewer_comments_keyboard' && item.expected === 'PASS' && item.status === 0
+        && item.skip_reason === 'HOST_NO_SIMULATOR_SURFACE_APP'
+        && exactPayload && payload.scenario === item.scenario
+        && payload.reason === 'HOST_NO_SIMULATOR_SURFACE_APP'
+        && typeof payload.launch_services_error === 'string'
+        && payload.launch_services_error.includes("Unable to find application named 'Simulator'");
+      if (!supportedHostSkip) throw new Error('EVIDENCE_CASE_HOST_SKIP');
+      continue;
+    }
     if (payload.scenario !== item.scenario || (item.expected === 'PASS' ? item.status !== 0 || payload.verdict !== 'PASS' : item.status !== 1)) throw new Error('EVIDENCE_CASE_VERDICT');
     const video = payload.artifacts?.video;
     const capture = payload.extras?.screen_capture;
@@ -926,6 +942,13 @@ function launchSimulatorSurface(udid, deviceSet) {
   const preflight = spawnSync('/usr/bin/pgrep', ['-x', 'Simulator'], { encoding: 'utf8' });
   if (preflight.status === 0) throw new Error(`GATE_SIMULATOR_SURFACE_PREEXISTING:${String(preflight.stdout || '').trim()}`);
   if (preflight.status !== 1) throw new Error(`GATE_SIMULATOR_SURFACE_PREFLIGHT:${preflight.status}`);
+  const resolution = resolveSimulatorSurfaceApp();
+  if (!resolution.available) {
+    const absent = new Error(`${resolution.reason}:${resolution.launch_services_error}`);
+    absent.code = resolution.reason;
+    absent.launchServicesError = resolution.launch_services_error;
+    throw absent;
+  }
   const opened = spawnSync('/usr/bin/open', ['-g', '-a', 'Simulator', '--args', '-DeviceSetPath', deviceSet, '-CurrentDeviceUDID', udid], { encoding: 'utf8' });
   if (opened.status !== 0) {
     const failed = new Error(`GATE_SIMULATOR_SURFACE_LAUNCH:${opened.status}:${String(opened.stderr || opened.error || '').trim().slice(0, 200)}`);
@@ -1018,15 +1041,16 @@ function stopSimulatorSurfaceTrigger(trigger, evidenceRoot, runId) {
     catch (error) { cleanupFailures.push(String(error.message || error)); }
   }
   const attempted = trigger?.attempted === true;
+  const hostSkip = trigger?.hostSkip?.reason === 'HOST_NO_SIMULATOR_SURFACE_APP' ? trigger.hostSkip : null;
   const cleanupStatus = cleanupFailures.length ? 'failed' : surfaces.length ? 'verified' : 'not-required';
   const record = {
     schema: 1,
     run_id: runId,
     status: attempted ? 'fired' : 'skipped',
-    reason: !trigger ? 'not-armed' : attempted ? (trigger.failure ? 'launch-failed' : 'case-results-complete') : trigger.probeFailure ? 'artifact-probe-failed' : 'case-results-incomplete',
+    reason: !trigger ? 'not-armed' : attempted ? (hostSkip ? 'host-no-simulator-surface-app' : trigger.failure ? 'launch-failed' : 'case-results-complete') : trigger.probeFailure ? 'artifact-probe-failed' : 'case-results-incomplete',
     observed_results: trigger?.observedResults || 0,
     required_results: trigger?.requiredResults || reportViewerResultsBeforeKeyboard(),
-    launch: { status: !attempted ? 'not-attempted' : trigger.failure ? 'failed' : 'launched', error: trigger?.failure || null, pids: surfaces.map((surface) => surface.pid) },
+    launch: { status: !attempted ? 'not-attempted' : hostSkip ? 'not-available' : trigger.failure ? 'failed' : 'launched', error: hostSkip?.launch_services_error || trigger?.failure || null, pids: surfaces.map((surface) => surface.pid) },
     cleanup: { status: cleanupStatus, error: cleanupFailures.length ? cleanupFailures.join('; ') : null, outcomes: cleanupOutcomes },
     completed_at: new Date().toISOString(),
   };
@@ -1063,13 +1087,20 @@ function hostUserSitePackages() {
 // absent. Here the direction is a leak rather than a deletion: a failed boot left a real device in
 // the private set that no cleanup step knew to delete, because the udid only ever reached the
 // caller through the return value it never got.
+function selectCompatibleSimulatorType(runtime, types) {
+  const supported = new Set((runtime?.supportedDeviceTypes || []).map((entry) => entry.identifier));
+  return types.find((entry) => supported.has(entry.identifier));
+}
+
 function createSimulator(runId, onCreated = () => undefined) {
   const runtimes = JSON.parse(command('/usr/bin/xcrun', ['simctl', '--set', resolveDeviceSet(runId), 'list', 'runtimes', '-j'])).runtimes
     .filter((entry) => entry.isAvailable && String(entry.identifier).includes('iOS')).sort((a, b) => String(b.version).localeCompare(String(a.version), undefined, { numeric: true }));
   const types = JSON.parse(command('/usr/bin/xcrun', ['simctl', '--set', resolveDeviceSet(runId), 'list', 'devicetypes', '-j'])).devicetypes
     .filter((entry) => /iPhone/.test(entry.name));
-  if (!runtimes.length || !types.length) throw new Error('SIMULATOR_RUNTIME_OR_TYPE_MISSING');
-  const udid = command('/usr/bin/xcrun', ['simctl', '--set', resolveDeviceSet(runId), 'create', `Pentacle Storage ${runId.slice(0, 8)}`, types[0].identifier, runtimes[0].identifier]);
+  const runtime = runtimes[0];
+  const type = selectCompatibleSimulatorType(runtime, types);
+  if (!runtime || !type) throw new Error('SIMULATOR_RUNTIME_OR_TYPE_MISSING');
+  const udid = command('/usr/bin/xcrun', ['simctl', '--set', resolveDeviceSet(runId), 'create', `Pentacle Storage ${runId.slice(0, 8)}`, type.identifier, runtime.identifier]);
   onCreated(udid);
   command('/usr/bin/xcrun', ['simctl', '--set', resolveDeviceSet(runId), 'boot', udid]);
   return udid;
@@ -1589,6 +1620,7 @@ async function runFullGate(runId, lockToken, dependencies = {}) {
     // results into the scratch path below because its durable output deliberately lives outside evidence.
     // Both roots come from this run's mounted layout; no HOME-derived path crosses this boundary.
     const diagnosticSurfaceTriggerDirectory = path.join(scratch, 'diagnostic-surface-trigger');
+    fs.mkdirSync(diagnosticSurfaceTriggerDirectory, { recursive: true, mode: 0o700 });
     environment.simulatorSurfaceTrigger = createCaseCompletionTrigger({
       resultDirectories: [
         path.join(evidence, 'report-viewer-sim-e2e'),
@@ -1596,6 +1628,7 @@ async function runFullGate(runId, lockToken, dependencies = {}) {
       ],
       requiredResults: reportViewerResultsBeforeKeyboard(),
       launch: () => launchSimulatorSurface(environment.simulatorUdid, environment.deviceSet),
+      onHostSkip: (skip) => atomicJson(path.join(diagnosticSurfaceTriggerDirectory, 'host-simulator-surface-skip.json'), { schema: 1, ...skip }),
     });
     // /bin/ps is SETUID ROOT and the kernel refuses to exec a setuid binary under sandbox-exec. Verified
     // here under the REAL rendered profile, not a hand-rolled one: real /bin/ps fails execvp with
@@ -1818,7 +1851,8 @@ async function runFullGate(runId, lockToken, dependencies = {}) {
     const digest = run.evidence_digest;
     detachRetainDependency('evidence', runId, run.evidence_seal);
     releaseHostLock(run, lockToken);
-    return { run_id: runId, status: result.status, evidence_digest: digest, candidate_sha: run.candidate_ref, gate_code_sha: run.gate_code_sha };
+    return { run_id: runId, status: result.status, evidence_digest: digest, candidate_sha: run.candidate_ref, gate_code_sha: run.gate_code_sha,
+      keyboard_case: environment.simulatorSurfaceTrigger?.hostSkip ? 'skipped(HOST_NO_SIMULATOR_SURFACE_APP)' : 'ran' };
   } catch (error) {
     try { discardGateCodeSnapshot(); } catch (failure) { releaseFailures.push(`gate-code-snapshot=${String(failure.message || failure)}`); }
     // Guard the state work exactly as the primary handler does. Unguarded, a throw from readRecord

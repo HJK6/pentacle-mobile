@@ -9,7 +9,13 @@ import {
   selectPentacleDerivedEventIndex,
 } from './pentacleEventBuckets';
 import { optimisticMatchesServerUser, parseServerEventTimeStrict } from './optimisticMatch';
-import { isCodexHelperSuggestion, isTerminalDividerText, isTransientTranscriptNoise } from './pentacleEventInterpreter';
+import {
+  hasExplicitUserSendBinding,
+  isCodexHelperSuggestion,
+  isTerminalDividerText,
+  isTransientTranscriptNoise,
+  trustedDaemonNoticeProjection,
+} from './pentacleEventInterpreter';
 import { normalizePentacleHost } from './pentacleHosts';
 import { logTelemetry } from '../utils/telemetry';
 import { TELEMETRY_EVENTS } from '../utils/telemetryEvents';
@@ -1444,6 +1450,79 @@ function normalizeEvent(event: PentacleEvent): PentacleEvent {
   return { ...event, host };
 }
 
+function hasReservedDaemonNotice(event: PentacleEvent) {
+  const raw = event.raw;
+  return Boolean(
+    raw && typeof raw === 'object' && !Array.isArray(raw) &&
+    Object.prototype.hasOwnProperty.call(raw, 'daemon_notice'),
+  );
+}
+
+function sameTrustedDaemonNotice(left: PentacleEvent, right: PentacleEvent) {
+  const leftProjection = trustedDaemonNoticeProjection(left);
+  const rightProjection = trustedDaemonNoticeProjection(right);
+  if (!leftProjection || !rightProjection) return false;
+  return (
+    leftProjection.schema_version === rightProjection.schema_version &&
+    leftProjection.kind === rightProjection.kind &&
+    leftProjection.notice_id === rightProjection.notice_id &&
+    leftProjection.stream_id === rightProjection.stream_id &&
+    leftProjection.session_generation === rightProjection.session_generation &&
+    leftProjection.event_id === rightProjection.event_id &&
+    leftProjection.body_sha256 === rightProjection.body_sha256
+  );
+}
+
+function reconcileTrustedDaemonNoticeReplay(
+  prior: PentacleEvent,
+  incoming: PentacleEvent,
+): PentacleEvent {
+  const priorSeq = Number(prior.daemon_seq);
+  const incomingSeq = Number(incoming.daemon_seq);
+  if (
+    !trustedDaemonNoticeProjection(prior) ||
+    prior.stream_id !== incoming.stream_id ||
+    !Number.isFinite(priorSeq) ||
+    priorSeq !== incomingSeq ||
+    prior.text !== incoming.text
+  ) return incoming;
+  if (sameTrustedDaemonNotice(prior, incoming)) return incoming;
+  if (hasReservedDaemonNotice(incoming) || hasExplicitUserSendBinding(incoming)) {
+    // A later conflicting assertion or explicit USER binding revokes display
+    // trust and therefore fails open.
+    return incoming;
+  }
+  const priorNotice = prior.raw?.daemon_notice;
+  return {
+    ...incoming,
+    raw: {
+      ...(incoming.raw || {}),
+      daemon_notice: priorNotice,
+    },
+  };
+}
+
+function reconcileTrustedDaemonNoticeBatch(
+  priorEvents: readonly PentacleEvent[],
+  incoming: readonly PentacleEvent[],
+): PentacleEvent[] {
+  const priorByIdentity = new Map<string, PentacleEvent>();
+  for (const event of priorEvents) {
+    if (!trustedDaemonNoticeProjection(event)) continue;
+    priorByIdentity.set(
+      String(event.stream_id || '') + '\u0000' + String(event.daemon_seq),
+      event,
+    );
+  }
+  if (priorByIdentity.size === 0) return incoming.slice();
+  return incoming.map((event) => {
+    const prior = priorByIdentity.get(
+      String(event.stream_id || '') + '\u0000' + String(event.daemon_seq),
+    );
+    return prior ? reconcileTrustedDaemonNoticeReplay(prior, event) : event;
+  });
+}
+
 function isClaudeJsonlEvent(event: PentacleEvent) {
   return event.raw?.source === 'claude-jsonl';
 }
@@ -1915,11 +1994,12 @@ export function applyPentacleEvent(
       const prior = state.events[priorIndex];
       const sameOptimisticClientReplacement = event.client_origin === true &&
         Boolean(event.optimistic_id) && event.optimistic_id === prior.optimistic_id;
+      const proofAwareEvent = reconcileTrustedDaemonNoticeReplay(prior, event);
       const merged = sameOptimisticClientReplacement
         ? event
         : prior.client_origin === true && prior.optimistic_id && event.client_origin !== true
           ? reconciledOptimisticEvent(prior.optimistic_id, event, prior.attachments, prior.queued_at, prior, prior.text)
-          : mergeProgressiveUpdate(prior, event);
+          : mergeProgressiveUpdate(prior, proofAwareEvent);
       if (!merged || merged === prior) return state;
       const frozenMerged = freezeEventInDev(merged);
       const nextEvents = state.events.slice();
@@ -2419,9 +2499,13 @@ export function applyFetchedStreamEvents(
   if (typeof optionsOrLimit !== 'number' && optionsOrLimit.mode === 'live') {
     return applyLiveFetchedStreamEvents(state, incoming, touchedStreamIds, limit);
   }
-  const acceptedIncoming = typeof optionsOrLimit !== 'number' && optionsOrLimit.mode === 'current-tail'
+  const acceptedIncomingRaw = typeof optionsOrLimit !== 'number' && optionsOrLimit.mode === 'current-tail'
     ? filterCurrentTailRegression(state, incoming, requestedStreamIds, optionsOrLimit.ingressSource || 'current-tail').events
     : incoming;
+  const acceptedIncoming = reconcileTrustedDaemonNoticeBatch(
+    state.events,
+    acceptedIncomingRaw,
+  );
   if (acceptedIncoming.length === 0) return state;
   const acceptedTouchedStreamIds = new Set([
     ...requestedStreamIds,
@@ -2539,12 +2623,15 @@ export function applyPentacleSnapshotMessage(
     : null;
   const hasIncomingEvents = incomingEvents !== null;
   const events = incomingEvents
-    ? dedupeRecentEventsByStream(incomingEvents.map(normalizeEvent).filter((event) => (
+    ? dedupeRecentEventsByStream(reconcileTrustedDaemonNoticeBatch(
+      state.events,
+      incomingEvents.map(normalizeEvent).filter((event) => (
       event.kind !== 'DRAFT' &&
       event.kind !== 'WORKING' &&
       !isHelperSuggestionEvent(event) &&
       (isClaudeJsonlEvent(event) || (event.attachments?.length ?? 0) > 0 || !isTransientTranscriptNoise(event.text))
-    )), limit).map(freezeEventInDev)
+      )),
+    ), limit).map(freezeEventInDev)
     : state.events.filter((event) => survivingStreamIds.has(event.stream_id));
   const drafts: Record<string, PentacleEvent> = {};
   for (const [streamId, draft] of Object.entries(message.drafts || {})) {

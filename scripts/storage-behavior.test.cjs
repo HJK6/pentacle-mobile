@@ -247,6 +247,44 @@ test('nine single-attempt report-viewer results bind status, result digest, vide
   assert.doesNotThrow(() => require('./storage-gate.cjs').validateReportViewer(fixture.root, files));
 });
 
+test('strict evidence accepts only the final keyboard case as the exact Xcode host surface skip', () => {
+  const fixture = reportViewerFixture();
+  const resultPath = path.join(fixture.runs, 'case-8.json');
+  fs.writeFileSync(resultPath, `${JSON.stringify({
+    scenario: 'report_viewer_comments_keyboard',
+    verdict: 'SKIPPED',
+    reason: 'HOST_NO_SIMULATOR_SURFACE_APP',
+    launch_services_error: "Unable to find application named 'Simulator'",
+  })}\n`);
+  fixture.cases[8] = {
+    ...fixture.cases[8],
+    status: 0,
+    skip_reason: 'HOST_NO_SIMULATOR_SURFACE_APP',
+    sha256: digest(resultPath),
+  };
+  fs.unlinkSync(path.join(fixture.runs, 'case-8.mp4'));
+  const manifestPath = path.join(fixture.runs, 'manifest.json');
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+  manifest.cases = fixture.cases;
+  fs.writeFileSync(manifestPath, `${JSON.stringify(manifest)}\n`);
+  const gate = require('./storage-gate.cjs');
+  assert.doesNotThrow(() => gate.validateReportViewer(fixture.root, gate.enumerateEvidence(fixture.root)));
+
+  const invalid = JSON.parse(fs.readFileSync(resultPath, 'utf8'));
+  invalid.reason = 'OTHER';
+  fs.writeFileSync(resultPath, `${JSON.stringify(invalid)}\n`);
+  manifest.cases[8].sha256 = digest(resultPath);
+  fs.writeFileSync(manifestPath, `${JSON.stringify(manifest)}\n`);
+  assert.throws(() => gate.validateReportViewer(fixture.root, gate.enumerateEvidence(fixture.root)), /EVIDENCE_CASE_HOST_SKIP/);
+
+  invalid.reason = 'HOST_NO_SIMULATOR_SURFACE_APP';
+  invalid.launch_services_error = 'unrelated LaunchServices failure';
+  fs.writeFileSync(resultPath, `${JSON.stringify(invalid)}\n`);
+  manifest.cases[8].sha256 = digest(resultPath);
+  fs.writeFileSync(manifestPath, `${JSON.stringify(manifest)}\n`);
+  assert.throws(() => gate.validateReportViewer(fixture.root, gate.enumerateEvidence(fixture.root)), /EVIDENCE_CASE_HOST_SKIP/);
+});
+
 function fixtureWithTeardown(mutation = 'valid') {
   const fixture = reportViewerFixture();
   const name = 'case-0.teardown.json';
@@ -1662,6 +1700,21 @@ test('the wrapper launches the Simulator surface bound to the gate device set, a
   assert.match(stopTrigger, /storage-surface-trigger\.json/);
   assert.match(stopTrigger, /GATE_SIMULATOR_SURFACE_CLEANUP_FAILED/);
   assert.match(stopTrigger, /simulator surface trigger/);
+});
+
+test('the wrapper creates an absent diagnostic surface directory before arming the host-skip marker', () => {
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'storage-host-skip-directory-')));
+  try {
+    const source = fs.readFileSync(path.join(__dirname, 'storage-gate.cjs'), 'utf8');
+    const declaration = source.indexOf("const diagnosticSurfaceTriggerDirectory = path.join(scratch, 'diagnostic-surface-trigger');");
+    const arming = source.indexOf('environment.simulatorSurfaceTrigger = createCaseCompletionTrigger({', declaration);
+    const setup = source.slice(declaration, arming);
+    assert.match(setup, /fs\.mkdirSync\(diagnosticSurfaceTriggerDirectory, \{ recursive: true, mode: 0o700 \}\);/);
+    const directory = new Function('fs', 'path', 'scratch', `${setup}\nreturn diagnosticSurfaceTriggerDirectory;`)(fs, path, root);
+    assert.equal(directory, path.join(root, 'diagnostic-surface-trigger'));
+    assert.equal(fs.lstatSync(directory).isDirectory(), true);
+    assert.equal(fs.lstatSync(directory).mode & 0o777, 0o700);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
 test('the diagnostic consumer mirrors each real result only to the wrapper-provided scratch root', () => {

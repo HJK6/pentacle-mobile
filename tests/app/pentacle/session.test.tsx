@@ -1,5 +1,5 @@
 import React from 'react';
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react-native';
 import { FlatList } from 'react-native';
 import { INITIAL_PENTACLE_LIMITS, invalidateSessionDetailCache } from 'pentacle-chat-core';
 import SessionScreen from '../../../app/pentacle/session/[streamId]';
@@ -297,7 +297,7 @@ test('peer-agent cards preview, expand, collapse, and copy the full message with
   const rendered = render(<SessionScreen />);
   expect(await screen.findByText('a real human message')).toBeTruthy();
   expect(rendered.getByText('Peer agent update')).toBeTruthy();
-  expect(rendered.getByText('… +2 lines')).toBeTruthy();
+  expect(rendered.queryByText(/… \+2 lines|more/i)).toBeNull();
   expect(rendered.queryByText(/Final detail/)).toBeNull();
   const card = rendered.getByTestId('agent-message-card-1');
   expect(card.props.accessibilityState).toEqual({ expanded: false });
@@ -351,11 +351,99 @@ test('long single-line peer plumbing collapses to one preview line and expands o
 
   const rendered = render(<SessionScreen />);
   const card = await rendered.findByTestId('agent-message-card-1');
-  expect(rendered.queryByText(body)).toBeNull();
+  expect(rendered.getByText(body).props.numberOfLines).toBe(1);
+  expect(rendered.queryByText(/more/i)).toBeNull();
   expect(card.props.accessibilityState).toEqual({ expanded: false });
   fireEvent.press(card);
   expect(rendered.getByText(body)).toBeTruthy();
   expect(rendered.getByTestId('agent-message-card-1').props.accessibilityState).toEqual({ expanded: true });
+});
+
+test('legacy report and inactivity envelopes render summary-only Subagent activity and Daemon cards', async () => {
+  const summary = 'The requested implementation and review have completed with passing checks.';
+  const report = [
+    '[pentacle-notice:child-report-ready-v2-11e594f481958c10e3015d0bf0447a22f068a8a647f475df15ce2c7ab4b8f3f1]',
+    '[child_report_ready]',
+    'report_id=00000000-0000-4000-8000-000000000001',
+    'ledger_row_id=12',
+    'child_stream_id=hostb:v2-reporter',
+    'msg_id=20260101000101',
+    'status=done',
+    `summary=${summary}`,
+    'effective_model=gpt-5.6-sol',
+    'effective_effort=high',
+  ].join('\n');
+  const inactivity = [
+    `[pentacle-notice:d2:${'a'.repeat(64)}]`,
+    'Child session hostc:v2-child reached an inactivity threshold at 2026-01-01T01:40:51.416681Z.',
+  ].join('\n');
+  mockState.events = [
+    { daemon_seq: 91, stream_id: 'hostc:codex:one', host: 'hostc', provider: 'codex', session_name: 'one', timestamp: '2026-01-01T01:08:12.351Z', kind: 'USER', text: report, raw: { source: 'structured', transport: 'codex-rollout' } },
+    { daemon_seq: 101, stream_id: 'hostc:codex:one', host: 'hostc', provider: 'codex', session_name: 'one', timestamp: '2026-01-01T01:40:51.416Z', kind: 'USER', text: inactivity, raw: { source: 'structured', transport: 'codex-rollout' } },
+  ];
+
+  const rendered = render(<SessionScreen />);
+  const reportCard = await rendered.findByTestId('agent-message-card-91');
+  const daemonCard = rendered.getByTestId('agent-message-card-101');
+  expect(rendered.getByText('Subagent activity')).toBeTruthy();
+  expect(rendered.getByText('Daemon')).toBeTruthy();
+  expect(rendered.getByText(summary).props.numberOfLines).toBe(1);
+  expect(rendered.queryByText(/ledger_row_id=|report_id=|child_stream_id=|effective_model=/)).toBeNull();
+  expect(reportCard.props.accessibilityState).toEqual({ expanded: false });
+  expect(daemonCard.props.accessibilityState).toEqual({ expanded: false });
+
+  fireEvent.press(reportCard);
+  expect(rendered.getByTestId('agent-message-card-91').props.accessibilityState).toEqual({ expanded: true });
+  expect(rendered.getByText(summary).props.numberOfLines).toBeUndefined();
+  expect(rendered.queryByText(/ledger_row_id=|report_id=|child_stream_id=|effective_model=/)).toBeNull();
+});
+
+test('activity disclosure gives the native preview its own full-width row and separate toggle', async () => {
+  const summary = `Narrow layout summary ${'wide '.repeat(40)}final-marker`;
+  const report = [
+    '[pentacle-notice:child-report-ready-v2-11e594f481958c10e3015d0bf0447a22f068a8a647f475df15ce2c7ab4b8f3f1]',
+    '[child_report_ready]',
+    'report_id=00000000-0000-4000-8000-000000000001',
+    'ledger_row_id=12',
+    'child_stream_id=hostb:v2-reporter',
+    'msg_id=20260101000101',
+    'status=done',
+    `summary=${summary}`,
+    'effective_model=gpt-5.6-sol',
+    'effective_effort=high',
+  ].join('\n');
+  mockState.sessions[0] = {
+    ...mockState.sessions[0], role: 'nexus', session_generation: 'parent-generation', agents: [{
+      stream_id: 'hostb:v2-reporter', session_generation: 'child-generation', display_name: 'Report child',
+      role: 'worker', objective: null, state: 'done', model: 'gpt-5.6-sol', since: null,
+    }],
+  };
+  mockState.events = [{
+    daemon_seq: 91, stream_id: 'hostc:codex:one', host: 'hostc', provider: 'codex', session_name: 'one',
+    timestamp: '2026-01-01T01:08:12.351Z', kind: 'USER', text: report,
+  }];
+
+  const rendered = render(<SessionScreen />);
+  const shell = await rendered.findByTestId('agent-message-shell-91');
+  const header = rendered.getByTestId('agent-message-header-91');
+  const toggle = rendered.getByTestId('agent-message-card-91');
+
+  expect(shell.props.style).toEqual(expect.arrayContaining([
+    expect.objectContaining({ alignSelf: 'stretch', width: '100%', maxWidth: '100%' }),
+  ]));
+  expect(header.props.children).toBeTruthy();
+  expect(within(toggle).getByTestId('agent-message-preview-91')).toBeTruthy();
+  expect(toggle.props.accessibilityRole).toBe('button');
+  expect(toggle.props.accessibilityLabel).toContain('Expand Subagent activity');
+  expect(toggle.props.accessibilityState).toEqual({ expanded: false });
+  expect(toggle.props.hitSlop).toBeTruthy();
+  expect(rendered.getByText(summary).props.numberOfLines).toBe(1);
+
+  fireEvent.press(toggle);
+  const expandedToggle = rendered.getByTestId('agent-message-card-91');
+  expect(expandedToggle.props.accessibilityLabel).toContain('Collapse Subagent activity');
+  expect(expandedToggle.props.accessibilityState).toEqual({ expanded: true });
+  expect(rendered.getByText(summary).props.selectable).toBe(true);
 });
 
 test('a collapsed direct-child row opens only the authoritative child history', async () => {
@@ -377,6 +465,11 @@ test('a collapsed direct-child row opens only the authoritative child history', 
   });
   render(<SessionScreen />);
   const action = await screen.findByTestId('direct-child-history-1');
+  const header = screen.getByTestId('agent-message-header-1');
+  const toggle = screen.getByTestId('agent-message-card-1');
+  expect(within(header).getByTestId('direct-child-history-1')).toBeTruthy();
+  expect(within(toggle).queryByTestId('direct-child-history-1')).toBeNull();
+  expect(action.props.hitSlop).toBeTruthy();
   fireEvent.press(action);
   await waitFor(() => expect(mockActions.readThread).toHaveBeenCalledWith({ parentStreamId: 'hostc:codex:one', childStreamId: 'hostc:codex-hostc-peer' }));
   expect(await screen.findByText('Direct child history')).toBeTruthy();
@@ -442,20 +535,39 @@ test('tool blocks collapse, expand, and keep error receipts available', async ()
 
   const rendered = render(<SessionScreen />);
   const multilineCard = await rendered.findByTestId('tool-result-card-1');
+  expect(rendered.getByText('Command failed').props.numberOfLines).toBe(1);
+  expect(rendered.queryByText(/… \+2 lines|more/i)).toBeNull();
   expect(rendered.queryByText(/Final diagnostic/)).toBeNull();
   fireEvent.press(multilineCard);
   expect(rendered.getByText(/Final diagnostic/)).toBeTruthy();
 
   const jsonCard = rendered.getByTestId('tool-result-card-2');
-  expect(rendered.queryByText(longError)).toBeNull();
+  expect(rendered.getByText(longError).props.numberOfLines).toBe(1);
   fireEvent.press(jsonCard);
-  expect(rendered.getByText(longError)).toBeTruthy();
+  expect(rendered.getByText(longError).props.numberOfLines).toBeUndefined();
 
   const useCard = rendered.getByTestId('tool-result-card-3');
   expect(rendered.queryByText(/working directory: \/project/)).toBeNull();
   fireEvent.press(useCard);
   expect(rendered.getByText(/working directory: \/project/)).toBeTruthy();
 
+
+});
+
+test('long single-line tool commands retain their full native-clipped preview and expand', async () => {
+  mockShowToolActions = true;
+  const text = `Bash: run-check ${'argument '.repeat(30)}end`;
+  mockState.events = [{
+    daemon_seq: 1, stream_id: 'hostc:codex:one', host: 'hostc', provider: 'claude',
+    session_name: 'one', timestamp: '2026-01-01T00:00:00Z', kind: 'TOOL_USE', text,
+    raw: { source: 'claude-jsonl', tool_name: 'Bash' },
+  }];
+  const rendered = render(<SessionScreen />);
+  const card = await rendered.findByTestId('tool-result-card-1');
+  expect(rendered.getByText(text).props.numberOfLines).toBe(1);
+  expect(rendered.queryByText(/more/i)).toBeNull();
+  fireEvent.press(card);
+  expect(rendered.getByText(text).props.numberOfLines).toBeUndefined();
 });
 
 test('summarized file-tool results retain their exact expansion payload', async () => {

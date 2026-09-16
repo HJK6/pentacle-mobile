@@ -3656,34 +3656,19 @@ function AgentMessageCard({
   const disclosure = item.disclosure;
   const expandedText = disclosure?.expandedText ?? item.text;
   const previewText = disclosure?.previewText || item.text.trim();
-  const previewTail = disclosure?.previewTail || '';
   const collapsible = Boolean(disclosure?.expandable);
-  const label = item.label ? `Subagent · ${item.label}` : 'Subagent';
-  const accessibilityBody = expanded ? expandedText : [previewText, previewTail].filter(Boolean).join('. ');
+  const label = item.eventCase === 'subagent-report'
+    ? 'Subagent activity'
+    : item.eventCase === 'daemon-notice'
+      ? 'Daemon'
+      : item.label ? `Subagent · ${item.label}` : 'Subagent';
 
   return (
-    <Pressable
-      testID={`agent-message-card-${item.id}`}
+    <View
+      testID={`agent-message-shell-${item.id}`}
       style={[styles.agentCard, { borderColor: `${chrome.accent}66` }]}
-      accessible
-      accessibilityRole={collapsible ? 'button' : undefined}
-      accessibilityLabel={`${label}. ${accessibilityBody}`}
-      accessibilityState={collapsible ? { expanded } : undefined}
-      onPressIn={() => { longPressed.current = false; }}
-      onPress={() => {
-        if (longPressed.current) {
-          longPressed.current = false;
-          return;
-        }
-        if (collapsible) setExpanded((current) => !current);
-      }}
-      onLongPress={() => {
-        longPressed.current = true;
-        void onCopy?.({ targetId: messageCopyTargetId(item.id), copyKind: 'message', text: expandedText });
-      }}
-      delayLongPress={350}
     >
-      <View accessible={false} style={styles.plumbingPreviewRow}>
+      <View testID={`agent-message-header-${item.id}`} style={styles.agentHeaderRow}>
         <Text {...NON_SELECTABLE_TEXT} numberOfLines={1} testID={`agent-message-label-${item.id}`} style={[styles.agentLabel, styles.plumbingSender, { color: chrome.accent }]}>
           {label}
         </Text>
@@ -3692,17 +3677,57 @@ function AgentMessageCard({
             testID={`direct-child-history-${item.id}`}
             accessibilityRole="button"
             accessibilityLabel={`Open history for direct child ${directChild.display_name}`}
+            hitSlop={8}
             onPress={() => onOpenDirectChildThread?.(directChild)}
           >
             <Text {...NON_SELECTABLE_TEXT} style={[styles.agentLabel, { color: chrome.accent }]}>HISTORY</Text>
           </Pressable>
         ) : null}
-        {!expanded ? <Text {...SELECTABLE_TEXT} numberOfLines={1} style={[styles.agentText, styles.plumbingPreviewText]}>{previewText}</Text> : null}
-        {!expanded && previewTail ? <Text {...NON_SELECTABLE_TEXT} numberOfLines={1} style={styles.agentHiddenLines}>{previewTail}</Text> : null}
-        {collapsible ? <FontAwesome name={expanded ? 'chevron-up' : 'chevron-down'} size={11} color={chrome.accent} /> : null}
       </View>
-      {expanded ? <Text accessible={false} {...SELECTABLE_TEXT} style={styles.agentText}>{expandedText}</Text> : null}
-    </Pressable>
+      <Pressable
+        testID={`agent-message-card-${item.id}`}
+        style={styles.agentDisclosureToggle}
+        accessible
+        accessibilityRole={collapsible ? 'button' : undefined}
+        accessibilityLabel={collapsible
+          ? expanded
+            ? `Collapse ${label}`
+            : `Expand ${label}. ${previewText}`
+          : `${label}. ${previewText}`}
+        accessibilityState={collapsible ? { expanded } : undefined}
+        hitSlop={6}
+        onPressIn={() => { longPressed.current = false; }}
+        onPress={() => {
+          if (longPressed.current) {
+            longPressed.current = false;
+            return;
+          }
+          if (collapsible) setExpanded((current) => !current);
+        }}
+        onLongPress={() => {
+          longPressed.current = true;
+          void onCopy?.({ targetId: messageCopyTargetId(item.id), copyKind: 'message', text: expandedText });
+        }}
+        delayLongPress={350}
+      >
+        {!expanded ? (
+          <Text
+            accessible={false}
+            {...SELECTABLE_TEXT}
+            numberOfLines={1}
+            ellipsizeMode="tail"
+            testID={`agent-message-preview-${item.id}`}
+            style={[styles.agentText, styles.plumbingPreviewText]}
+          >
+            {previewText}
+          </Text>
+        ) : (
+          <Text accessible={false} {...NON_SELECTABLE_TEXT} style={[styles.agentLabel, { color: chrome.accent }]}>COLLAPSE</Text>
+        )}
+        {collapsible ? <FontAwesome name={expanded ? 'chevron-up' : 'chevron-down'} size={11} color={chrome.accent} /> : null}
+      </Pressable>
+      {expanded ? <Text {...SELECTABLE_TEXT} testID={`agent-message-expanded-${item.id}`} style={styles.agentText}>{expandedText}</Text> : null}
+    </View>
   );
 }
 
@@ -6283,7 +6308,9 @@ const styles = StyleSheet.create({
     paddingVertical: 1,
   },
   agentCard: {
-    maxWidth: '88%',
+    alignSelf: 'stretch',
+    width: '100%',
+    maxWidth: '100%',
     gap: 5,
     paddingHorizontal: 12,
     paddingVertical: 9,
@@ -6310,7 +6337,20 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   plumbingSender: {
-    maxWidth: '34%',
+    flexShrink: 1,
+  },
+  agentHeaderRow: {
+    minHeight: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  agentDisclosureToggle: {
+    minHeight: 44,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
   plumbingPreviewText: {
     flex: 1,

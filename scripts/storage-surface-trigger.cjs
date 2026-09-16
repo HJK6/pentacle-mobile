@@ -2,10 +2,25 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
+const { spawnSync } = require('node:child_process');
 
 const RESULT_DIRECTORY = 'report-viewer-sim-e2e';
 const MANIFEST = 'manifest.json';
 const DEFAULT_POLL_MS = 250;
+
+function resolveSimulatorSurfaceApp(command = spawnSync) {
+  const result = command('/usr/bin/open', ['-Ra', 'Simulator'], { encoding: 'utf8' });
+  if (result.status === 0) return { available: true };
+  const detail = String(result.stderr || result.error || result.stdout || '').trim().slice(0, 500);
+  if (!detail.includes("Unable to find application named 'Simulator'")) {
+    throw new Error(`GATE_SIMULATOR_SURFACE_RESOLUTION:${result.status}:${detail || 'no error detail'}`);
+  }
+  return {
+    available: false,
+    reason: 'HOST_NO_SIMULATOR_SURFACE_APP',
+    launch_services_error: detail || `LaunchServices resolution exited ${result.status}`,
+  };
+}
 
 function terminateOwnedSurface(surface, {
   processState,
@@ -66,6 +81,7 @@ function createCaseCompletionTrigger({
   pollMs = DEFAULT_POLL_MS,
   schedule = setInterval,
   cancel = clearInterval,
+  onHostSkip = () => undefined,
 }) {
   if (!Number.isInteger(requiredResults) || requiredResults < 1) throw new Error('GATE_SURFACE_TRIGGER_RESULT_COUNT_INVALID');
   if (typeof launch !== 'function' || typeof schedule !== 'function' || typeof cancel !== 'function') throw new Error('GATE_SURFACE_TRIGGER_CALLBACK_INVALID');
@@ -80,6 +96,7 @@ function createCaseCompletionTrigger({
     surfaces: [],
     timer: null,
     cleanupUnproven: false,
+    hostSkip: null,
     requiredResults,
   };
   const stopTimer = () => {
@@ -105,7 +122,13 @@ function createCaseCompletionTrigger({
       trigger.surfaces = trigger.surface ? [trigger.surface] : [];
     }
     catch (error) {
-      trigger.failure = String(error.message || error);
+      if (error?.code === 'HOST_NO_SIMULATOR_SURFACE_APP') {
+        trigger.hostSkip = {
+          reason: 'HOST_NO_SIMULATOR_SURFACE_APP',
+          launch_services_error: String(error.launchServicesError || error.message || error),
+        };
+        onHostSkip(trigger.hostSkip);
+      } else trigger.failure = String(error.message || error);
       trigger.surface = error.surface || null;
       trigger.surfaces = Array.isArray(error.surfaces) ? error.surfaces : trigger.surface ? [trigger.surface] : [];
       trigger.cleanupUnproven = error.cleanupUnproven === true;
@@ -114,6 +137,7 @@ function createCaseCompletionTrigger({
   trigger.stop = stopTimer;
   trigger.summary = () => {
     if (trigger.attempted) {
+      if (trigger.hostSkip) return `fired case_results=${trigger.observedResults} keyboard_case=skipped(${trigger.hostSkip.reason})`;
       if (trigger.failure) return `fired case_results=${trigger.observedResults} failed=${trigger.failure}`;
       return `fired case_results=${trigger.observedResults} launched_pid=${trigger.surface?.pid ?? 'unknown'}`;
     }
@@ -129,4 +153,5 @@ module.exports = {
   bind: (token) => require('./storage-capability.cjs').bind(token, { mirrorDiagnosticCaseResult, terminateOwnedSurface }),
   createCaseCompletionTrigger,
   reportViewerResultCount,
+  resolveSimulatorSurfaceApp,
 };

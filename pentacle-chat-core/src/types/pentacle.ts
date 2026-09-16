@@ -55,6 +55,8 @@ export interface PentacleEvent {
   jsonl_resolution_for_record_uuid?: string;
   client_origin?: boolean;
   optimistic_id?: string;
+  request_id?: string;
+  receipt_id?: string;
   receiptDirectMatch?: boolean;
   correlatedDaemonSeq?: number | null;
   pending?: boolean;

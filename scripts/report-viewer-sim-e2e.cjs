@@ -59,6 +59,36 @@ function recordCaseAttempt(manifest, execution, details) {
   return record;
 }
 
+function readHostSimulatorSurfaceSkip(environment = process.env) {
+  const directory = String(environment.PENTACLE_DIAGNOSTIC_SURFACE_TRIGGER_DIR || '').trim();
+  if (!directory) return null;
+  if (!path.isAbsolute(directory)) throw new Error('HOST_SURFACE_SKIP_INVALID:directory');
+  const marker = path.join(directory, 'host-simulator-surface-skip.json');
+  if (!fs.existsSync(marker)) return null;
+  let payload;
+  try { payload = JSON.parse(fs.readFileSync(marker, 'utf8')); }
+  catch { throw new Error('HOST_SURFACE_SKIP_INVALID:json'); }
+  const keys = Object.keys(payload || {}).sort().join(',');
+  if (keys !== 'launch_services_error,reason,schema' || payload.schema !== 1
+    || payload.reason !== 'HOST_NO_SIMULATOR_SURFACE_APP'
+    || typeof payload.launch_services_error !== 'string'
+    || !payload.launch_services_error.includes("Unable to find application named 'Simulator'")) {
+    throw new Error('HOST_SURFACE_SKIP_INVALID:schema');
+  }
+  return { reason: payload.reason, launch_services_error: payload.launch_services_error };
+}
+
+function recordHostSimulatorSurfaceSkip(manifest, runsDir, details, skip) {
+  const resultPath = path.join(runsDir, `${details.run_id.replace(/[^A-Za-z0-9_.-]/g, '_')}__host-skip.json`);
+  fs.writeFileSync(resultPath, `${JSON.stringify({
+    scenario: 'report_viewer_comments_keyboard',
+    verdict: 'SKIPPED',
+    reason: skip.reason,
+    launch_services_error: skip.launch_services_error,
+  }, null, 2)}\n`, { flag: 'wx' });
+  return recordCaseAttempt(manifest, { status: 0, resultPath }, { ...details, skip_reason: skip.reason });
+}
+
 function runRecorderPreflight(command = spawnSync, environment = process.env) {
   const udid = String(environment.PENTACLE_GATE_BOUND_SIMULATOR_UDID || '').trim();
   if (!udid) {
@@ -480,10 +510,12 @@ function validateSentinelResult(payload, { runId, sentinel, expected }) {
 // of failing gets its OWN message: a bounded wait that ends is a diagnosis site, and a diagnosis site that
 // reports one string for several causes is the defect that cost this program three runs. The three
 // outcomes are distinguishable in the thrown error, and the caller records it.
-function awaitAdoptableSurface(command, options, udid, pause, attempts = 40) {
+function awaitAdoptableSurface(command, options, udid, pause, environment, attempts = 40) {
   let sawMismatch = false;
   let sawUnreadable = false;
   for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const hostSkip = readHostSimulatorSurfaceSkip(environment);
+    if (hostSkip) return { hostSkip };
     const probe = command('pgrep', ['-x', 'Simulator'], options);
     if (probe.status !== 0 && probe.status !== 1) throw new Error('could not probe for an adoptable Simulator surface');
     const pids = probe.status === 0 ? String(probe.stdout || '').trim().split(/\s+/).filter(Boolean) : [];
@@ -557,6 +589,12 @@ function withSoftwareKeyboard(
     adoptedPid = existing[0];
   }
 
+  const announcedHostSkip = readHostSimulatorSurfaceSkip(environment);
+  if (announcedHostSkip) {
+    report('mode=host-skip pid=none cleanup_block=skipped kill_attempted=no');
+    return { hostSkip: announcedHostSkip };
+  }
+
   const read = command('defaults', ['read', SIMULATOR_PREFERENCES, HARDWARE_KEYBOARD_PREFERENCE], options);
   const preferenceWasAbsent = read.status === 1;
   if (read.status !== 0 && !preferenceWasAbsent) throw new Error('could not read Simulator hardware-keyboard preference');
@@ -599,8 +637,9 @@ function withSoftwareKeyboard(
     // Outside the sandbox this branch never runs: the launch succeeds and the standalone path is
     // unchanged, so the wait costs nothing where nothing is denied.
     if (launch.status !== 0) {
-      ownedPid = awaitAdoptableSurface(command, options, udid, pause);
-      adoptedPid = ownedPid;
+      const adoption = awaitAdoptableSurface(command, options, udid, pause, environment);
+      if (adoption?.hostSkip) result = adoption;
+      else { ownedPid = adoption; adoptedPid = ownedPid; }
     } else {
     launched = true;
 
@@ -631,11 +670,13 @@ function withSoftwareKeyboard(
     if (!ready) throw new Error('exact-UDID Simulator surface did not become ready');
     }
     }
-    result = run({
-      PENTACLE_REPORT_VIEWER_OWNED_SIMULATOR_PID: ownedPid,
-      PENTACLE_REPORT_VIEWER_OWNED_SIMULATOR_SCENARIO: 'report_viewer_comments_keyboard',
-      PENTACLE_REPORT_VIEWER_OWNED_SIMULATOR_UDID: udid,
-    });
+    if (!result) {
+      result = run({
+        PENTACLE_REPORT_VIEWER_OWNED_SIMULATOR_PID: ownedPid,
+        PENTACLE_REPORT_VIEWER_OWNED_SIMULATOR_SCENARIO: 'report_viewer_comments_keyboard',
+        PENTACLE_REPORT_VIEWER_OWNED_SIMULATOR_UDID: udid,
+      });
+    }
   } catch (error) {
     primaryError = error;
   }
@@ -728,7 +769,7 @@ function withSoftwareKeyboard(
   // Positive, unconditional, and it reads like the wrapper's never-fired line by design: the three
   // states - adopted, launched, neither - are named rather than inferred, and the two facts the
   // layer-17 argument rests on (the teardown block did not run, no kill was attempted) are STATED.
-  report(`mode=${adoptedPid ? 'adopted' : launched ? 'launched' : 'none'} pid=${ownedPid || 'none'} `
+  report(`mode=${result?.hostSkip ? 'host-skip' : adoptedPid ? 'adopted' : launched ? 'launched' : 'none'} pid=${ownedPid || 'none'} `
     + `cleanup_block=${cleanupRan ? 'ran' : 'skipped'} kill_attempted=${killAttempted ? 'yes' : 'no'}`);
   const restoreArgs = preferenceWasAbsent
     ? ['delete', SIMULATOR_PREFERENCES, HARDWARE_KEYBOARD_PREFERENCE]
@@ -828,6 +869,14 @@ function main() {
       const execution = scenario === 'report_viewer_comments_keyboard'
         ? withSoftwareKeyboard(execute, spawnSync, process.env)
         : execute();
+      if (execution?.hostSkip) {
+        recordHostSimulatorSurfaceSkip(manifest, runsDir, {
+          scenario,
+          run_id: runId,
+          expected,
+        }, execution.hostSkip);
+        continue;
+      }
       const runtimeErrors = (execution.payload.all_events || []).filter((event) =>
         event?.message === 'harness:runtime_error' && event?.data?.scenario_run_id === runId
       );
@@ -873,4 +922,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { commandHasExactArgumentPair, commandIsSimulatorExecutable, POST_SCENARIO_RUNTIME_SETTLE_S, scenarioPlan, SENTINELS, parseCliArgs, recordCaseAttempt, resultFiles, requireRecorderPreflight, runRecorderPreflight, suppressCrashReporterDialogs, validateRecorderPreflightPass, validateSentinelResult, withSoftwareKeyboard };
+module.exports = { commandHasExactArgumentPair, commandIsSimulatorExecutable, POST_SCENARIO_RUNTIME_SETTLE_S, scenarioPlan, SENTINELS, parseCliArgs, readHostSimulatorSurfaceSkip, recordCaseAttempt, resultFiles, requireRecorderPreflight, runRecorderPreflight, suppressCrashReporterDialogs, validateRecorderPreflightPass, validateSentinelResult, withSoftwareKeyboard };

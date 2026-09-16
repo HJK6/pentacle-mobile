@@ -1,4 +1,6 @@
 import type { PentacleEvent } from '../types/pentacle';
+import { sha256 } from '@noble/hashes/sha2.js';
+import { bytesToHex, utf8ToBytes } from '@noble/hashes/utils.js';
 
 export type PentacleEventCase =
   | 'user-message'
@@ -26,6 +28,8 @@ export type PentacleEventCase =
   | 'transient-noise'
   | 'codex-helper-suggestion'
   | 'peer-agent-message'
+  | 'subagent-report'
+  | 'daemon-notice'
   | 'agent-question-ask'
   | 'agent-question-answer'
   | 'unknown';
@@ -88,9 +92,11 @@ export function normalizedEventText(text: string) {
   return String(text || '').replace(/\s+/g, ' ').trim();
 }
 
-const PLUMBING_PREVIEW_CHAR_LIMIT = 72;
+const PLUMBING_DISCLOSURE_CHAR_THRESHOLD = 72;
 const COLLAPSED_DISCLOSURE_CASES = new Set<PentacleEventCase>([
   'peer-agent-message',
+  'subagent-report',
+  'daemon-notice',
   'tool-command',
   'tool-output',
   'tool-use',
@@ -107,16 +113,14 @@ export function collapsedDisclosurePresentation(text: string, expandedText = tex
   const rawExpandedText = String(expandedText || '');
   const expandedLines = rawExpandedText.split(/\r?\n/);
   const hiddenLineCount = Math.max(0, expandedLines.length - 1);
-  const longLine = firstLine.length > PLUMBING_PREVIEW_CHAR_LIMIT;
-  const previewText = longLine
-    ? `${firstLine.slice(0, PLUMBING_PREVIEW_CHAR_LIMIT - 1).trimEnd()}…`
-    : firstLine;
+  const longLine = firstLine.length > PLUMBING_DISCLOSURE_CHAR_THRESHOLD;
   return {
     mode: 'collapsed-preview',
-    previewText,
-    previewTail: hiddenLineCount > 0
-      ? `… +${hiddenLineCount} line${hiddenLineCount === 1 ? '' : 's'}`
-      : longLine ? '… more' : '',
+    // Pass the complete first line to the native Text node. `numberOfLines={1}`
+    // owns visual truncation, so narrow layouts get all available width and no
+    // character-count guess or literal “More” text leaks into the transcript.
+    previewText: firstLine,
+    previewTail: '',
     expandable: hiddenLineCount > 0 || longLine || rawExpandedText !== text,
     expandedText: rawExpandedText,
   };
@@ -502,6 +506,141 @@ export function isDaemonNotificationText(text: string) {
     /^Agent\s+"[^"]+"\s+finished\s*·/i.test(normalized);
 }
 
+type LegacyActivityNotice = {
+  caseId: 'subagent-report' | 'daemon-notice';
+  label: 'Subagent activity' | 'Daemon';
+  text: string;
+};
+
+function nonEmptyBinding(value: unknown) {
+  return typeof value === 'string' ? value.trim().length > 0 : value !== null && value !== undefined && value !== false;
+}
+
+export function hasExplicitUserSendBinding(event: PentacleEvent) {
+  const raw = event.raw || {};
+  return event.client_origin === true || raw.client_origin === true || [
+    event.optimistic_id,
+    event.request_id,
+    event.receipt_id,
+    raw.optimistic_id,
+    raw.request_id,
+    raw.receipt_id,
+  ].some(nonEmptyBinding);
+}
+
+export type TrustedDaemonNoticeProjection = {
+  schema_version: 1;
+  kind: 'status_card' | 'status_card_combined' | 'notification_answer';
+  notice_id: string;
+  stream_id: string;
+  session_generation: string;
+  event_id: number;
+  body_sha256: string;
+};
+
+const TRUSTED_DAEMON_NOTICE_KEYS = [
+  'body_sha256',
+  'event_id',
+  'kind',
+  'notice_id',
+  'schema_version',
+  'session_generation',
+  'stream_id',
+];
+
+export function trustedDaemonNoticeProjection(
+  event: PentacleEvent,
+): TrustedDaemonNoticeProjection | null {
+  if (String(event.kind || '').toUpperCase() !== 'USER' || hasExplicitUserSendBinding(event)) {
+    return null;
+  }
+  const raw = objectValue(event.raw);
+  const candidate = objectValue(raw?.daemon_notice);
+  if (!candidate) return null;
+  if (Object.keys(candidate).sort().join('\u0000') !== TRUSTED_DAEMON_NOTICE_KEYS.join('\u0000')) {
+    return null;
+  }
+  if (
+    candidate.schema_version !== 1 ||
+    (candidate.kind !== 'status_card' &&
+      candidate.kind !== 'status_card_combined' &&
+      candidate.kind !== 'notification_answer')
+  ) return null;
+  const noticeId = typeof candidate.notice_id === 'string' ? candidate.notice_id : '';
+  const streamId = typeof candidate.stream_id === 'string' ? candidate.stream_id : '';
+  const generation = typeof candidate.session_generation === 'string'
+    ? candidate.session_generation : '';
+  const bodySha256 = typeof candidate.body_sha256 === 'string' ? candidate.body_sha256 : '';
+  const eventId = candidate.event_id;
+  const daemonSeq = Number(event.daemon_seq);
+  const body = String(event.text || '');
+  if (
+    !noticeId || noticeId.length > 256 ||
+    streamId !== String(event.stream_id || '') ||
+    !generation ||
+    !Number.isInteger(eventId) || Number(eventId) <= 0 ||
+    !Number.isFinite(daemonSeq) || Number(eventId) !== daemonSeq ||
+    !/^[0-9a-f]{64}$/.test(bodySha256) ||
+    bytesToHex(sha256(utf8ToBytes(body))) !== bodySha256 ||
+    !body.startsWith('[pentacle-notice:' + noticeId + ']\n')
+  ) return null;
+  return candidate as TrustedDaemonNoticeProjection;
+}
+
+function parseLegacyReportNotice(text: string): LegacyActivityNotice | null {
+  // This is intentionally the daemon generator's byte grammar, not a fuzzy
+  // text classifier. Any CR, surrounding prose, reordered field, extra suffix,
+  // or partial envelope fails open to an ordinary USER message.
+  if (!text || text.includes('\r')) return null;
+  const lines = text.split('\n');
+  const header = lines[0]?.match(/^\[pentacle-notice:child-report-ready-v2-([0-9a-f]{64})\]$/);
+  if (!header || lines[1] !== '[child_report_ready]') return null;
+
+  const reportId = lines[2]?.match(/^report_id=(\S+)$/)?.[1] || '';
+  if (!reportId || bytesToHex(sha256(utf8ToBytes(reportId))) !== header[1]) return null;
+  if (!/^ledger_row_id=\d+$/.test(lines[3] || '')) return null;
+  if (!/^child_stream_id=[A-Za-z0-9._-]+:[^\s=]+$/.test(lines[4] || '')) return null;
+  if (!/^msg_id=\S+$/.test(lines[5] || '')) return null;
+  if (!/^status=(?:done|error|aborted)$/.test(lines[6] || '')) return null;
+
+  let summaryIndex = 7;
+  if (lines[summaryIndex] === 'qa_attestation_state=unverified') {
+    if (!/^qa_attestation_reasons=[A-Za-z0-9_.:-]+(?:,[A-Za-z0-9_.:-]+)*$/.test(lines[summaryIndex + 1] || '')) return null;
+    summaryIndex += 2;
+  }
+  if (!lines[summaryIndex]?.startsWith('summary=')) return null;
+
+  const summaryLines = [lines[summaryIndex].slice('summary='.length), ...lines.slice(summaryIndex + 1)];
+  const hasTrailer = summaryLines.length >= 3 &&
+    /^effective_model=\S+$/.test(summaryLines[summaryLines.length - 2] || '') &&
+    /^effective_effort=\S+$/.test(summaryLines[summaryLines.length - 1] || '');
+  if (hasTrailer) summaryLines.splice(-2);
+  // A generator summary spanning more than one line is ambiguous without its
+  // final paired trailer; a single line is structurally bounded by EOF.
+  if (summaryLines.length > 1 && !hasTrailer) return null;
+  const summary = summaryLines.join('\n');
+  if (!summary) return null;
+
+  return { caseId: 'subagent-report', label: 'Subagent activity', text: summary };
+}
+
+function parseLegacyInactivityNotice(text: string): LegacyActivityNotice | null {
+  if (!text || text.includes('\r')) return null;
+  const match = text.match(
+    /^\[pentacle-notice:d2:[0-9a-f]{64}\]\nChild session ([A-Za-z0-9._-]+:[^\s=]+) reached an inactivity threshold at (\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])T(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|[+-](?:[01]\d|2[0-3]):[0-5]\d))\.$/,
+  );
+  if (!match || !Number.isFinite(Date.parse(match[2]))) return null;
+  return {
+    caseId: 'daemon-notice',
+    label: 'Daemon',
+    text: `Child session ${match[1]} reached an inactivity threshold at ${match[2]}.`,
+  };
+}
+
+function parseLegacyActivityNotice(text: string) {
+  return parseLegacyReportNotice(text) || parseLegacyInactivityNotice(text);
+}
+
 export function isOrchestrationReceiptAck(text: string) {
   const normalized = String(text || '').trim();
   const type = normalized.match(/"type"\s*:\s*"([^"]+)"/i)?.[1] || '';
@@ -566,8 +705,37 @@ export function interpretPentacleEvent(
   const transport = String(event.raw?.transport || '');
   const userText = kind === 'USER' ? stripTerminalPromptPrefix(text) : text;
 
+  if (trustedDaemonNoticeProjection(event)) {
+    return interpreted(
+      event,
+      'working-status',
+      'hidden:status',
+      'system',
+      'Daemon',
+      text,
+      true,
+      'A server-projected immutable status-notice proof is rendered outside conversation.',
+    );
+  }
+
   if (source === 'scrollback_fallback' && !options.revealScrollbackFallback) {
     return interpreted(event, 'transient-noise', 'hidden:noise', 'assistant', assistantLabel, text, true, 'Tagged scrollback fallback is hidden unless explicitly revealed.');
+  }
+
+  if (kind === 'USER' && !hasExplicitUserSendBinding(event)) {
+    const legacyActivity = parseLegacyActivityNotice(text);
+    if (legacyActivity) {
+      return interpreted(
+        event,
+        legacyActivity.caseId,
+        'bubble:agent',
+        'agent',
+        legacyActivity.label,
+        legacyActivity.text,
+        false,
+        'Complete legacy daemon envelope rendered as compatibility activity; provenance is not authenticated.',
+      );
+    }
   }
 
   if (kind === 'TELL') {
@@ -675,7 +843,7 @@ export function interpretPentacleEvent(
     return interpreted(event, 'transient-noise', 'hidden:noise', 'system', '', text, true, 'Terminal UI furniture is not durable conversation.');
   }
 
-  if (isDaemonNotificationText(displayText) || isOrchestrationReceiptAck(displayText)) {
+  if ((kind !== 'USER' && isDaemonNotificationText(displayText)) || isOrchestrationReceiptAck(displayText)) {
     return interpreted(event, 'transient-noise', 'hidden:noise', 'system', '', displayText, true, 'Orchestration receipts and daemon notifications belong outside conversation.');
   }
 
@@ -743,7 +911,7 @@ function interpretStructuredEvent(
   const trimmed = stripClaudeExpandHint(String(text || '').trim());
   const toolName = String(raw.tool_name || '').trim();
 
-  if (isDaemonNotificationText(trimmed)) {
+  if (kind !== 'USER' && isDaemonNotificationText(trimmed)) {
     return interpreted(event, 'transient-noise', 'hidden:noise', 'system', '', trimmed, true, 'Daemon notifications belong outside conversation.');
   }
 
@@ -957,9 +1125,12 @@ export function coalesceInterpretedEvents(events: PentacleInterpretedEvent[]) {
       const existingText = normalizedEventText(existing.text);
       const distance = result.length - index;
       const exactText = existingText === text;
+      const sharedReplayIdentity = mayReplay && hasSharedReplayIdentity(existing.event, item.event);
       if (
-        (mayReplay && exactText && canCoalesceExactText(existing, item)) ||
-        (!exactText && isProgressiveUpdate(existingText, text) && distance <= 4)
+        sharedReplayIdentity && (
+          exactText ||
+          (isProgressiveUpdate(existingText, text) && distance <= 4)
+        )
       ) {
         existingIndex = index;
         break;
@@ -985,7 +1156,12 @@ export function coalesceInterpretedEvents(events: PentacleInterpretedEvent[]) {
   return result;
 }
 
+// Text similarity never establishes message identity. These scoped tokens only
+// accelerate lookup; hasSharedReplayIdentity performs the same scope/identity
+// proof before any exact replay or progressive fragment is suppressed.
 function replayIdentityTokens(event: PentacleEvent): string[] {
+  const scope = replayIdentityScope(event);
+  if (!scope) return [];
   const tokens = new Set<string>();
   for (const value of [
     event.optimistic_id,
@@ -996,24 +1172,23 @@ function replayIdentityTokens(event: PentacleEvent): string[] {
     event.raw?.jsonl_resolution_for_record_uuid,
   ]) {
     const normalized = String(value || '').trim();
-    if (normalized) tokens.add(`text:${normalized}`);
+    if (normalized) tokens.add(`${scope}:text:${normalized}`);
   }
   for (const value of [event.daemon_seq, event.correlatedDaemonSeq]) {
-    const normalized = Number(value);
-    if (Number.isFinite(normalized)) tokens.add(`seq:${normalized}`);
+    const normalized = finiteSequenceIdentity(value);
+    if (normalized !== null) tokens.add(`${scope}:seq:${normalized}`);
   }
   return [...tokens];
 }
 
-function canCoalesceExactText(
-  existing: PentacleInterpretedEvent,
-  item: PentacleInterpretedEvent,
-) {
-  return hasSharedReplayIdentity(existing.event, item.event);
-}
-
 function hasSharedReplayIdentity(left: PentacleEvent, right: PentacleEvent) {
-  if (sameNonEmpty(left.optimistic_id, right.optimistic_id)) return true;
+  if (!hasSameReplayIdentityScope(left, right)) return false;
+  const leftOptimisticId = String(left.optimistic_id || '').trim();
+  const rightOptimisticId = String(right.optimistic_id || '').trim();
+  if (leftOptimisticId && rightOptimisticId && leftOptimisticId !== rightOptimisticId) {
+    return false;
+  }
+  if (leftOptimisticId && leftOptimisticId === rightOptimisticId) return true;
   if (sameNonEmpty(left.jsonl_record_uuid, right.jsonl_record_uuid)) return true;
   if (sameNonEmpty(left.raw?.jsonl_record_uuid, right.raw?.jsonl_record_uuid)) return true;
   if (sameNonEmpty(left.jsonl_record_uuid, right.raw?.jsonl_record_uuid)) return true;
@@ -1025,19 +1200,40 @@ function hasSharedReplayIdentity(left: PentacleEvent, right: PentacleEvent) {
   if (sameNonEmpty(left.raw?.jsonl_record_uuid, right.raw?.jsonl_resolution_for_record_uuid)) return true;
   if (sameNonEmpty(left.raw?.jsonl_resolution_for_record_uuid, right.jsonl_record_uuid)) return true;
   if (sameNonEmpty(left.jsonl_record_uuid, right.raw?.jsonl_resolution_for_record_uuid)) return true;
-  const leftSeq = Number(left.daemon_seq);
-  const rightSeq = Number(right.daemon_seq);
-  if (Number.isFinite(leftSeq) && Number.isFinite(rightSeq) && leftSeq === rightSeq) return true;
-  const leftCorrelated = Number(left.correlatedDaemonSeq);
-  const rightCorrelated = Number(right.correlatedDaemonSeq);
-  if (Number.isFinite(leftCorrelated) && Number.isFinite(rightSeq) && leftCorrelated === rightSeq) return true;
-  if (Number.isFinite(rightCorrelated) && Number.isFinite(leftSeq) && rightCorrelated === leftSeq) return true;
-  return false;
+  const leftDaemonSeq = finiteSequenceIdentity(left.daemon_seq);
+  const rightDaemonSeq = finiteSequenceIdentity(right.daemon_seq);
+  const leftCorrelatedSeq = finiteSequenceIdentity(left.correlatedDaemonSeq);
+  const rightCorrelatedSeq = finiteSequenceIdentity(right.correlatedDaemonSeq);
+  return (
+    (leftDaemonSeq !== null && leftDaemonSeq === rightDaemonSeq) ||
+    (leftDaemonSeq !== null && leftDaemonSeq === rightCorrelatedSeq) ||
+    (rightDaemonSeq !== null && rightDaemonSeq === leftCorrelatedSeq)
+  );
 }
 
 function sameNonEmpty(left: unknown, right: unknown) {
   const leftValue = String(left || '').trim();
   return Boolean(leftValue) && leftValue === String(right || '').trim();
+}
+
+function finiteSequenceIdentity(value: unknown): number | null {
+  if (value === null || value === undefined || typeof value === 'boolean') return null;
+  if (typeof value === 'string' && !value.trim()) return null;
+  const normalized = Number(value);
+  return Number.isFinite(normalized) ? normalized : null;
+}
+
+function replayIdentityScope(event: PentacleEvent): string {
+  const stream = String(event.stream_id || '').trim();
+  const provider = String(event.provider || '').trim();
+  const session = String(event.session_id || event.session_name || '').trim();
+  if (!stream || !provider || !session) return '';
+  return `scope:${stream}\u0000${provider}\u0000${session}`;
+}
+
+function hasSameReplayIdentityScope(left: PentacleEvent, right: PentacleEvent) {
+  const leftScope = replayIdentityScope(left);
+  return Boolean(leftScope) && leftScope === replayIdentityScope(right);
 }
 
 export function findCoalescibleTerminalDividerIndex(existingItems: DividerCoalesceItem[], candidate: DividerCoalesceItem) {

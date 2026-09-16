@@ -152,8 +152,16 @@ test('event coalescing deduplicates every durable replay identity but not unrela
 
 test('progressive coalescing keeps the fullest nearby update and divider lookback stops at durable content', () => {
   const progressive = coalesceInterpretedEvents([
-    interpretPentacleEvent(event({ daemon_seq: 1, text: 'Deploying the exact immutable candidate to production' })),
-    interpretPentacleEvent(event({ daemon_seq: 2, text: 'Deploying the exact immutable candidate to production now' })),
+    interpretPentacleEvent(event({
+      daemon_seq: 1,
+      text: 'Deploying the exact immutable candidate to production',
+      jsonl_record_uuid: 'progressive-deployment',
+    })),
+    interpretPentacleEvent(event({
+      daemon_seq: 2,
+      text: 'Deploying the exact immutable candidate to production now',
+      jsonl_record_uuid: 'progressive-deployment',
+    })),
   ]);
   expect(progressive).toHaveLength(1);
   expect(progressive[0]?.text).toBe('Deploying the exact immutable candidate to production now');

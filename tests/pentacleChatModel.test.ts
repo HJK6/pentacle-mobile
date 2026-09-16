@@ -964,6 +964,7 @@ test('selectSessionDetail keeps the fullest progressive user and assistant rows'
         timestamp: '2026-04-24T11:10:00.000Z',
         kind: 'USER',
         text: 'and the top of the chat still says session instead',
+        jsonl_record_uuid: 'progressive-chat-8-user',
       },
       {
         daemon_seq: 72,
@@ -975,6 +976,7 @@ test('selectSessionDetail keeps the fullest progressive user and assistant rows'
         timestamp: '2026-04-24T11:10:01.000Z',
         kind: 'USER',
         text: 'and the top of the chat still says session instead of the name of the machine',
+        jsonl_record_uuid: 'progressive-chat-8-user',
       },
       {
         daemon_seq: 73,
@@ -986,6 +988,7 @@ test('selectSessionDetail keeps the fullest progressive user and assistant rows'
         timestamp: '2026-04-24T11:10:20.000Z',
         kind: 'ASSIST',
         text: 'Interpreting this as the state of the 0DTE bot. Current state: stopped.',
+        jsonl_record_uuid: 'progressive-chat-8-assistant',
       },
       {
         daemon_seq: 74,
@@ -997,6 +1000,7 @@ test('selectSessionDetail keeps the fullest progressive user and assistant rows'
         timestamp: '2026-04-24T11:10:40.000Z',
         kind: 'ASSIST',
         text: 'Interpreting this as the state of the 0DTE bot. Current state: stopped. Latest trading-day state was data-starved.',
+        jsonl_record_uuid: 'progressive-chat-8-assistant',
       },
     ],
     sessions: [
@@ -1988,8 +1992,14 @@ test('selectSessionDetail remainingCount applies filtering and coalescing before
   const olderCandidates = [
     event(1, 'ASSIST', 'replayed answer', { source: 'claude-jsonl', jsonl_record_uuid: 'same-answer' }),
     event(2, 'ASSIST', 'replayed   answer', { source: 'claude-jsonl', jsonl_record_uuid: 'same-answer' }),
-    event(3, 'USER', 'progressive question with enough initial text to qualify for coalescing'),
-    event(4, 'USER', 'progressive question with enough initial text to qualify for coalescing and the complete suffix'),
+    event(3, 'USER', 'progressive question with enough initial text to qualify for coalescing', {
+      source: 'claude-jsonl',
+      jsonl_record_uuid: 'progressive-question',
+    }),
+    event(4, 'USER', 'progressive question with enough initial text to qualify for coalescing and the complete suffix', {
+      source: 'claude-jsonl',
+      jsonl_record_uuid: 'progressive-question',
+    }),
     event(5, 'TOOL_USE', 'hidden tool call'),
     event(6, 'SYSTEM', 'hidden system row'),
   ];

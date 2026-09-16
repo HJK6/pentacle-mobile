@@ -23,5 +23,8 @@
     "@types/node": "^22.15.29",
     "tsx": "^4.20.6",
     "typescript": "~5.9.2"
+  },
+  "dependencies": {
+    "@noble/hashes": "^2.2.0"
   }
 }

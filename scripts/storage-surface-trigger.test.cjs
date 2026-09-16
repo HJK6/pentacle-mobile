@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
 const surfaceTrigger = require('./storage-surface-trigger.cjs');
-const { createCaseCompletionTrigger, reportViewerResultCount } = surfaceTrigger;
+const { createCaseCompletionTrigger, reportViewerResultCount, resolveSimulatorSurfaceApp } = surfaceTrigger;
 
 function fixture(t) {
   const root = fs.realpathSync(fs.mkdtempSync('/tmp/storage-surface-trigger-'));
@@ -102,4 +102,53 @@ test('the host trigger reports reasoned inaction and preserves a failed launch f
   const quiet = createCaseCompletionTrigger({ evidenceRoot: root, requiredResults: 9, schedule: quietClock.schedule, cancel: quietClock.cancel, launch: () => assert.fail('must not launch') });
   quiet.stop();
   assert.equal(quiet.summary(), 'skipped reason=case-results-incomplete observed=0 required=9');
+});
+
+test('Simulator surface resolution distinguishes a present app from the exact Xcode 27 host absence', () => {
+  const present = resolveSimulatorSurfaceApp(() => ({ status: 0, stdout: '', stderr: '' }));
+  assert.deepEqual(present, { available: true });
+
+  const absent = resolveSimulatorSurfaceApp(() => ({
+    status: 1,
+    stdout: '',
+    stderr: "Unable to find application named 'Simulator'",
+  }));
+  assert.deepEqual(absent, {
+    available: false,
+    reason: 'HOST_NO_SIMULATOR_SURFACE_APP',
+    launch_services_error: "Unable to find application named 'Simulator'",
+  });
+  assert.throws(() => resolveSimulatorSurfaceApp(() => ({
+    status: 1,
+    stdout: '',
+    stderr: 'LaunchServices database temporarily unavailable',
+  })), /GATE_SIMULATOR_SURFACE_RESOLUTION/);
+});
+
+test('the host trigger records the exact supported keyboard host-skip without treating it as launch failure', (t) => {
+  const { root, runs } = fixture(t);
+  const clock = scheduler();
+  const observed = [];
+  const trigger = createCaseCompletionTrigger({
+    evidenceRoot: root,
+    requiredResults: 8,
+    schedule: clock.schedule,
+    cancel: clock.cancel,
+    onHostSkip: (skip) => observed.push(skip),
+    launch: () => {
+      const error = new Error("HOST_NO_SIMULATOR_SURFACE_APP:1:Unable to find application named 'Simulator'");
+      error.code = 'HOST_NO_SIMULATOR_SURFACE_APP';
+      error.launchServicesError = "Unable to find application named 'Simulator'";
+      throw error;
+    },
+  });
+  for (let index = 1; index <= 8; index += 1) fs.writeFileSync(path.join(runs, `case-${index}.json`), '{}\n');
+  clock.state.callback();
+  assert.deepEqual(trigger.hostSkip, {
+    reason: 'HOST_NO_SIMULATOR_SURFACE_APP',
+    launch_services_error: "Unable to find application named 'Simulator'",
+  });
+  assert.deepEqual(observed, [trigger.hostSkip]);
+  assert.equal(trigger.failure, null);
+  assert.equal(trigger.summary(), 'fired case_results=8 keyboard_case=skipped(HOST_NO_SIMULATOR_SURFACE_APP)');
 });

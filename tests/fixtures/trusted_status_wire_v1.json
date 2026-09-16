@@ -1,0 +1,116 @@
+{
+  "assertions": {
+    "before_is_untrusted": true,
+    "copied_marker_is_untrusted": true,
+    "corrected_is_trusted": true,
+    "explicit_user_is_untrusted": true,
+    "same_body_before_and_corrected": true,
+    "same_event_id_before_and_corrected": true
+  },
+  "binding": {
+    "body_sha256": "38f915edff01cb1ceb7d54a55be25de2a05880eff7527f9c5a7baea586efa10c",
+    "kind": "status_card",
+    "notice_id": "nudge:status_card:b146081229fe45169d2288c6a807f9a6",
+    "pre_input_watermark": 2,
+    "proof_event_id": 3,
+    "recipient_stream_id": "hosta:status-wire-fixture",
+    "session_generation": "7add26fcf25b46ca9591f46769e085b3"
+  },
+  "frames": {
+    "before_proof": {
+      "event": {
+        "daemon_seq": 3,
+        "kind": "USER",
+        "provider": "codex",
+        "stream_id": "hosta:status-wire-fixture",
+        "text": "[pentacle-notice:nudge:status_card:b146081229fe45169d2288c6a807f9a6]\nPlease update your status card: agent-orch status --update \"<one-line progress note>\" [--step-done <N>]. Set --goal/--plan if unset; revise them if they have changed.",
+        "timestamp": "2026-08-14T02:45:00Z"
+      },
+      "type": "chat.event"
+    },
+    "corrected_same_id": {
+      "event": {
+        "daemon_seq": 3,
+        "kind": "USER",
+        "provider": "codex",
+        "raw": {
+          "daemon_notice": {
+            "body_sha256": "38f915edff01cb1ceb7d54a55be25de2a05880eff7527f9c5a7baea586efa10c",
+            "event_id": 3,
+            "kind": "status_card",
+            "notice_id": "nudge:status_card:b146081229fe45169d2288c6a807f9a6",
+            "schema_version": 1,
+            "session_generation": "7add26fcf25b46ca9591f46769e085b3",
+            "stream_id": "hosta:status-wire-fixture"
+          }
+        },
+        "stream_id": "hosta:status-wire-fixture",
+        "text": "[pentacle-notice:nudge:status_card:b146081229fe45169d2288c6a807f9a6]\nPlease update your status card: agent-orch status --update \"<one-line progress note>\" [--step-done <N>]. Set --goal/--plan if unset; revise them if they have changed.",
+        "timestamp": "2026-08-14T02:45:00Z"
+      },
+      "type": "chat.event"
+    },
+    "negative_explicit_user_identical_body": {
+      "event": {
+        "daemon_seq": 4,
+        "host": "hosta",
+        "kind": "USER",
+        "optimistic_id": "optimistic-fixture-user-copy",
+        "provider": "codex",
+        "raw": {
+          "optimistic_id": "optimistic-fixture-user-copy",
+          "source": "structured"
+        },
+        "session_name": "status-wire-fixture",
+        "stream_id": "hosta:status-wire-fixture",
+        "text": "[pentacle-notice:nudge:status_card:b146081229fe45169d2288c6a807f9a6]\nPlease update your status card: agent-orch status --update \"<one-line progress note>\" [--step-done <N>]. Set --goal/--plan if unset; revise them if they have changed.",
+        "timestamp": "2026-01-02T03:04:06Z"
+      },
+      "type": "chat.event"
+    },
+    "negative_receiptless_copied_marker": {
+      "event": {
+        "daemon_seq": 5,
+        "host": "hosta",
+        "kind": "USER",
+        "provider": "codex",
+        "raw": {
+          "source": "structured"
+        },
+        "session_name": "status-wire-fixture",
+        "stream_id": "hosta:status-wire-fixture",
+        "text": "[pentacle-notice:nudge:status_card:b146081229fe45169d2288c6a807f9a6]\nPlease update your status card: agent-orch status --update \"<one-line progress note>\" [--step-done <N>]. Set --goal/--plan if unset; revise them if they have changed.",
+        "timestamp": "2026-01-02T03:04:07Z"
+      },
+      "type": "chat.event"
+    },
+    "replay_after_correction": {
+      "events": [
+        {
+          "daemon_seq": 3,
+          "kind": "USER",
+          "provider": "codex",
+          "raw": {
+            "daemon_notice": {
+              "body_sha256": "38f915edff01cb1ceb7d54a55be25de2a05880eff7527f9c5a7baea586efa10c",
+              "event_id": 3,
+              "kind": "status_card",
+              "notice_id": "nudge:status_card:b146081229fe45169d2288c6a807f9a6",
+              "schema_version": 1,
+              "session_generation": "7add26fcf25b46ca9591f46769e085b3",
+              "stream_id": "hosta:status-wire-fixture"
+            }
+          },
+          "stream_id": "hosta:status-wire-fixture",
+          "text": "[pentacle-notice:nudge:status_card:b146081229fe45169d2288c6a807f9a6]\nPlease update your status card: agent-orch status --update \"<one-line progress note>\" [--step-done <N>]. Set --goal/--plan if unset; revise them if they have changed.",
+          "timestamp": "2026-08-14T02:45:00Z"
+        }
+      ],
+      "stream_id": "hosta:status-wire-fixture",
+      "type": "request_stream_events.ok"
+    }
+  },
+  "producer": "production NudgeJob.run_pass + OutboundNoticeQueue + Comms + Store + on_delivered broadcast",
+  "schema": "trusted-status-wire-evidence-v1",
+  "stream_id": "hosta:status-wire-fixture"
+}

@@ -366,10 +366,12 @@ test('coalesceInterpretedEvents keeps the fullest progressive update', () => {
   const first = interpretPentacleEvent(event({
     daemon_seq: 10,
     text: 'Interpreting this as the state of the 0DTE bot. Current state: stopped.',
+    jsonl_record_uuid: 'progressive-bot-state',
   }));
   const second = interpretPentacleEvent(event({
     daemon_seq: 11,
     text: 'Interpreting this as the state of the 0DTE bot. Current state: stopped. Latest trading-day state was data-starved.',
+    jsonl_record_uuid: 'progressive-bot-state',
   }));
   const result = coalesceInterpretedEvents([first, second]);
   expect(result.length).toBe(1);

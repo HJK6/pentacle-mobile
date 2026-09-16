@@ -165,6 +165,23 @@ test('runs GUI-owning comments after every headless runtime sentinel', () => {
   assert.equal(plan.slice(0, -1).some((entry) => entry.scenario === 'report_viewer_comments_keyboard'), false);
 });
 
+test('the exact host surface absence marker is accepted while malformed or unrelated markers fail closed', (t) => {
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'pentacle-host-surface-skip-')));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const marker = path.join(root, 'host-simulator-surface-skip.json');
+  const { readHostSimulatorSurfaceSkip } = require('./report-viewer-sim-e2e.cjs');
+  assert.equal(readHostSimulatorSurfaceSkip({ PENTACLE_DIAGNOSTIC_SURFACE_TRIGGER_DIR: root }), null);
+  fs.writeFileSync(marker, `${JSON.stringify({ schema: 1, reason: 'HOST_NO_SIMULATOR_SURFACE_APP', launch_services_error: "Unable to find application named 'Simulator'" })}\n`);
+  assert.deepEqual(readHostSimulatorSurfaceSkip({ PENTACLE_DIAGNOSTIC_SURFACE_TRIGGER_DIR: root }), {
+    reason: 'HOST_NO_SIMULATOR_SURFACE_APP',
+    launch_services_error: "Unable to find application named 'Simulator'",
+  });
+  fs.writeFileSync(marker, '{"schema":1,"reason":"OTHER","launch_services_error":"missing"}\n');
+  assert.throws(() => readHostSimulatorSurfaceSkip({ PENTACLE_DIAGNOSTIC_SURFACE_TRIGGER_DIR: root }), /HOST_SURFACE_SKIP_INVALID/);
+  fs.writeFileSync(marker, '{"schema":1,"reason":"HOST_NO_SIMULATOR_SURFACE_APP","launch_services_error":"unrelated LaunchServices failure"}\n');
+  assert.throws(() => readHostSimulatorSurfaceSkip({ PENTACLE_DIAGNOSTIC_SURFACE_TRIGGER_DIR: root }), /HOST_SURFACE_SKIP_INVALID/);
+});
+
 test('failed case evidence is recorded before the caller aborts', () => {
   const manifest = { cases: [] };
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'pentacle-failed-case-'));
