@@ -1164,6 +1164,7 @@ function replayIdentityTokens(event: PentacleEvent): string[] {
   if (!scope) return [];
   const tokens = new Set<string>();
   for (const value of [
+    event.message_id,
     event.optimistic_id,
     event.jsonl_record_uuid,
     event.raw?.jsonl_record_uuid,
@@ -1183,6 +1184,17 @@ function replayIdentityTokens(event: PentacleEvent): string[] {
 
 function hasSharedReplayIdentity(left: PentacleEvent, right: PentacleEvent) {
   if (!hasSameReplayIdentityScope(left, right)) return false;
+  const leftMessageId = String(left.message_id || '').trim();
+  const rightMessageId = String(right.message_id || '').trim();
+  // Composite publication IDs are authoritative. A daemon sequence can be
+  // reused by a publication batch, so it must never merge two known message
+  // identities (or let a known identity merge with a contradictory lane).
+  if (leftMessageId && rightMessageId && leftMessageId !== rightMessageId) return false;
+  const leftLaneId = String(left.lane_id || '').trim();
+  const rightLaneId = String(right.lane_id || '').trim();
+  if (leftMessageId && rightMessageId && leftLaneId && rightLaneId && leftLaneId !== rightLaneId) {
+    return false;
+  }
   const leftOptimisticId = String(left.optimistic_id || '').trim();
   const rightOptimisticId = String(right.optimistic_id || '').trim();
   if (leftOptimisticId && rightOptimisticId && leftOptimisticId !== rightOptimisticId) {

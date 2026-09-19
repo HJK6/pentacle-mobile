@@ -136,6 +136,29 @@ describe('subscription scope narrowing — Q3 rendered surfaces stay correct', (
     const rows = selectVisibleChatList(state).map((r) => r.streamId);
     expect(rows).toEqual(['hostc:codex:v1', 'hostc:codex:v2']);
   });
+
+  test('explicit composite visibility is rendered while internal backend rows stay excluded', () => {
+    const state = baseState({
+      sessions: [
+        session('alpha:bart', 'Assistant', 'visible', {
+          provider: 'composite',
+          session_kind: 'assistant_composite',
+          capabilities: { pane: false, terminal: false, assistant_composite_v1: true, reply_metadata_v1: true },
+        }),
+        session('alpha:backend', 'Assistant backend', 'internal', {
+          provider: 'composite',
+          session_kind: 'assistant_backend',
+        }),
+      ],
+    });
+    const rows = selectSmartChatList(state);
+    expect(rows.map((row) => row.streamId)).toEqual(['alpha:bart']);
+    expect(rows[0]).toMatchObject({
+      sessionKind: 'assistant_composite',
+      isCompositeChat: true,
+      provider: 'COMPOSITE',
+    });
+  });
 });
 
 describe('subscription scope narrowing — Nexus AC-A: answerable card with no session row', () => {

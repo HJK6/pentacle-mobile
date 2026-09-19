@@ -55,6 +55,7 @@ import {
   clearPentacleTurn,
   initialPentacleStreamState,
   optimisticMatchesServerUser,
+  parseNotificationAnswerNotice,
   serverEventTime,
   OPTIMISTIC_INVENTORY_GRACE_MS,
   OPTIMISTIC_RECONCILE_WINDOW_MS,
@@ -64,6 +65,7 @@ import {
   markOptimisticFailedByRequestId,
   retryOptimisticSend as reduceRetryOptimisticSend,
   markOptimisticIndeterminateByRequestId,
+  recordOptimisticSendAcceptanceByRequestId,
   markOptimisticReturnedToPromptByOptimisticId,
   onReconnect,
   reconcileOptimisticSendWithServerEvent,
@@ -71,6 +73,7 @@ import {
   isReturnedToPromptUserEvent,
   pruneOptimisticSend,
   selectSessionDetail,
+  isPentacleAssistantCompositeSession,
   getSessionSendingState,
   sendOptimisticMessage as reduceSendOptimisticMessage,
   enqueueOptimisticMessage as reduceEnqueueOptimisticMessage,
@@ -102,6 +105,7 @@ import type {
   EventBucketRequestWindow,
   PentacleEventBucket,
   PentacleSafeSummaryPreview,
+  PentacleSendAcceptance,
 } from 'pentacle-chat-core';
 
 export type DismissQuestionResult = {
@@ -1692,12 +1696,16 @@ function findMatchingOptimisticId(event: PentacleEvent, baseState = state) {
     return null;
   }
   const eventText = String(event.text || '');
-  const isNotificationAnswer = /"type"\s*:\s*"notification\.answer"/.test(eventText);
-  const notificationId = isNotificationAnswer
-    ? eventText.match(/"notification_id"\s*:\s*"([^"]+)"/)?.[1]
-    : undefined;
+  // Reconcile against the CANONICAL daemon notice via the single shared parser
+  // (pentacle-chat-core), which handles the live key=value notice — the
+  // [pentacle-notice:notification-answer-<id>] marker + [notification.answer] body —
+  // as well as the legacy JSON envelope. The old JSON-only regex never matched the
+  // live notice, so the queued optimistic answer row stayed "sending" (this spec's H1).
+  const notificationId = parseNotificationAnswerNotice(eventText)?.notificationId || undefined;
+  // The live notice carries no question_id; a legacy JSON echo may. Extract it when
+  // present so a multi-question notification still matches its precise child.
   const questionId = notificationId
-    ? eventText.match(/"question_id"\s*:\s*"([^"]+)"/)?.[1]
+    ? (eventText.match(/"question_id"\s*:\s*"([^"]+)"/)?.[1] || undefined)
     : undefined;
   if (notificationId) {
     for (const [optimisticId, meta] of optimisticQuestionAnswers) {
@@ -1841,7 +1849,17 @@ function reconcileAcceptedUserEchoes(
         next = markOptimisticReturnedToPromptByOptimisticId(next, optimisticId, Date.now());
         continue;
       }
-      const confirmation = optimisticIds.length > 1
+      // A durable question-answer row's own text is the formatted JSON protocol
+      // (buildDurableQuestionAnswerText); the daemon echo is the raw key=value notice
+      // ([pentacle-notice:...] + [notification.answer]). Preserve the optimistic JSON
+      // text on reconcile so the surviving row still renders as the "Operator answered"
+      // card via the interpreter, instead of leaking the raw transport text into the
+      // transcript (AC2). Daemon identity (seq/stamp) is preserved via {...event}.
+      // (QA cycle-2 AC2 finding on origin/main, where notice DISPLAY is otherwise
+      // governed by the trusted-origin provenance feature.)
+      const preserveOptimisticText = optimisticIds.length > 1
+        || optimisticQuestionAnswers.has(optimisticId);
+      const confirmation = preserveOptimisticText
         ? { ...event, text: optimistic.text }
         : event;
       next = reconcileOptimisticSendWithServerEvent(next, optimisticId, confirmation);
@@ -3276,6 +3294,32 @@ function sendRejectionDetails(message: Record<string, unknown>) {
   return { errorCode, errorMessage };
 }
 
+function sendAcceptanceFromFrame(frame: Record<string, unknown>): PentacleSendAcceptance {
+  const nested = frame.acceptance && typeof frame.acceptance === 'object' && !Array.isArray(frame.acceptance)
+    ? frame.acceptance as Record<string, unknown>
+    : undefined;
+  const value = (key: string) => frame[key] ?? nested?.[key];
+  const acceptedSequence = value('accepted_sequence');
+  const queueSequence = value('queue_sequence');
+  return {
+    ...(typeof value('message_id') === 'string' && value('message_id')
+      ? { message_id: value('message_id') as string }
+      : {}),
+    ...(typeof value('routing_state') === 'string'
+      ? { routing_state: value('routing_state') as string }
+      : {}),
+    ...(typeof acceptedSequence === 'number' && Number.isFinite(acceptedSequence)
+      ? { accepted_sequence: acceptedSequence }
+      : {}),
+    ...(typeof queueSequence === 'number' && Number.isFinite(queueSequence)
+      ? { queue_sequence: queueSequence }
+      : {}),
+    ...(typeof value('action_committed') === 'boolean'
+      ? { action_committed: value('action_committed') as boolean }
+      : {}),
+  };
+}
+
 function handleExplicitSendRejection(
   requestIdValue: string,
   responseClass: SendResponseClass,
@@ -3843,6 +3887,7 @@ function handleMessageInner(raw: string) {
   if (message.type === 'send.result' && typeof message.request_id === 'string') {
     const pending = pendingRequests.get(message.request_id);
     const receiptState = String(message.state || '');
+    const acceptance = sendAcceptanceFromFrame(message);
     if (message.delivery === 'landed' || receiptState === 'landed') {
       if (pending) {
         const optimisticId = state.optimisticByRequestId?.[message.request_id];
@@ -3854,7 +3899,12 @@ function handleMessageInner(raw: string) {
             ...(responseReason ? { response_reason: responseReason } : {}),
           });
         }
-        setState(markOptimisticAckedByRequestId(state, message.request_id, Date.now()));
+        const acceptedState = recordOptimisticSendAcceptanceByRequestId(
+          state,
+          message.request_id,
+          acceptance,
+        );
+        setState(markOptimisticAckedByRequestId(acceptedState, message.request_id, Date.now()));
         if (optimisticId && optimistic && optimistic.status !== 'acked') {
           logOptimisticReconciled(optimisticId, undefined, optimistic.created_at, optimistic.stream_id);
         }
@@ -3863,7 +3913,12 @@ function handleMessageInner(raw: string) {
         settled?.resolve(true);
       }
     } else if (message.delivery === 'proof_unavailable' || receiptState === 'accepted') {
-      setState(markOptimisticIndeterminateByRequestId(state, message.request_id, Date.now()));
+      const acceptedState = recordOptimisticSendAcceptanceByRequestId(
+        state,
+        message.request_id,
+        acceptance,
+      );
+      setState(markOptimisticIndeterminateByRequestId(acceptedState, message.request_id, Date.now()));
       const settled = settlePendingRequest(message.request_id);
       settled?.resolve(true);
       queueSendReceiptQuery(message.request_id);
@@ -3923,9 +3978,14 @@ function handleMessageInner(raw: string) {
     const pending = pendingRequests.get(message.request_id);
       if (pending) {
         if (message.type === 'send.ok') {
-          const optimisticId = state.optimisticByRequestId?.[message.request_id];
-          const optimistic = optimisticId ? state.optimisticSends?.[optimisticId] : undefined;
-          setState(markOptimisticAckedByRequestId(state, message.request_id, Date.now()));
+          const acceptedState = recordOptimisticSendAcceptanceByRequestId(
+            state,
+            message.request_id,
+            sendAcceptanceFromFrame(message),
+          );
+          const optimisticId = acceptedState.optimisticByRequestId?.[message.request_id];
+          const optimistic = optimisticId ? acceptedState.optimisticSends?.[optimisticId] : undefined;
+          setState(markOptimisticAckedByRequestId(acceptedState, message.request_id, Date.now()));
           if (optimisticId && optimistic && optimistic.status !== 'acked') {
             logOptimisticReconciled(optimisticId, undefined, optimistic.created_at, optimistic.stream_id);
           }
@@ -4316,6 +4376,9 @@ function connect() {
       type: 'hello',
       client: 'pentacle-mobile',
       ...authentication,
+      capabilities: {
+        assistant_composite_v1: true,
+      },
       // Narrowed fleet scope: the app renders only default-visible sessions and
       // filters hidden/nested/subagent seats client-side, so include_subagents:false
       // lets the daemon drop those seats' inventory/working.state/chat.event/
@@ -4750,10 +4813,12 @@ function applyDurableSendReceipt(
   if (!optimisticId || !send || send.stream_id !== toStreamId) return false;
 
   const receiptState = String(receipt.state || receipt.receipt_state || '');
+  const acceptance = sendAcceptanceFromFrame(receipt);
   if (receiptState === 'landed') {
+    const acceptedState = recordOptimisticSendAcceptanceByRequestId(state, requestId, acceptance);
     setState(event
-      ? reconcileOptimisticSendWithServerEvent(state, optimisticId, event)
-      : markOptimisticAckedByRequestId(state, requestId, Date.now()));
+      ? reconcileOptimisticSendWithServerEvent(acceptedState, optimisticId, event)
+      : markOptimisticAckedByRequestId(acceptedState, requestId, Date.now()));
     if (send.status !== 'acked') {
       logOptimisticReconciled(optimisticId, event, send.created_at, send.stream_id);
     }
@@ -4762,8 +4827,9 @@ function applyDurableSendReceipt(
     return true;
   }
   if (receiptState === 'not_landed') {
+    const acceptedState = recordOptimisticSendAcceptanceByRequestId(state, requestId, acceptance);
     setState(markOptimisticFailedByRequestId(
-      state,
+      acceptedState,
       requestId,
       String(receipt.reason || receipt.delivery || 'not_landed'),
       Date.now(),
@@ -4771,7 +4837,8 @@ function applyDurableSendReceipt(
     return true;
   }
   if (receiptState === 'accepted') {
-    setState(markOptimisticIndeterminateByRequestId(state, requestId, Date.now()));
+    const acceptedState = recordOptimisticSendAcceptanceByRequestId(state, requestId, acceptance);
+    setState(markOptimisticIndeterminateByRequestId(acceptedState, requestId, Date.now()));
     return true;
   }
   return false;
@@ -4943,6 +5010,11 @@ export async function requestStreamEvents(
   return promise;
 }
 
+type OptimisticReplyMetadata = {
+  replyToMessageId?: string;
+  replyToQuestionId?: string;
+};
+
 export function appendOptimisticUserMessage(
   streamId: string,
   text: string,
@@ -4950,6 +5022,7 @@ export function appendOptimisticUserMessage(
   // image, so it must still produce an optimistic row. Caller passes true when
   // attachments accompany the send to bypass the empty-text guard.
   attachmentsOrHasAttachments: ChatAttachment[] | boolean = false,
+  replyMetadata?: OptimisticReplyMetadata,
 ) {
   const attachments = Array.isArray(attachmentsOrHasAttachments) ? attachmentsOrHasAttachments : undefined;
   const hasAttachments = Array.isArray(attachmentsOrHasAttachments)
@@ -4974,6 +5047,8 @@ export function appendOptimisticUserMessage(
     windowStartedAt: state.connected ? now : null,
     socketGeneration: currentSocketGeneration,
     ...(attachments?.length ? { attachments } : {}),
+    ...(replyMetadata?.replyToMessageId ? { replyToMessageId: replyMetadata.replyToMessageId } : {}),
+    ...(replyMetadata?.replyToQuestionId ? { replyToQuestionId: replyMetadata.replyToQuestionId } : {}),
   }));
   return optimistic_id;
 }
@@ -4984,7 +5059,12 @@ export function beginOptimisticQuestionAnswer(args: {
   notificationId?: string;
   questionId?: string;
 }) {
-  const optimisticId = appendOptimisticUserMessage(args.streamId, args.text);
+  const optimisticId = appendOptimisticUserMessage(
+    args.streamId,
+    args.text,
+    false,
+    args.questionId ? { replyToQuestionId: args.questionId } : undefined,
+  );
   if (!optimisticId) return '';
   optimisticQuestionAnswers.set(optimisticId, {
     ...(args.notificationId ? { notificationId: args.notificationId } : {}),
@@ -5098,7 +5178,12 @@ export function discardOptimisticQuestionAnswer(optimisticId: string) {
 // Rejected (no-op + warn telemetry) if called while a turn is in flight.
 // Defense in depth: the screen also disables the send button on non-idle phase
 // per Stage 4. Returns the optimistic_id on success, '' on reject.
-export function sendTurn(streamId: string, text: string, attachments?: ChatAttachment[]) {
+export function sendTurn(
+  streamId: string,
+  text: string,
+  attachments?: ChatAttachment[],
+  replyMetadata?: OptimisticReplyMetadata,
+) {
   const trimmed = String(text || '').trim();
   const hasAttachments = (attachments?.length ?? 0) > 0;
   if (!streamId || (!trimmed && !hasAttachments)) return '';
@@ -5112,7 +5197,7 @@ export function sendTurn(streamId: string, text: string, attachments?: ChatAttac
     return '';
   }
 
-  const optimistic_id = appendOptimisticUserMessage(streamId, trimmed, attachments);
+  const optimistic_id = appendOptimisticUserMessage(streamId, trimmed, attachments, replyMetadata);
   if (!optimistic_id) return '';
   return optimistic_id;
 }
@@ -5123,7 +5208,12 @@ export function sendTurn(streamId: string, text: string, attachments?: ChatAttac
 // the screen dispatches that exact optimistic_id after payload readiness so the
 // daemon/provider CLI owns native FIFO queueing. Returns the optimistic_id, or ''
 // if nothing to enqueue.
-export function enqueueTurn(streamId: string, text: string, attachments?: ChatAttachment[]) {
+export function enqueueTurn(
+  streamId: string,
+  text: string,
+  attachments?: ChatAttachment[],
+  replyMetadata?: OptimisticReplyMetadata,
+) {
   const trimmed = String(text || '').trim();
   const hasAttachments = (attachments?.length ?? 0) > 0;
   if (!streamId || (!trimmed && !hasAttachments)) return '';
@@ -5143,6 +5233,8 @@ export function enqueueTurn(streamId: string, text: string, attachments?: ChatAt
     createdAt: now,
     queuedAt: now,
     ...(attachments?.length ? { attachments } : {}),
+    ...(replyMetadata?.replyToMessageId ? { replyToMessageId: replyMetadata.replyToMessageId } : {}),
+    ...(replyMetadata?.replyToQuestionId ? { replyToQuestionId: replyMetadata.replyToQuestionId } : {}),
   }));
   return optimistic_id;
 }
@@ -5151,6 +5243,44 @@ export function enqueueTurn(streamId: string, text: string, attachments?: ChatAt
 // text-match like sendPentacleMessage, because several queued sends may share the
 // same text and the text-match would target the wrong row. Reuses the queued
 // send's request_id so the daemon ack reconciles it.
+function sendPayloadForSession(
+  session: PentacleSessionSummary,
+  fields: {
+    text: string;
+    optimisticId?: string;
+    attachments?: ChatAttachment[];
+    replyToMessageId?: string;
+    replyToQuestionId?: string;
+  },
+): Record<string, unknown> {
+  const reply = {
+    ...(fields.replyToMessageId ? { reply_to_message_id: fields.replyToMessageId } : {}),
+    ...(fields.replyToQuestionId ? { reply_to_question_id: fields.replyToQuestionId } : {}),
+  };
+  if (isPentacleAssistantCompositeSession(session)) {
+    // The accepted composite wire uses the immutable logical input id as
+    // msg_id. request_id is transport-attempt identity and may rotate on
+    // retry; it is never used as the composite message identity.
+    return {
+      type: 'send',
+      msg_id: fields.optimisticId,
+      stream_id: session.stream_id,
+      message: fields.text,
+      ...(fields.attachments?.length ? { attachments: fields.attachments } : {}),
+      ...reply,
+    };
+  }
+  return {
+    type: 'send',
+    host: session.host,
+    session_name: session.session_name,
+    text: fields.text,
+    ...(fields.attachments?.length ? { attachments: fields.attachments } : {}),
+    optimistic_id: fields.optimisticId,
+    ...reply,
+  };
+}
+
 function dispatchHeldSend(
   optimisticId: string,
   session: PentacleSessionSummary,
@@ -5171,14 +5301,13 @@ function dispatchHeldSend(
   }
   queuedOptimisticDispatchRequests.add(optimisticId);
   return sendCommand<boolean>(
-    {
-      type: 'send',
-      host: session.host,
-      session_name: session.session_name,
+    sendPayloadForSession(session, {
       text: optimistic.text,
-      ...(attachments?.length ? { attachments } : {}),
-      optimistic_id: optimisticId,
-    },
+      optimisticId,
+      attachments: attachments ?? optimistic.attachments,
+      replyToMessageId: optimistic.reply_to_message_id,
+      replyToQuestionId: optimistic.reply_to_question_id,
+    }),
     'send',
     {
       requestId: optimistic.request_id,
@@ -5416,40 +5545,110 @@ export async function sendPentacleMessage(args: {
   sessionName: string;
   text: string;
   optimisticId?: string;
+  replyToMessageId?: string;
+  replyToQuestionId?: string;
   // A1 (photo/camera send): uploaded blob refs (+ metadata), FIFO. Only the
   // opaque `key`s travel on the send payload; image bytes already went phone→daemon
   // through the blob RPC, and `localPath` is daemon-side only.
   attachments?: ChatAttachment[];
 }) {
-  const streamId = state.sessions.find((session) => (
-    session.host === args.host && session.session_name === args.sessionName
-  ))?.stream_id;
+  const session = state.sessions.find((candidate) => (
+    candidate.host === args.host && candidate.session_name === args.sessionName
+  ));
+  const streamId = session?.stream_id;
   const trimmed = String(args.text || '').trim();
   const explicitOptimistic = args.optimisticId ? state.optimisticSends?.[args.optimisticId] : undefined;
-  const optimistic = explicitOptimistic?.stream_id === streamId
+  // QA-F1: a queued durable question-answer row must never be re-driven as a chat
+  // `send` by IMPLICIT same-text reuse — an operator who later types text identical
+  // to the queued answer must not hijack that row (which would paste the answer into
+  // the pane). The explicit-identity branch is untouched: the in-pane question answer
+  // legitimately dispatches its own row when the caller passes its optimistic_id.
+  let optimistic = explicitOptimistic?.stream_id === streamId
     ? explicitOptimistic
     : Object.values(state.optimisticSends ?? {}).find((send) => (
-      (send.status === 'queued' || optimisticQuestionAnswers.has(send.optimistic_id)) &&
+      send.status === 'queued' &&
+      !optimisticQuestionAnswers.has(send.optimistic_id) &&
       send.stream_id === streamId &&
       send.text === trimmed
     ));
+
+  // Composite input always has a stable local identity. Normal UI sends have
+  // already inserted their optimistic row through sendTurn; this fallback also
+  // keeps direct composite callers from deriving msg_id from a retryable
+  // request_id.
+  if (session && isPentacleAssistantCompositeSession(session) && !optimistic && !args.optimisticId) {
+    const createdOptimisticId = appendOptimisticUserMessage(
+      session.stream_id,
+      args.text,
+      args.attachments ?? false,
+      {
+        replyToMessageId: args.replyToMessageId,
+        replyToQuestionId: args.replyToQuestionId,
+      },
+    );
+    if (createdOptimisticId) {
+      optimistic = state.optimisticSends?.[createdOptimisticId];
+    }
+  }
+  if (
+    optimistic &&
+    (args.replyToMessageId || args.replyToQuestionId) &&
+    (optimistic.reply_to_message_id !== args.replyToMessageId ||
+      optimistic.reply_to_question_id !== args.replyToQuestionId)
+  ) {
+    const rebound = {
+      ...optimistic,
+      ...(args.replyToMessageId ? { reply_to_message_id: args.replyToMessageId } : {}),
+      ...(args.replyToQuestionId ? { reply_to_question_id: args.replyToQuestionId } : {}),
+    };
+    const priorEvent = peekEventsForStream(state, optimistic.stream_id).find((event) => (
+      event.optimistic_id === optimistic!.optimistic_id && event.client_origin === true
+    ));
+    const next = {
+      ...state,
+      optimisticSends: {
+        ...(state.optimisticSends ?? {}),
+        [optimistic.optimistic_id]: rebound,
+      },
+    };
+    setState(priorEvent
+      ? mutatePentacleEventBuckets(next, {
+        type: 'optimistic-replace',
+        streamId: optimistic.stream_id,
+        optimisticId: optimistic.optimistic_id,
+        event: {
+          ...priorEvent,
+          ...(args.replyToMessageId ? { reply_to_message_id: args.replyToMessageId } : {}),
+          ...(args.replyToQuestionId ? { reply_to_question_id: args.replyToQuestionId } : {}),
+        },
+      })
+      : next);
+    optimistic = state.optimisticSends?.[optimistic.optimistic_id];
+  }
+  if (session && isPentacleAssistantCompositeSession(session) && !optimistic) {
+    return Promise.reject(new Error('Composite send is missing its stable input id'));
+  }
   if (optimistic) queuedOptimisticDispatchRequests.add(optimistic.optimistic_id);
-  return sendCommand<boolean>(
-    {
+  const payload = session
+    ? sendPayloadForSession(session, {
+      text: args.text,
+      optimisticId: optimistic?.optimistic_id,
+      attachments: args.attachments ?? optimistic?.attachments,
+      replyToMessageId: optimistic?.reply_to_message_id ?? args.replyToMessageId,
+      replyToQuestionId: optimistic?.reply_to_question_id ?? args.replyToQuestionId,
+    })
+    : {
       type: 'send',
       host: args.host,
       session_name: args.sessionName,
       text: args.text,
-      // FIFO order preserved — mirrors the daemon's agent-inject order.
       ...(args.attachments?.length ? { attachments: args.attachments } : {}),
-      // Carry the optimistic_id on the wire so the daemon can stamp it (plus
-      // correlatedDaemonSeq) onto the server USER echo. Without it the daemon
-      // has nothing to echo and reconcile falls back to fragile exact-text
-      // matching, which a tmux multi-line paste round-trip breaks → the
-      // optimistic send never reconciles (reconcile_timeout). Identity-driven,
-      // not telemetry: this is the real send wire, end to end.
       optimistic_id: optimistic?.optimistic_id,
-    },
+      ...(args.replyToMessageId ? { reply_to_message_id: args.replyToMessageId } : {}),
+      ...(args.replyToQuestionId ? { reply_to_question_id: args.replyToQuestionId } : {}),
+    };
+  return sendCommand<boolean>(
+    payload,
     'send',
     {
       requestId: optimistic?.request_id,

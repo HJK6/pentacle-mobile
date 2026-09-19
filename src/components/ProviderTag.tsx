@@ -11,11 +11,12 @@ type Props = {
 export default function ProviderTag({ provider, color = Tokens.palette.green }: Props) {
   const normalized = String(provider).toLowerCase();
   const isClaude = normalized === 'claude';
+  const isComposite = normalized === 'composite';
 
   return (
     <View style={styles.root}>
-      {isClaude ? <Spark size={12} color={color} /> : <Brackets size={12} color={color} />}
-      <Text style={[styles.label, { color }]}>{isClaude ? 'Claude' : 'Codex'}</Text>
+      {isClaude || isComposite ? <Spark size={12} color={color} /> : <Brackets size={12} color={color} />}
+      <Text style={[styles.label, { color }]}>{isClaude ? 'Claude' : isComposite ? 'Assistant' : 'Codex'}</Text>
     </View>
   );
 }

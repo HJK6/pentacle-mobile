@@ -7,6 +7,7 @@ export * from './types/pentacle';
 export * from './services/pentacleEventUtils';
 export * from './services/pentacleEventBuckets';
 export * from './services/pentacleEventInterpreter';
+export * from './services/notificationAnswerNotice';
 export * from './services/pentacleHosts';
 export * from './services/pentacleEventFlowDiagnostics';
 export * from './services/optimisticMatch';

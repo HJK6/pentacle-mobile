@@ -141,6 +141,7 @@ import { MOBILE_TELEMETRY_EVENTS } from '../../../src/services/mobileTelemetryEv
 import { logTelemetry } from 'pentacle-chat-core';
 import { TELEMETRY_EVENTS } from 'pentacle-chat-core';
 import { buildPentacleQuestionAnswerText, parsePentacleQuestionAnswerText } from 'pentacle-chat-core';
+import { parseNotificationAnswerNotice } from 'pentacle-chat-core';
 import type { PentacleEvent, PentacleNotification, PentacleQuestion, PentacleQuestionAnswerDisplay, PentacleQuestionAnswerValue, PentacleSessionSummary, WorkingStateData, WorkingTaskData } from 'pentacle-chat-core';
 
 type SessionQuestionSource =
@@ -696,7 +697,7 @@ export function fullyCoveredAnswerNotificationIds(
   return covered;
 }
 
-// spec_pentacle_mobile__durable_question_optimistic_row_on_resolve_failure:
+// public behavior contract:
 // an OFFLINE durable resolve settles an optimistic in-chat answer bubble that is
 // queued for auto-replay. If that replay fails terminally (daemon 1012 / replay-
 // window expiry) the notification surfaces `client_resolution_error`, but the
@@ -735,30 +736,28 @@ export function suppressLocalQuestionAnswerEchoes<T extends Pick<PentacleTranscr
   ));
 }
 
-function parseNotificationAnswerTell(text: string) {
-  const lines = String(text || '').replace(/\r\n?/g, '\n').split('\n');
-  if (lines.shift()?.trim() !== '[notification.answer]') return null;
-  const fields = new Map<string, string>();
-  for (const line of lines) {
-    const separator = line.indexOf('=');
-    if (separator <= 0) continue;
-    fields.set(line.slice(0, separator).trim(), line.slice(separator + 1).trim());
-  }
-  const notificationId = fields.get('notification_id') || '';
-  if (!notificationId) return null;
-  return {
-    notificationId,
-    actionKind: fields.get('action_kind') || 'answered',
-    text: fields.get('text') || fields.get('custom_text') || '',
-    note: fields.get('note') || '',
-  };
-}
-
 export function formatNotificationAnswerTellItem(item: PentacleTranscriptItem): PentacleTranscriptItem {
   if (!item.isUser) return item;
-  const answer = parseNotificationAnswerTell(item.text);
-  if (!answer) return item;
-  const protocolText = buildDurableQuestionAnswerText(answer);
+  // Recognise the durable notification-answer notice via the SINGLE shared chat-core
+  // parser (parseNotificationAnswerNotice), which strips the leading
+  // [pentacle-notice:…]/[from …]/[tell:…] wrappers and parses both the live key=value
+  // body and the legacy JSON envelope. The former local parser required the FIRST line to
+  // be exactly '[notification.answer]', so the live stored notice — whose first line is the
+  // [pentacle-notice:notification-answer-<id>] marker — was never recognised: the row
+  // passed through as a raw user bubble and neither the detail suppression nor
+  // suppressLocalQuestionAnswerEchoes could fire (spec AC2 screen-assembly leak). Tagging
+  // eventCase='agent-question-answer' + notificationId from the notice bytes lets the
+  // correlation-based suppressions drop the echo once the notification is authoritatively
+  // projected; the surviving row's display is owned by the authoritative projection.
+  const notice = parseNotificationAnswerNotice(item.text);
+  if (!notice) return item;
+  const protocolText = buildDurableQuestionAnswerText({
+    notificationId: notice.notificationId,
+    actionKind: notice.actionKind,
+    ...(notice.text ? { text: notice.text } : {}),
+    ...(notice.selections?.length ? { selections: notice.selections } : {}),
+    ...(notice.note ? { note: notice.note } : {}),
+  });
   const interpreted = interpretPentacleEvent({
     daemon_seq: Number.NaN,
     host: '',
@@ -778,7 +777,7 @@ export function formatNotificationAnswerTellItem(item: PentacleTranscriptItem): 
     isUser: interpreted.tone === 'user',
     eventCase: interpreted.caseId,
     displayRule: interpreted.displayRule,
-    notificationId: answer.notificationId,
+    notificationId: notice.notificationId,
   };
 }
 
@@ -928,6 +927,74 @@ export function orderSessionTranscriptRows(
   }
   for (const projection of answerProjectionItems) append(projection);
   return ordered.reverse();
+}
+
+// Pure session-transcript assembly, extracted verbatim from the PentacleSessionScreen
+// `transcriptData` memo so the screen and its tests exercise the SAME code (the memo calls this
+// with its four inputs; tests import and call it directly). It has no behavior of its own beyond
+// the composed helpers above, and closes over nothing — the four inputs are the memo's only
+// dependencies. public behavior contract (AC2 screen
+// assembly), QA cycle-1 evidence-hole fix (Nexus ruling 2026-09-17 Option A).
+export function assembleSessionTranscriptRows(
+  authoritativeProjections: ReturnType<typeof resolvedDurableQuestionProjections>,
+  localProjections: Record<string, SessionQuestionAnswerProjection>,
+  detailItems: readonly PentacleTranscriptItem[],
+  eventTimestamps: ReadonlyMap<string, string>,
+): PentacleTranscriptItem[] {
+  const authoritativeItems = authoritativeProjections.map((projection) =>
+    sessionQuestionProjectionItem({ ...projection, pending: false }));
+  const authoritativeKeys = new Set(authoritativeProjections.map((projection) => projection.key));
+  // The daemon also echoes each answer back into the producer's stream as a tell, which the
+  // transcript projects as its own `agent-question-answer` row. That row and the authoritative
+  // projection are the SAME answer, so rendering both is the duplicate this lane exists to
+  // remove; prefer the authoritative one (built from the durable notification) and drop the echo.
+  //
+  // Suppress ONLY when every child of the notification is authoritatively projected. The echo
+  // carries no child identity, so under partial coverage — one child answered, another not, or
+  // a child dropped by resolvedDurableQuestionProjections' sparse-answer guard — dropping it
+  // could hide the only representation of an answer. Over-showing is recoverable; hiding is not.
+  const fullyCoveredNotificationIds = fullyCoveredAnswerNotificationIds(
+    authoritativeProjections,
+  );
+  const projectionTexts = new Set(Object.values(localProjections).map((projection) => projection.text));
+  const fullyCoveredLocalNotificationIds = fullyCoveredAnswerNotificationIds(
+    Object.values(localProjections),
+  );
+  const normalizedDetailItems = detailItems.map(formatNotificationAnswerTellItem);
+  // The projectionTexts guard drops ONLY the operator's OWN still-pending optimistic echo
+  // (item.isUser && item.pending) whose text matches a local projection — a narrow, same-device,
+  // pre-reconcile suppression of a row this client itself just queued. It is NOT the cross-answer
+  // dedup: the authoritative-vs-echo and local-durable dedups below correlate by notificationId +
+  // full coverage only, NEVER by text (see the same-text/different-ID screen negative). A non-
+  // pending row, or one carrying a different notification's identical text, is never dropped here.
+  const detailItemsWithoutLocalEchoes = suppressLocalQuestionAnswerEchoes(normalizedDetailItems.filter((item) => !(
+    item.isUser && item.pending && projectionTexts.has(item.text)
+  )), fullyCoveredLocalNotificationIds);
+  const retainedDetailItems = detailItemsWithoutLocalEchoes.filter((item) => !(
+    item.eventCase === 'agent-question-answer' &&
+    item.notificationId &&
+    fullyCoveredNotificationIds.has(item.notificationId)
+  ));
+  const userTexts = new Set(retainedDetailItems
+    .filter((item) => item.isUser)
+    .map((item) => item.text));
+  const optimisticItems = Object.values(localProjections)
+    .filter((projection) => !authoritativeKeys.has(projection.key))
+    // Drop a LOCAL durable projection whose notification is fully covered by an
+    // authoritative projection, even when its key differs from the authoritative one
+    // (e.g. built with a child index while the authoritative used the durable
+    // questionId, so the authoritativeKeys check above misses it). The authoritative
+    // projection owns display; this removes the duplicate "Operator answered" card that
+    // otherwise coexists on the real screen (spec AC2). Correlation is by notification
+    // identity + full coverage (the same guard as the detail-echo suppression), never text.
+    .filter((projection) => !(
+      projection.source === 'durable' &&
+      projection.notificationId &&
+      fullyCoveredNotificationIds.has(projection.notificationId)
+    ))
+    .filter((projection) => projection.source !== 'pane' || !userTexts.has(projection.text))
+    .map(sessionQuestionProjectionItem);
+  return orderSessionTranscriptRows(retainedDetailItems, [...authoritativeItems, ...optimisticItems], normalizedDetailItems, eventTimestamps);
 }
 
 export default function PentacleSessionScreen() {
@@ -1095,7 +1162,7 @@ export default function PentacleSessionScreen() {
   // — the env var is `undefined` and the conditional collapses, so the
   // prop passed to `ComposerBar` is `undefined` and `ComposerBar`'s
   // `useEffect` short-circuits.
-  // Spec: spec_pentacle_mobile_e2e_telemetry_flows_2026_05_13 Stage 2
+  // Spec: public behavior contract Stage 2
   // §"Compose-driving plumbing"
   const harnessSendHandlerRegistrar = useMemo<
     ((fn: ((request: HarnessSendRequest) => Promise<void>) | null) => void) | undefined
@@ -1600,7 +1667,7 @@ export default function PentacleSessionScreen() {
   // when a notification surfaces `client_resolution_error`, drop its stale
   // optimistic row so the transcript stops showing a phantom answer and the
   // question card can re-appear for a manual re-answer.
-  // (spec_pentacle_mobile__durable_question_optimistic_row_on_resolve_failure)
+  // (public behavior contract)
   useEffect(() => {
     const staleKeys = failedDurableAnswerProjectionKeys(questionAnswerProjections, questionNotifications);
     if (staleKeys.length === 0) return;
@@ -1891,44 +1958,15 @@ export default function PentacleSessionScreen() {
       setQuestionSubmitting(false);
     }
   }, [actions, activeQuestionRenderKey, session, streamId]);
-  const transcriptData = useMemo(() => {
-    const authoritativeItems = authoritativeQuestionAnswerProjections.map((projection) =>
-      sessionQuestionProjectionItem({ ...projection, pending: false }));
-    const authoritativeKeys = new Set(authoritativeQuestionAnswerProjections.map((projection) => projection.key));
-    // The daemon also echoes each answer back into the producer's stream as a tell, which the
-    // transcript projects as its own `agent-question-answer` row. That row and the authoritative
-    // projection are the SAME answer, so rendering both is the duplicate this lane exists to
-    // remove; prefer the authoritative one (built from the durable notification) and drop the echo.
-    //
-    // Suppress ONLY when every child of the notification is authoritatively projected. The echo
-    // carries no child identity, so under partial coverage — one child answered, another not, or
-    // a child dropped by resolvedDurableQuestionProjections' sparse-answer guard — dropping it
-    // could hide the only representation of an answer. Over-showing is recoverable; hiding is not.
-    const fullyCoveredNotificationIds = fullyCoveredAnswerNotificationIds(
+  const transcriptData = useMemo(
+    () => assembleSessionTranscriptRows(
       authoritativeQuestionAnswerProjections,
-    );
-    const projectionTexts = new Set(Object.values(questionAnswerProjections).map((projection) => projection.text));
-    const fullyCoveredLocalNotificationIds = fullyCoveredAnswerNotificationIds(
-      Object.values(questionAnswerProjections),
-    );
-    const normalizedDetailItems = (detail?.transcriptItems ?? []).map(formatNotificationAnswerTellItem);
-    const detailItemsWithoutLocalEchoes = suppressLocalQuestionAnswerEchoes(normalizedDetailItems.filter((item) => !(
-      item.isUser && item.pending && projectionTexts.has(item.text)
-    )), fullyCoveredLocalNotificationIds);
-    const detailItems = detailItemsWithoutLocalEchoes.filter((item) => !(
-      item.eventCase === 'agent-question-answer' &&
-      item.notificationId &&
-      fullyCoveredNotificationIds.has(item.notificationId)
-    ));
-    const userTexts = new Set(detailItems
-      .filter((item) => item.isUser)
-      .map((item) => item.text));
-    const optimisticItems = Object.values(questionAnswerProjections)
-      .filter((projection) => !authoritativeKeys.has(projection.key))
-      .filter((projection) => projection.source !== 'pane' || !userTexts.has(projection.text))
-      .map(sessionQuestionProjectionItem);
-    return orderSessionTranscriptRows(detailItems, [...authoritativeItems, ...optimisticItems], normalizedDetailItems, questionEventTimestamps);
-  }, [authoritativeQuestionAnswerProjections, detail?.transcriptItems, questionAnswerProjections, questionEventTimestamps]);
+      questionAnswerProjections,
+      detail?.transcriptItems ?? [],
+      questionEventTimestamps,
+    ),
+    [authoritativeQuestionAnswerProjections, detail?.transcriptItems, questionAnswerProjections, questionEventTimestamps],
+  );
   useEffect(() => {
     const correlationId = chatOpenCorrelationIdRef.current;
     const firstAuthoritative = transcriptData.find((item) => !String(item.id).startsWith('fallback:'));
@@ -3136,13 +3174,15 @@ export default function PentacleSessionScreen() {
   const currentTitle = title || session.session_name;
   const assistantRole = getAssistantRole();
   const assistantProtected = Boolean(assistantRole) && session.role === assistantRole;
+  const compositeChat = session.session_kind === 'assistant_composite';
+  const threadManagementProtected = assistantProtected || compositeChat;
   const pendingClose = (session as PentacleSessionSummary & { pending_close?: PendingSessionClose }).pending_close;
   const showDeleteActionError = (error: unknown) => {
     Alert.alert('Pentacle', error instanceof Error ? error.message : 'Delete action failed');
   };
   const handleDelete = () => {
     setMenuVisible(false);
-    if (assistantProtected) return;
+    if (threadManagementProtected) return;
     if (pendingClose) {
       const hostOffline = pendingClose.errorCode === 'host_offline';
       const exhausted = pendingClose.state === 'exhausted' || pendingClose.state === 'failed';
@@ -3204,12 +3244,12 @@ export default function PentacleSessionScreen() {
     ]);
   };
   const openRename = () => {
-    if (assistantProtected) return;
+    if (threadManagementProtected) return;
     setMenuVisible(false);
     setRenameVisible(true);
   };
   const submitRename = async (value: string) => {
-    if (assistantProtected) return;
+    if (threadManagementProtected) return;
     setRenameVisible(false);
     const displayName = value.trim();
     if (!displayName || displayName === currentTitle) return;
@@ -3295,8 +3335,8 @@ export default function PentacleSessionScreen() {
           setMenuVisible(false);
           setReportsVisible(true);
         }}
-          onRename={assistantProtected ? undefined : openRename}
-        onDelete={assistantProtected ? undefined : handleDelete}
+          onRename={threadManagementProtected ? undefined : openRename}
+          onDelete={threadManagementProtected ? undefined : handleDelete}
         onClose={() => setMenuVisible(false)}
       />
       <RenameChatModal

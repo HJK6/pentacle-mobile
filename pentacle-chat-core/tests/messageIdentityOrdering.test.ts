@@ -191,6 +191,36 @@ test('a progressive extension coalesces only when replay identity and scope are 
   assert.equal(result[0]?.text, rows[1]?.text);
 });
 
+test('composite message identity fences progressive coalescence across same and different lanes', () => {
+  const prefix = 'Done — the first composite publication completed its task';
+  for (const [firstLane, secondLane] of [['lane-a', 'lane-a'], ['lane-a', 'lane-b']] as const) {
+    const rows = [
+      interpreted({
+        daemon_seq: 35,
+        kind: 'ASSIST_TEXT',
+        text: prefix,
+        message_id: 'composite-message-a',
+        lane_id: firstLane,
+      }),
+      interpreted({
+        // The daemon sequence may be shared by a coalesced publication batch;
+        // message_id remains the authoritative composite publication identity.
+        daemon_seq: 35,
+        kind: 'ASSIST_TEXT',
+        text: `${prefix} with the second task.`,
+        message_id: 'composite-message-b',
+        lane_id: secondLane,
+      }),
+    ];
+
+    assert.equal(
+      coalesceInterpretedEvents(rows).length,
+      2,
+      `distinct composite message ids survive lanes ${firstLane}/${secondLane}`,
+    );
+  }
+});
+
 test('the same replay token cannot coalesce across stream, provider, or session scope', () => {
   const prefix = 'A scoped progressive assistant message longer than forty characters';
   const first = interpreted({ daemon_seq: 40, kind: 'ASSIST_TEXT', text: prefix, jsonl_record_uuid: 'reused-record' });

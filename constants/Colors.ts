@@ -48,7 +48,7 @@ export const FONT_FAMILIES = Fonts;
 
 export type MachineSigilKind = 'djinni' | 'sun' | 'mage' | 'flower';
 export type MachineName = 'hosta' | 'hostb' | 'hostc' | 'hostd';
-export type ProviderName = 'claude' | 'codex' | 'CLAUDE' | 'CODEX';
+export type ProviderName = 'claude' | 'codex' | 'composite' | 'CLAUDE' | 'CODEX' | 'COMPOSITE';
 export type WorkStatus = 'unresponsive' | 'working' | 'sending' | 'idle' | 'UNRESPONSIVE' | 'WORKING' | 'SENDING' | 'IDLE';
 export type Severity = 'info' | 'warning' | 'critical' | 'INFO' | 'WARNING' | 'CRITICAL';
 

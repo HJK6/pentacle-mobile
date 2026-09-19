@@ -22,6 +22,7 @@ import { TELEMETRY_EVENTS } from '../utils/telemetryEvents';
 import type {
   ChatAttachment,
   EndReason,
+  PentacleSendAcceptance,
   OptimisticSendState,
   PentacleEvent,
   PentacleHostStatus,
@@ -446,6 +447,14 @@ function sessionForStream(state: PentacleStreamState, streamId: string) {
   return state.sessions.find((item) => item.stream_id === streamId);
 }
 
+function assistantCompositeStreamIds(sessions: readonly PentacleSessionSummary[]) {
+  return new Set(
+    sessions
+      .filter((session) => session.session_kind === 'assistant_composite')
+      .map((session) => session.stream_id),
+  );
+}
+
 function optimisticEventFromSend(
   state: PentacleStreamState,
   send: OptimisticSendState,
@@ -467,6 +476,13 @@ function optimisticEventFromSend(
     created_at: send.created_at,
     ...(send.queued_at !== undefined ? { queued_at: send.queued_at } : {}),
     ...(send.attachments ? { attachments: send.attachments } : {}),
+    ...(send.reply_to_message_id ? { reply_to_message_id: send.reply_to_message_id } : {}),
+    ...(send.reply_to_question_id ? { reply_to_question_id: send.reply_to_question_id } : {}),
+    ...(send.message_id ? { message_id: send.message_id } : {}),
+    ...(send.routing_state ? { routing_state: send.routing_state } : {}),
+    ...(send.accepted_sequence !== undefined ? { accepted_sequence: send.accepted_sequence } : {}),
+    ...(send.queue_sequence !== undefined ? { queue_sequence: send.queue_sequence } : {}),
+    ...(send.action_committed !== undefined ? { action_committed: send.action_committed } : {}),
   };
 }
 
@@ -582,6 +598,13 @@ function synthesizedReturnedSendFromEvent(
     reconnect_count: 0,
     turn_queued: false,
     ...(event.attachments ? { attachments: event.attachments } : {}),
+    ...(event.reply_to_message_id ? { reply_to_message_id: event.reply_to_message_id } : {}),
+    ...(event.reply_to_question_id ? { reply_to_question_id: event.reply_to_question_id } : {}),
+    ...(event.message_id ? { message_id: event.message_id } : {}),
+    ...(event.routing_state ? { routing_state: event.routing_state } : {}),
+    ...(event.accepted_sequence != null ? { accepted_sequence: event.accepted_sequence } : {}),
+    ...(event.queue_sequence != null ? { queue_sequence: event.queue_sequence } : {}),
+    ...(event.action_committed != null ? { action_committed: event.action_committed } : {}),
   };
 }
 
@@ -649,6 +672,45 @@ function updateOptimisticSendByRequestId(
   return updateOptimisticSend(state, state.optimisticByRequestId?.[requestId], update);
 }
 
+/**
+ * Record additive metadata from the existing send acceptance/receipt path.
+ * `optimistic_id` remains the client input identity; request ids may rotate on
+ * reconnect/retry and are deliberately not changed here. The same metadata is
+ * copied onto the optimistic event so transcript Reply actions can use it
+ * before a durable USER echo arrives.
+ */
+export function recordOptimisticSendAcceptanceByRequestId(
+  state: PentacleStreamState,
+  requestId: string,
+  acceptance: PentacleSendAcceptance,
+): PentacleStreamState {
+  const optimisticId = state.optimisticByRequestId?.[requestId];
+  const current = optimisticId ? state.optimisticSends?.[optimisticId] : undefined;
+  if (!optimisticId || !current) return state;
+
+  const nextSend: OptimisticSendState = { ...current };
+  if (acceptance.message_id != null) nextSend.message_id = acceptance.message_id;
+  if (acceptance.routing_state != null) nextSend.routing_state = acceptance.routing_state;
+  if (acceptance.accepted_sequence != null) nextSend.accepted_sequence = acceptance.accepted_sequence;
+  if (acceptance.queue_sequence != null) nextSend.queue_sequence = acceptance.queue_sequence;
+  if (acceptance.action_committed != null) nextSend.action_committed = acceptance.action_committed;
+  const withSend = withOptimisticSend(state, nextSend);
+  const eventIndex = withSend.events.findIndex((event) => event.optimistic_id === optimisticId);
+  if (eventIndex < 0) return withSend;
+
+  const priorEvent = withSend.events[eventIndex];
+  const nextEvent: PentacleEvent = { ...priorEvent };
+  if (acceptance.message_id != null) nextEvent.message_id = acceptance.message_id;
+  if (acceptance.routing_state != null) nextEvent.routing_state = acceptance.routing_state;
+  if (acceptance.accepted_sequence != null) nextEvent.accepted_sequence = acceptance.accepted_sequence;
+  if (acceptance.queue_sequence != null) nextEvent.queue_sequence = acceptance.queue_sequence;
+  if (acceptance.action_committed != null) nextEvent.action_committed = acceptance.action_committed;
+  if (nextEvent === priorEvent) return withSend;
+  const events = withSend.events.slice();
+  events[eventIndex] = freezeEventInDev(nextEvent);
+  return replacePentacleEventProjection(withSend, events);
+}
+
 export function sendOptimisticMessage(
   state: PentacleStreamState,
   args: {
@@ -661,6 +723,8 @@ export function sendOptimisticMessage(
     windowStartedAt?: number | null;
     socketGeneration?: number;
     attachments?: ChatAttachment[];
+    replyToMessageId?: string;
+    replyToQuestionId?: string;
     beginTurn?: boolean;
   },
 ): PentacleStreamState {
@@ -676,6 +740,8 @@ export function sendOptimisticMessage(
     socket_generation: args.socketGeneration,
     reconnect_count: 0,
     ...(args.attachments ? { attachments: args.attachments } : {}),
+    ...(args.replyToMessageId ? { reply_to_message_id: args.replyToMessageId } : {}),
+    ...(args.replyToQuestionId ? { reply_to_question_id: args.replyToQuestionId } : {}),
   };
   const event = optimisticEventFromSend(state, send);
   const withSend = withOptimisticSend(state, send);
@@ -699,6 +765,8 @@ export function enqueueOptimisticMessage(
     createdAt: number;
     queuedAt: number;
     attachments?: ChatAttachment[];
+    replyToMessageId?: string;
+    replyToQuestionId?: string;
   },
 ): PentacleStreamState {
   return sendOptimisticMessage(state, {
@@ -711,6 +779,8 @@ export function enqueueOptimisticMessage(
     windowStartedAt: null,
     beginTurn: false,
     ...(args.attachments ? { attachments: args.attachments } : {}),
+    ...(args.replyToMessageId ? { replyToMessageId: args.replyToMessageId } : {}),
+    ...(args.replyToQuestionId ? { replyToQuestionId: args.replyToQuestionId } : {}),
   });
 }
 
@@ -949,12 +1019,13 @@ export function reconcileOptimisticSendWithServerEvent(
     return markOptimisticReturnedToPromptByOptimisticId(state, optimisticId, Date.now());
   }
   const echoed = markOptimisticEchoedByOptimisticId(state, optimisticId, Date.now());
+  const priorEvent = state.events.find((event) => event.optimistic_id === optimisticId);
   const correlatedEvent = reconciledOptimisticEvent(
     optimisticId,
     serverEvent,
     state.optimisticSends?.[optimisticId]?.attachments,
     state.optimisticSends?.[optimisticId]?.queued_at,
-    undefined,
+    priorEvent,
     state.optimisticSends?.[optimisticId]?.text,
   );
   const withServerEvent = applyPentacleEvent(echoed, correlatedEvent);
@@ -1316,6 +1387,36 @@ function reconciledOptimisticEvent(
     : serverEvent.raw;
   return freezeEventInDev({
     ...serverEvent,
+    ...(serverEvent.event_id == null && priorEvent?.event_id != null
+      ? { event_id: priorEvent.event_id }
+      : {}),
+    ...(serverEvent.message_id == null && priorEvent?.message_id != null
+      ? { message_id: priorEvent.message_id }
+      : {}),
+    ...(serverEvent.reply_to_message_id == null && priorEvent?.reply_to_message_id != null
+      ? { reply_to_message_id: priorEvent.reply_to_message_id }
+      : {}),
+    ...(serverEvent.reply_to_question_id == null && priorEvent?.reply_to_question_id != null
+      ? { reply_to_question_id: priorEvent.reply_to_question_id }
+      : {}),
+    ...(serverEvent.lane_id == null && priorEvent?.lane_id != null
+      ? { lane_id: priorEvent.lane_id }
+      : {}),
+    ...(serverEvent.publish_kind == null && priorEvent?.publish_kind != null
+      ? { publish_kind: priorEvent.publish_kind }
+      : {}),
+    ...(serverEvent.routing_state == null && priorEvent?.routing_state != null
+      ? { routing_state: priorEvent.routing_state }
+      : {}),
+    ...(serverEvent.accepted_sequence == null && priorEvent?.accepted_sequence != null
+      ? { accepted_sequence: priorEvent.accepted_sequence }
+      : {}),
+    ...(serverEvent.queue_sequence == null && priorEvent?.queue_sequence != null
+      ? { queue_sequence: priorEvent.queue_sequence }
+      : {}),
+    ...(serverEvent.action_committed == null && priorEvent?.action_committed != null
+      ? { action_committed: priorEvent.action_committed }
+      : {}),
     raw,
     // For an attachment send the server echo text is the agent-facing wrapper
     // ("Look at the image file at …, then respond…"); keep the operator's
@@ -2057,7 +2158,11 @@ export function applyPentacleEvent(
     ? appendLiveEventProjection({ ...state, drafts: nextDrafts }, frozenEvent, { perStreamMaxEvents: limit })
     : replacePentacleEventProjection(
       { ...state, drafts: nextDrafts },
-      dedupeRecentEventsByStream([...state.events, frozenEvent], limit),
+      dedupeRecentEventsByStream(
+        [...state.events, frozenEvent],
+        limit,
+        assistantCompositeStreamIds(state.sessions),
+      ),
     );
 
   return withTurnTransition(
@@ -2285,7 +2390,10 @@ function applyLiveFetchedStreamEvents(
     if (!streamId || !key || seenKeys.has(key)) {
       return applyFetchedStreamEvents(state, incoming, { limit });
     }
-    if ((countsByStream.get(streamId) || 0) >= limit) {
+    if (
+      !assistantCompositeStreamIds(state.sessions).has(streamId) &&
+      (countsByStream.get(streamId) || 0) >= limit
+    ) {
       return applyFetchedStreamEvents(state, incoming, { limit });
     }
     seenKeys.add(key);
@@ -2519,6 +2627,7 @@ export function applyFetchedStreamEvents(
   const events = dedupeRecentEventsByStream(
     [...state.events, ...acceptedIncoming.map(freezeEventInDev)],
     limit,
+    assistantCompositeStreamIds(state.sessions),
   );
 
   let eventContentVersionByStream = state.eventContentVersionByStream ?? {};
@@ -2623,15 +2732,19 @@ export function applyPentacleSnapshotMessage(
     : null;
   const hasIncomingEvents = incomingEvents !== null;
   const events = incomingEvents
-    ? dedupeRecentEventsByStream(reconcileTrustedDaemonNoticeBatch(
-      state.events,
-      incomingEvents.map(normalizeEvent).filter((event) => (
-      event.kind !== 'DRAFT' &&
-      event.kind !== 'WORKING' &&
-      !isHelperSuggestionEvent(event) &&
-      (isClaudeJsonlEvent(event) || (event.attachments?.length ?? 0) > 0 || !isTransientTranscriptNoise(event.text))
-      )),
-    ), limit).map(freezeEventInDev)
+    ? dedupeRecentEventsByStream(
+      reconcileTrustedDaemonNoticeBatch(
+        state.events,
+        incomingEvents.map(normalizeEvent).filter((event) => (
+          event.kind !== 'DRAFT' &&
+          event.kind !== 'WORKING' &&
+          !isHelperSuggestionEvent(event) &&
+          (isClaudeJsonlEvent(event) || (event.attachments?.length ?? 0) > 0 || !isTransientTranscriptNoise(event.text))
+        )),
+      ),
+      limit,
+      assistantCompositeStreamIds(sessions),
+    ).map(freezeEventInDev)
     : state.events.filter((event) => survivingStreamIds.has(event.stream_id));
   const drafts: Record<string, PentacleEvent> = {};
   for (const [streamId, draft] of Object.entries(message.drafts || {})) {

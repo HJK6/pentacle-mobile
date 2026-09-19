@@ -276,6 +276,7 @@ export type SmartChatListItem = StatusCardChatListItem & {
   pendingClose?: PendingSessionClose;
   role: string | null;
   isAssistantRole: boolean;
+  isCompositeChat: boolean;
   sessionGeneration: string | null;
   agents: readonly ChildAgent[];
 };
@@ -504,6 +505,7 @@ export function selectSmartChatList(
         pendingClose: (session as (PentacleSessionSummary & { pending_close?: PendingSessionClose }) | undefined)?.pending_close,
         role: session?.role ?? null,
         isAssistantRole: Boolean(assistantRole) && session?.role === assistantRole,
+        isCompositeChat: session?.session_kind === 'assistant_composite',
         sessionGeneration: session?.session_generation ?? null,
         agents: session?.agents ?? [],
         openQuestions: openQuestionsForStream(
@@ -565,6 +567,9 @@ function sameSmartChatItem(item: SmartChatListItem, other: SmartChatListItem | u
         item.hostTitle === other.hostTitle &&
         item.provider === other.provider &&
         item.sessionName === other.sessionName &&
+        item.sessionKind === other.sessionKind &&
+        item.visibility === other.visibility &&
+        item.capabilities === other.capabilities &&
         item.title === other.title &&
         item.status === other.status &&
         item.statusLabel === other.statusLabel &&
@@ -585,6 +590,7 @@ function sameSmartChatItem(item: SmartChatListItem, other: SmartChatListItem | u
         item.pendingClose === other.pendingClose &&
         item.role === other.role &&
         item.isAssistantRole === other.isAssistantRole &&
+        item.isCompositeChat === other.isCompositeChat &&
         item.sessionGeneration === other.sessionGeneration &&
         item.agents === other.agents &&
         item.openQuestions.map(questionSignature).join('\n') === other.openQuestions.map(questionSignature).join('\n') &&
@@ -840,6 +846,7 @@ export default function ChatsScreen() {
 
   const handleRowDelete = useCallback(
     (chat: DeletableChatListItem) => {
+      if (chat.sessionKind === 'assistant_composite') return;
       if (chat.pendingClose) {
         const hostOffline = chat.pendingClose.errorCode === 'host_offline';
         const exhausted = chat.pendingClose.state === 'exhausted' || chat.pendingClose.state === 'failed';
@@ -909,6 +916,7 @@ export default function ChatsScreen() {
   );
 
   const handleRowRename = useCallback((chat: PentacleChatListItem) => {
+    if (chat.sessionKind === 'assistant_composite') return;
     setRenameTarget(chat);
   }, []);
 
@@ -916,7 +924,7 @@ export default function ChatsScreen() {
     async (value: string) => {
       const chat = renameTarget;
       setRenameTarget(null);
-      if (!chat) return;
+      if (!chat || chat.sessionKind === 'assistant_composite') return;
       const displayName = value.trim();
       if (!displayName || displayName === (chat.title || '').trim()) return;
       try {
@@ -1565,8 +1573,10 @@ export const ChatRow = memo(function ChatRow({
 }: ChatRowProps) {
   const displayChat = questionError && questionRetryChat ? questionRetryChat : chat;
   const smartChat = displayChat as Partial<SmartChatListItem>;
-  const RowSwipeable = isAssistantRole(smartChat) ? NoSwipeable : Swipeable;
-  const closeStatusLabel = !smartChat.isAssistantRole && smartChat.pendingClose
+  const isCompositeChat = smartChat.isCompositeChat === true || chat.sessionKind === 'assistant_composite';
+  const threadManagementProtected = isAssistantRole(smartChat) || isCompositeChat;
+  const RowSwipeable = threadManagementProtected ? NoSwipeable : Swipeable;
+  const closeStatusLabel = !threadManagementProtected && smartChat.pendingClose
     ? (smartChat.pendingClose.errorCode === 'host_offline'
       ? `${smartChat.pendingClose.errorMessage || 'Host is offline'} — tap to force delete`
       : smartChat.pendingClose.state === 'exhausted' || smartChat.pendingClose.state === 'failed'
@@ -1620,18 +1630,18 @@ export const ChatRow = memo(function ChatRow({
   });
 
   const handleRename = useCallback(() => {
-    if (isAssistantRole(smartChat)) return;
+    if (threadManagementProtected) return;
     swipeSettleReasonRef.current = 'action';
     swipeRef.current?.close();
     onRename(chat);
-  }, [chat, onRename, smartChat]);
+  }, [chat, onRename, threadManagementProtected]);
 
   const handleDelete = useCallback(() => {
-    if (smartChat.isAssistantRole) return;
+    if (threadManagementProtected) return;
     swipeSettleReasonRef.current = 'action';
     swipeRef.current?.close();
     onDelete(chat);
-  }, [chat, onDelete, smartChat.isAssistantRole]);
+  }, [chat, onDelete, threadManagementProtected]);
 
   const logSwipeSettled = useCallback((state: 'open' | 'closed', reason: 'threshold' | 'parent_scroll' | 'action') => {
     logTelemetry(MOBILE_TELEMETRY_EVENTS.CHAT_ROW_SWIPE_SETTLED as Parameters<typeof logTelemetry>[0], {
@@ -1664,7 +1674,7 @@ export const ChatRow = memo(function ChatRow({
             icon="pencil"
             actionStyle={styles.swipeRename}
           />
-          {!smartChat.isAssistantRole ? (
+          {!threadManagementProtected ? (
             <SwipeAction
               progress={progress}
               offset={SWIPE_ACTION_WIDTH}
@@ -1678,7 +1688,7 @@ export const ChatRow = memo(function ChatRow({
         </View>
       );
     },
-    [chat.streamId, chat.title, handleRename, handleDelete, smartChat.isAssistantRole],
+    [chat.streamId, chat.title, handleRename, handleDelete, threadManagementProtected],
   );
 
   return (
@@ -1845,10 +1855,11 @@ function ChildAgentRows({
 const MutedProviderLabel = memo(function MutedProviderLabel({ provider }: { provider: string }) {
   const normalized = String(provider).toLowerCase();
   const isClaude = normalized === 'claude';
+  const isComposite = normalized === 'composite';
   return (
     <View style={styles.providerMuted}>
-      {isClaude ? <Spark size={11} color={Tokens.palette.muted} /> : <Brackets size={11} color={Tokens.palette.muted} />}
-      <Text {...SELECTABLE_TEXT} style={styles.providerMutedText}>{isClaude ? 'Claude' : 'Codex'}</Text>
+      {isClaude || isComposite ? <Spark size={11} color={Tokens.palette.muted} /> : <Brackets size={11} color={Tokens.palette.muted} />}
+      <Text {...SELECTABLE_TEXT} style={styles.providerMutedText}>{isClaude ? 'Claude' : isComposite ? 'Assistant' : 'Codex'}</Text>
     </View>
   );
 });

@@ -143,7 +143,7 @@ test('kebab opens an action menu with Rename and Delete', () => {
   expect(screen.queryByText('Chat options')).toBeNull();
 });
 
-  test('configured assistant detail hides Rename, delete, retry, and force-delete controls', () => {
+test('configured assistant detail hides Rename, delete, retry, and force-delete controls', () => {
   (getAssistantRole as jest.Mock).mockReturnValue('assistant');
   mockState.sessions[0] = {
     ...mockState.sessions[0],
@@ -163,6 +163,26 @@ test('kebab opens an action menu with Rename and Delete', () => {
   expect(screen.queryByText('Force delete')).toBeNull();
   expect(mockActions.retryPendingClose).not.toHaveBeenCalled();
   expect(mockActions.forcePendingClose).not.toHaveBeenCalled();
+});
+
+test('composite assistant detail hides thread-management controls', () => {
+  mockState.sessions[0] = {
+    ...mockState.sessions[0],
+    provider: 'composite',
+    session_kind: 'assistant_composite',
+    capabilities: {
+      pane: false,
+      terminal: false,
+      assistant_composite_v1: true,
+      reply_metadata_v1: true,
+    },
+  };
+
+  render(<SessionScreen />);
+  fireEvent.press(screen.getByTestId('session-header-menu-button'));
+
+  expect(screen.queryByTestId('chat-action-rename')).toBeNull();
+  expect(screen.queryByTestId('chat-action-delete')).toBeNull();
 });
 
 test('report inventory drives the header badge and Reports overflow row', () => {
