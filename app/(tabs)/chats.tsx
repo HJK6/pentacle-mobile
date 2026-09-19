@@ -522,10 +522,11 @@ export function selectSmartChatList(
       return previous && sameSmartChatItem(previous, candidate) ? previous : candidate;
     })
     .sort((left, right) => {
+      const compositeOrder = Number(right.isCompositeChat) - Number(left.isCompositeChat);
       const assistantRoleOrder = Number(right.isAssistantRole) - Number(left.isAssistantRole);
       const leftTier = smartChatAttention(left) ? 0 : left.status === 'working' ? 1 : 2;
       const rightTier = smartChatAttention(right) ? 0 : right.status === 'working' ? 1 : 2;
-      return assistantRoleOrder || leftTier - rightTier || right.lastEventMs - left.lastEventMs || left.streamId.localeCompare(right.streamId);
+      return compositeOrder || assistantRoleOrder || leftTier - rightTier || right.lastEventMs - left.lastEventMs || left.streamId.localeCompare(right.streamId);
     });
   if (harnessTiming) {
     const finishedAt = globalThis.performance.now();
