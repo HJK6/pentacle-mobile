@@ -104,7 +104,7 @@ function sessionSummary(streamId = 'hosta:codex:one', overrides: Record<string, 
   };
 }
 
-test('wire-level trusted status correction hides one durable USER while stale replay cannot downgrade it', () => {
+test('wire-level trusted status correction never renders an internal notice while stale replay cannot downgrade it', () => {
   const fixture = require('../fixtures/trusted_status_wire_v1.json') as {
     stream_id: string;
     frames: Record<string, { type: string; event: Record<string, unknown> }>;
@@ -139,7 +139,9 @@ test('wire-level trusted status correction hides one durable USER while stale re
   };
 
   socket.message(beforeFrame);
-  expect(visibleRows().map((item) => item.text)).toContain(body);
+  // The pinned core's envelope registry recognizes this reserved marker at
+  // first arrival, so raw orchestration text never flashes before correction.
+  expect(visibleRows().map((item) => item.text)).not.toContain(body);
 
   socket.message(correctionFrame);
   expect(stream.getPentacleStreamState().events.filter((event) => event.daemon_seq === eventId)).toHaveLength(1);
@@ -151,7 +153,11 @@ test('wire-level trusted status correction hides one durable USER while stale re
 
   socket.message(explicitUserFrame);
   socket.message(copiedMarkerFrame);
-  expect(visibleRows().filter((item) => item.text === body)).toHaveLength(2);
+  // Explicit client-originated input remains conversation; an unbound copied
+  // marker is internal control-plane text and must remain hidden.
+  const matchingRows = visibleRows().filter((item) => item.text === body);
+  expect(matchingRows).toHaveLength(1);
+  expect(matchingRows[0]?.optimisticId).toBe('optimistic-fixture-user-copy');
   unsubscribe();
 });
 

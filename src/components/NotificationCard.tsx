@@ -75,15 +75,12 @@ export default function NotificationCard({ notification, informational = false }
   }).client_resolution_pending === true;
 
   const isOpen = notification.state === 'open';
-  const delivery = notification.resolution;
-  const answerSaved = !isOpen && typeof delivery?.delivery_status === 'string';
-  const deliveryLabel = delivery?.delivery_status === 'delivered'
-    ? 'Delivered'
-    : delivery?.delivery_status === 'pending' || delivery?.delivery_status === 'queued'
-      ? 'Saved · delivery pending'
-      : delivery?.delivery_status === 'failed' && delivery.delivery_reason === 'question_producer_gone'
-        ? 'Not delivered'
-        : 'Delivery unconfirmed';
+  // Delivery transport is no longer part of the core notification resolution
+  // contract. The terminal notification state is authoritative; say only what
+  // this client can prove and never turn an unavailable receipt into a delivery
+  // claim that invites a duplicate answer.
+  const resolution = notification.resolution;
+  const answerSaved = notification.state === 'resolved' && resolution !== null;
   const freeTextQuestion = String(notification.question?.response_mode || '') === 'free_text' ? notification.question : null;
   // The card is interactive while OPEN and not mid-submit. `running` is a live
   // (broadcast-driven) terminal-progress state: buttons are gone, the inline
@@ -99,10 +96,9 @@ export default function NotificationCard({ notification, informational = false }
     logTelemetry(TELEMETRY_EVENTS.NOTIFICATION_CARD_RENDERED, {
       notification_id: notification.notification_id,
       state: notification.state,
-      delivery_status: delivery?.delivery_status,
-      delivery_reason: delivery?.delivery_reason,
+      resolution_action_kind: resolution?.action_kind,
     });
-  }, [notification.notification_id, notification.state, delivery?.delivery_status, delivery?.delivery_reason]);
+  }, [notification.notification_id, notification.state, resolution?.action_kind]);
 
   // A live broadcast that moves the card off `open` settles any in-flight
   // submit (the optimistic Working…/Running… label hands off to the
@@ -353,10 +349,7 @@ export default function NotificationCard({ notification, informational = false }
         ) : isOpen && !informational ? renderActionButtons() : !isOpen ? renderDecision() : null}
         {answerSaved ? (
           <View testID="notification-answer-delivery" style={styles.decision}>
-            <Text style={styles.decisionText}>{deliveryLabel}</Text>
-            {delivery?.delivery_next_action && delivery.delivery_status !== 'delivered' ? (
-              <Text style={styles.decisionText}>{delivery.delivery_next_action}</Text>
-            ) : null}
+            <Text style={styles.decisionText}>Answer saved</Text>
           </View>
         ) : null}
         {!answerSaved && (actionError || clientResolutionError) ? (

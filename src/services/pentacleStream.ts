@@ -54,6 +54,7 @@ import {
   clearPentacleStreamDraft,
   clearPentacleTurn,
   initialPentacleStreamState,
+  findMatchingCompositeQueuedOptimisticIds,
   optimisticMatchesServerUser,
   parseNotificationAnswerNotice,
   serverEventTime,
@@ -1730,31 +1731,16 @@ function findMatchingOptimisticId(event: PentacleEvent, baseState = state) {
   return null;
 }
 
-function findMatchingCompositeQueuedOptimisticIds(
-  event: PentacleEvent,
-  baseState: PentacleStreamState,
-) {
-  if (event.optimistic_id || String(event.kind || '').toUpperCase() !== 'USER') return [];
-  const queued = Object.values(baseState.optimisticSends ?? {})
-    .filter((send) => (
-      send.stream_id === event.stream_id &&
-      send.queued_at !== undefined &&
-      (isReconcilableOptimisticStatus(send.status) || send.status === 'failed')
-    ))
-    .sort((left, right) => left.created_at - right.created_at);
-  if (queued.length < 2) return [];
-  return queued.map((send) => send.text).join('\n\n') === String(event.text || '')
-    ? queued.map((send) => send.optimistic_id)
-    : [];
-}
-
 function matchingOptimisticIdsForServerUser(
   event: PentacleEvent,
   baseState: PentacleStreamState,
 ) {
   const directOrFallback = findMatchingOptimisticId(event, baseState);
   if (directOrFallback) return [directOrFallback];
-  return findMatchingCompositeQueuedOptimisticIds(event, baseState);
+  return findMatchingCompositeQueuedOptimisticIds(
+    event,
+    Object.values(baseState.optimisticSends ?? {}),
+  );
 }
 
 // A row reconciles from whichever authority lands first: a durable receipt/landed

@@ -12,6 +12,8 @@ const PROD_EXPO_PUBLIC_ALLOWLIST = Object.freeze(['EXPO_PUBLIC_PENTACLE_WS_URL',
 const PRODUCTION_ENDPOINT_ENV = 'EXPO_PUBLIC_PENTACLE_WS_URL';
 const PRODUCTION_BUILD_EVIDENCE_FILENAME = 'pentacle-production-build-evidence.json';
 
+const HOST_SIGIL_KINDS = Object.freeze(['djinni', 'sun', 'mage', 'flower']);
+
 const BASE_ENV_ALLOWLIST = Object.freeze([
   'ANDROID_HOME',
   'ANDROID_SDK_ROOT',
@@ -99,6 +101,28 @@ function guardProductionExpoPublicEnv(env = process.env, label = 'production bui
       `[prod-env-guard] Refusing ${label}: non-allowlisted Expo public env present: ${disallowed.join(', ')}`,
     );
   }
+}
+
+function guardProductionHostSigils(config, options = {}) {
+  const label = options.label || 'production build';
+  if (!config || typeof config !== 'object' || !('hosts' in config)) return { offending: [], skipped: true };
+  const rawHosts = config.hosts && typeof config.hosts === 'object' && !Array.isArray(config.hosts) ? config.hosts : {};
+  const ids = Object.keys(rawHosts);
+  if (!ids.length) {
+    const error = new Error(`[prod-sigil-guard] Refusing ${label}: no configured host defines an explicit sigil.`);
+    error.offending = [];
+    throw error;
+  }
+  const offending = ids.filter((id) => {
+    const sigil = rawHosts[id] ? rawHosts[id].sigil : undefined;
+    return typeof sigil !== 'string' || !HOST_SIGIL_KINDS.includes(sigil);
+  }).sort();
+  if (offending.length) {
+    const error = new Error(`[prod-sigil-guard] Refusing ${label}: configured host(s) missing a valid explicit sigil (${HOST_SIGIL_KINDS.join('|')}): ${offending.join(', ')}.`);
+    error.offending = offending;
+    throw error;
+  }
+  return { offending: [] };
 }
 
 function endpointSourceLabel(source) {
@@ -378,6 +402,8 @@ function exportAndVerifyIosBundle(label, options = {}) {
     cwd: projectRoot,
     readConfig: options.readConfig,
   });
+  const readConfig = options.readConfig || readLocalPentacleConfig;
+  guardProductionHostSigils(readConfig(projectRoot), { label });
   const command = options.runCommand || runCommand;
   const exportDir = options.exportDir
     || sourceEnv.PENTACLE_IOS_RELEASE_EXPORT_DIR
@@ -463,6 +489,17 @@ function main(argv) {
     guardProductionExpoPublicEnv(process.env);
     return 0;
   }
+  if (command === 'guard-host-sigils') {
+    guardProductionHostSigils(readLocalPentacleConfig(process.cwd()));
+    return 0;
+  }
+  if (command === 'run-ios-export') {
+    // Keep validation in the established full-gate export stage. The guard is
+    // deliberately before the child command so an invalid host map cannot
+    // create an export artifact.
+    guardProductionHostSigils(readLocalPentacleConfig(process.cwd()), { label: 'certified ios-export' });
+    return runCommand(argv.slice(3));
+  }
   if (command === 'run') {
     return runCommand(argv.slice(3));
   }
@@ -483,10 +520,12 @@ module.exports = {
   BASE_ENV_PREFIX_ALLOWLIST,
   PROD_EXPO_PUBLIC_ALLOWLIST,
   PROD_TEST_FINGERPRINTS,
+  HOST_SIGIL_KINDS,
   buildCleanProductionEnv,
   findBundleArtifacts,
   findDisallowedExpoPublicEnv,
   guardProductionExpoPublicEnv,
+  guardProductionHostSigils,
   readLocalPentacleConfig,
   resolveProductionEndpoint,
   shouldRunProductionGuard,

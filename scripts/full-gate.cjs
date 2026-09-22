@@ -676,7 +676,9 @@ function main() {
     }).map(({ value, ...row }) => row);
     writeJson(path.join(artifactDir, 'run.json'), summary);
     requireChecks(summary.checks);
-    summary.gates.push(runGate('ios-export', ['node', 'scripts/prod-build.cjs', 'run', 'expo', 'export', '--platform', 'ios', '--output-dir', path.join(artifactDir, 'ios-export')], artifactDir, productionIosExportOptions()));
+    // Keep host-sigil validation inside the established export stage so release
+    // receipts retain their existing stage inventory.
+    summary.gates.push(runGate('ios-export', [process.execPath, 'scripts/prod-build.cjs', 'run-ios-export', process.execPath, 'node_modules/expo/bin/cli', 'export', '--platform', 'ios', '--output-dir', path.join(artifactDir, 'ios-export')], artifactDir, productionIosExportOptions()));
     withSimulatorResource(() => {
       summary.sim_substrate_reap = { scope: 'runner-owned-only', foreign_resources_untouched: true };
       const release = releaseSmoke(artifactDir, native, { onTarget: (target) => { summary.release_target = target; writeJson(path.join(artifactDir, 'run.json'), summary); } });

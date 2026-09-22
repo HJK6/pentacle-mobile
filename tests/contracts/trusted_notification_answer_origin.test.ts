@@ -38,7 +38,7 @@ function rows(state: PentacleStreamState) {
   return selectSessionDetail(state, streamId, { visibleCount: 'all' })?.transcriptItems ?? [];
 }
 
-test('generated producer correction hides only the proven answer transport row', () => {
+test('unbound generated answer transport is hidden before and after proof correction', () => {
   expect(fixture.provenance).toEqual({
     classification: 'synthetic-known-data',
     generator: 'services/chat-stream-v2/tests/generate_notification_answer_wire_fixture.py',
@@ -51,7 +51,7 @@ test('generated producer correction hides only the proven answer transport row',
   });
 
   const unproven = applyPentacleEvent(seed(), before);
-  expect(rows(unproven)).toHaveLength(1);
+  expect(rows(unproven)).toHaveLength(0);
   const proven = applyPentacleEvent(unproven, correction);
   expect(proven.events).toHaveLength(1);
   expect(rows(proven)).toHaveLength(0);
@@ -67,9 +67,11 @@ test('generated producer correction hides only the proven answer transport row',
   expect(rows(reconnect)).toHaveLength(0);
 });
 
-test('generated identical USER controls and genuine quotes remain visible', () => {
+test('explicit user-bound copies and ordinary quoted prose remain visible', () => {
+  const receiptless = applyPentacleEvent(seed(), fixture.receiptless_identical_user.event);
+  expect(rows(receiptless)).toHaveLength(0);
+
   for (const item of [
-    fixture.receiptless_identical_user.event,
     fixture.explicit_user_copy.event,
     {
       ...fixture.explicit_user_copy.event,

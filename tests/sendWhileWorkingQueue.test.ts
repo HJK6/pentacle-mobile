@@ -223,7 +223,7 @@ test('dispatchQueuedSendsByOptimisticId dispatches all queued sends FIFO with op
   unsubscribe();
 });
 
-test('release gate: delayed composite echo reconciles two identical native-queue sends after screen remount', async () => {
+test('release gate: delayed one-LF composite echo reconciles two identical native-queue sends after screen remount', async () => {
   const { stream, socket, unsubscribe } = bootStream();
   socket.message({
     type: 'session.inventory',
@@ -300,7 +300,7 @@ test('release gate: delayed composite echo reconciles two identical native-queue
       stream_id: STREAM_ID,
       timestamp: '2026-06-17T12:03:34.700Z',
       kind: 'USER',
-      text: 'same queued text\n\nsame queued text',
+      text: 'same queued text\nsame queued text',
     },
   });
 
@@ -325,6 +325,69 @@ test('release gate: delayed composite echo reconciles two identical native-queue
   ]);
 
   remountUnsubscribe();
+  unsubscribe();
+});
+
+test('release gate: one-LF FIFO composite echo reconciles three distinct rows and rejects near misses', () => {
+  const { stream, socket, unsubscribe } = bootStream();
+  stream.sendTurn(STREAM_ID, 'active');
+  const firstId = stream.enqueueTurn(STREAM_ID, 'one');
+  const secondId = stream.enqueueTurn(STREAM_ID, 'two');
+  const thirdId = stream.enqueueTurn(STREAM_ID, 'three');
+  stream.dispatchQueuedSendsByOptimisticId(STREAM_ID, [firstId, secondId, thirdId]);
+  for (const frame of sentFrames(socket, 'send')) {
+    if (frame.request_id) socket.message({ type: 'send.result', request_id: frame.request_id, delivery: 'landed' });
+  }
+
+  const emitEcho = (streamId: string, text: string, optimistic_id?: string) => socket.message({
+    type: 'chat.event',
+    event: {
+      daemon_seq: 200 + text.length, host: 'merlin', provider: 'codex',
+      session_id: streamId, session_name: 'chat-1', stream_id: streamId,
+      timestamp: '2026-06-17T12:03:34.700Z', kind: 'USER', text,
+      ...(optimistic_id ? { optimistic_id } : {}),
+    },
+  });
+
+  emitEcho(STREAM_ID, 'one\ntwo\nthree');
+  expect(stream.getPentacleStreamState().optimisticSends?.[firstId]).toBeUndefined();
+  expect(stream.getPentacleStreamState().optimisticSends?.[secondId]).toBeUndefined();
+  expect(stream.getPentacleStreamState().optimisticSends?.[thirdId]).toBeUndefined();
+  const rows = require('pentacle-chat-core').selectSessionDetail(
+    stream.getPentacleStreamState(), STREAM_ID, { visibleCount: 'all' },
+  )?.transcriptItems.filter((item: { text: string }) => ['one', 'two', 'three'].includes(item.text));
+  expect(rows).toHaveLength(3);
+  unsubscribe();
+});
+
+test('release gate: reordered, partial, double-LF, unrelated, and same-ID echoes do not settle FIFO rows', () => {
+  const { stream, socket, unsubscribe } = bootStream();
+  stream.sendTurn(STREAM_ID, 'active');
+  const firstId = stream.enqueueTurn(STREAM_ID, 'one');
+  const secondId = stream.enqueueTurn(STREAM_ID, 'two');
+  const thirdId = stream.enqueueTurn(STREAM_ID, 'three');
+  stream.dispatchQueuedSendsByOptimisticId(STREAM_ID, [firstId, secondId, thirdId]);
+  for (const frame of sentFrames(socket, 'send')) {
+    if (frame.request_id) socket.message({ type: 'send.result', request_id: frame.request_id, delivery: 'landed' });
+  }
+  const sendEvent = (streamId: string, text: string, optimistic_id?: string) => socket.message({
+    type: 'chat.event',
+    event: {
+      daemon_seq: 300 + text.length, host: 'merlin', provider: 'codex',
+      session_id: streamId, session_name: 'chat-1', stream_id: streamId,
+      timestamp: '2026-06-17T12:03:34.700Z', kind: 'USER', text,
+      ...(optimistic_id ? { optimistic_id } : {}),
+    },
+  });
+  const queued = () => stream.getPentacleStreamState().optimisticSends ?? {};
+  sendEvent(STREAM_ID, 'two\none\nthree');
+  sendEvent(STREAM_ID, 'one\ntwo');
+  sendEvent(STREAM_ID, 'one\n\ntwo\n\nthree');
+  sendEvent('other:chat-1', 'one\ntwo\nthree');
+  sendEvent(STREAM_ID, 'one\ntwo\nthree', 'server-retry-id');
+  expect(queued()[firstId]).toBeDefined();
+  expect(queued()[secondId]).toBeDefined();
+  expect(queued()[thirdId]).toBeDefined();
   unsubscribe();
 });
 

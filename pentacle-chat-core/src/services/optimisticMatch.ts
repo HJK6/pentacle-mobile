@@ -50,3 +50,25 @@ export function optimisticMatchesServerUser(
   const parsedTime = parseServerEventTimeStrict(serverEvent);
   return parsedTime !== null && Math.abs(parsedTime - send.created_at) <= windowMs;
 }
+
+/**
+ * Match the daemon's one-LF FIFO composite echo against queued sends. The
+ * explicit stream/status/order guards prevent retries, reordered batches,
+ * partial batches, and same-ID echoes from settling an optimistic row.
+ */
+export function findMatchingCompositeQueuedOptimisticIds(
+  event: Pick<PentacleEvent, 'kind' | 'text' | 'stream_id' | 'optimistic_id'>,
+  sends: Iterable<Pick<OptimisticSendState, 'optimistic_id' | 'stream_id' | 'text' | 'created_at' | 'queued_at' | 'status'>>,
+): string[] {
+  if (String(event.kind || '').toUpperCase() !== 'USER' || event.optimistic_id) return [];
+  const queuedStatuses = new Set<OptimisticSendState['status']>([
+    'queued', 'dispatched', 'acked', 'indeterminate', 'echoed', 'failed',
+  ]);
+  const queued = Array.from(sends)
+    .filter((send) => send.stream_id === event.stream_id && send.queued_at !== undefined && queuedStatuses.has(send.status))
+    .sort((left, right) => left.created_at - right.created_at);
+  if (queued.length < 2) return [];
+  return queued.map((send) => send.text).join('\n') === String(event.text || '')
+    ? queued.map((send) => send.optimistic_id)
+    : [];
+}

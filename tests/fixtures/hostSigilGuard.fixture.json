@@ -1,0 +1,195 @@
+{
+  "schema_version": 1,
+  "purpose": "Frozen host-sigil production-guard fixture. Each case_sha256 = sha256(stableStringify({key,config,expect})). A mismatch fails closed as HARNESS_ERROR; do not regenerate to make a test pass.",
+  "sigil_domain_source": "constants/Colors.ts:49,55-60 MACHINES sigil kinds",
+  "cases": [
+    {
+      "key": "complete_mapping",
+      "description": "every configured host has a valid explicit sigil",
+      "config": {
+        "hosts": {
+          "bart": {
+            "label": "Bart",
+            "color": "#3dff66",
+            "sigil": "djinni"
+          },
+          "amaterasu": {
+            "label": "Amaterasu",
+            "color": "#ff2e3e",
+            "sigil": "sun"
+          },
+          "merlin": {
+            "label": "Merlin",
+            "color": "#29d4ff",
+            "sigil": "mage"
+          }
+        },
+        "hostOrder": [
+          "bart",
+          "amaterasu",
+          "merlin"
+        ]
+      },
+      "expect": {
+        "refused": false,
+        "exitStatus": 0,
+        "offending": []
+      },
+      "case_sha256": "875b933e3dd62f4de9a65b5ac1cb7537b06bbf54309b100508582eb1babec7e0"
+    },
+    {
+      "key": "one_missing",
+      "description": "one configured host lacks a sigil (positional fallback would misattribute it)",
+      "config": {
+        "hosts": {
+          "bart": {
+            "label": "Bart",
+            "color": "#3dff66",
+            "sigil": "djinni"
+          },
+          "amaterasu": {
+            "label": "Amaterasu",
+            "color": "#ff2e3e",
+            "sigil": "sun"
+          },
+          "merlin": {
+            "label": "Merlin",
+            "color": "#29d4ff"
+          }
+        },
+        "hostOrder": [
+          "bart",
+          "amaterasu",
+          "merlin"
+        ]
+      },
+      "expect": {
+        "refused": true,
+        "exitStatus": 1,
+        "offending": [
+          "merlin"
+        ]
+      },
+      "case_sha256": "dc1de1402c943341705aaf6871bb214f5bd64b777c089cc6058f89a58f97911e"
+    },
+    {
+      "key": "several_missing",
+      "description": "multiple configured hosts lack a sigil; offending list is sorted",
+      "config": {
+        "hosts": {
+          "bart": {
+            "label": "Bart",
+            "color": "#3dff66",
+            "sigil": "djinni"
+          },
+          "amaterasu": {
+            "label": "Amaterasu",
+            "color": "#ff2e3e"
+          },
+          "merlin": {
+            "label": "Merlin",
+            "color": "#29d4ff"
+          },
+          "daffodil": {
+            "label": "Daffodil",
+            "color": "#b14dff",
+            "sigil": "flower"
+          }
+        },
+        "hostOrder": [
+          "bart",
+          "amaterasu",
+          "merlin",
+          "daffodil"
+        ]
+      },
+      "expect": {
+        "refused": true,
+        "exitStatus": 1,
+        "offending": [
+          "amaterasu",
+          "merlin"
+        ]
+      },
+      "case_sha256": "5e2f91d062432cd4f5a3fa5e9e14b38f2364cb77238b0e290b30b6585ab7d7c4"
+    },
+    {
+      "key": "reordered_complete",
+      "description": "complete mapping with a reordered hostOrder still passes unchanged",
+      "config": {
+        "hosts": {
+          "merlin": {
+            "label": "Merlin",
+            "color": "#29d4ff",
+            "sigil": "mage"
+          },
+          "bart": {
+            "label": "Bart",
+            "color": "#3dff66",
+            "sigil": "djinni"
+          },
+          "amaterasu": {
+            "label": "Amaterasu",
+            "color": "#ff2e3e",
+            "sigil": "sun"
+          }
+        },
+        "hostOrder": [
+          "merlin",
+          "amaterasu",
+          "bart"
+        ]
+      },
+      "expect": {
+        "refused": false,
+        "exitStatus": 0,
+        "offending": []
+      },
+      "case_sha256": "7b1568cd206177244d872a8b971ce70d2e9d55ae6750c7f73848631ee76f8578"
+    },
+    {
+      "key": "out_of_domain_sigil",
+      "description": "a sigil value outside the MACHINES domain is refused, naming the host",
+      "config": {
+        "hosts": {
+          "bart": {
+            "label": "Bart",
+            "color": "#3dff66",
+            "sigil": "djinni"
+          },
+          "amaterasu": {
+            "label": "Amaterasu",
+            "color": "#ff2e3e",
+            "sigil": "phoenix"
+          }
+        },
+        "hostOrder": [
+          "bart",
+          "amaterasu"
+        ]
+      },
+      "expect": {
+        "refused": true,
+        "exitStatus": 1,
+        "offending": [
+          "amaterasu"
+        ]
+      },
+      "case_sha256": "7c99297f9d6a78d56bbb5b6023e428697068cce78cc3d0ba7be437360123cac4"
+    },
+    {
+      "key": "empty_host_map",
+      "description": "an empty host map is refused under a production build (all rows would fall to positional/first-machine fallback)",
+      "config": {
+        "hosts": {},
+        "hostOrder": []
+      },
+      "expect": {
+        "refused": true,
+        "exitStatus": 1,
+        "offending": []
+      },
+      "case_sha256": "05280b22989d01b24668940134a7c79ae5c3cab79e49a6bb14a19ced441e355c"
+    }
+  ]
+}

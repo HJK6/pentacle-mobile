@@ -18,3 +18,12 @@ PENTACLE_BUILD_NUMBER; see [Versioning](VERSIONING.md).
 After installing, verify the installed bundle identifier and build version match
 the signed app, launch it, open a chat, send a message, and confirm the assistant
 reply renders. A successful build or launch alone does not prove connectivity.
+
+## Production host-sigil preflight
+
+`npm run ios:device`, `npm run ios:release`, and the certified full gate refuse a production build
+when any configured host lacks an explicit `djinni | sun | mage | flower` sigil. The full gate runs
+the guard inside its existing `ios-export` stage, before Expo starts, so positional host attribution
+cannot reach a release artifact while the release receipt keeps its established stage inventory. The
+guard names each offending host id; coverage is the frozen
+`tests/fixtures/hostSigilGuard.fixture.json` fixture.

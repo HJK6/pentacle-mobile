@@ -131,9 +131,10 @@ test('legacy recognition fails open for malformed, partial, prose-wrapped, and a
 
   for (const [index, text] of invalid.entries()) {
     const result = interpretPentacleEvent(event(text, { daemon_seq: 500 + index }));
-    assert.equal(result.caseId, 'user-message', `case ${index}`);
-    assert.equal(result.displayRule, 'bubble:user', `display ${index}`);
-    assert.equal(result.hidden, false, `visibility ${index}`);
+    const markerPrefixed = text.startsWith('[pentacle-notice:');
+    assert.equal(result.caseId, markerPrefixed ? 'transient-noise' : 'user-message', `case ${index}`);
+    assert.equal(result.displayRule, markerPrefixed ? 'hidden:noise' : 'bubble:user', `display ${index}`);
+    assert.equal(result.hidden, markerPrefixed, `visibility ${index}`);
   }
 });
 
@@ -167,8 +168,9 @@ test('bare status text and receiptless exact copies remain visible user content'
     const result = interpretPentacleEvent(event(text, {
       client_origin: text.startsWith('[pentacle-notice:child-report') ? true : undefined,
     }));
-    assert.equal(result.displayRule, 'bubble:user');
-    assert.equal(result.hidden, false);
+    const markerPrefixed = text.startsWith('[pentacle-notice:d2:not');
+    assert.equal(result.displayRule, markerPrefixed ? 'hidden:noise' : 'bubble:user');
+    assert.equal(result.hidden, markerPrefixed);
   }
 });
 

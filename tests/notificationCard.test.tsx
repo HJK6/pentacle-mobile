@@ -346,7 +346,7 @@ test('in-place annotation: run_command failed shows failed + stderr tail', () =>
   expect(screen.getByText('boom: connection refused')).toBeTruthy();
 });
 
-test('in-place annotation: resolved shows Resolved', () => {
+test('in-place annotation: resolved answer says only Answer saved', () => {
   render(
     <NotificationCard
       notification={notification({
@@ -356,7 +356,7 @@ test('in-place annotation: resolved shows Resolved', () => {
       })}
     />,
   );
-  expect(screen.getByText('Resolved')).toBeTruthy();
+  expect(screen.getByText('Answer saved')).toBeTruthy();
 });
 
 test('running state renders the Running… lifecycle annotation (no buttons)', () => {
@@ -371,42 +371,29 @@ test('running state renders the Running… lifecycle annotation (no buttons)', (
 });
 
 
-test.each([
-  ['pending', undefined, 'Saved · delivery pending'],
-  ['queued', undefined, 'Saved · delivery pending'],
-  ['delivered', undefined, 'Delivered'],
-  ['unconfirmed', 'unconfirmed_after_bound', 'Delivery unconfirmed'],
-  ['failed', 'question_producer_gone', 'Not delivered'],
-  ['failed', 'unrecognized_future_reason', 'Delivery unconfirmed'],
-])('saved answer shows truthful %s delivery independently of save acknowledgment', (status, reason, label) => {
+test('saved answer states only the durable client fact, not a removed delivery transport field', () => {
   render(<NotificationCard notification={notification({
     state: 'resolved', client_resolution_pending: true,
     resolution: { by: 'operator', at: '2026-09-15T00:00:00Z', action_kind: 'yes_no',
-      delivery_status: status, delivery_reason: reason,
-      delivery_next_action: status === 'unconfirmed' ? 'Inspect the original transcript; do not resend.' : undefined,
     },
   } as Partial<PentacleNotification>)} />);
-  expect(screen.getByText(label!)).toBeTruthy();
+  expect(screen.getByText('Answer saved')).toBeTruthy();
   expect(screen.queryByTestId('notification-resolution-pending')).toBeNull();
-  expect(screen.queryByText('Sending')).toBeNull();
-  if (status === 'unconfirmed') expect(screen.getByText('Inspect the original transcript; do not resend.')).toBeTruthy();
+  expect(screen.queryByText(/Delivery (pending|unconfirmed)/)).toBeNull();
   expect(mockResolveNotification).not.toHaveBeenCalled();
 });
 
-test('durable save and late delivery proof replace a stale transport error without another answer', () => {
+test('durable resolution hides a stale client transport error without another answer', () => {
   const saved = notification({
     state: 'resolved',
     resolution: {
       by: 'operator', at: '2026-09-15T00:00:00Z', action_kind: 'yes_no',
-      delivery_status: 'unconfirmed', delivery_reason: 'unconfirmed_after_bound',
-      delivery_next_action: 'Inspect the original transcript; do not resend.',
     },
   });
   const view = render(<NotificationCard notification={{ ...saved, client_resolution_error: 'Connection lost' } as PentacleNotification} />);
-  expect(screen.getByText('Delivery unconfirmed')).toBeTruthy();
+  expect(screen.getByText('Answer saved')).toBeTruthy();
   expect(screen.queryByTestId('notification-action-error')).toBeNull();
-  view.rerender(<NotificationCard notification={{ ...saved, resolution: { ...saved.resolution!, delivery_status: 'delivered' } }} />);
-  expect(screen.getByText('Delivered')).toBeTruthy();
-  expect(screen.queryByText('Inspect the original transcript; do not resend.')).toBeNull();
+  view.rerender(<NotificationCard notification={saved} />);
+  expect(screen.getByText('Answer saved')).toBeTruthy();
   expect(mockResolveNotification).not.toHaveBeenCalled();
 });

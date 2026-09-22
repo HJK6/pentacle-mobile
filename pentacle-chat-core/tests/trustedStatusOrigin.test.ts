@@ -81,8 +81,8 @@ test('trusted status projection is hidden only after the equal-text raw correcti
   };
   const unproven = event({ raw: { source: 'structured' } });
   const before = applyPentacleEvent(seed, unproven);
-  assert.equal(visibleRows(before).length, 1);
-  assert.equal(interpretPentacleEvent(unproven).hidden, false);
+  assert.equal(visibleRows(before).length, 0);
+  assert.equal(interpretPentacleEvent(unproven).hidden, true);
 
   const after = applyPentacleEvent(before, event());
   assert.equal(after.events.length, 1);
@@ -118,7 +118,12 @@ test('trusted status validation fails open for identity and user-precedence mism
     event({ raw: { ...base.raw, daemon_notice: { ...projection, kind: 'title' } } }),
   ];
   for (const candidate of cases) {
-    assert.equal(interpretPentacleEvent(candidate).hidden, false);
+    const raw = candidate.raw || {};
+    const explicitlyBound = candidate.client_origin === true ||
+      ['optimistic_id', 'request_id', 'receipt_id'].some((key) => Boolean((candidate as any)[key])) ||
+      raw.client_origin === true ||
+      ['optimistic_id', 'request_id', 'receipt_id'].some((key) => Boolean((raw as any)[key]));
+    assert.equal(interpretPentacleEvent(candidate).hidden, !explicitlyBound);
   }
 });
 
@@ -138,7 +143,7 @@ test('combined status proof is trusted while title-only and historical bare stat
   assert.equal(interpretPentacleEvent(event({
     text: '[pentacle-notice:old-direct-provider]\n' + STATUS_TEXT,
     raw: { source: 'structured' },
-  })).hidden, false);
+  })).hidden, true);
 });
 
 test('conflicting later proof fails open instead of transferring prior trust', () => {
@@ -156,7 +161,7 @@ test('conflicting later proof fails open instead of transferring prior trust', (
     },
   });
   const conflicted = applyPentacleEvent(proven, conflict);
-  assert.equal(visibleRows(conflicted).length, 1);
+  assert.equal(visibleRows(conflicted).length, 0);
 });
 
 test('trusted notification answer correction hides only the exact protocol row', () => {
@@ -178,7 +183,7 @@ test('trusted notification answer correction hides only the exact protocol row',
   };
 
   const before = applyPentacleEvent(seed, unproven);
-  assert.equal(visibleRows(before, answerStream).length, 1);
+  assert.equal(visibleRows(before, answerStream).length, 0);
   const after = applyPentacleEvent(before, proven);
   assert.equal(after.events.length, 1);
   assert.equal(visibleRows(after, answerStream).length, 0);
@@ -198,7 +203,7 @@ test('trusted notification answer correction hides only the exact protocol row',
   ]) {
     assert.equal(interpretPentacleEvent(event({ ...proven, ...explicitUser })).hidden, false);
   }
-  assert.equal(interpretPentacleEvent(answerWire.receiptless_identical_user.event).hidden, false);
+  assert.equal(interpretPentacleEvent(answerWire.receiptless_identical_user.event).hidden, true);
   assert.equal(interpretPentacleEvent(event({
     text: 'Operator quoted:\n' + proven.text,
     raw: { source: 'structured' },

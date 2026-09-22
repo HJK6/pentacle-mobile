@@ -45,7 +45,7 @@ export interface PentacleSendAcceptance {
 }
 
 // Cross-lane attachment contract (spec
-// pentacle-mobile__photo_send_and_queued_messages_2026_06_17, ## Attachment model).
+// public protocol contract, ## Attachment model).
 // Both lanes code against this single shape: the mobile lane builds the `send`
 // RPC payload + renders the bubble; the daemon/chat-core lane resolves the blob
 // `key` and injects an agent-local path. Authored here (the platform-neutral
@@ -70,6 +70,14 @@ export interface ChatAttachment {
 // the same bound.
 export const MAX_CHAT_ATTACHMENTS = 5;
 
+/** Daemon-authenticated registry tag; clients render by kind, never by wire regex. */
+export interface PentacleMessageEnvelope {
+  kind: string;
+  id: string;
+  schema_version: 1;
+  [key: string]: unknown;
+}
+
 export interface PentacleEvent {
   daemon_seq: number;
   host: string;
@@ -81,6 +89,9 @@ export interface PentacleEvent {
   kind: PentacleEventKind;
   text: string;
   raw?: Record<string, unknown>;
+  message_envelope?: PentacleMessageEnvelope;
+  /** Grammar provenance at authenticated provider ingress; text is already unwrapped. */
+  provider_wrapper?: { kind: 'claude_pasted_content'; id: string; provenance: 'grammar' };
   jsonl_record_uuid?: string;
   jsonl_resolution_for_record_uuid?: string;
   client_origin?: boolean;
@@ -159,7 +170,7 @@ export interface PentacleSpecStatusCapability {
 }
 
 // Agent-written per-session status card set via `agent-orch status`
-// (spec_pentacle__session_status_card_2026_07). The daemon stamps updated_at
+// (public-session-status-card). The daemon stamps updated_at
 // on every successful write; all other fields are optional partial state.
 export interface SessionStatusCard {
   goal?: string;
@@ -354,11 +365,6 @@ export interface PentacleNotificationResolution {
   selections?: unknown[];
   note?: string | null;
   spawned_stream_id?: string;
-  // Answer persistence and delivery are separate daemon-owned facts. An
-  // unconfirmed delivery must never imply that another paste is safe.
-  delivery_status?: 'pending' | 'queued' | 'delivered' | 'failed' | 'unconfirmed';
-  delivery_reason?: string;
-  delivery_next_action?: string;
   // run_command outcome (mirrors the daemon's resolution.result shape).
   result?: {
     command_id?: string;
