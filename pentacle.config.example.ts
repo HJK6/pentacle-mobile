@@ -9,7 +9,7 @@ export type HostTheme = {
   // session header, settings tabs, summon grid). Resolved by getHostMachineName in
   // src/config/local.ts. When omitted the app falls back positionally over hostOrder,
   // which only preserves legacy positions — set sigil explicitly for the intended skin.
-  sigil?: 'djinni' | 'sun' | 'mage' | 'flower';
+  sigil?: 'djinni' | 'sun' | 'mage' | 'flower' | 'ibis';
 };
 
 export type PentacleConfig = {

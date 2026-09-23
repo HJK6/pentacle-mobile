@@ -143,9 +143,10 @@ export default function SummonModal({
                     onPress={() => machine && setSelected(machine)}
                     style={[
                       styles.machineCard,
+                      name === MACHINE_ORDER[MACHINE_ORDER.length - 1] && grid.length % 2 === 1 && styles.lastMachineCard,
                       {
-                        borderColor: `${meta.accent}${enabled ? '55' : '22'}`,
-                        backgroundColor: `${meta.accent}${enabled ? '12' : '08'}`,
+                        borderColor: `${meta.accent}${enabled ? '40' : '22'}`,
+                        backgroundColor: `${meta.accent}${enabled ? '10' : '08'}`,
                         opacity: enabled ? 1 : 0.42,
                       },
                     ]}
@@ -298,6 +299,7 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     paddingHorizontal: 8,
   },
+  lastMachineCard: { width: '100%' },
   machineName: {
     fontFamily: Fonts.rajdhani.bold,
     fontSize: 15,

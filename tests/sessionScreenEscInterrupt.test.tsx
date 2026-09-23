@@ -190,7 +190,7 @@ test('C: working row renders spinner, timer, and icon-only cancel using machine 
   expect(screen.queryByText('ESC · interrupt')).toBeNull();
   expect(screen.queryByText('Cancel')).toBeNull();
 
-  const accent = '#29d4ff';
+  const accent = '#1f5bff';
   const timerStyle = StyleSheet.flatten(screen.getByTestId('working-indicator-timer').props.style);
   expect(timerStyle.color).toBe(accent);
   expect(timerStyle.fontSize).toBe(12);

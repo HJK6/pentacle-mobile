@@ -12,7 +12,7 @@ const PROD_EXPO_PUBLIC_ALLOWLIST = Object.freeze(['EXPO_PUBLIC_PENTACLE_WS_URL',
 const PRODUCTION_ENDPOINT_ENV = 'EXPO_PUBLIC_PENTACLE_WS_URL';
 const PRODUCTION_BUILD_EVIDENCE_FILENAME = 'pentacle-production-build-evidence.json';
 
-const HOST_SIGIL_KINDS = Object.freeze(['djinni', 'sun', 'mage', 'flower']);
+const HOST_SIGIL_KINDS = Object.freeze(['djinni', 'sun', 'mage', 'flower', 'ibis']);
 
 const BASE_ENV_ALLOWLIST = Object.freeze([
   'ANDROID_HOME',

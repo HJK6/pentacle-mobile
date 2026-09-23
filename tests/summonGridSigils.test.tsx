@@ -2,9 +2,9 @@ import React from 'react';
 import { fireEvent, render, screen } from '@testing-library/react-native';
 import SummonModal from '../src/components/SummonModal';
 
-// hosta=djinni(#3dff66), hostb=sun(#ff2e3e), hostc=mage(#29d4ff), hostd=flower(#b14dff).
+// hosta=djinni(#1fbf4a), hostb=sun(#ff2e3e), hostc=mage(#1f5bff), hostd=flower(#a377a1).
 // With the owner-shaped host config (bart=djinni, merlin=mage, amaterasu=sun) the grid
-// must skin merlin as the mage (blue #29d4ff) and amaterasu as the sun (red #ff2e3e) —
+// must skin merlin as the mage (blue #1f5bff) and amaterasu as the sun (red #ff2e3e) —
 // the swap that the placeholder-keyed table produced is gone.
 jest.mock('expo-constants', () => require('./helpers/stubs/expoConstants.cjs'));
 jest.mock('@expo/vector-icons/FontAwesome', () => 'FontAwesome');
@@ -43,11 +43,11 @@ const machines = [
   { host: 'amaterasu', title: 'Amaterasu', online: true },
 ];
 
-function renderModal() {
+function renderModal(availableMachines = machines) {
   return render(
     <SummonModal
       visible
-      machines={machines}
+      machines={availableMachines}
       catalog={catalog}
       catalogLoading={false}
       catalogError={null}
@@ -68,18 +68,34 @@ function borderColorOf(testID: string): string {
 
 test('summon grid skins merlin as the mage (blue) and amaterasu as the sun (red)', () => {
   renderModal();
-  // enabled cards use `${accent}55` as the border color.
-  expect(borderColorOf('summon-machine-merlin')).toBe('#29d4ff55');
-  expect(borderColorOf('summon-machine-amaterasu')).toBe('#ff2e3e55');
-  expect(borderColorOf('summon-machine-bart')).toBe('#3dff6655');
+  // enabled cards use `${accent}40` as the border color.
+  expect(borderColorOf('summon-machine-merlin')).toBe('#1f5bff40');
+  expect(borderColorOf('summon-machine-amaterasu')).toBe('#ff2e3e40');
+  expect(borderColorOf('summon-machine-bart')).toBe('#1fbf4a40');
 });
 
 test('Configure agent step shows the selected machine sigil accent, not the first machine', () => {
   renderModal();
   fireEvent.press(screen.getByTestId('summon-machine-merlin'));
-  // The back control tints with selectedMeta.accent; merlin resolves to the mage (#29d4ff).
+  // The back control tints with selectedMeta.accent; merlin resolves to the mage (#1f5bff).
   const back = screen.getByText('‹ back');
   const style = Array.isArray(back.props.style) ? back.props.style : [back.props.style];
   const tint = style.find((s: Record<string, unknown>) => s && 'color' in s);
-  expect(String(tint?.color)).toBe('#29d4ff');
+  expect(String(tint?.color)).toBe('#1f5bff');
+});
+
+test('fifth ibis card spans the summon grid', () => {
+  (globalThis as Record<string, any>).__PENTACLE_EXPO_CONFIG__ = {
+    extra: { wsUrl: 'ws://10.0.0.0:7791', hosts: { hosta: { sigil: 'djinni' }, hostb: { sigil: 'sun' }, hostc: { sigil: 'mage' }, hostd: { sigil: 'flower' }, hoste: { sigil: 'ibis' } }, hostOrder: ["hosta", "hostb", "hostc", "hostd", "hoste"] },
+  };
+  renderModal([
+    { host: 'hosta', title: 'Host A', online: true },
+    { host: 'hostb', title: 'Host B', online: true },
+    { host: 'hostc', title: 'Host C', online: true },
+    { host: 'hostd', title: 'Host D', online: true },
+    { host: 'hoste', title: 'Host E', online: true },
+  ]);
+  const style = screen.getByTestId('summon-machine-hoste').props.style as Array<Record<string, unknown>>;
+  expect(style.some(entry => entry?.width === '100%')).toBe(true);
+  expect(borderColorOf('summon-machine-hoste')).toBe('#ffd60a40');
 });

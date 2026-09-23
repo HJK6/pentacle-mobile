@@ -11,7 +11,7 @@ import StatusTag from '../src/components/StatusTag';
 import { Bar, Brackets, Pill, Spark, Spinner } from '../src/components/ArcaneAtoms';
 import { STATUS, Tokens, type MachineSigilKind } from '../constants/Colors';
 
-const sigilKinds: MachineSigilKind[] = ['djinni', 'sun', 'mage', 'flower'];
+const sigilKinds: MachineSigilKind[] = ['djinni', 'sun', 'mage', 'flower', 'ibis'];
 
 test('arcane SVG component library renders without throwing', () => {
   for (const kind of sigilKinds) {

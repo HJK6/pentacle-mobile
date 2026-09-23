@@ -19,6 +19,7 @@ The public host roster is deliberately neutral:
 | `hostb` | sun | red | the flame |
 | `hostc` | mage | cyan | the mage |
 | `hostd` | flower | violet | the bloom |
+| `hoste` | ibis | yellow | the scribe |
 
 The roster is a theme vocabulary, not a fixed deployment requirement. Host
 adapters discovered at runtime may use a fallback accent.
