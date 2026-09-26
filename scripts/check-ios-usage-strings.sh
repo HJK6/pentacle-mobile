@@ -14,7 +14,7 @@ if [ ! -f "$PLIST" ]; then
   exit 2
 fi
 missing=""
-for key in NSCameraUsageDescription NSPhotoLibraryUsageDescription; do
+for key in NSCameraUsageDescription NSPhotoLibraryUsageDescription NSMicrophoneUsageDescription; do
   grep -q "$key" "$PLIST" || missing="$missing $key"
 done
 if [ -n "$missing" ]; then

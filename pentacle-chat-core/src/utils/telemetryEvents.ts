@@ -8,6 +8,7 @@ export const CHAT_RENDER_STABILITY_REF = 'spec_pentacle_mobile__chat_render_stab
 export const CHAT_QUICK_WINS_REF = 'spec_pentacle_mobile_chat_quick_wins_2026_06_10';
 export const TURN_PHASE_DERIVED_REF = 'spec_pentacle_mobile__chat_detail_working_indicator_missing_2026_06_16';
 export const OPTIMISTIC_ORPHAN_TELEMETRY_REF = 'spec_pentacle__chat_streamd_optimistic_send_orphan_telemetry';
+export const VOICE_INPUT_REF = 'spec_pentacle_mobile__voice_input_thoth_transcription_2026_09';
 
 const HARNESS_PREFIX = 'harness';
 const HARNESS_ARMED = 'harness_armed';
@@ -61,6 +62,18 @@ export const TELEMETRY_EVENTS = {
   CHAT_SESSION_FIRST_EVENT_AFTER_SEND: 'chat.session.first_event_after_send',
   CHAT_SESSION_SPAWN_SUMMARY_APPLIED: 'chat.session.spawn_summary_applied',
   CHAT_SEND_WHILE_NOT_IDLE: 'chat.compose.warn.send_while_not_idle',
+  // Voice-input lifecycle (spec_pentacle_mobile__voice_input_thoth_transcription_2026_09).
+  // Each emit carries subsystem:'mobile_voice', bug_ref (VOICE_INPUT_REF), stream_id,
+  // recording_id, and where applicable duration_s/blob_sha/request_id/error_code.
+  CHAT_VOICE_RECORD_STARTED: 'chat.voice.record_started',
+  CHAT_VOICE_RECORD_STOPPED: 'chat.voice.record_stopped',
+  CHAT_VOICE_RECORD_DISCARDED: 'chat.voice.record_discarded',
+  CHAT_VOICE_UPLOAD_OK: 'chat.voice.upload_ok',
+  CHAT_VOICE_UPLOAD_FAILED: 'chat.voice.upload_failed',
+  CHAT_VOICE_TRANSCRIBE_OK: 'chat.voice.transcribe_ok',
+  CHAT_VOICE_TRANSCRIBE_FAILED: 'chat.voice.transcribe_failed',
+  CHAT_VOICE_TRANSCRIBE_CANCELLED: 'chat.voice.transcribe_cancelled',
+  CHAT_VOICE_SEND_OUTCOME: 'chat.voice.send_outcome',
   CHAT_USER_SCROLLED: 'chat:user_scrolled',
   CHAT_AUTOSCROLL_DECISION: 'chat:autoscroll_decision',
   CHAT_HISTORY_BACKFILL_RENDERED: 'chat:history_backfill_rendered',
@@ -185,6 +198,15 @@ export const TELEMETRY_EVENT_BUG_REFS: Record<TelemetryEvent, string> = {
   [TELEMETRY_EVENTS.CHAT_SESSION_FIRST_EVENT_AFTER_SEND]: CHAT_UI_BUG_BATCH_REF,
   [TELEMETRY_EVENTS.CHAT_SESSION_SPAWN_SUMMARY_APPLIED]: CHAT_UI_BUG_BATCH_REF,
   [TELEMETRY_EVENTS.CHAT_SEND_WHILE_NOT_IDLE]: CHAT_UI_BUG_BATCH_REF,
+  [TELEMETRY_EVENTS.CHAT_VOICE_RECORD_STARTED]: VOICE_INPUT_REF,
+  [TELEMETRY_EVENTS.CHAT_VOICE_RECORD_STOPPED]: VOICE_INPUT_REF,
+  [TELEMETRY_EVENTS.CHAT_VOICE_RECORD_DISCARDED]: VOICE_INPUT_REF,
+  [TELEMETRY_EVENTS.CHAT_VOICE_UPLOAD_OK]: VOICE_INPUT_REF,
+  [TELEMETRY_EVENTS.CHAT_VOICE_UPLOAD_FAILED]: VOICE_INPUT_REF,
+  [TELEMETRY_EVENTS.CHAT_VOICE_TRANSCRIBE_OK]: VOICE_INPUT_REF,
+  [TELEMETRY_EVENTS.CHAT_VOICE_TRANSCRIBE_FAILED]: VOICE_INPUT_REF,
+  [TELEMETRY_EVENTS.CHAT_VOICE_TRANSCRIBE_CANCELLED]: VOICE_INPUT_REF,
+  [TELEMETRY_EVENTS.CHAT_VOICE_SEND_OUTCOME]: VOICE_INPUT_REF,
   [TELEMETRY_EVENTS.HARNESS_SEND_HANDLER_REGISTERED]: E2E_TELEMETRY_FLOWS_REF,
   [TELEMETRY_EVENTS.HARNESS_SPAWN_CHAT_THEN_SEND_SCHEDULED]: E2E_TELEMETRY_FLOWS_REF,
   [TELEMETRY_EVENTS.HARNESS_SPAWN_CHAT_THEN_SEND_COMPOSED]: E2E_TELEMETRY_FLOWS_REF,

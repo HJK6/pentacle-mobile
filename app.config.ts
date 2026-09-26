@@ -132,6 +132,7 @@ export default function defineConfig(_context: ConfigContext): ExpoConfig {
         NSFaceIDUsageDescription: 'Pentacle uses Face ID to secure access to live machine sessions.',
         NSCameraUsageDescription: 'Pentacle uses the camera so you can take a photo to attach to a chat message.',
         NSPhotoLibraryUsageDescription: 'Pentacle uses your photo library so you can attach photos to a chat message.',
+        NSMicrophoneUsageDescription: 'Pentacle uses the microphone so you can dictate a chat message; the recording is transcribed on your configured backend.',
         NSAppTransportSecurity: {
           NSAllowsArbitraryLoads: true,
           NSAllowsLocalNetworking: true,

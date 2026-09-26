@@ -405,8 +405,8 @@ test('Case B: returned-to-prompt retraction restores an empty composer and leave
 test('rapid-send case: a fast double-tap of Send dispatches sendTurn + sendMessage exactly once (sendInFlightRef latch)', async () => {
   render(<SessionScreen />);
   const input = screen.getByTestId('composer-input');
-  const sendButton = screen.getByTestId('composer-send-button');
   fireEvent.changeText(input, 'only once');
+  const sendButton = screen.getByTestId('composer-send-button');
 
   // Two synchronous presses before the first send settles → the latch swallows
   // the second.

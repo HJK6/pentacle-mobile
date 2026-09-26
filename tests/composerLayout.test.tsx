@@ -164,6 +164,7 @@ afterEach(() => {
 
 test('send button anchors to the bottom-right corner', () => {
   render(<SessionScreen />);
+  fireEvent.changeText(screen.getByTestId('composer-input'), 'layout probe');
   const sendStyle = StyleSheet.flatten(screen.getByTestId('composer-send-button').props.style);
   expect(sendStyle.position).toBe('absolute');
   expect(typeof sendStyle.bottom).toBe('number');

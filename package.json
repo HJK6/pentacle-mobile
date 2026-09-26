@@ -60,7 +60,8 @@
     "react-native-web": "~0.21.0",
     "expo-file-system": "~19.0.16",
     "expo-asset": "~11.1.7",
-    "base64-js": "^1.5.1"
+    "base64-js": "^1.5.1",
+    "expo-audio": "~1.1.1"
   },
   "devDependencies": {
     "@testing-library/react-native": "^13.3.3",

@@ -138,3 +138,22 @@ deployment are intentionally outside this public specification.
 - reconnect snapshots can arrive while a turn is in flight;
 - image and attachment uploads need bounded size/type validation;
 - a fixture adapter must never be mistaken for an authenticated service.
+
+## Voice dictation to the originating chat
+
+An empty shared composer displays a mic control. Tap to record while scrolling
+or navigating; tap again to stop and send. Discard cancels capture. A global
+Recording · duration · Return pill and Stop and send control remain available
+outside the originating chat. Session and unified composers capture the selected
+stream at start; changing the selection never redirects a take.
+
+Stopped audio is sent to the configured transcription backend for English
+recognition. A waveform user row shows
+TRANSCRIBING and an X until text dispatch. Errors or empty recognition offer
+Retry/Discard; interrupted/backgrounded takes continue with an interruption
+caption. The final message is plain text, with a durable microphone/duration
+caption. Audio never reaches the selected agent. Capture uses microphone
+permission, AAC/M4A 16 kHz mono and a five-minute cap, without background audio
+entitlement or playback. See [chat surface contract](chat_surface.md#voice-input)
+for state ownership, cancellation and retry details; measurable vocabulary
+acceptance uses [voice fixtures](../test/fixtures/voice/README.md).

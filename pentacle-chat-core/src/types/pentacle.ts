@@ -118,6 +118,15 @@ export interface PentacleEvent {
   // rendered bubbles). FIFO order is preserved and mirrors the order the daemon
   // names the paths in its inject instruction line.
   attachments?: ChatAttachment[];
+  // Durable send metadata persisted on a USER event. `voice` marks a message
+  // that was dictated (transcribed on the daemon), so the mic-glyph + duration
+  // caption survives reload/reconcile. Echoed by the daemon; ignored elsewhere.
+  meta?: PentacleSendMeta;
+}
+
+/** Additive, durable per-message send metadata (voice-input lane). */
+export interface PentacleSendMeta {
+  voice?: { duration_s: number };
 }
 
 export interface PentacleHostStatus {

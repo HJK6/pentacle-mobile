@@ -14,6 +14,9 @@ export type TelemetryPayload = {
 export type TelemetrySink = (payload: TelemetryPayload) => void;
 
 function subsystemFor(name: TelemetryEvent) {
+  if (String(name).startsWith('chat.voice.')) {
+    return 'mobile_voice';
+  }
   if (String(name).startsWith('chat.compose.') || String(name).startsWith('chat.session.')) {
     return 'chat_surface';
   }

@@ -178,3 +178,44 @@ question projections, and ordering. Consumers should move through reviewed
 public releases together and must not fork these decisions locally. The parity
 contract is behavioral; no private commit, remote, or source pin belongs in
 this document.
+
+## Voice input
+
+The shared `ComposerBar` receives the selected `streamId` on both the session and
+unified feed. With an empty text/photo draft it offers the microphone; typing or
+staging a photo restores Send. A missing destination disables the microphone.
+Starting capture dismisses the keyboard. The recording strip shows Discard,
+elapsed time and live metering; scrolling and navigation leave capture running.
+The root recording overlay offers Return and Stop and send outside the origin
+chat. Permission denial and native start/stop failures are visible.
+
+`voiceRecordingEngine.ts` adapts expo-audio to the process-owned `VoiceRecorder`.
+The capture profile is AAC/M4A, 16 kHz mono, 32 kbps, with a five-minute cap.
+Tap, cap, interruption and background all use the same stop subscriber.
+An interruption/background stop marks its pending row `interrupted at m:ss`.
+A failed native stop pauses automatic polling and retains the take for another
+Stop or Discard. The app does not enable background capture or audio playback.
+
+`voiceDelivery.ts` owns the pending takes outside screen lifetimes. Stop inserts
+a waveform row with `TRANSCRIBING`, then `runVoiceUploadTranscribe` uploads the
+file and calls authenticated `transcribe_blob`. Before text dispatch, Discard
+removes the row, deletes the file and prevents late completion from sending.
+Upload/transcription failure or empty text leaves a failed row with Retry and
+Discard. Retry preserves the transcription request ID and recorded origin.
+
+A nonempty transcript immediately replaces the pending voice row with the
+ordinary optimistic text send, explicitly identified by its optimistic ID.
+Only text and `meta: {voice: {duration_s}}` are sent to the agent. The audio file
+is deleted after receiving the transcript; after text dispatch, the existing
+receipt/reconnect/retry lifecycle owns delivery. `pentacleStream.ts` preserves
+voice metadata on the optimistic event and every retry payload. Daemon echoes
+and history project `item.voice`, so the text bubble's mic/duration caption
+survives reload. Recording/transcription state is process-local; app restart
+does not recover unfinished takes.
+
+Lifecycle evidence uses tagged `chat.voice.*` events with `mobile_voice`, the
+voice spec's `bug_ref`, origin stream and recording identity. Focused coverage:
+`voiceComposerJourney.test.tsx` (real session/shared/unified composer, pending
+cancel and destination change), `voiceDelivery.test.ts` (retention/retry/empty),
+`voiceSendMetadata.test.ts` (actual wire, optimistic caption and retry), and
+`voiceRecording.test.ts` (cap, metering and stop lifecycle).

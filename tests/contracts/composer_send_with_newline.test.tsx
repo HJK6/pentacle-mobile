@@ -294,7 +294,7 @@ function makeTraceSetup(): TraceSetup {
         },
       },
       composer: {
-        isSendButtonDisabled: () => Boolean(screen.getByTestId('composer-send-button').props.accessibilityState?.disabled),
+        isSendButtonDisabled: () => (screen.queryByTestId('composer-send-button') ? Boolean(screen.getByTestId('composer-send-button').props.accessibilityState?.disabled) : true),
         composerText: () => String(screen.getByTestId('composer-input').props.value || ''),
       },
     },

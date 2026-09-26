@@ -223,7 +223,8 @@ test('turn working (mid-response): indicator Working, composer stays sendable (B
 
   // B1: mid-response the composer is NO LONGER locked — a typed draft can be
   // sent (it queues behind the working turn). The empty-input guard still holds.
-  expect(screen.getByTestId('composer-send-button').props.accessibilityState.disabled).toBe(true);
+  expect(screen.queryByTestId('composer-send-button')).toBeNull();
+  expect(screen.getByTestId('composer-mic-button')).toBeTruthy();
   typeDraft();
   expect(screen.getByTestId('composer-send-button').props.accessibilityState.disabled).toBe(false);
 });

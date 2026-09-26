@@ -3806,6 +3806,33 @@ function handleMessageInner(raw: string) {
     return;
   }
 
+  if (message.type === 'transcribe_blob.ok' && typeof message.request_id === 'string') {
+    const pending = pendingRequests.get(message.request_id);
+    if (pending) {
+      settlePendingRequest(message.request_id);
+      pending.resolve({
+        text: String(message.text || ''),
+        duration_s: typeof message.duration_s === 'number' ? message.duration_s : undefined,
+        model: typeof message.model === 'string' ? message.model : undefined,
+        vocabulary_version:
+          typeof message.vocabulary_version === 'string' ? message.vocabulary_version : undefined,
+      });
+    }
+    return;
+  }
+
+  if (message.type === 'transcribe_blob.error' && typeof message.request_id === 'string') {
+    const pending = pendingRequests.get(message.request_id);
+    if (pending) {
+      settlePendingRequest(message.request_id);
+      const errorCode = String(message.error_code || 'transcribe_failed');
+      const err = new Error(String(message.error || errorCode));
+      (err as Error & { code?: string }).code = errorCode;
+      pending.reject(err);
+    }
+    return;
+  }
+
   if (message.type === 'notification.list.ok' && typeof message.request_id === 'string') {
     const notifications = Array.isArray(message.notifications)
       ? (message.notifications as PentacleNotification[])
@@ -5237,9 +5264,12 @@ function sendPayloadForSession(
     attachments?: ChatAttachment[];
     replyToMessageId?: string;
     replyToQuestionId?: string;
+    meta?: PentacleEvent['meta'];
   },
 ): Record<string, unknown> {
+  const meta = fields.meta ?? (fields.optimisticId ? peekEventsForStream(state, session.stream_id).find(event => event.optimistic_id === fields.optimisticId && event.client_origin)?.meta : undefined);
   const reply = {
+    ...(meta ? { meta } : {}),
     ...(fields.replyToMessageId ? { reply_to_message_id: fields.replyToMessageId } : {}),
     ...(fields.replyToQuestionId ? { reply_to_question_id: fields.replyToQuestionId } : {}),
   };
@@ -5527,6 +5557,7 @@ export function replaceOptimisticAttachments(
 }
 
 export async function sendPentacleMessage(args: {
+  meta?: PentacleEvent['meta'];
   host: string;
   sessionName: string;
   text: string;
@@ -5611,6 +5642,13 @@ export async function sendPentacleMessage(args: {
       : next);
     optimistic = state.optimisticSends?.[optimistic.optimistic_id];
   }
+  if (optimistic && args.meta) {
+    const event = peekEventsForStream(state, optimistic.stream_id).find(event => event.optimistic_id === optimistic!.optimistic_id && event.client_origin);
+    if (event) setState(mutatePentacleEventBuckets(state, {
+      type: 'optimistic-replace', streamId: optimistic.stream_id,
+      optimisticId: optimistic.optimistic_id, event: { ...event, meta: args.meta },
+    }));
+  }
   if (session && isPentacleAssistantCompositeSession(session) && !optimistic) {
     return Promise.reject(new Error('Composite send is missing its stable input id'));
   }
@@ -5618,6 +5656,7 @@ export async function sendPentacleMessage(args: {
   const payload = session
     ? sendPayloadForSession(session, {
       text: args.text,
+      meta: args.meta,
       optimisticId: optimistic?.optimistic_id,
       attachments: args.attachments ?? optimistic?.attachments,
       replyToMessageId: optimistic?.reply_to_message_id ?? args.replyToMessageId,
@@ -5625,6 +5664,7 @@ export async function sendPentacleMessage(args: {
     })
     : {
       type: 'send',
+      ...(args.meta ? { meta: args.meta } : {}),
       host: args.host,
       session_name: args.sessionName,
       text: args.text,
@@ -5709,6 +5749,33 @@ export async function uploadBlobBase64(
     sendBlobChunk(request_id, chunks[index], false);
   }
   return sendBlobChunk(request_id, chunks[chunks.length - 1], true);
+}
+
+export interface TranscribeBlobResult {
+  text: string;
+  duration_s?: number;
+  model?: string;
+  vocabulary_version?: string;
+}
+
+/**
+ * Transcribe an already-uploaded audio blob on the daemon (managed mic backend,
+ * fleet vocabulary). Idempotent on request_id and content-addressed on blob_sha,
+ * so a caller that reissues the SAME request_id on a socket-generation retry
+ * never produces a second transcript. On failure the rejection's `code` carries
+ * the daemon error_code (blob_unknown | mime_unsupported | backend_unavailable |
+ * transcribe_failed | too_long) for a precise, user-facing message.
+ */
+export async function transcribeBlob(
+  blobSha: string,
+  mime: string,
+  options: { requestId?: string } = {},
+): Promise<TranscribeBlobResult> {
+  return sendCommand<TranscribeBlobResult>(
+    { type: 'transcribe_blob', blob_sha: blobSha, mime },
+    'transcribe',
+    { requestId: options.requestId },
+  );
 }
 
 /**

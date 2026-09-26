@@ -46,6 +46,12 @@ import Starfield from '../../../src/components/Starfield';
 import StatusTag from '../../../src/components/StatusTag';
 import { StatusOverlay } from '../../../src/components/SessionStatusCard';
 import SendingIndicator from '../../../src/components/SendingIndicator';
+import RecordingStrip from '../../../src/components/voice/RecordingStrip';
+import VoiceBubble from '../../../src/components/voice/VoiceBubble';
+import { voiceRecorder } from '../../../src/services/voiceRecordingEngine';
+import { formatDuration, PermissionDeniedError, type RecordingSnapshot } from '../../../src/services/voiceRecording';
+import { voiceDelivery, useVoiceDelivery, voiceTakeRow, retryVoiceMessage } from '../../../src/services/voiceDelivery';
+
 import { WandCastSendIcon } from '../../../src/components/SendGlyphs';
 import ChatActionSheet from '../../../src/components/ChatActionSheet';
 import RenameChatModal from '../../../src/components/RenameChatModal';
@@ -1342,6 +1348,8 @@ export default function PentacleSessionScreen() {
       }
     }).catch(() => undefined);
   }, [connectionSlice.connected, isFocused, params.reports, streamId]);
+  const voiceState = useVoiceDelivery();
+  const hasPendingVoice = voiceState.takes.some(t => t.streamId === streamId);
   const hasQuestionAnswerProjection = Object.keys(questionAnswerProjections).length > 0 || authoritativeQuestionAnswerProjections.length > 0;
   const questionTimelineEvents = usePentacleStreamSelectorWhen(
     isFocused && hasQuestionAnswerProjection,
@@ -1432,13 +1440,13 @@ export default function PentacleSessionScreen() {
   }, [actions, streamId, workingIdentity]);
   const detailHasHydrated = Boolean(hasHydrated);
   const transcriptRowCount = detail?.transcriptItems.length ?? 0;
-  const legacyHasContent = transcriptRowCount > 0 || hasQuestionAnswerProjection;
+  const legacyHasContent = transcriptRowCount > 0 || hasQuestionAnswerProjection || hasPendingVoice;
   const legacyLoaded = historyLoadState.currentGenerationComplete || legacyHasContent || turnBusy || hasOptimisticPending;
   const legacyHydrating = !legacyHasContent && (!legacyLoaded || historyFetchInFlight);
   const chatOpenLoadState = shellSelectorAvailable
     ? selectChatOpenLoadState({
       preview: Boolean(shellSlice.preview),
-      retainedRows: shellSlice.retainedRows + (hasQuestionAnswerProjection ? 1 : 0),
+      retainedRows: shellSlice.retainedRows + (hasQuestionAnswerProjection ? 1 : 0) + (hasPendingVoice ? 1 : 0),
       connected: shellSlice.connected,
       request: shellSlice.request,
     })
@@ -1452,7 +1460,7 @@ export default function PentacleSessionScreen() {
   const isLoadedEmpty = chatOpenLoadState.status === 'empty';
   const emptyStateVisible = isFocused && transcriptReady && isLoadedEmpty;
   const shouldRenderTranscript = isFocused &&
-    (transcriptReady || !shellSelectorAvailable) &&
+    (transcriptReady || !shellSelectorAvailable || hasPendingVoice) &&
     chatOpenLoadState.list === 'authoritative';
   const transcriptProbeSeqs = (detail?.transcriptItems ?? [])
     .map((item) => item.correlatedDaemonSeq ?? Number(item.id))
@@ -1959,13 +1967,13 @@ export default function PentacleSessionScreen() {
     }
   }, [actions, activeQuestionRenderKey, session, streamId]);
   const transcriptData = useMemo(
-    () => assembleSessionTranscriptRows(
+    () => [...voiceState.takes.filter(t => t.streamId === streamId).map(voiceTakeRow).reverse(), ...assembleSessionTranscriptRows(
       authoritativeQuestionAnswerProjections,
       questionAnswerProjections,
       detail?.transcriptItems ?? [],
       questionEventTimestamps,
-    ),
-    [authoritativeQuestionAnswerProjections, detail?.transcriptItems, questionAnswerProjections, questionEventTimestamps],
+    )],
+    [authoritativeQuestionAnswerProjections, detail?.transcriptItems, questionAnswerProjections, questionEventTimestamps, voiceState, streamId],
   );
   useEffect(() => {
     const correlationId = chatOpenCorrelationIdRef.current;
@@ -2392,7 +2400,7 @@ export default function PentacleSessionScreen() {
   }, [streamId]);
   const retryFromChat = useCallback(async (optimisticId: string) => {
     try {
-      await actions.retryOptimisticSend(optimisticId);
+      await retryVoiceMessage(optimisticId, actions.retryOptimisticSend);
     } catch (error) {
       presentSendError(error);
     }
@@ -3590,6 +3598,7 @@ export default function PentacleSessionScreen() {
             />
           ) : null}
           <ComposerBar
+            streamId={streamId}
             host={hostTitle}
             chrome={chrome}
             disabled={false}
@@ -3900,6 +3909,8 @@ export const TranscriptRow = memo(function TranscriptRow({
   directChild?: ChildAgent | null;
   onOpenDirectChildThread?: (child: ChildAgent) => void;
 }) {
+  const voiceState = useVoiceDelivery();
+  const voiceTake = voiceState.takes.find(t => `voice:${t.recordingId}` === item.id);
   const hidesTurnDuration = !showTurnDuration &&
     (item.displayRule === 'terminal:divider' || item.displayRule === 'activity:turn-summary');
   const shouldAnimate = !animatedRowIds.has(item.id);
@@ -4006,6 +4017,18 @@ export const TranscriptRow = memo(function TranscriptRow({
             ))}
           </View>
         ) : null}
+        {voiceTake ? (
+          <>
+            <View style={styles.userSendStatusRow} testID="voice-transcription-status">
+              {voiceTake.status === 'transcribing' ? <SendingIndicator /> : null}
+              <Text style={styles.userSendStatusText}>{voiceTake.error || 'TRANSCRIBING'}</Text>
+              {voiceTake.interrupted ? <Text style={styles.userSendStatusText}>interrupted at {formatDuration(voiceTake.durationS)}</Text> : null}
+              {voiceTake.status === 'failed' ? <Pressable accessibilityLabel="Retry transcription" testID="voice-transcription-retry" onPress={() => { void voiceDelivery.retry(voiceTake.recordingId); }}><Text style={styles.userSendStatusText}>Retry</Text></Pressable> : null}
+              <Pressable accessibilityLabel="Discard voice message" testID="voice-transcription-discard" hitSlop={8} onPress={() => voiceDelivery.discard(voiceTake.recordingId)}><FontAwesome name="close" size={14} color={P.muted} /></Pressable>
+            </View>
+            <VoiceBubble levels={voiceTake.levels} durationS={voiceTake.durationS} />
+          </>
+        ) : item.voice ? <View style={styles.userSendStatusRow} testID="voice-message-caption"><FontAwesome name="microphone" size={10} color={Tokens.palette.green} /><Text style={styles.userSendStatusText}>{formatDuration(item.voice.duration_s)}</Text></View> : null}
         {hasTextBody ? (
           <Pressable
             testID={`message-bubble-${item.id}`}
@@ -4704,6 +4727,7 @@ export function AnimatedSpinnerGlyph({ style }: { style: any }) {
 }
 
 export function ComposerBar({
+  streamId,
   host,
   chrome,
   disabled,
@@ -4719,6 +4743,7 @@ export function ComposerBar({
   onError,
   onRegisterSendHandler,
 }: {
+  streamId?: string;
   host: string;
   chrome: HostChrome;
   disabled: boolean;
@@ -4742,6 +4767,35 @@ export function ComposerBar({
   onError: (message: string) => void;
   onRegisterSendHandler?: (fn: ((request: HarnessSendRequest) => Promise<void>) | null) => void;
 }) {
+  const [processRecording, setRecording] = useState<RecordingSnapshot | null>(() => voiceRecorder.snapshot());
+  const recording = processRecording?.streamId === streamId ? processRecording : null;
+  const [microphoneDenied, setMicrophoneDenied] = useState(false);
+  const [voiceBusy, setVoiceBusy] = useState(false);
+  const voiceBusyRef = useRef(false);
+  useEffect(() => voiceRecorder.subscribe(setRecording), []);
+  const handleVoicePress = async () => {
+    if (voiceBusyRef.current) return;
+    voiceBusyRef.current = true;
+    setVoiceBusy(true);
+    try {
+      if (voiceRecorder.isActive()) {
+        if (voiceRecorder.activeStreamId() !== streamId) {
+          onError('A recording is already active in another chat. Use Return or the recording controls.');
+          return;
+        }
+        await voiceRecorder.stop('tap');
+      } else {
+        if (disabled || submissionDisabled || !streamId) return;
+        setMicrophoneDenied(false);
+        Keyboard.dismiss();
+        setMoreExpanded(false);
+        await voiceRecorder.start(streamId);
+      }
+    } catch (error) {
+      if (error instanceof PermissionDeniedError) setMicrophoneDenied(true);
+      else onError('Could not record audio. Try again.');
+    } finally { voiceBusyRef.current = false; setVoiceBusy(false); }
+  };
   const [composer, setComposer] = useState('');
   // Expanded state for the top-right "+" more-menu (photo + camera actions).
   const [moreExpanded, setMoreExpanded] = useState(false);
@@ -5020,6 +5074,12 @@ export function ComposerBar({
           ))}
         </View>
       ) : null}
+      {microphoneDenied ? <View testID="voice-permission-recovery" style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+        <Text style={{ color: P.muted }}>Microphone permission is denied.</Text>
+        <Pressable accessibilityRole="button" accessibilityLabel="Open Settings" onPress={() => { void Linking.openSettings().catch(() => onError('Could not open Settings.')); }}>
+          <Text style={{ color: chrome.accent }}>Open Settings</Text>
+        </Pressable>
+      </View> : null}
       <View
         testID="composer-capsule"
         collapsable={false}
@@ -5050,7 +5110,7 @@ export function ComposerBar({
             style={styles.composerTapAway}
           />
         ) : null}
-        <TextInput
+        {recording ? <RecordingStrip displayLevels={recording.displayLevels} durationS={recording.durationS} error={recording.error} onDiscard={() => { if (voiceRecorder.snapshot()?.status !== 'recording') return; void voiceRecorder.discard().catch(() => onError('Could not discard recording.')); }} /> : <TextInput
           testID="composer-input"
           accessibilityLabel="Message input"
           ref={inputRef}
@@ -5076,8 +5136,8 @@ export function ComposerBar({
             onFocus();
           }}
           onPressIn={collapseMore}
-        />
-        {!moreExpanded ? (
+        />}
+        {!recording && !moreExpanded ? (
           <Pressable
             testID="composer-plus-button"
             accessibilityLabel="More actions"
@@ -5098,7 +5158,7 @@ export function ComposerBar({
             </Svg>
           </Pressable>
         ) : null}
-        {moreExpanded ? (
+        {!recording && moreExpanded ? (
           <Pressable
             testID="composer-camera-button"
             accessibilityLabel="Take photo"
@@ -5123,7 +5183,7 @@ export function ComposerBar({
             </Svg>
           </Pressable>
         ) : null}
-        {moreExpanded ? (
+        {!recording && moreExpanded ? (
           <Pressable
             testID="composer-photo-button"
             accessibilityLabel="Choose photo"
@@ -5148,7 +5208,11 @@ export function ComposerBar({
             </Svg>
           </Pressable>
         ) : null}
-        <Pressable
+        {recording || (!composer.trim() && stagedAttachments.length === 0) ? (
+          <Pressable testID="composer-mic-button" accessibilityRole="button" accessibilityLabel={recording ? 'Stop and send' : 'Voice mode'} accessibilityState={{ disabled: voiceBusy || (!recording && (disabled || submissionDisabled || !streamId)) }} disabled={voiceBusy || (!recording && (disabled || submissionDisabled || !streamId))} onPress={() => { void handleVoicePress(); }} style={[styles.sendButton, recording && { backgroundColor: Tokens.palette.green }]} hitSlop={8}>
+            <FontAwesome name="microphone" size={20} color={recording ? Tokens.palette.ink : Tokens.palette.green} />
+          </Pressable>
+        ) : <Pressable
           testID="composer-send-button"
           accessibilityLabel="Send message"
           accessibilityRole="button"
@@ -5162,7 +5226,7 @@ export function ComposerBar({
           hitSlop={8}
         >
           <WandCastSendIcon color={Tokens.palette.green} size={20} />
-        </Pressable>
+        </Pressable>}
         </View>
       </View>
     </View>

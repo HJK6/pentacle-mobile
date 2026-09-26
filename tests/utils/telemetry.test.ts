@@ -265,7 +265,9 @@ test('telemetry registry names are unique and case anchored', () => {
   ]);
   for (const name of TELEMETRY_EVENT_NAMES) {
     let expectedRef: string;
-    if (name === TELEMETRY_EVENTS.CHAT_IMAGE_LOAD_STATE) {
+    if (String(name).startsWith('chat.voice.')) {
+      expectedRef = 'spec_pentacle_mobile__voice_input_thoth_transcription_2026_09';
+    } else if (name === TELEMETRY_EVENTS.CHAT_IMAGE_LOAD_STATE) {
       expectedRef = 'spec_pentacle_mobile__decoded_photo_spinner_overlay_2026_09';
     } else if (chatUiBugBatchEvents.has(name)) {
       expectedRef = CHAT_UI_BUG_BATCH_REF;

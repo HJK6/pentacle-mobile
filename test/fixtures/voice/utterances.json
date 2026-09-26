@@ -1,0 +1,117 @@
+[
+  {
+    "id": "juniper-1",
+    "kind": "name",
+    "text": "Juniper please check the current build."
+  },
+  {
+    "id": "juniper-2",
+    "kind": "name",
+    "text": "Please ask Juniper to review this change."
+  },
+  {
+    "id": "juniper-3",
+    "kind": "name",
+    "text": "Send the final receipt to Juniper."
+  },
+  {
+    "id": "juniper-4",
+    "kind": "name",
+    "text": "I would like Juniper to open the originating chat."
+  },
+  {
+    "id": "atlas-1",
+    "kind": "name",
+    "text": "Atlas please check the current build."
+  },
+  {
+    "id": "atlas-2",
+    "kind": "name",
+    "text": "Please ask Atlas to review this change."
+  },
+  {
+    "id": "atlas-3",
+    "kind": "name",
+    "text": "Send the final receipt to Atlas."
+  },
+  {
+    "id": "atlas-4",
+    "kind": "name",
+    "text": "I would like Atlas to open the originating chat."
+  },
+  {
+    "id": "rowan-1",
+    "kind": "name",
+    "text": "Rowan please check the current build."
+  },
+  {
+    "id": "rowan-2",
+    "kind": "name",
+    "text": "Please ask Rowan to review this change."
+  },
+  {
+    "id": "rowan-3",
+    "kind": "name",
+    "text": "Send the final receipt to Rowan."
+  },
+  {
+    "id": "rowan-4",
+    "kind": "name",
+    "text": "I would like Rowan to open the originating chat."
+  },
+  {
+    "id": "decoy-01",
+    "kind": "decoy",
+    "text": "It is a matter of sue and settlement."
+  },
+  {
+    "id": "decoy-02",
+    "kind": "decoy",
+    "text": "The label says toth in small letters."
+  },
+  {
+    "id": "decoy-03",
+    "kind": "decoy",
+    "text": "The tot is carrying a toy."
+  },
+  {
+    "id": "decoy-04",
+    "kind": "decoy",
+    "text": "The sign says Robins without an apostrophe."
+  },
+  {
+    "id": "decoy-05",
+    "kind": "decoy",
+    "text": "Robin's is written on the bakery sign."
+  },
+  {
+    "id": "decoy-06",
+    "kind": "decoy",
+    "text": "We met at the bar to discuss the clock."
+  },
+  {
+    "id": "decoy-07",
+    "kind": "decoy",
+    "text": "I said a matter of soup for lunch."
+  },
+  {
+    "id": "decoy-08",
+    "kind": "decoy",
+    "text": "The new tooth is still sore."
+  },
+  {
+    "id": "decoy-09",
+    "kind": "decoy",
+    "text": "She bought a bath mat for the floor."
+  },
+  {
+    "id": "decoy-10",
+    "kind": "decoy",
+    "text": "The word in this puzzle is barter."
+  },
+  {
+    "id": "mixed-60s",
+    "kind": "mixed",
+    "text": "Juniper should review the current build before we release it. Please ask Atlas to transcribe this short message and send the resulting text to Rowan. I am scrolling through the conversation while the recording continues. The timer shows how long I have been speaking. When I press stop, the phone uploads the audio and waits for the transcript. I can discard the pending recording before any text is sent. If transcription fails, the recording stays available for a retry. Navigation should never change the destination of the message. I can open another conversation, return to the original one, and see the same recording state. The final user bubble contains ordinary text with a microphone symbol and the duration. It should still display those details after the conversation is reopened. We also need to check unrelated words and similar sounding phrases so the vocabulary does not invent names. The final test uses my own voice, compares the same audio against keyboard dictation, and records both accuracy and latency. Thank you Juniper, Atlas, and Rowan."
+  }
+]

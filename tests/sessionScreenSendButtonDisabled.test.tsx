@@ -148,13 +148,13 @@ afterEach(() => {
 test('B1: send stays enabled while working; empty-input guard holds; idle send dispatches, working send enqueues', async () => {
   const rendered = render(<SessionScreen />);
   const input = screen.getByTestId('composer-input');
-  const sendButton = screen.getByTestId('composer-send-button');
-
-  // Empty composer: send button is disabled regardless of phase (empty guard).
-  expect(sendButton.props.accessibilityState.disabled).toBe(true);
+  // Empty composer offers voice; no empty text send can be dispatched.
+  expect(screen.queryByTestId('composer-send-button')).toBeNull();
+  expect(screen.getByTestId('composer-mic-button')).toBeTruthy();
 
   // Idle + non-empty text: enabled. Pressing dispatches via sendTurn.
   fireEvent.changeText(input, 'hello');
+  const sendButton = screen.getByTestId('composer-send-button');
   expect(sendButton.props.accessibilityState.disabled).toBe(false);
   expect(input.props.editable).toBe(true);
   await act(async () => {
@@ -191,9 +191,10 @@ test('B1: send stays enabled while working; empty-input guard holds; idle send d
   expect(mockActions.enqueueTurn).toHaveBeenCalledWith(STREAM_ID, 'queued while working', undefined);
   expect(mockActions.sendTurn).not.toHaveBeenCalled();
 
-  // Empty composer while working: still disabled (empty-input guard preserved).
+  // Empty composer while working offers voice without sending empty text.
   fireEvent.changeText(input, '');
-  expect(sendButton.props.accessibilityState.disabled).toBe(true);
+  expect(screen.queryByTestId('composer-send-button')).toBeNull();
+  expect(screen.getByTestId('composer-mic-button')).toBeTruthy();
 });
 
 test('opening an already-idle session self-heals a stuck working turn (resync reconciles to idle); composer sendable throughout (B1)', async () => {
@@ -208,8 +209,8 @@ test('opening an already-idle session self-heals a stuck working turn (resync re
 
   const rendered = render(<SessionScreen />);
   const input = screen.getByTestId('composer-input');
-  const sendButton = screen.getByTestId('composer-send-button');
   fireEvent.changeText(input, 'hello');
+  const sendButton = screen.getByTestId('composer-send-button');
 
   // B1: even with a stuck "working" turn, send is NOT locked (send-while-working).
   expect(sendButton.props.accessibilityState.disabled).toBe(false);

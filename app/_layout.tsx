@@ -1,3 +1,4 @@
+import VoiceRecordingOverlay from '../src/components/voice/VoiceRecordingOverlay';
 import { LogBox, Linking } from 'react-native';
 
 // Suppress harmless Expo native module warnings that fire on startup
@@ -1070,6 +1071,7 @@ export default function RootLayout() {
             <Stack.Screen name="pentacle/session/[streamId]" options={{ headerShown: false }} />
           </Stack>
         )}
+        {(!locked || DISABLE_LOCAL_AUTH_FOR_TESTING) ? <VoiceRecordingOverlay /> : null}
       </ThemeProvider>
     </GestureHandlerRootView>
   );

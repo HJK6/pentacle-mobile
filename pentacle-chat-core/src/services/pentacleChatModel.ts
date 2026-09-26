@@ -155,6 +155,10 @@ export type PentacleTranscriptItem = {
   // model). Copied from the underlying PentacleEvent so every view (desktop +
   // mobile) renders the media bubble from the same transcript shape. FIFO order.
   attachments?: ChatAttachment[];
+  // Voice-input marker copied from event.meta.voice: a dictated message renders
+  // the mic-glyph + duration caption, and while pending, the transcribing voice
+  // bubble. Duration in whole/fractional seconds.
+  voice?: { duration_s: number };
 };
 
 /** A summary-only row that is safe to paint before transcript derivation. */
@@ -750,7 +754,8 @@ function sameTranscriptItem(a: PentacleTranscriptItem, b: PentacleTranscriptItem
     a.receiptCaption === b.receiptCaption &&
     a.sendState === b.sendState &&
     a.queuedWhileWorking === b.queuedWhileWorking &&
-    a.attachments === b.attachments
+    a.attachments === b.attachments &&
+    (a.voice?.duration_s) === (b.voice?.duration_s)
   );
 }
 
@@ -1790,6 +1795,9 @@ function buildSessionTranscriptRows(
     };
     if (event.attachments && event.attachments.length > 0) {
       nextItem.attachments = event.attachments;
+    }
+    if (event.meta?.voice && typeof event.meta.voice.duration_s === 'number') {
+      nextItem.voice = { duration_s: event.meta.voice.duration_s };
     }
     if (send?.queued_at !== undefined || event.queued_at !== undefined) {
       nextItem.queuedWhileWorking = true;

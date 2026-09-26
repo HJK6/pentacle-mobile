@@ -687,6 +687,7 @@ export default function UnifiedScreen() {
             </Pressable>
           </View>
           <ComposerBar
+            streamId={targetSession?.stream_id}
             host={targetChrome.title}
             chrome={targetChrome}
             disabled={!slice.connected}

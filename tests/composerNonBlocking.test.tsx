@@ -265,9 +265,8 @@ test('a second non-empty tap surfaces feedback, retains its draft, and can send 
   mockActions.sendMessage.mockReturnValueOnce(first).mockResolvedValue(true);
   const rendered = render(<SessionScreen />);
   const input = screen.getByTestId('composer-input');
-  const sendButton = screen.getByTestId('composer-send-button');
-
   fireEvent.changeText(input, 'first message');
+  const sendButton = screen.getByTestId('composer-send-button');
   act(() => {
     fireEvent.press(sendButton);
   });
@@ -310,9 +309,8 @@ test('the in-flight modal is suppressed and the feedback outcome is recorded', (
   core.setTelemetrySink((payload) => seen.push(payload));
   const rendered = render(<SessionScreen />);
   const input = screen.getByTestId('composer-input');
-  const sendButton = screen.getByTestId('composer-send-button');
-
   fireEvent.changeText(input, 'first message');
+  const sendButton = screen.getByTestId('composer-send-button');
   act(() => {
     fireEvent.press(sendButton);
   });

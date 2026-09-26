@@ -19,7 +19,7 @@ import type { ProcessedAsset } from './imageCapture';
 // SEAM(A2): jest mocks `uploadBlobBase64`, so upload unit tests assert the mobile
 // flow without touching the live daemon.
 
-async function readAttachmentBase64(fileUri: string): Promise<string> {
+export async function readAttachmentBase64(fileUri: string): Promise<string> {
   return FileSystem.readAsStringAsync(fileUri, {
     encoding: FileSystem.EncodingType.Base64,
   });
