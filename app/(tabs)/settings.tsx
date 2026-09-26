@@ -1,3 +1,4 @@
+import ApprovalKeySettings from '../../src/components/ApprovalKeySettings';
 import React, { useEffect, useMemo, useState } from 'react';
 import { Pressable, RefreshControl, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import { useIsFocused } from '@react-navigation/native';
@@ -129,7 +130,7 @@ export default function SettingsScreen() {
           <Text style={styles.emptyBody}>
             Enroll this device from a Pentacle enrollment link. Once the stream token is stored behind Face ID, live machine status and stats will appear here.
           </Text>
-          <AppVersionRow version={appIdentity.version} buildNumber={appIdentity.buildNumber} />
+        <AppVersionRow version={appIdentity.version} buildNumber={appIdentity.buildNumber} />
         </View>
       </View>
     );
@@ -146,6 +147,8 @@ export default function SettingsScreen() {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={P.green} />}
       >
         <LimitsSection limits={limits} health={limitsHealth} />
+
+        <ApprovalKeySettings />
 
         <ChatSettingsSection
           showToolActions={showToolActions}

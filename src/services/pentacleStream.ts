@@ -3849,6 +3849,13 @@ function handleMessageInner(raw: string) {
     return;
   }
 
+  if ((String(message.type).startsWith('consent.') || String(message.type).startsWith('consent_key.')) && typeof message.request_id === 'string') {
+    const pending = settlePendingRequest(message.request_id);
+    if (String(message.type).endsWith('.ok')) pending?.resolve(message);
+    else pending?.reject(new Error(String(message.error_code || 'Consent request failed')));
+    return;
+  }
+
   if (message.type === 'notification.resolve.ok' && typeof message.request_id === 'string') {
     if (message.notification) {
       const record = message.notification as PentacleNotification;
@@ -4720,6 +4727,12 @@ function sendCommand<T>(
     }
     options.onSocketSent?.(request_id, myGen);
   });
+}
+
+export function sendConsentCommand<T = Record<string, unknown>>(verb: string, fields: Record<string, unknown>): Promise<T> {
+  if (!verb.startsWith('consent.') && !verb.startsWith('consent_key.')) throw new Error('Invalid consent verb');
+  // Ordinary RPCs fail on disconnect. No notification survivor or replay queue.
+  return sendCommand<T>({type: verb, ...fields}, 'consent');
 }
 
 export function sendPentacleAssetCommand<T extends Record<string, unknown>>(

@@ -262,3 +262,14 @@ test('a daemon restart (1012) does not replay the resolve and leaves the card re
   unsubscribe();
 });
 
+test.each(['consent.approve', 'consent.deny'])('%s is excluded from automatic reconnect replay', async (verb) => {
+  const {stream, socket, unsubscribe} = connect();
+  const pending = stream.sendConsentCommand(verb, {challenge_id: 'challenge', key_id: 'key', signature: 'exact-signature'})
+    .then(() => 'resolved', () => 'rejected');
+  expect(socket.sent.map((item) => JSON.parse(item)).filter((item) => item.type === verb)).toHaveLength(1);
+  socket.closeFromServer(1006, 'network_drop');
+  await expect(pending).resolves.toBe('rejected');
+  const recovered = reconnectSocket();
+  expect(recovered.sent.map((item) => JSON.parse(item)).filter((item) => item.type === verb)).toHaveLength(0);
+  unsubscribe();
+});

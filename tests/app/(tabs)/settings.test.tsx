@@ -56,6 +56,12 @@ beforeEach(() => {
 
 const GiB = 1024 * 1024 * 1024;
 
+test('an enrolled phone can reach approval-key enrolment from Settings', () => {
+  render(<SettingsScreen />);
+  expect(screen.getByTestId('approval-key-settings')).toBeTruthy();
+  expect(screen.getByTestId('approval-enrollment-code')).toBeTruthy();
+});
+
 function freshStats(host: string, over: Record<string, unknown> = {}) {
   return {
     host,

@@ -1,3 +1,5 @@
+import ConsentCard from './ConsentCard';
+import type { ConsentChallenge } from '../services/privilegedConsent';
 import React, { useCallback, useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Fonts, SEV, Tokens } from '@/constants/Colors';
@@ -56,7 +58,7 @@ function trimTail(text: unknown): string {
   return typeof text === 'string' ? text.replace(/\s+$/, '') : '';
 }
 
-export default function NotificationCard({ notification, informational = false }: Props) {
+function OrdinaryNotificationCard({ notification, informational = false }: Props) {
   // B1: track the EXACT action being submitted (by action_id) rather than a
   // global flag, so a card with multiple buttons only disables/labels the
   // tapped one. A run_command shows "Running…", others show "Working…".
@@ -496,3 +498,9 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
 });
+
+export default function NotificationCard(props: Props) {
+  const consent = (props.notification as PentacleNotification & {consent?: ConsentChallenge}).consent;
+  if (props.notification.producer === 'consent.v1' && consent) return <ConsentCard challenge={consent} />;
+  return <OrdinaryNotificationCard {...props} />;
+}
