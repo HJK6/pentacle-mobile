@@ -9,6 +9,11 @@ Keep fixtures synthetic and preserve protocol fields, error messages, author
 prefixes and config keys: those values affect behavior even in synthetic data.
 The test host configuration uses hosta, hostb, and hostc.
 
+Run npm run test:prod-build-guardrails to check the public production-build
+environment allowlist, endpoint preflight, bundle fingerprint and baked-endpoint
+checks, and sanitized evidence. This test uses synthetic inputs and does not
+build or sign an app. The separate host-sigil test runs under test:unit.
+
 npm run validate adds an iOS JavaScript export to TypeScript checking.
 Jest covers modeled behavior; it does not certify native builds, device signing,
 or live spawn/send journeys. Those require the configured daemon and native
