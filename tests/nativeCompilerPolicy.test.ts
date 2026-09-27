@@ -22,7 +22,10 @@ test('runs the generated policy after React Native and changes only fmt configur
     ${patched}
     puts JSON.generate($targets.to_h { |t| [t.name, t.build_configurations.first.build_settings] })
   `;
-  const result = spawnSync('/opt/homebrew/opt/ruby/bin/ruby', ['-e', ruby], { encoding: 'utf8', timeout: 10000 });
+  const homebrewRuby = '/opt/homebrew/opt/ruby/bin/ruby';
+  const rubyExecutable = fs.existsSync(homebrewRuby) ? homebrewRuby : 'ruby';
+  const result = spawnSync(rubyExecutable, ['-e', ruby], { encoding: 'utf8', timeout: 10000 });
+  expect(result.error).toBeUndefined();
   expect(result.status).toBe(0);
   expect(JSON.parse(result.stdout)).toEqual({
     fmt: { CLANG_CXX_LANGUAGE_STANDARD: 'c++17' },
