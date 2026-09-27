@@ -19,6 +19,8 @@ printf '%s\n' "$records" | while read -r local_ref tip remote_ref prior; do
 done
 git fetch --quiet --no-tags "${1}" main
 scripts/check-public-boundary.sh FETCH_HEAD
+[ -z "$(git status --porcelain)" ] || { echo 'public mobile guard: check mutated the candidate' >&2; exit 1; }
+[ "$(git rev-parse HEAD)" = "$head" ] || { echo 'public mobile guard: candidate moved during check' >&2; exit 1; }
 # exec preserves the original git-push parent PID used by the history guard.
 exec scripts/hooks/history-pre-push "$@" <<PUSH_RECORDS
 $records
