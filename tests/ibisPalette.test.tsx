@@ -23,6 +23,8 @@ it('renders the ibis with its beak, crescent, eye and legs', () => {
 
 it('accepts ibis in the production host sigil domain', () => {
   const { HOST_SIGIL_KINDS, guardProductionHostSigils } = require('../scripts/prod-build.cjs');
-  expect([...HOST_SIGIL_KINDS].sort()).toEqual(Object.values(MACHINES).map(machine => machine.kind).sort());
+  expect([...HOST_SIGIL_KINDS].sort()).toEqual(MACHINE_ORDER.map(name => MACHINES[name].kind).sort());
+  expect(HOST_SIGIL_KINDS).not.toContain(MACHINES.Unknown.kind);
+  expect(() => guardProductionHostSigils({ hosts: { unknown: { label: 'Unknown', color: '#90aaa0', sigil: 'rune' } } })).toThrow();
   expect(() => guardProductionHostSigils({ hosts: { hoste: { label: 'Host E', color: '#ffd60a', sigil: 'ibis' } } })).not.toThrow();
 });
