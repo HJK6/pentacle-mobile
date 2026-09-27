@@ -19,14 +19,13 @@ import Svg, { Path } from 'react-native-svg';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   Fonts,
-  MACHINE_ORDER,
   MACHINES,
   SCREEN_PAD,
   TOP_INSET,
   Tokens,
   type MachineName,
 } from '@/constants/Colors';
-import { getAssistantRole, getHostMachineName } from '../../src/config/local';
+import { getAssistantRole, getChatMachineName, getHostMachineName, isIdentityHost } from '../../src/config/local';
 import ArcaneRingFrame from '../../src/components/ArcaneRingFrame';
 import Bevel from '../../src/components/Bevel';
 import Starfield from '../../src/components/Starfield';
@@ -492,8 +491,8 @@ export function selectSmartChatList(
   const visibleAt = harnessTiming ? globalThis.performance.now() : 0;
   const next = visible
     .map((chat) => {
-      const machineName = getHostMachineName(chat.host);
       const session = sessionsByStream.get(chat.streamId);
+      const machineName = getChatMachineName(chat.host, chat.sessionKind ?? session?.session_kind ?? null);
       const candidate: SmartChatListItem = {
         ...chat,
         machineName,
@@ -697,7 +696,10 @@ export default function ChatsScreen() {
     harnessSources.optimisticSends,
   ]);
 
-  const machines = usePentacleStreamSelectorWhen(isFocused, selectMachineStatusList, sameMachines);
+  const machinesAll = usePentacleStreamSelectorWhen(isFocused, selectMachineStatusList, sameMachines);
+  // Host-list surfaces (roster, spawn picker, active-machine gating) show real
+  // fleet machines only — never an assistant identity host like `bart`.
+  const machines = useMemo(() => machinesAll.filter((machine) => !isIdentityHost(machine.host)), [machinesAll]);
   const chats = usePentacleStreamSelectorWhen(
     isFocused,
     (state) => selectSmartChatList(
@@ -1336,20 +1338,22 @@ export default function ChatsScreen() {
     <View style={styles.container}>
       <Starfield />
       <View style={[styles.roster, { paddingTop: Math.max(insets.top, TOP_INSET) }]}>
-        {MACHINE_ORDER.map((name) => {
-          const machine = machines.find((item) => getHostMachineName(item.host) === name);
-          const online = Boolean(machine?.online);
-          const selected = machine?.host === filter;
-          const badge = machine ? offlineBadgeLabel({
+        {machines.map((machine) => {
+          // Roster chips come from the real fleet the client knows about (configured
+          // hostOrder + live daemon hosts), never a hardcoded machine list. This keeps the
+          // retired assistant identity host and the non-hosting non-hosting client out of the filter roster,
+          // and renders each host with its own machine skin (e.g. scribe → ibis).
+          const name = getHostMachineName(machine.host);
+          const online = Boolean(machine.online);
+          const selected = machine.host === filter;
+          const badge = offlineBadgeLabel({
             hostStatusReasonRaw: machine.hostStatusReason,
             hostStatusSinceRaw: machine.hostStatusSince,
-          }) : null;
+          });
           return (
             <Pressable
-              key={name}
-              disabled={!machine}
+              key={machine.host}
               onPress={() => {
-                if (!machine) return;
                 setExpandedStreamId(null);
                 setFilter(selected ? 'all' : machine.host);
               }}
@@ -1585,8 +1589,8 @@ export const ChatRow = memo(function ChatRow({
         : 'Delete pending — waiting for active work to finish')
     : null;
   const machineName = useMemo(
-    () => smartChat.machineName ?? getHostMachineName(chat.host),
-    [smartChat.machineName, chat.host, chat.hostTitle],
+    () => smartChat.machineName ?? getChatMachineName(chat.host, smartChat.sessionKind ?? null),
+    [smartChat.machineName, smartChat.sessionKind, chat.host, chat.hostTitle],
   );
   const machine = MACHINES[machineName];
   const working = chat.status === 'working';

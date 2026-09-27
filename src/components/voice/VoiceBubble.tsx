@@ -8,7 +8,8 @@ import { downsampleLevels, formatDuration } from '../../services/voiceRecording'
 
 // The pending "TRANSCRIBING" voice bubble from the design original: a play glyph,
 // the recorded metering downsampled to 30 bars, and the duration. Decoration only
-// in this scope (no playback). Green-tinted beveled bubble matching the user row.
+// in this scope (no playback). Green-tinted beveled bubble on the user side,
+// right-aligned under its caption like the text bubble it becomes.
 const BUBBLE_BARS = 30;
 const BAR_AREA_H = 22;
 const GREEN = Tokens.palette.green;
@@ -52,7 +53,7 @@ export default function VoiceBubble({
 }
 
 const styles = StyleSheet.create({
-  wrap: { alignSelf: 'flex-start', maxWidth: '84%' },
+  wrap: { alignSelf: 'flex-end', maxWidth: '84%' },
   row: {
     flexDirection: 'row',
     alignItems: 'center',

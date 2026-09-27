@@ -46,18 +46,24 @@ export const Fonts = {
 
 export const FONT_FAMILIES = Fonts;
 
-export type MachineSigilKind = 'djinni' | 'sun' | 'mage' | 'flower' | 'ibis';
-export type MachineName = 'hosta' | 'hostb' | 'hostc' | 'hostd' | 'hoste';
+export type MachineSigilKind = 'djinni' | 'sun' | 'mage' | 'flower' | 'ibis' | 'rune';
+export type MachineName = 'hosta' | 'hostb' | 'hostc' | 'hostd' | 'hoste' | 'Unknown';
 export type ProviderName = 'claude' | 'codex' | 'composite' | 'CLAUDE' | 'CODEX' | 'COMPOSITE';
 export type WorkStatus = 'unresponsive' | 'working' | 'sending' | 'idle' | 'UNRESPONSIVE' | 'WORKING' | 'SENDING' | 'IDLE';
 export type Severity = 'info' | 'warning' | 'critical' | 'INFO' | 'WARNING' | 'CRITICAL';
 
 export const MACHINES = {
-  'hosta': { kind: 'djinni', accent: '#1fbf4a', epithet: 'the djinni' },
-  'hostb': { kind: 'sun', accent: '#ff2e3e', epithet: 'the flame' },
-  'hostc': { kind: 'mage', accent: '#1f5bff', epithet: 'the mage' },
-  'hostd': { kind: 'flower', accent: '#a377a1', epithet: 'the bloom' },
-  'hoste': { kind: 'ibis', accent: '#ffd60a', epithet: 'the scribe' },
+  hosta: { kind: 'djinni', accent: '#1fbf4a', epithet: 'the djinni' },
+  hostb: { kind: 'sun', accent: '#ff2e3e', epithet: 'the flame' },
+  hostc: { kind: 'mage', accent: '#1f5bff', epithet: 'the mage' },
+  hostd: { kind: 'flower', accent: '#a377a1', epithet: 'the bloom' },
+  hoste: { kind: 'ibis', accent: '#ffd60a', epithet: 'the scribe' },
+  // Neutral placeholder skin for a host that is not one of the known fleet
+  // machines. getHostMachineName returns this instead of silently defaulting an
+  // unknown host to the first machine (which is what let an unconfigured hoste
+  // wear the hosta/djinni skin). Deliberately NOT in MACHINE_ORDER, so it
+  // never becomes a positional fallback, a roster chip, or a summon-grid card.
+  Unknown: { kind: 'rune', accent: '#90aaa0', epithet: 'unknown host' },
 } as const satisfies Record<MachineName, { kind: MachineSigilKind; accent: string; epithet: string }>;
 
 export const MACHINE_ORDER = ['hosta', 'hostb', 'hostc', 'hostd', 'hoste'] as const;

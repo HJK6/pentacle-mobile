@@ -10,7 +10,7 @@ import {
   Tokens,
   type MachineName,
 } from '@/constants/Colors';
-import { getHostMachineName } from '../../src/config/local';
+import { getHostMachineName, isIdentityHost } from '../../src/config/local';
 import ArcaneRingFrame from '../../src/components/ArcaneRingFrame';
 import Starfield from '../../src/components/Starfield';
 import { Bar, Spinner } from '../../src/components/ArcaneAtoms';
@@ -50,11 +50,15 @@ type DisplayMachineStatsCard = PentacleMachineStatsCard & {
 
 export function buildMachineTabs(machines: PentacleMachineStatsCard[]): DisplayMachineStatsCard[] {
   // Machine skins are presentation, never host identity. The selector already
-  // supplies configured offline hosts; preserve every host and its actual data.
-  return machines.map((machine) => ({
-    ...machine,
-    machineName: getHostMachineName(machine.host),
-  }));
+  // supplies configured offline hosts; preserve every real fleet host and its
+  // actual data, but drop assistant-identity hosts (e.g. `bart`) — the machine
+  // stats tabs are physical machines, not identities.
+  return machines
+    .filter((machine) => !isIdentityHost(machine.host))
+    .map((machine) => ({
+      ...machine,
+      machineName: getHostMachineName(machine.host),
+    }));
 }
 
 // A daemon-owned sample older than this is rendered stale (matches the desktop

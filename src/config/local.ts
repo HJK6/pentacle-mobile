@@ -122,15 +122,41 @@ const SIGIL_TO_MACHINE: Record<MachineSigilKind, MachineName> = (
   return acc;
 }, {} as Record<MachineSigilKind, MachineName>);
 
+// Host ids that name the canonical assistant IDENTITY rather than a physical
+// machine. "bart" (e.g. the bart:assistant identity address) is not a fleet host
+// — the Bart Mac mini was retired — but a chat that carries it must still wear
+// the djinni skin. Mapped explicitly here so the identity never depends on a
+// positional accident (see getHostMachineName's neutral fallback below).
+const HOST_IDENTITY_MACHINE: Record<string, MachineName> = {
+  bart: 'hosta',
+};
+
+// True for a host id that names the canonical assistant IDENTITY rather than a
+// physical machine. Host-LIST surfaces (spawn picker, machine stats, filter
+// roster) filter these out so an identity can never appear as a spawnable/stat
+// machine — a code-level guarantee that the retired assistant identity machine stays
+// gone even if the daemon ever emitted a session or stats entry keyed on it.
+// Chat surfaces do NOT filter: an identity chat still renders (via djinni).
+export function isIdentityHost(host: string): boolean {
+  return Boolean(HOST_IDENTITY_MACHINE[normalizePentacleHost(host)]);
+}
+
 // Resolve a configured host id to the arcane sigil skin it should wear. This is the
 // single host→sigil mapping in the app; every call site (chat rows, roster strip,
 // session header, settings tabs, summon grid) delegates here.
-//   1. explicit `sigil` on the host's config wins;
-//   2. else positional over the configured hostOrder (legacy behavior — preserved for
+//   1. explicit assistant-identity host (e.g. `bart`) → its identity machine;
+//   2. explicit `sigil` on the host's config wins;
+//   3. else positional over the configured hostOrder (legacy behavior — preserved for
 //      configs without sigils, not the intended skin);
-//   3. else the first machine.
+//   4. else a NEUTRAL placeholder skin — never the first machine, so an unknown or
+//      unconfigured host cannot silently wear another machine's identity (the bug
+//      that made an unconfigured scribe host render as assistant identity/djinni).
 export function getHostMachineName(host: string): MachineName {
   const hostId = normalizePentacleHost(host);
+  const identity = HOST_IDENTITY_MACHINE[hostId];
+  if (identity) {
+    return identity;
+  }
   const sigil = configuredHosts()[hostId]?.sigil;
   if (sigil && SIGIL_TO_MACHINE[sigil]) {
     return SIGIL_TO_MACHINE[sigil];
@@ -139,5 +165,18 @@ export function getHostMachineName(host: string): MachineName {
   if (index >= 0 && index < MACHINE_ORDER.length) {
     return MACHINE_ORDER[index];
   }
-  return MACHINE_ORDER[0];
+  return 'Unknown';
+}
+
+// Resolve the skin for a CHAT surface (chat row, session header). The canonical
+// Bart assistant is a daemon-owned composite conversation that runs on an
+// ordinary machine host (e.g. scribe), so its host would otherwise resolve to
+// that machine's skin. The protected assistant identity is pinned to djinni
+// explicitly, independent of which host serves it. All other chats delegate to
+// the host→machine mapping.
+export function getChatMachineName(host: string, sessionKind?: string | null): MachineName {
+  if (sessionKind === 'assistant_composite') {
+    return 'hosta';
+  }
+  return getHostMachineName(host);
 }

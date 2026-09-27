@@ -14,7 +14,7 @@ const fixture = require('./fixtures/hostSigilGuard.fixture.json') as {
     case_sha256: string;
   }>;
 };
-const { MACHINES } = require('../constants/Colors') as { MACHINES: Record<string, { kind: string }> };
+const { MACHINES, MACHINE_ORDER } = require('../constants/Colors') as { MACHINES: Record<string, { kind: string }>; MACHINE_ORDER: readonly string[] };
 
 function stableStringify(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`;
@@ -41,7 +41,7 @@ describe('production host-sigil guard', () => {
         .digest('hex');
       expect(digest).toBe(testCase.case_sha256);
     }
-    expect([...prodBuild.HOST_SIGIL_KINDS].sort()).toEqual(Object.values(MACHINES).map((machine) => machine.kind).sort());
+    expect([...prodBuild.HOST_SIGIL_KINDS].sort()).toEqual(MACHINE_ORDER.map((name) => MACHINES[name].kind).sort());
   });
 
   test.each(fixture.cases.map((testCase) => [testCase.key, testCase] as const))(

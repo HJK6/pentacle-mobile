@@ -123,6 +123,19 @@ export default function MachineSigil({
     );
   }
 
+  if (kind === 'rune') {
+    // Neutral placeholder: a plain hexagon with a hollow centre for a host that
+    // is not one of the known fleet machines. No creature/identity association.
+    return (
+      <Svg width={size} height={size} viewBox="0 0 64 64">
+        <G {...strokeProps}>
+          <Path d="M32 8 L52 20 L52 44 L32 56 L12 44 L12 20 Z" />
+          <Circle cx="32" cy="32" r="7" />
+        </G>
+      </Svg>
+    );
+  }
+
   const petals = [];
   for (let a = 0; a < 360; a += 60) {
     petals.push(

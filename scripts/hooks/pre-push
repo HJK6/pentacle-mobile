@@ -1,0 +1,25 @@
+#!/bin/sh
+set -eu
+root=$(git rev-parse --show-toplevel)
+cd "$root"
+records=$(cat)
+case "${2:-}" in
+  https://github.com/HJK6/pentacle-mobile|https://github.com/HJK6/pentacle-mobile.git|git@github.com:HJK6/pentacle-mobile|git@github.com:HJK6/pentacle-mobile.git) ;;
+  *) echo 'public mobile guard: refused unexpected destination' >&2; exit 1 ;;
+esac
+[ -z "$(git status --porcelain)" ] || { echo 'public mobile guard: refused dirty candidate' >&2; exit 1; }
+head=$(git rev-parse HEAD)
+printf '%s\n' "$records" | while read -r local_ref tip remote_ref prior; do
+  case "$tip" in ''|*[!0]*) ;;
+    *) continue ;;
+  esac
+  [ "$(git rev-parse "$tip^{commit}")" = "$head" ] || {
+    echo 'public mobile guard: pushed tip must match checked-out candidate' >&2; exit 1;
+  }
+done
+git fetch --quiet --no-tags "${1}" main
+scripts/check-public-boundary.sh FETCH_HEAD
+# exec preserves the original git-push parent PID used by the history guard.
+exec scripts/hooks/history-pre-push "$@" <<PUSH_RECORDS
+$records
+PUSH_RECORDS

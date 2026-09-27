@@ -1,13 +1,20 @@
 import React from 'react';
-import { Animated, Easing, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Animated, Pressable, StyleSheet, Text } from 'react-native';
 
+import Bevel from '../Bevel';
 import { Fonts, Tokens } from '@/constants/Colors';
 import { formatDuration } from '../../services/voiceRecording';
+import { useStepBlink } from './VoiceGlyphs';
 
 // Cross-chat "Recording · m:ss · Return" pill: shown when the user navigates away
 // from the chat where a take is recording (or after stop: "Sent · Return"). Tapping
-// it returns to the originating chat. (§ Journey / Operator choices.)
+// it returns to the originating chat. (§ Journey / Operator choices.) Not drawn in
+// the design original; it uses the mock's voice language: beveled green-tinted
+// chip, blinking record dot, mono tabular timer.
 const R = Tokens.palette.green;
+// Opaque ink + 8 % green (the mock's `${green}14` tint) so the floating chip
+// reads the same over any screen it overlays.
+const PILL_FILL = '#0c1e11';
 
 export default function RecordingPill({
   durationS,
@@ -20,51 +27,40 @@ export default function RecordingPill({
   label?: string;
   testID?: string;
 }) {
-  const blink = React.useRef(new Animated.Value(1)).current;
-  React.useEffect(() => {
-    const anim = Animated.loop(
-      Animated.sequence([
-        Animated.timing(blink, { toValue: 0.25, duration: 500, easing: Easing.linear, useNativeDriver: true }),
-        Animated.timing(blink, { toValue: 1, duration: 500, easing: Easing.linear, useNativeDriver: true }),
-      ]),
-    );
-    anim.start();
-    return () => anim.stop();
-  }, [blink]);
+  const blink = useStepBlink();
+  const live = label === 'Recording';
 
   return (
-    <Pressable testID={testID} accessibilityLabel={`${label}, return to chat`} onPress={onReturn} style={styles.pill}>
-      <Animated.View style={[styles.dot, { opacity: blink }]} />
-      <Text style={styles.label}>{label}</Text>
-      <Text style={styles.sep}>·</Text>
-      <Text testID={`${testID}-timer`} style={styles.timer}>{formatDuration(durationS)}</Text>
-      <Text style={styles.sep}>·</Text>
-      <Text style={styles.return}>Return</Text>
+    <Pressable testID={testID} accessibilityLabel={`${label}, return to chat`} onPress={onReturn} hitSlop={6}>
+      <Bevel cut={8} fill={PILL_FILL} stroke={`${R}66`} contentStyle={styles.row}>
+        <Animated.View style={[styles.dot, { opacity: live ? blink : 1 }]} />
+        <Text style={styles.label}>{label}</Text>
+        <Text style={styles.sep}>·</Text>
+        <Text testID={`${testID}-timer`} style={styles.timer}>{formatDuration(durationS)}</Text>
+        <Text style={styles.sep}>·</Text>
+        <Text style={styles.return}>Return ›</Text>
+      </Bevel>
     </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
-  pill: {
+  row: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    alignSelf: 'center',
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: `${R}55`,
-    backgroundColor: `${R}14`,
+    gap: 7,
+    height: 34,
+    paddingHorizontal: 13,
   },
   dot: { width: 7, height: 7, borderRadius: 3.5, backgroundColor: R },
-  label: { fontFamily: Fonts.jetBrainsMono.medium, fontSize: 11, color: R, letterSpacing: 1 },
+  label: { fontFamily: Fonts.jetBrainsMono.medium, fontSize: 11, color: R, letterSpacing: 1, textTransform: 'uppercase' },
   sep: { fontFamily: Fonts.jetBrainsMono.regular, fontSize: 11, color: Tokens.palette.muted },
   timer: {
     fontFamily: Fonts.jetBrainsMono.medium,
     fontSize: 11,
     color: R,
+    letterSpacing: 1,
     fontVariant: ['tabular-nums'],
   },
-  return: { fontFamily: Fonts.jetBrainsMono.medium, fontSize: 11, color: Tokens.palette.text, letterSpacing: 1 },
+  return: { fontFamily: Fonts.jetBrainsMono.medium, fontSize: 11, color: Tokens.palette.text, letterSpacing: 1, textTransform: 'uppercase' },
 });

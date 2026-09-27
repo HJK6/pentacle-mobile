@@ -1,4 +1,4 @@
-import { getAssistantRole, getHostMachineName } from '../../src/config/local';
+import { getAssistantRole, getChatMachineName, getHostMachineName } from '../../src/config/local';
 
 jest.mock('expo-constants', () => require('../helpers/stubs/expoConstants.cjs'));
 
@@ -14,11 +14,11 @@ afterEach(() => {
 
 // hosta=djinni, hostb=sun, hostc=mage, hostd=flower (constants/Colors MACHINES).
 const OWNER_HOSTS = {
-  bart: { label: 'Bartimaeus', color: '#ff7ab8', sigil: 'djinni' },
-  merlin: { label: 'Merlin', color: '#4da3ff', sigil: 'mage' },
-  amaterasu: { label: 'Amaterasu', color: '#ff4d5e', sigil: 'sun' },
+  bart: { label: 'hosta', color: '#ff7ab8', sigil: 'djinni' },
+  hostc: { label: 'hostc', color: '#4da3ff', sigil: 'mage' },
+  hostb: { label: 'hostb', color: '#ff4d5e', sigil: 'sun' },
 };
-const OWNER_ORDER = ['bart', 'merlin', 'amaterasu'];
+const OWNER_ORDER = ['bart', 'hostc', 'hostb'];
 
 test('assistant-role pinning is off by default and accepts only a nonempty local role', () => {
   setConfig(OWNER_HOSTS, OWNER_ORDER);
@@ -31,32 +31,63 @@ test('assistant-role pinning is off by default and accepts only a nonempty local
   expect(getAssistantRole()).toBe('');
 });
 
-test('configured sigil wins: owner-shaped config maps bart/merlin/amaterasu to djinni/mage/sun machines', () => {
+test('configured sigil wins: owner-shaped config maps bart/hostc/hostb to djinni/mage/sun machines', () => {
   setConfig(OWNER_HOSTS, OWNER_ORDER);
   expect(getHostMachineName('bart')).toBe('hosta');
-  expect(getHostMachineName('merlin')).toBe('hostc');
-  expect(getHostMachineName('amaterasu')).toBe('hostb');
+  expect(getHostMachineName('hostc')).toBe('hostc');
+  expect(getHostMachineName('hostb')).toBe('hostb');
 });
 
 test('host id is normalized before lookup (whitespace/case)', () => {
   setConfig(OWNER_HOSTS, OWNER_ORDER);
-  expect(getHostMachineName(' Merlin ')).toBe('hostc');
+  expect(getHostMachineName(' hostc ')).toBe('hostc');
 });
 
 test('positional fallback (no sigils) reproduces old positions over hostOrder — documented, not desired', () => {
   const noSigils = {
-    bart: { label: 'Bartimaeus', color: '#ff7ab8' },
-    merlin: { label: 'Merlin', color: '#4da3ff' },
-    amaterasu: { label: 'Amaterasu', color: '#ff4d5e' },
+    bart: { label: 'hosta', color: '#ff7ab8' },
+    hostc: { label: 'hostc', color: '#4da3ff' },
+    hostb: { label: 'hostb', color: '#ff4d5e' },
   };
   setConfig(noSigils, OWNER_ORDER);
   expect(getHostMachineName('bart')).toBe('hosta');
-  expect(getHostMachineName('merlin')).toBe('hostb');
-  expect(getHostMachineName('amaterasu')).toBe('hostc');
+  expect(getHostMachineName('hostc')).toBe('hostb');
+  expect(getHostMachineName('hostb')).toBe('hostc');
 });
 
-test('unknown host falls back to the first machine', () => {
+test('an unknown host resolves to the neutral placeholder, never the first machine', () => {
+  // Regression guard: an unconfigured host must NOT silently wear the first
+  // machine's skin (that made an unconfigured hoste render as hosta/djinni).
   setConfig(OWNER_HOSTS, OWNER_ORDER);
-  expect(getHostMachineName('daffodil')).toBe('hosta');
-  expect(getHostMachineName('')).toBe('hosta');
+  expect(getHostMachineName('hostd')).toBe('Unknown');
+  expect(getHostMachineName('someNewBox')).toBe('Unknown');
+  expect(getHostMachineName('')).toBe('Unknown');
+});
+
+test('the Bart assistant identity host maps to djinni explicitly, even when unconfigured', () => {
+  // "bart" is the assistant identity, not a fleet machine, so it is not in the
+  // shipping host config — but a chat carrying it must still wear the djinni skin.
+  const noBart = {
+    hoste: { label: 'hoste', sigil: 'ibis' },
+    hostc: { label: 'hostc', sigil: 'mage' },
+    hostb: { label: 'hostb', sigil: 'sun' },
+  };
+  setConfig(noBart, ['hoste', 'hostc', 'hostb']);
+  expect(getHostMachineName('bart')).toBe('hosta');
+  expect(getHostMachineName('hoste')).toBe('hoste');
+});
+
+test('getChatMachineName pins the composite assistant to djinni regardless of its host', () => {
+  const noBart = {
+    hoste: { label: 'hoste', sigil: 'ibis' },
+    hostc: { label: 'hostc', sigil: 'mage' },
+    hostb: { label: 'hostb', sigil: 'sun' },
+  };
+  setConfig(noBart, ['hoste', 'hostc', 'hostb']);
+  // The daemon-owned Bart composite runs on an ordinary machine host (e.g. hoste),
+  // but its chat surface stays djinni.
+  expect(getChatMachineName('hoste', 'assistant_composite')).toBe('hosta');
+  // An ordinary chat on the same host wears the host's own machine skin.
+  expect(getChatMachineName('hoste', null)).toBe('hoste');
+  expect(getChatMachineName('hostc', undefined)).toBe('hostc');
 });

@@ -189,6 +189,30 @@ elapsed time and live metering; scrolling and navigation leave capture running.
 The root recording overlay offers Return and Stop and send outside the origin
 chat. Permission denial and native start/stop failures are visible.
 
+### Voice mode visuals
+
+The voice visuals use shared mic, spinner and waveform glyphs mapped onto
+the existing glow-capsule composer:
+
+- The mic glyph is the mock's outline `MicGlyph`
+  (`src/components/voice/VoiceGlyphs.tsx`), shown in the Send slot when the draft is empty.
+- While recording, the capsule is the mock's field. It takes the recording tint
+  (border green `66`, fill green `0e`, stronger glow) and holds the strip itself,
+  with no nested frame. The strip shows Discard ✕, a 1 s stepped blinking dot,
+  a tabular `m:ss` timer, and the last 46 metering bars. Bars are 2.5 wide,
+  height = level × 26, opacity 0.45 + 0.55 × level, and each new bar grows in
+  over 180 ms. The Stop and send button is a filled 40 pt green circle with an
+  ink mic and two 1.4 s pulse rings offset by 0.7 s.
+- The pending row is right-aligned. Its caption shows a muted 9 pt ring spinner,
+  `TRANSCRIBING` (mono 9, letter-spacing 1) and a small ✕ above the voice bubble
+  (play glyph, 30 bars, duration). Failures keep the amber message with RETRY.
+- The transcribed caption is a green mic glyph plus a green mono 9 duration.
+- The cross-chat overlay uses the same language: a beveled chip reading
+  `RECORDING · m:ss · RETURN ›` next to a 34 pt round stop button.
+
+Message timestamps stay centered, as on every other row, so the caption does
+not repeat the time. `voiceMockFidelity.test.tsx` checks these values.
+
 `voiceRecordingEngine.ts` adapts expo-audio to the process-owned `VoiceRecorder`.
 The capture profile is AAC/M4A, 16 kHz mono, 32 kbps, with a five-minute cap.
 Tap, cap, interruption and background all use the same stop subscriber.

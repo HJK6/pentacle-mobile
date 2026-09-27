@@ -1,6 +1,6 @@
 import React from 'react';
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
-import SettingsScreen from '../../../app/(tabs)/settings';
+import SettingsScreen, { buildMachineTabs } from '../../../app/(tabs)/settings';
 import usePentacleToken from '../../../src/hooks/usePentacleToken';
 import useLimits, { useLimitsHealth } from '../../../src/hooks/useLimits';
 import { usePentacleStreamActions, usePentacleStreamSelectorWhen } from '../../../src/services/pentacleStream';
@@ -184,8 +184,8 @@ test('renders daemon machine metrics, flags staleness, and switches among fleet 
       stats: freshStats('hostc'),
     },
     {
-      host: 'hosta', title: 'hosta', online: true, sessionCount: 1, statusLabel: 'Online',
-      stats: freshStats('hosta', { sampled_at: '2020-01-01T00:00:00Z' }),
+      host: 'hostb', title: 'hostb', online: true, sessionCount: 1, statusLabel: 'Online',
+      stats: freshStats('hostb', { sampled_at: '2020-01-01T00:00:00Z' }),
     },
   ]);
   render(<SettingsScreen />);
@@ -198,7 +198,7 @@ test('renders daemon machine metrics, flags staleness, and switches among fleet 
   expect(screen.getByText('1d 1h')).toBeTruthy();
 
   // A sample older than 90s renders stale from sampled_at.
-  fireEvent.press(screen.getByLabelText('hosta Online'));
+  fireEvent.press(screen.getByLabelText('hostb Online'));
   expect(screen.getByText('STALE')).toBeTruthy();
 });
 
@@ -209,6 +209,17 @@ test('unfocused empty fleet remains renderable with cached limits', () => {
   expect((usePentacleStreamSelectorWhen as jest.Mock).mock.calls.at(-1)?.[0]).toBe(false);
   expect(screen.getByTestId('limits-row-claude')).toBeTruthy();
   expect(screen.queryByText('hosta')).toBeNull();
+});
+
+test('buildMachineTabs drops assistant-identity hosts from the machine stats tabs', () => {
+  const card = (host: string) => ({
+    host, title: host, online: true, sessionCount: 0, statusLabel: 'Online', stats: freshStats(host),
+  });
+  const tabs = buildMachineTabs([card('hoste'), card('bart'), card('hostc'), card('hostb')] as never);
+  // The retired hosta identity host never becomes a machine stats tab; real
+  // fleet hosts are preserved in order and each is assigned a machine skin.
+  expect(tabs.map((t) => t.host)).toEqual(['hoste', 'hostc', 'hostb']);
+  expect(tabs.every((t) => typeof t.machineName === 'string')).toBe(true);
 });
 
 test('machine selector equality detects every UI-relevant fleet change', () => {

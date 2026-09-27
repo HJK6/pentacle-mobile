@@ -34,6 +34,8 @@ type Props = {
   }) => void | Promise<void>;
 };
 
+const GRID_COLUMNS = 3;
+
 export default function SummonModal({
   visible,
   machines,
@@ -97,6 +99,13 @@ export default function SummonModal({
       }),
     [machines],
   );
+  // Machines sit side by side at one shared width: rows of GRID_COLUMNS, and a
+  // short last row is padded with invisible spacers so no card stretches.
+  const gridRows = useMemo(() => {
+    const rows: (typeof grid)[] = [];
+    for (let i = 0; i < grid.length; i += GRID_COLUMNS) rows.push(grid.slice(i, i + GRID_COLUMNS));
+    return rows;
+  }, [grid]);
 
   const selectedName = selected ? getHostMachineName(selected.host) : undefined;
   const selectedMeta = selectedName ? MACHINES[selectedName] : MACHINES[MACHINE_ORDER[0]];
@@ -133,7 +142,9 @@ export default function SummonModal({
 
           {!selected ? (
             <View style={styles.grid}>
-              {grid.map(({ name, machine, meta }) => {
+              {gridRows.map((row, rowIndex) => (
+              <View key={rowIndex} testID={`summon-machine-row-${rowIndex}`} style={styles.gridRow}>
+              {row.map(({ name, machine, meta }) => {
                 const enabled = Boolean(machine?.online);
                 return (
                   <Pressable
@@ -143,7 +154,6 @@ export default function SummonModal({
                     onPress={() => machine && setSelected(machine)}
                     style={[
                       styles.machineCard,
-                      name === MACHINE_ORDER[MACHINE_ORDER.length - 1] && grid.length % 2 === 1 && styles.lastMachineCard,
                       {
                         borderColor: `${meta.accent}${enabled ? '40' : '22'}`,
                         backgroundColor: `${meta.accent}${enabled ? '10' : '08'}`,
@@ -156,6 +166,11 @@ export default function SummonModal({
                   </Pressable>
                 );
               })}
+              {Array.from({ length: GRID_COLUMNS - row.length }, (_, i) => (
+                <View key={`spacer-${i}`} testID="summon-machine-spacer" style={styles.machineSpacer} />
+              ))}
+              </View>
+              ))}
             </View>
           ) : (
             <ScrollView contentContainerStyle={styles.providerStack}>
@@ -286,20 +301,23 @@ const styles = StyleSheet.create({
     marginBottom: 18,
   },
   grid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
     gap: 12,
   },
+  gridRow: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  machineSpacer: { flex: 1 },
   machineCard: {
-    width: '47.8%',
+    flex: 1,
+    minWidth: 0,
     alignItems: 'center',
     gap: 9,
     borderWidth: 1,
     borderRadius: 8,
     paddingVertical: 16,
-    paddingHorizontal: 8,
+    paddingHorizontal: 6,
   },
-  lastMachineCard: { width: '100%' },
   machineName: {
     fontFamily: Fonts.rajdhani.bold,
     fontSize: 15,

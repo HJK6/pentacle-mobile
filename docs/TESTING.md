@@ -29,3 +29,5 @@ a signed native build or an iPhone runtime check.
 
 The Summon picker uses configured and discovered host identities. Host labels
 need not match the example palette; offline hosts remain visible but disabled.
+
+Public main is the normal development and build source. See [repository workflow](repo_workflow.md) for the mandatory pre-push content/history guard and required CI. Private-data exceptions use immediate reviewed public projection; keep local config out of Git.

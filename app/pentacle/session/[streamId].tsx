@@ -48,6 +48,7 @@ import { StatusOverlay } from '../../../src/components/SessionStatusCard';
 import SendingIndicator from '../../../src/components/SendingIndicator';
 import RecordingStrip from '../../../src/components/voice/RecordingStrip';
 import VoiceBubble from '../../../src/components/voice/VoiceBubble';
+import { DiscardGlyph, MicGlyph, VoiceRecordFace, VoiceSpinner, recordButtonStyle } from '../../../src/components/voice/VoiceGlyphs';
 import { voiceRecorder } from '../../../src/services/voiceRecordingEngine';
 import { formatDuration, PermissionDeniedError, type RecordingSnapshot } from '../../../src/services/voiceRecording';
 import { voiceDelivery, useVoiceDelivery, voiceTakeRow, retryVoiceMessage } from '../../../src/services/voiceDelivery';
@@ -105,7 +106,7 @@ import * as pentacleStreamRuntime from '../../../src/services/pentacleStream';
 import type { InterruptSendResult, PendingSessionClose, StreamOpenEntrySource } from '../../../src/services/pentacleStream';
 import { isPentacleSessionSendEligible } from '../../../src/services/sessionInputReadiness';
 import { useUserPreference } from '../../../src/services/userPreferences';
-import { getAssistantRole, getHostTheme, getHostMachineName } from '../../../src/config/local';
+import { getAssistantRole, getHostTheme, getChatMachineName } from '../../../src/config/local';
 import { interpretPentacleEvent, peekEventsForStream, invalidateSessionDetailCache, MAX_CHAT_ATTACHMENTS, SESSION_SENDING_VISIBLE_AFTER_MS, parsePeerAgentMessage, type ChatAttachment, type ChildAgent, type PentacleTranscriptItem } from 'pentacle-chat-core';
 import { parseMarkdown, parseInline, type MdInline, type MdBlock } from 'pentacle-chat-core';
 import { stripClaudeExpandHint } from 'pentacle-chat-core';
@@ -506,9 +507,9 @@ export type HostChrome = {
   machineName?: MachineName;
 };
 
-export function hostChrome(host: string): HostChrome {
+export function hostChrome(host: string, sessionKind?: string | null): HostChrome {
   const theme = getHostTheme(host);
-  const machineName = getHostMachineName(host);
+  const machineName = getChatMachineName(host, sessionKind);
   const machine = MACHINES[machineName];
   return {
     header: Tokens.palette.ink,
@@ -1487,7 +1488,7 @@ export default function PentacleSessionScreen() {
   // history fetch keeps retrying with backoff underneath — we never blank out).
   const reconnectingHintVisible = detailIsHydrating &&
     (loadingRunningLong || connectionSlice.connecting || !connectionSlice.connected);
-  const chrome = useMemo(() => hostChrome(session?.host || ''), [session?.host]);
+  const chrome = useMemo(() => hostChrome(session?.host || '', session?.session_kind ?? null), [session?.host, session?.session_kind]);
   const activeQuestionRenderKey = session?.question ? buildQuestionKey(session.question) : '';
   const activeQuestionAnsweredDurably = !!session?.question && questionNotifications.some(
     (notification) => terminalAgentQuestionMatchesSessionQuestion(notification, session.question),
@@ -4019,16 +4020,16 @@ export const TranscriptRow = memo(function TranscriptRow({
         ) : null}
         {voiceTake ? (
           <>
-            <View style={styles.userSendStatusRow} testID="voice-transcription-status">
-              {voiceTake.status === 'transcribing' ? <SendingIndicator /> : null}
-              <Text style={styles.userSendStatusText}>{voiceTake.error || 'TRANSCRIBING'}</Text>
-              {voiceTake.interrupted ? <Text style={styles.userSendStatusText}>interrupted at {formatDuration(voiceTake.durationS)}</Text> : null}
-              {voiceTake.status === 'failed' ? <Pressable accessibilityLabel="Retry transcription" testID="voice-transcription-retry" onPress={() => { void voiceDelivery.retry(voiceTake.recordingId); }}><Text style={styles.userSendStatusText}>Retry</Text></Pressable> : null}
-              <Pressable accessibilityLabel="Discard voice message" testID="voice-transcription-discard" hitSlop={8} onPress={() => voiceDelivery.discard(voiceTake.recordingId)}><FontAwesome name="close" size={14} color={P.muted} /></Pressable>
+            <View style={styles.voiceCaptionRow} testID="voice-transcription-status">
+              {voiceTake.status === 'transcribing' ? <VoiceSpinner testID="voice-transcribing-spinner" /> : null}
+              <Text style={[styles.voiceCaptionText, voiceTake.error ? styles.voiceCaptionError : null]}>{voiceTake.error || 'TRANSCRIBING'}</Text>
+              {voiceTake.interrupted ? <><Text style={styles.voiceCaptionText}>·</Text><Text style={styles.voiceCaptionText}>INTERRUPTED AT {formatDuration(voiceTake.durationS)}</Text></> : null}
+              {voiceTake.status === 'failed' ? <Pressable accessibilityLabel="Retry transcription" testID="voice-transcription-retry" hitSlop={8} onPress={() => { void voiceDelivery.retry(voiceTake.recordingId); }}><Text style={[styles.voiceCaptionText, styles.voiceCaptionAction]}>RETRY</Text></Pressable> : null}
+              <Pressable accessibilityLabel="Discard voice message" testID="voice-transcription-discard" hitSlop={10} onPress={() => voiceDelivery.discard(voiceTake.recordingId)}><DiscardGlyph size={10} /></Pressable>
             </View>
             <VoiceBubble levels={voiceTake.levels} durationS={voiceTake.durationS} />
           </>
-        ) : item.voice ? <View style={styles.userSendStatusRow} testID="voice-message-caption"><FontAwesome name="microphone" size={10} color={Tokens.palette.green} /><Text style={styles.userSendStatusText}>{formatDuration(item.voice.duration_s)}</Text></View> : null}
+        ) : item.voice ? <View style={styles.voiceCaptionRow} testID="voice-message-caption" accessibilityLabel="Transcribed from voice"><View style={styles.voiceDurationTag}><MicGlyph color={Tokens.palette.green} size={10} /><Text style={[styles.voiceCaptionText, styles.voiceDurationText]}>{formatDuration(item.voice.duration_s)}</Text></View></View> : null}
         {hasTextBody ? (
           <Pressable
             testID={`message-bubble-${item.id}`}
@@ -5089,14 +5090,18 @@ export function ComposerBar({
             borderColor: `${chrome.accent}54`,
             shadowColor: chrome.accent,
           },
+          // Voice mode: the capsule is the mock's field, so it takes the
+          // recording tint itself (no framed strip nested inside it).
+          recording ? styles.composerCapsuleRecording : null,
         ]}
       >
+        {recording ? <View pointerEvents="none" style={[StyleSheet.absoluteFill, styles.composerCapsuleRecordingTint]} /> : null}
         <View
           pointerEvents="none"
           testID="composer-capsule-hairline"
           style={[StyleSheet.absoluteFill, styles.composerCapsuleHairline, { borderColor: `${chrome.accent}0f` }]}
         />
-        <View style={[styles.composerBar, moreExpanded ? styles.composerBarExpanded : null]}>
+        <View style={[styles.composerBar, moreExpanded ? styles.composerBarExpanded : null, recording ? styles.composerBarRecording : null]}>
         {moreExpanded ? (
           // Tap-away: catches presses on the bar background (the gaps not
           // covered by the input or the on-top action buttons) and collapses
@@ -5110,7 +5115,7 @@ export function ComposerBar({
             style={styles.composerTapAway}
           />
         ) : null}
-        {recording ? <RecordingStrip displayLevels={recording.displayLevels} durationS={recording.durationS} error={recording.error} onDiscard={() => { if (voiceRecorder.snapshot()?.status !== 'recording') return; void voiceRecorder.discard().catch(() => onError('Could not discard recording.')); }} /> : <TextInput
+        {recording ? <RecordingStrip displayLevels={recording.displayLevels} sampleCount={recording.levels.length} durationS={recording.durationS} error={recording.error} onDiscard={() => { if (voiceRecorder.snapshot()?.status !== 'recording') return; void voiceRecorder.discard().catch(() => onError('Could not discard recording.')); }} /> : <TextInput
           testID="composer-input"
           accessibilityLabel="Message input"
           ref={inputRef}
@@ -5209,8 +5214,8 @@ export function ComposerBar({
           </Pressable>
         ) : null}
         {recording || (!composer.trim() && stagedAttachments.length === 0) ? (
-          <Pressable testID="composer-mic-button" accessibilityRole="button" accessibilityLabel={recording ? 'Stop and send' : 'Voice mode'} accessibilityState={{ disabled: voiceBusy || (!recording && (disabled || submissionDisabled || !streamId)) }} disabled={voiceBusy || (!recording && (disabled || submissionDisabled || !streamId))} onPress={() => { void handleVoicePress(); }} style={[styles.sendButton, recording && { backgroundColor: Tokens.palette.green }]} hitSlop={8}>
-            <FontAwesome name="microphone" size={20} color={recording ? Tokens.palette.ink : Tokens.palette.green} />
+          <Pressable testID="composer-mic-button" accessibilityRole="button" accessibilityLabel={recording ? 'Stop and send' : 'Voice mode'} accessibilityState={{ disabled: voiceBusy || (!recording && (disabled || submissionDisabled || !streamId)) }} disabled={voiceBusy || (!recording && (disabled || submissionDisabled || !streamId))} onPress={() => { void handleVoicePress(); }} style={recording ? recordButtonStyle(40) : styles.sendButton} hitSlop={8}>
+            <VoiceRecordFace recording={Boolean(recording)} />
           </Pressable>
         ) : <Pressable
           testID="composer-send-button"
@@ -6895,6 +6900,38 @@ const styles = StyleSheet.create({
     lineHeight: 14,
     fontFamily: MONO,
   },
+  // Voice captions (design original user-row caption: mono 9, muted, spacing 1).
+  voiceCaptionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-end',
+    gap: 6,
+    marginBottom: 4,
+    paddingHorizontal: 2,
+  },
+  voiceCaptionText: {
+    color: Tokens.palette.muted,
+    fontSize: 9,
+    lineHeight: 12,
+    letterSpacing: 1,
+    fontFamily: MONO,
+  },
+  voiceCaptionError: {
+    color: P.warning,
+    letterSpacing: 0.5,
+  },
+  voiceCaptionAction: {
+    color: Tokens.palette.green,
+  },
+  voiceDurationTag: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+  },
+  voiceDurationText: {
+    color: Tokens.palette.green,
+    fontVariant: ['tabular-nums'],
+  },
   // C (working indicator): chrome-less row above the composer.
   workingIndicatorRow: {
     flexDirection: 'row',
@@ -7248,6 +7285,16 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderRadius: 12,
   },
+  // Voice mode recording tint (design original: field border green 0x66, fill 0x0e).
+  composerCapsuleRecording: {
+    borderColor: `${Tokens.palette.green}66`,
+    shadowColor: Tokens.palette.green,
+    shadowOpacity: 0.32,
+  },
+  composerCapsuleRecordingTint: {
+    borderRadius: 12,
+    backgroundColor: `${Tokens.palette.green}0e`,
+  },
   attachmentStrip: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -7288,6 +7335,14 @@ const styles = StyleSheet.create({
   },
   composerBarExpanded: {
     minHeight: 108,
+  },
+  composerBarRecording: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingRight: 10,
+    paddingTop: 9,
+    paddingBottom: 9,
   },
   composerInput: {
     minHeight: 28,
