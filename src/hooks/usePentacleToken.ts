@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { AppState } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
 import { getBackendWsUrl } from '../config/local';
 import { getPentacleWsUrl, setPentacleAuthToken, setPentacleWsUrl } from '../services/pentacleStream';
@@ -21,16 +22,20 @@ type Snapshot = {
   token: string | null;
   wsUrl: string;
   isReady: boolean;
+  // Never retain native error messages or codes, which may include private data.
+  error: 'token_read_failed' | null;
 };
 
 let snapshot: Snapshot = {
   token: null,
   wsUrl: '',
   isReady: false,
+  error: null,
 };
 
 let loadPromise: Promise<void> | null = null;
 let harnessLoadGeneration = 0;
+let tokenReadBackgrounded = false;
 const listeners = new Set<() => void>();
 
 function emit() {
@@ -66,6 +71,7 @@ async function loadFromSecureStore(force = false, harnessGeneration: number | nu
           token: harnessParamToken,
           wsUrl: getPentacleWsUrl() as string,
           isReady: true,
+          error: null,
         });
         return;
       }
@@ -76,6 +82,7 @@ async function loadFromSecureStore(force = false, harnessGeneration: number | nu
           token: tokenHarness.pentacleAuthDisabledToken(),
           wsUrl: getPentacleWsUrl() as string,
           isReady: true,
+          error: null,
         });
         return;
       }
@@ -87,6 +94,7 @@ async function loadFromSecureStore(force = false, harnessGeneration: number | nu
           token: harnessToken,
           wsUrl: getPentacleWsUrl() as string,
           isReady: true,
+          error: null,
         });
         return;
       }
@@ -94,7 +102,8 @@ async function loadFromSecureStore(force = false, harnessGeneration: number | nu
   }
   try {
     const tokenValue = await getPentacleDeviceToken(force);
-    const storedWsUrl = await SecureStore.getItemAsync(WS_URL_KEY, WS_URL_STORE_OPTIONS);
+    // An ancillary endpoint read must not discard a successfully read token.
+    const storedWsUrl = await SecureStore.getItemAsync(WS_URL_KEY, WS_URL_STORE_OPTIONS).catch(() => null);
     if (harnessGeneration !== null && harnessGeneration !== harnessLoadGeneration) return;
     const wsUrl = harnessWsUrl || storedWsUrl?.trim() || defaultWsUrl;
     setPentacleAuthToken(tokenValue);
@@ -103,6 +112,7 @@ async function loadFromSecureStore(force = false, harnessGeneration: number | nu
       token: tokenValue,
       wsUrl: getPentacleWsUrl() as string,
       isReady: true,
+      error: null,
     });
   } catch {
     if (harnessGeneration !== null && harnessGeneration !== harnessLoadGeneration) return;
@@ -112,6 +122,7 @@ async function loadFromSecureStore(force = false, harnessGeneration: number | nu
       token: null,
       wsUrl: getPentacleWsUrl() as string,
       isReady: true,
+      error: 'token_read_failed',
     });
   }
 }
@@ -144,10 +155,28 @@ export default function usePentacleToken() {
     const sync = () => setState(snapshot);
     listeners.add(sync);
     setState(snapshot);
-    ensureLoaded();
+    // The local biometric lock can unmount every token consumer in background.
+    // Preserve that transition until a consumer mounts after the normal unlock.
+    const foregroundRetry = AppState.currentState === 'active'
+      && tokenReadBackgrounded && snapshot.error === 'token_read_failed';
+    if (AppState.currentState === 'active') tokenReadBackgrounded = false;
+    if (AppState.currentState === 'background') tokenReadBackgrounded = true;
+    void ensureLoaded(foregroundRetry && !loadPromise);
+
+    const foregroundSub = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'background') tokenReadBackgrounded = true;
+      const foreground = nextState === 'active' && tokenReadBackgrounded;
+      if (nextState === 'active') tokenReadBackgrounded = false;
+      // Face ID inactivity is not a background return. Shared load ownership
+      // also prevents multiple consumers from starting additional reads.
+      if (foreground && snapshot.error === 'token_read_failed' && !loadPromise) {
+        void ensureLoaded(true);
+      }
+    });
 
     return () => {
       listeners.delete(sync);
+      foregroundSub.remove();
     };
   }, []);
 
@@ -159,26 +188,26 @@ export default function usePentacleToken() {
     if (process.env.EXPO_PUBLIC_HARNESS === '1') {
       if (tokenHarness?.shouldDisablePentacleAuth()) {
         setPentacleAuthToken(null);
-        updateSnapshot({ token: tokenHarness.pentacleAuthDisabledToken(), isReady: true });
+        updateSnapshot({ token: tokenHarness.pentacleAuthDisabledToken(), isReady: true, error: null });
         return;
       }
     }
     await setPentacleDeviceToken(value);
     setPentacleAuthToken(value);
-    updateSnapshot({ token: value, isReady: true });
+    updateSnapshot({ token: value, isReady: true, error: null });
   }, []);
 
   const clearToken = useCallback(async () => {
     if (process.env.EXPO_PUBLIC_HARNESS === '1') {
       if (tokenHarness?.shouldDisablePentacleAuth()) {
         setPentacleAuthToken(null);
-        updateSnapshot({ token: tokenHarness.pentacleAuthDisabledToken(), isReady: true });
+        updateSnapshot({ token: tokenHarness.pentacleAuthDisabledToken(), isReady: true, error: null });
         return;
       }
     }
     await deletePentacleDeviceToken();
     setPentacleAuthToken(null);
-    updateSnapshot({ token: null, isReady: true });
+    updateSnapshot({ token: null, isReady: true, error: null });
   }, []);
 
   const setWsUrl = useCallback(async (value: string) => {
@@ -199,6 +228,7 @@ export default function usePentacleToken() {
     token: state.token,
     wsUrl: state.wsUrl,
     isReady: state.isReady,
+    error: state.error,
     reload,
     setToken,
     clearToken,

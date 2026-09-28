@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Platform } from 'react-native';
 import Constants from 'expo-constants';
+import type { DevicePushToken } from 'expo-notifications';
 import { router } from 'expo-router';
 import {
   consentConnection,
@@ -218,8 +219,10 @@ export default function usePushNotifications(options: PushNotificationOptions = 
     const responseSub=Notifications.addNotificationResponseReceivedListener(response=>handleResponse(response,'response_listener'));
     Notifications.getLastNotificationResponseAsync().then(response=>{if(response)handleResponse(response,'last_response');});
 
-    const tokenSub=Notifications.addPushTokenListener?.(()=>{
-      void registerForPushNotifications().then(token=>{if(token)setExpoPushToken(token);}).catch(err=>setError(err instanceof Error?err.message:'Push registration failed'));
+    const tokenSub=Notifications.addPushTokenListener?.((devicePushToken)=>{
+      // Convert this native token directly; requesting native registration here
+      // would emit another token event and recursively invoke this listener.
+      void registerForPushNotifications(devicePushToken).then(token=>{if(token)setExpoPushToken(token);}).catch(err=>setError(err instanceof Error?err.message:'Push registration failed'));
     });
     return () => {responseSub.remove();tokenSub?.remove();};
   }, [actions, scheduleRoute]);
@@ -245,7 +248,7 @@ export default function usePushNotifications(options: PushNotificationOptions = 
   return { expoPushToken, error };
 }
 
-async function registerForPushNotifications(): Promise<string | null> {
+async function registerForPushNotifications(devicePushToken?: DevicePushToken): Promise<string | null> {
   // Harness builds skip the OS notification permission prompt — it blocks
   // the first-launch UI on the e2e harness's autoaccept_biometric/spawn
   // flow until a human taps Allow/Don't Allow, which breaks autonomous
@@ -268,6 +271,6 @@ async function registerForPushNotifications(): Promise<string | null> {
     throw new Error('Missing EAS project id');
   }
 
-  const tokenData = await Notifications.getExpoPushTokenAsync({ projectId });
+  const tokenData = await Notifications.getExpoPushTokenAsync({ projectId, devicePushToken });
   return tokenData.data;
 }

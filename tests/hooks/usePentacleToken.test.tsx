@@ -2,6 +2,19 @@ import React from 'react';
 import { act, renderHook, waitFor } from '@testing-library/react-native';
 
 const mockPlatform = { OS: 'ios' };
+const mockAppStateListeners = new Set<(state: string) => void>();
+const mockAppState = {
+  currentState:'active',
+  addEventListener:jest.fn((_event,listener) => {
+    mockAppStateListeners.add(listener);
+    return {remove:() => mockAppStateListeners.delete(listener)};
+  }),
+};
+function emitAppState(state: string) {
+  mockAppState.currentState = state;
+  mockAppStateListeners.forEach(listener => listener(state));
+}
+
 const mockSetPentacleAuthToken = jest.fn();
 const mockSetPentacleWsUrl = jest.fn();
 const mockGetPentacleWsUrl = jest.fn(() => 'ws://stored.example/ws');
@@ -22,6 +35,7 @@ jest.mock('react-native', () => {
   return new Proxy(actual, {
     get(target, prop) {
       if (prop === 'Platform') return mockPlatform;
+      if (prop === 'AppState') return mockAppState;
       return target[prop as keyof typeof target];
     },
   });
@@ -60,6 +74,8 @@ function secureStore() {
 beforeEach(() => {
   jest.clearAllMocks();
   mockPlatform.OS = 'ios';
+  mockAppState.currentState = 'active';
+  mockAppStateListeners.clear();
   mockGetPentacleWsUrl.mockReturnValue('ws://stored.example/ws');
   mockBackendWsUrl = 'ws://default.example/ws';
   mockHarnessArmed = false;
@@ -363,7 +379,7 @@ test('harness install_device_token persists the credential and connects the real
   expect(mockSetPentacleWsUrl).toHaveBeenCalledWith('ws://127.0.0.2:7791');
 });
 
-test('treats a corrupt SecureStore read as absent', async () => {
+test('keeps a corrupt SecureStore read fail closed with a sanitized error', async () => {
   const usePentacleToken = loadHook();
   secureStore().getItemAsync.mockRejectedValueOnce(new Error('corrupt'));
 
@@ -372,4 +388,98 @@ test('treats a corrupt SecureStore read as absent', async () => {
   await waitFor(() => expect(result.current.isReady).toBe(true));
   expect(result.current.token).toBeNull();
   expect(mockSetPentacleWsUrl).toHaveBeenCalledWith('ws://default.example/ws');
+});
+
+
+test('saved URL read failure preserves the valid token and uses the default endpoint', async () => {
+  const useToken = loadHook();
+  secureStore().getItemAsync.mockResolvedValueOnce('synthetic-valid-token').mockRejectedValueOnce(new Error('synthetic URL failure'));
+  const hook = renderHook(() => useToken());
+  await waitFor(() => expect(hook.result.current.isReady).toBe(true));
+  expect(hook.result.current.token).toBe('synthetic-valid-token');
+  expect(mockSetPentacleAuthToken).toHaveBeenLastCalledWith('synthetic-valid-token');
+  expect(mockSetPentacleWsUrl).toHaveBeenLastCalledWith('ws://default.example/ws');
+  expect(hook.result.current.error).toBeNull();
+  expect(secureStore().deleteItemAsync).not.toHaveBeenCalled();
+});
+
+test('token read errors expose only a fixed class and explicit reload retries with biometric protection', async () => {
+  const useToken = loadHook();
+  secureStore().getItemAsync.mockRejectedValueOnce(Object.assign(new Error('synthetic-private-message'), {code:'synthetic-private-code'}));
+  const hook = renderHook(() => useToken());
+  await waitFor(() => expect(hook.result.current.isReady).toBe(true));
+  expect(hook.result.current.token).toBeNull();
+  expect(hook.result.current.error).toBe('token_read_failed');
+  expect(secureStore().getItemAsync).toHaveBeenCalledTimes(1);
+  secureStore().getItemAsync.mockResolvedValueOnce('synthetic-recovered-token').mockResolvedValueOnce(null);
+  await act(async () => { await hook.result.current.reload(); });
+  expect(hook.result.current.token).toBe('synthetic-recovered-token');
+  expect(hook.result.current.error).toBeNull();
+  expect(secureStore().getItemAsync).toHaveBeenNthCalledWith(2, 'pentacle-stream-token', expect.objectContaining({
+    requireAuthentication:true, keychainService:'pentacle-stream-token', keychainAccessible:'WHEN_UNLOCKED_THIS_DEVICE_ONLY',
+  }));
+  expect(secureStore().deleteItemAsync).not.toHaveBeenCalled();
+});
+
+test('foreground retries a failed token read once without a loop or remount retry', async () => {
+  const useToken = loadHook();
+  secureStore().getItemAsync.mockRejectedValueOnce(new Error('synthetic read failure'));
+  const first = renderHook(() => useToken());
+  await waitFor(() => expect(first.result.current.isReady).toBe(true));
+  first.unmount();
+  const hook = renderHook(() => useToken());
+  await act(async () => { await Promise.resolve(); });
+  expect(secureStore().getItemAsync).toHaveBeenCalledTimes(1);
+  await act(async () => { emitAppState('inactive'); emitAppState('active'); });
+  expect(secureStore().getItemAsync).toHaveBeenCalledTimes(1);
+  secureStore().getItemAsync.mockRejectedValueOnce(new Error('synthetic retry failure'));
+  await act(async () => {
+    emitAppState('background'); emitAppState('active');
+    for(let i=0;i<20;i++) await Promise.resolve();
+  });
+  expect(secureStore().getItemAsync).toHaveBeenCalledTimes(2);
+  expect(hook.result.current.error).toBe('token_read_failed');
+  await act(async () => { emitAppState('active'); for(let i=0;i<20;i++) await Promise.resolve(); });
+  expect(secureStore().getItemAsync).toHaveBeenCalledTimes(2);
+  secureStore().getItemAsync.mockResolvedValueOnce('synthetic-foreground-token').mockResolvedValueOnce(null);
+  await act(async () => { emitAppState('background'); emitAppState('inactive'); emitAppState('active'); });
+  expect(hook.result.current.token).toBe('synthetic-foreground-token');
+  expect(hook.result.current.error).toBeNull();
+  expect(secureStore().getItemAsync).toHaveBeenCalledTimes(4);
+  await act(async () => { emitAppState('background'); emitAppState('active'); });
+  expect(secureStore().getItemAsync).toHaveBeenCalledTimes(4);
+  expect(secureStore().deleteItemAsync).not.toHaveBeenCalled();
+  hook.unmount();
+  expect(mockAppStateListeners.size).toBe(0);
+});
+
+test('missing token remains distinct from a read error and foreground never deletes or retries it', async () => {
+  const useToken = loadHook();
+  const hook = renderHook(() => useToken());
+  await waitFor(() => expect(hook.result.current.isReady).toBe(true));
+  expect(hook.result.current.token).toBeNull();
+  expect(hook.result.current.error).toBeNull();
+  const reads = secureStore().getItemAsync.mock.calls.length;
+  await act(async () => { emitAppState('background'); emitAppState('active'); });
+  expect(secureStore().getItemAsync).toHaveBeenCalledTimes(reads);
+  expect(secureStore().deleteItemAsync).not.toHaveBeenCalled();
+});
+
+
+test('foreground retry survives the biometric screen unmount without retrying an ordinary remount', async () => {
+  const useToken = loadHook();
+  secureStore().getItemAsync.mockRejectedValueOnce(new Error('synthetic token read failure'));
+  const first = renderHook(() => useToken());
+  await waitFor(() => expect(first.result.current.isReady).toBe(true));
+  act(() => emitAppState('background'));
+  first.unmount();
+  // RootLayout replaces the screens with its biometric lock while backgrounded.
+  // The token hook is mounted again only after the normal local app unlock.
+  act(() => { emitAppState('inactive'); emitAppState('active'); });
+  secureStore().getItemAsync.mockResolvedValueOnce('synthetic-unlocked-token').mockResolvedValueOnce(null);
+  const second = renderHook(() => useToken());
+  await waitFor(() => expect(second.result.current.token).toBe('synthetic-unlocked-token'));
+  expect(second.result.current.error).toBeNull();
+  expect(secureStore().getItemAsync).toHaveBeenCalledTimes(3);
+  expect(secureStore().deleteItemAsync).not.toHaveBeenCalled();
 });

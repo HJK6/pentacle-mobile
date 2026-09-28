@@ -6,6 +6,8 @@ import { consentConnection, sendConsentCommand, usePentacleStreamActions, usePen
 
 let mockResponseListener: ((response: any) => void) | undefined;
 let mockNotificationHandler: any;
+let mockPushTokenListener: ((token: any) => void) | undefined;
+const mockPushTokenRemove = jest.fn();
 const mockResponseRemove = jest.fn();
 const mockPlatform = { OS: 'ios' };
 const mockRegisterPushToken = jest.fn().mockResolvedValue(true);
@@ -35,6 +37,10 @@ jest.mock('expo-notifications', () => ({
   getPermissionsAsync: jest.fn(),
   requestPermissionsAsync: jest.fn(),
   getExpoPushTokenAsync: jest.fn(),
+  addPushTokenListener: jest.fn((listener) => {
+    mockPushTokenListener = listener;
+    return { remove: () => { mockPushTokenListener = undefined; mockPushTokenRemove(); } };
+  }),
   addNotificationResponseReceivedListener: jest.fn((listener) => {
     mockResponseListener = listener;
     return { remove: mockResponseRemove };
@@ -60,6 +66,8 @@ beforeEach(() => {
   (consentConnection as jest.Mock).mockReturnValue(null);
   (sendConsentCommand as jest.Mock).mockResolvedValue({push_status:'registered'});
   mockResponseListener = undefined;
+  mockPushTokenListener = undefined;
+  mockPushTokenRemove.mockClear();
   mockRegisterPushToken.mockResolvedValue(true);
   mockPrefetchStreamEvents.mockClear();
   (usePentacleStreamActions as jest.Mock).mockReturnValue({
@@ -321,4 +329,62 @@ test('consuming a cold consent tap clears the native cached response before late
   renderHook(()=>usePushNotifications());
   await waitFor(()=>expect(router.push).toHaveBeenCalled());
   expect(Notifications.clearLastNotificationResponseAsync).toHaveBeenCalled();
+});
+
+
+test('native token listener converts the supplied token without any native re-request', async () => {
+  const mockNativeRequest = jest.fn(async () => ({ type: 'ios', data: 'synthetic-native' }));
+  (Notifications.getExpoPushTokenAsync as jest.Mock).mockImplementation(async (options) => {
+    // Expo requests native registration only when no devicePushToken is supplied.
+    const token = options.devicePushToken ?? await mockNativeRequest();
+    return { data: `ExponentPushToken[${token.data}]` };
+  });
+  const hook = renderHook(() => usePushNotifications());
+  await waitFor(() => expect(mockRegisterPushToken).toHaveBeenCalledWith(expect.objectContaining({
+    pushToken: 'ExponentPushToken[synthetic-native]',
+  })));
+  expect(mockNativeRequest).toHaveBeenCalledTimes(1);
+  mockNativeRequest.mockClear();
+  const rotated = { type: 'ios', data: 'synthetic-rotated' };
+  await act(async () => { mockPushTokenListener?.(rotated); });
+  expect(mockNativeRequest).not.toHaveBeenCalled();
+  expect(Notifications.getExpoPushTokenAsync).toHaveBeenLastCalledWith({
+    projectId: 'project-123', devicePushToken: rotated,
+  });
+  await waitFor(() => expect(mockRegisterPushToken).toHaveBeenCalledWith(expect.objectContaining({
+    pushToken: 'ExponentPushToken[synthetic-rotated]',
+  })));
+  await act(async () => { mockPushTokenListener?.(rotated); mockPushTokenListener?.(rotated); });
+  expect(mockNativeRequest).not.toHaveBeenCalled();
+  expect(Notifications.getExpoPushTokenAsync).toHaveBeenCalledTimes(4);
+  hook.unmount();
+  expect(mockPushTokenRemove).toHaveBeenCalledTimes(1);
+  expect(mockPushTokenListener).toBeUndefined();
+});
+
+test('listener token rotation retains fresh consent scope binding across credential changes', async () => {
+  (consentConnection as jest.Mock).mockReturnValue({scope:'host|a',host_id:'host',credential_id:'a',generation:1});
+  const hook = renderHook(() => usePushNotifications());
+  await waitFor(() => expect(sendConsentCommand).toHaveBeenCalledWith('consent.push_register', expect.objectContaining({
+    push_token: 'ExponentPushToken[one]',
+  })));
+  (sendConsentCommand as jest.Mock).mockClear();
+  const rotated = {type:'ios',data:'synthetic-consent-rotation'};
+  (Notifications.getExpoPushTokenAsync as jest.Mock).mockImplementation(async options => {
+    if (options.devicePushToken !== rotated) throw new Error('Listener requested native registration again');
+    return {data:'ExponentPushToken[rotated]'};
+  });
+  await act(async () => { mockPushTokenListener?.(rotated); });
+  await waitFor(() => expect(sendConsentCommand).toHaveBeenCalledWith('consent.push_register', {
+    push_token:'ExponentPushToken[rotated]',platform:'ios',project_id:'project-123',environment:'development',
+  }));
+  expect(mockRegisterPushToken).not.toHaveBeenCalled();
+  (sendConsentCommand as jest.Mock).mockClear();
+  (consentConnection as jest.Mock).mockReturnValue({scope:'host|b',host_id:'host',credential_id:'b',generation:2});
+  hook.rerender(undefined);
+  await waitFor(() => expect(sendConsentCommand).toHaveBeenCalledTimes(1));
+  expect((sendConsentCommand as jest.Mock).mock.calls[0]).toEqual(['consent.push_register', {
+    push_token:'ExponentPushToken[rotated]',platform:'ios',project_id:'project-123',environment:'development',
+  }]);
+  expect(hook.result.current.error).toBeNull();
 });
