@@ -1818,3 +1818,70 @@ def test_concurrent_active_readers_classify_one_dead_ticket_consistently(tmp_pat
         assert reader.returncode == 0 and stderr == b""
         payloads.append(json.loads(stdout))
     assert all(row == {"schema_version": 1, "active_runs": [], "ignored_dead": 1} for row in payloads)
+
+
+@pytest.mark.parametrize("observation", [1, 2])
+def test_reader_refreshes_lookup_that_loses_its_last_link(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, observation: int) -> None:
+    destination = tmp_path / "run.json"
+    original_lstat = telemetry.SecurePath.lstat
+    descriptor = None
+    armed = False
+    observations = 0
+    raced = False
+    with telemetry.AtomicProgressWriter(destination) as writer:
+        writer.publish(_snapshot(sequence=1))
+
+        def barrier(point: str, _path: telemetry.SecurePath, fd: int | None) -> None:
+            nonlocal descriptor, armed
+            if point == "after_open":
+                descriptor = fd
+            elif point == "before_final_observation":
+                writer.publish(_snapshot(sequence=2))
+                armed = True
+
+        def racy_lstat(path: telemetry.SecurePath, name: str | None = None) -> os.stat_result:
+            nonlocal observations, raced
+            if armed and (name or path.name) == "run.json":
+                observations += 1
+                if observations == observation:
+                    raced = True
+                    # The pathname lookup retained the old inode while rename
+                    # removed its final link, before stat sampled its metadata.
+                    info = os.fstat(descriptor)
+                    assert info.st_nlink == 0
+                    return info
+            return original_lstat(path, name)
+
+        monkeypatch.setattr(telemetry, "_READER_BARRIER", barrier)
+        monkeypatch.setattr(telemetry.SecurePath, "lstat", racy_lstat)
+        assert telemetry.read_progress(progress_file=destination)["sequence"] == 1
+        assert raced and observations > observation
+        assert json.loads(destination.read_text())["sequence"] == 2
+
+
+def test_reader_rejects_persistently_unlinked_path_observation(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    destination = tmp_path / "run.json"
+    original_lstat = telemetry.SecurePath.lstat
+    descriptor = None
+    armed = False
+    with telemetry.AtomicProgressWriter(destination) as writer:
+        writer.publish(_snapshot(sequence=1))
+
+        def barrier(point: str, _path: telemetry.SecurePath, fd: int | None) -> None:
+            nonlocal descriptor, armed
+            if point == "after_open":
+                descriptor = fd
+            elif point == "before_final_observation":
+                writer.publish(_snapshot(sequence=2))
+                armed = True
+
+        def unlinked_lstat(path: telemetry.SecurePath, name: str | None = None) -> os.stat_result:
+            if armed and (name or path.name) == "run.json":
+                return os.fstat(descriptor)
+            return original_lstat(path, name)
+
+        monkeypatch.setattr(telemetry, "_READER_BARRIER", barrier)
+        monkeypatch.setattr(telemetry.SecurePath, "lstat", unlinked_lstat)
+        with pytest.raises(telemetry.ReaderFailure) as raised:
+            telemetry.read_progress(progress_file=destination)
+        assert raised.value.exit_code == 5

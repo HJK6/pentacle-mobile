@@ -1050,6 +1050,23 @@ def _read_opened_value(
     max_bytes: int,
     validator: Callable[[Any], dict[str, Any]],
 ) -> tuple[dict[str, Any], bytes]:
+    def observe() -> os.stat_result | None:
+        # An atomic replacement can unlink the inode after pathname lookup,
+        # before stat samples it. Refresh that observation once; do not relax
+        # any metadata check or accept a persistently unlinked pathname.
+        for attempt in range(2):
+            path.verify()
+            try:
+                current = path.lstat(name)
+            except FileNotFoundError:
+                return None
+            _validate_regular(current, max_size=max_bytes, allow_unlinked=True)
+            if current.st_nlink == 0 and attempt == 0:
+                continue
+            _validate_regular(current, max_size=max_bytes)
+            return current
+        raise TelemetryFailure("registry_invalid")
+
     path.verify()
     _READER_BARRIER("before_open", path, None)
     try:
@@ -1070,22 +1087,12 @@ def _read_opened_value(
         descriptor = os.fstat(fd)
         _validate_regular(descriptor, max_size=max_bytes, allow_unlinked=True)
         _READER_BARRIER("between_final_fstat_lstat", path, fd)
-        try:
-            observed = path.lstat(name)
-        except FileNotFoundError:
-            observed = None
-        if observed is not None:
-            _validate_regular(observed, max_size=max_bytes)
+        observed = observe()
         _READER_BARRIER("after_observation", path, fd)
         path.verify()
         descriptor = os.fstat(fd)
         _validate_regular(descriptor, max_size=max_bytes, allow_unlinked=True)
-        try:
-            observed = path.lstat(name)
-        except FileNotFoundError:
-            observed = None
-        if observed is not None:
-            _validate_regular(observed, max_size=max_bytes)
+        observed = observe()
         _READER_BARRIER("after_final_validation", path, fd)
         if descriptor.st_nlink == 1 and observed is not None and _same_inode(descriptor, observed):
             return value, data
@@ -1094,12 +1101,7 @@ def _read_opened_value(
         if descriptor.st_nlink == 1 and (observed is None or not _same_inode(descriptor, observed)):
             descriptor = os.fstat(fd)
             _validate_regular(descriptor, max_size=max_bytes, allow_unlinked=True)
-            try:
-                confirmed = path.lstat(name)
-            except FileNotFoundError:
-                confirmed = None
-            if confirmed is not None:
-                _validate_regular(confirmed, max_size=max_bytes)
+            confirmed = observe()
             path.verify()
             if descriptor.st_nlink == 0 and (confirmed is None or not _same_inode(descriptor, confirmed)):
                 return value, data
