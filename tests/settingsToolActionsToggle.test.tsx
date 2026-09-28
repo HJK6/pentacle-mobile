@@ -44,6 +44,7 @@ jest.mock('../src/hooks/useLimits', () => ({
 }));
 jest.mock('../src/services/pentacleStream', () => ({
   usePentacleStreamActions: jest.fn(),
+  useConsentEnrollmentReady: () => false,
   usePentacleStreamSelectorWhen: jest.fn(),
 }));
 

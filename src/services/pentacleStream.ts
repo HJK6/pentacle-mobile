@@ -491,6 +491,19 @@ const harnessPersistedEventSeqKeys = new Set<string>();
 const deferredBackgroundLiveEventsByStream = new Map<string, PentacleEvent[]>();
 
 let state: PentacleStreamState = initialPentacleStreamState;
+// A hint from this socket's latest snapshot, never persisted or used as authority.
+let consentEnrollmentReady = false;
+function setConsentEnrollmentReady(ready: boolean) {
+  if (consentEnrollmentReady === ready) return;
+  consentEnrollmentReady = ready;
+  emit();
+}
+export function consentEnrollmentConnection(): number | null {
+  return consentEnrollmentReady ? currentSocketGeneration : null;
+}
+export function useConsentEnrollmentReady(): boolean {
+  return useSyncExternalStore(subscribePentacleStream, () => consentEnrollmentReady, () => false);
+}
 
 function monotonicNowMs() {
   return globalThis.performance?.now?.() ?? 0;
@@ -1335,6 +1348,7 @@ function shallowEqualState(a: PentacleStreamState, b: PentacleStreamState) {
 }
 
 function setState(next: PentacleStreamState, notify = true) {
+  if (!next.connected || next.connecting) setConsentEnrollmentReady(false);
   next = withPendingClosePresentation(next);
   if (shallowEqualState(state, next)) {
     return false;
@@ -1578,6 +1592,7 @@ function socketGenerationMatches(generation: number) {
 }
 
 function invalidateCurrentSocketGeneration() {
+  setConsentEnrollmentReady(false);
   currentSocketGeneration += 1;
 }
 
@@ -3543,6 +3558,8 @@ function handleMessageInner(raw: string) {
   }
 
   if (message.type === 'snapshot') {
+    const capabilities = message.capabilities as Record<string, unknown> | undefined;
+    setConsentEnrollmentReady(state.connected && !state.connecting && capabilities?.consent_enrollment_v1 === true);
     const sessions = Array.isArray(message.sessions)
       ? (message.sessions as PentacleSessionSummary[])
       : undefined;
@@ -3846,6 +3863,13 @@ function handleMessageInner(raw: string) {
       settlePendingRequest(message.request_id);
       pending.resolve(notifications);
     }
+    return;
+  }
+
+  if ((String(message.type).startsWith('consent.') || String(message.type).startsWith('consent_key.')) && typeof message.request_id === 'string') {
+    const pending = settlePendingRequest(message.request_id);
+    if (String(message.type).endsWith('.ok')) pending?.resolve(message);
+    else pending?.reject(new Error(String(message.error_code || 'Consent request failed')));
     return;
   }
 
@@ -4316,6 +4340,7 @@ function connect() {
   }
 
   clearTimers();
+  setConsentEnrollmentReady(false);
   updateState({ connecting: true });
   const urls = connectionUrls();
   const targetUrl = urls[Math.min(reconnectAttempt, urls.length - 1)] || getDefaultPentacleWsUrl();
@@ -4720,6 +4745,12 @@ function sendCommand<T>(
     }
     options.onSocketSent?.(request_id, myGen);
   });
+}
+
+export function sendConsentCommand<T = Record<string, unknown>>(verb: string, fields: Record<string, unknown>): Promise<T> {
+  if (!verb.startsWith('consent.') && !verb.startsWith('consent_key.')) throw new Error('Invalid consent verb');
+  // Ordinary RPCs fail on disconnect. No notification survivor or replay queue.
+  return sendCommand<T>({type: verb, ...fields}, 'consent');
 }
 
 export function sendPentacleAssetCommand<T extends Record<string, unknown>>(
