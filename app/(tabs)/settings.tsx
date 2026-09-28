@@ -1,4 +1,3 @@
-import ApprovalKeySettings from '../../src/components/ApprovalKeySettings';
 import React, { useEffect, useMemo, useState } from 'react';
 import { Pressable, RefreshControl, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import { useIsFocused } from '@react-navigation/native';
@@ -151,8 +150,6 @@ export default function SettingsScreen() {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={P.green} />}
       >
         <LimitsSection limits={limits} health={limitsHealth} />
-
-        <ApprovalKeySettings />
 
         <ChatSettingsSection
           showToolActions={showToolActions}

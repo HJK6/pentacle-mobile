@@ -111,7 +111,7 @@ export async function approveConsent(challenge: ConsentChallenge): Promise<unkno
   let tuple = signedTuples.get(challenge.challenge_id);
   if (!tuple) {
     const key = (await localApprovalKeys()).find((candidate) => challenge.audience_key_ids.includes(candidate.key_id));
-    if (!key) throw new Error('Enroll an approval key for this phone in Settings.');
+    if (!key) throw new Error('Ask Bart to set up an Approval key for this phone.');
     let signature: string;
     try { signature = await nativeConsentSigner().signConsent(key.keyTag, challenge.challenge_bytes); }
     catch (error) {

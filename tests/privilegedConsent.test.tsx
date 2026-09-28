@@ -2,7 +2,6 @@ import React from 'react';
 import {act, fireEvent, render} from '@testing-library/react-native';
 import {toByteArray} from 'base64-js';
 import ConsentCard from '../src/components/ConsentCard';
-import ApprovalKeySettings from '../src/components/ApprovalKeySettings';
 import {approveConsent, consentError, enrollApprovalKey, framedEnrollment, type ConsentChallenge} from '../src/services/privilegedConsent';
 
 let mockReadiness = true;
@@ -79,15 +78,6 @@ test('enrollment binds transcript and retains prior local key', async () => {
   expect(JSON.parse(mockMetadata!)).toHaveLength(2);
 });
 
-test('Settings shows grouped fingerprint pending host confirmation', async () => {
-  const ui = render(<ApprovalKeySettings />);
-  await act(async () => {});
-  fireEvent.changeText(ui.getByTestId('approval-enrollment-code'), 'abcdefgh');
-  await act(async () => fireEvent.press(ui.getByTestId('approval-enroll')));
-  expect(ui.getByText(Array(8).fill('bbbbbbbb').join(' '))).toBeTruthy();
-  expect(mockRpc.mock.calls[0][1].code).toBe('ABCDEFGH');
-});
-
 test('framing uses unsigned big-endian byte lengths', () => {
   const bytes = toByteArray(framedEnrollment(['é']));
   const domainLength = new DataView(bytes.buffer).getUint32(0, false);
@@ -103,47 +93,6 @@ test.each([
   expect(consentError(new Error(code))).toBe(expected);
 });
 
- test('Approval key copy distinguishes app unlock and privileged authority', async () => {
-  mockMetadata = null;
-  const ui = render(<ApprovalKeySettings />);
-  await act(async () => {});
-  expect(ui.getByText(/Face ID unlocks this app/)).toBeTruthy();
-  expect(ui.getByText(/approve privileged actions requested by Bart/)).toBeTruthy();
-  expect(ui.getByText(/Bart will provide a host code when this is ready/)).toBeTruthy();
-  expect(ui.getByText(/Each new approval asks for Face ID/)).toBeTruthy();
-  expect(ui.getByText(/Ordinary sign-in grants no lifecycle authority/)).toBeTruthy();
-  expect(ui.getByLabelText('Enrollment code')).toBeTruthy();
-  expect(ui.getByText('Enroll with Face ID')).toBeTruthy();
- });
- test('unsupported or unavailable host hides enrollment input', async () => {
-  mockReadiness = false;
-  const ui = render(<ApprovalKeySettings />);
-  await act(async () => {});
-  expect(ui.queryByTestId('approval-enrollment-code')).toBeNull();
-  expect(ui.queryByTestId('approval-enroll')).toBeNull();
-  expect(ui.getByText('Not active yet')).toBeTruthy();
- });
-
- test.each(['pending_confirm', 'active', 'revoked', 'invalidated'])('saved %s state stays visible without host readiness', async (state) => {
-  mockReadiness = false;
-  mockMetadata = JSON.stringify([{key_id:'enrolled-key',keyTag:'local-key',fingerprint:'a'.repeat(64),state}]);
-  const ui = render(<ApprovalKeySettings />);
-  await act(async () => {});
-  await act(async () => {});
-  expect(ui.getByText(Array(8).fill('aaaaaaaa').join(' '))).toBeTruthy();
-  const copy = {pending_confirm:'Waiting for host confirmation', active:'Active after a verified approval', revoked:'Approval key revoked', invalidated:'Approval key unavailable'}[state];
-  expect(ui.getByText(copy!)).toBeTruthy();
-  expect(ui.queryByTestId('approval-enrollment-code')).toBeNull();
- });
- test('resumed sign-in does not replace a saved pending key or suggest automatic re-enrollment', async () => {
-  mockMetadata = JSON.stringify([{key_id:'enrolled-key',keyTag:'local-key',fingerprint:'a'.repeat(64)}]);
-  const ui = render(<ApprovalKeySettings />);
-  await act(async () => {});
-  await act(async () => {});
-  expect(ui.getByText('Waiting for host confirmation')).toBeTruthy();
-  expect(mockCreate).not.toHaveBeenCalled();
-  expect(mockRpc).not.toHaveBeenCalled();
- });
  test('a fresh challenge requires a fresh signature', async () => {
   await approveConsent({...challenge, challenge_id:'fresh-1'});
   await approveConsent({...challenge, challenge_id:'fresh-2'});

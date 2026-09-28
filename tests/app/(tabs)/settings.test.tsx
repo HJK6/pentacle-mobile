@@ -31,7 +31,6 @@ jest.mock('../../../src/hooks/useLimits', () => ({
 }));
 jest.mock('../../../src/services/pentacleStream', () => ({
   usePentacleStreamActions: jest.fn(),
-  useConsentEnrollmentReady: () => false,
   usePentacleStreamSelectorWhen: jest.fn(),
 }));
 
@@ -57,12 +56,14 @@ beforeEach(() => {
 
 const GiB = 1024 * 1024 * 1024;
 
-test('an enrolled phone can reach approval-key enrollment from Settings', async () => {
+test('Settings renders no Approval key section or enrollment controls', async () => {
   render(<SettingsScreen />);
   await act(async () => {});
-  expect(screen.getByTestId('approval-key-settings')).toBeTruthy();
+  expect(screen.queryByTestId('approval-key-settings')).toBeNull();
+  expect(screen.queryByText('Approval key')).toBeNull();
   expect(screen.queryByTestId('approval-enrollment-code')).toBeNull();
-  expect(screen.getByText('Not active yet')).toBeTruthy();
+  expect(screen.queryByTestId('approval-enroll')).toBeNull();
+  expect(screen.queryByText(/Face ID unlocks this app/)).toBeNull();
 });
 
 function freshStats(host: string, over: Record<string, unknown> = {}) {
