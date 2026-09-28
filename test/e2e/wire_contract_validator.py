@@ -110,8 +110,9 @@ def _validate_provenance(root: Path, expected_checkout: str, require_cleanup: bo
         "loaded_validate_v2_code_sha256",
         "loaded_spawn_catalog_code_sha256",
     ):
-        if len(str(provenance.get(key) or "")) != 64:
-            raise ContractMismatch(f"missing live production binding: {key}")
+        digest = provenance.get(key)
+        if not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest):
+            raise ContractMismatch(f"invalid live production binding: {key}")
     if require_cleanup:
         cleanup = _read(root / "cleanup.json", dict)
         if cleanup.get("cleaned") is not True:

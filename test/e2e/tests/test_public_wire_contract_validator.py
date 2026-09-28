@@ -147,3 +147,23 @@ def test_cli_requires_checkout_without_accessing_artifacts(tmp_path):
                              '--fixture', str(tmp_path/'fixture.json')], capture_output=True, text=True)
     assert result.returncode == 2
     assert '--expected-checkout' in result.stderr
+
+
+@pytest.mark.parametrize('key', PROVENANCE_HASHES)
+@pytest.mark.parametrize('invalid', ['z'*64, 'B'*64, 10**63])
+def test_provenance_digest_requires_lowercase_hex_string(tmp_path, key, invalid):
+    fixture = synthetic_artifacts(tmp_path)
+    provenance = json.loads((tmp_path/'provenance.json').read_text())
+    provenance[key] = invalid
+    (tmp_path/'provenance.json').write_text(json.dumps(provenance))
+    with pytest.raises(ContractMismatch, match=key):
+        validate_contract(tmp_path, fixture, expected_checkout=CHECKOUT)
+
+
+def test_provenance_accepts_full_lowercase_hex_alphabet(tmp_path):
+    fixture = synthetic_artifacts(tmp_path)
+    provenance = json.loads((tmp_path/'provenance.json').read_text())
+    for key in PROVENANCE_HASHES:
+        provenance[key] = '0123456789abcdef'*4
+    (tmp_path/'provenance.json').write_text(json.dumps(provenance))
+    assert validate_contract(tmp_path, fixture, expected_checkout=CHECKOUT)['case'] == 'question_options'
