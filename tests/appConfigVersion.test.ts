@@ -88,3 +88,8 @@ test.each(['0', '-1', '1.5', 'abc'])('rejects invalid explicit build number %s',
   process.env.PENTACLE_BUILD_NUMBER = value;
   expect(() => computeBuildNumber()).toThrow(/positive integer/);
 });
+
+test('push registration environment follows the signed app configuration', () => {
+  expect(buildExpoExtra(configFixture, configFixture.backend.wsUrl).pushEnvironment).toBe('development');
+  expect(buildExpoExtra({...configFixture,apple:{...configFixture.apple,pushEnvironment:'production'}},configFixture.backend.wsUrl).pushEnvironment).toBe('production');
+});

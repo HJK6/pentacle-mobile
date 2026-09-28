@@ -2,20 +2,21 @@ import React from 'react';
 import {act, fireEvent, render} from '@testing-library/react-native';
 import {toByteArray} from 'base64-js';
 import ConsentCard from '../src/components/ConsentCard';
-import {approveConsent, consentError, enrollApprovalKey, framedEnrollment, type ConsentChallenge} from '../src/services/privilegedConsent';
+import {approveConsent, consentError, framedOffer, type ConsentChallenge, type ConsentIntent} from '../src/services/privilegedConsent';
 
 let mockReadiness = true;
 let mockConnection = 1;
 let mockMetadata: string | null = null;
+let mockTuples: Record<string,string> = {};
 const mockSign = jest.fn().mockResolvedValue('signed-tuple');
 const mockCreate = jest.fn().mockResolvedValue({keyTag: 'local-key', spki: 'public-spki'});
 const mockRpc = jest.fn();
 jest.mock('../modules/pentacle-consent', () => ({nativeConsentSigner: () => ({createKey: mockCreate, signConsent: mockSign})}));
-jest.mock('../src/services/pentacleStream', () => ({useConsentEnrollmentReady: () => mockReadiness, consentEnrollmentConnection: () => mockReadiness ? mockConnection : null, sendConsentCommand: (...args: unknown[]) => mockRpc(...args)}));
-jest.mock('expo-secure-store', () => ({getItemAsync: async () => mockMetadata, setItemAsync: async (_key: string, value: string) => {mockMetadata = value;}}));
+jest.mock('../src/services/pentacleStream', () => ({consentConnection: () => mockReadiness ? {scope: 'host|phone',host_id:'host',credential_id:'phone',generation:mockConnection} : null, sendConsentCommand: (...args: unknown[]) => mockRpc(...args)}));
+jest.mock('expo-secure-store', () => ({getItemAsync: async (key: string) => key==='pentacle-consent-key-metadata-v1'?mockMetadata:mockTuples[key]||null, setItemAsync: async (key: string, value: string) => {if(key==='pentacle-consent-key-metadata-v1')mockMetadata=value;else mockTuples[key]=value;}}));
 
 const challenge: ConsentChallenge = {
-  challenge_id: 'exact-challenge', action: 'lifecycle.designate', target_stream_id: 'hosta:bart',
+  connection_scope: 'host|phone', challenge_id: 'exact-challenge', action: 'lifecycle.designate', target_stream_id: 'hosta:bart',
   target_generation: 'exact-generation', expected_revision: 0,
   requester: {kind: 'seat', identity: 'hosta:requester', generation: 'requester-generation'},
   audience_key_ids: ['enrolled-key'], audience_hash: 'audience-hash',
@@ -25,19 +26,20 @@ const challenge: ConsentChallenge = {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockTuples = {};
   mockReadiness = true;
   mockConnection = 1;
   mockMetadata = JSON.stringify([{key_id: 'enrolled-key', keyTag: 'local-key', fingerprint: 'a'.repeat(64)}]);
   mockSign.mockResolvedValue('signed-tuple');
-  mockRpc.mockImplementation(async (verb: string) => {
-    if (verb === 'consent_key.prepare') return {code_hash: 'code-hash', credential_id: 'credential', nonce: 'nonce'};
-    if (verb === 'consent_key.enroll') return {key_id: 'new-key', fingerprint: 'b'.repeat(64)};
-    return {type: verb + '.ok'};
+  mockRpc.mockImplementation(async (verb: string, fields: any) => {
+    if(verb==='consent.open')return{challenge};
+    return {type: verb + '.ok',receipt:{consent_id:fields.challenge_id},challenge:{challenge_id:fields.challenge_id,state:'approved',approved_by_key_id:'enrolled-key'}};
   });
 });
 
 test('card displays bound action, target, generation, revision, requester and audience', async () => {
-  const ui = render(<ConsentCard challenge={challenge} />);
+  const ui = render(<ConsentCard intent={{...challenge,request_id:'request',host_id:'host'} as ConsentIntent} />);
+  await act(async()=>fireEvent.press(ui.getByText('Open request')));
   expect(ui.getByText('lifecycle.designate')).toBeTruthy();
   expect(ui.getByText('Target: hosta:bart')).toBeTruthy();
   expect(ui.getByText('Generation: exact-generation')).toBeTruthy();
@@ -50,10 +52,11 @@ test('card displays bound action, target, generation, revision, requester and au
 });
 
 test('deny sends only the challenge id and never invokes the signer', async () => {
-  const ui = render(<ConsentCard challenge={challenge} />);
+  const ui = render(<ConsentCard intent={{...challenge,request_id:'request',host_id:'host'} as ConsentIntent} />);
+  await act(async()=>fireEvent.press(ui.getByText('Open request')));
   await act(async () => fireEvent.press(ui.getByTestId('consent-deny')));
   expect(mockSign).not.toHaveBeenCalled();
-  expect(mockRpc).toHaveBeenCalledWith('consent.deny', {challenge_id: challenge.challenge_id});
+  expect(mockRpc).toHaveBeenCalledWith('consent.deny', {challenge_id: challenge.challenge_id,key_id:'enrolled-key'});
 });
 
 test('explicit retry reuses the identical tuple after an ambiguous transport failure', async () => {
@@ -71,22 +74,15 @@ test('expired approval never signs or sends', async () => {
   expect(mockRpc).not.toHaveBeenCalled();
 });
 
-test('enrollment binds transcript and retains prior local key', async () => {
-  const key = await enrollApprovalKey('ABCDEFGH');
-  expect(mockSign).toHaveBeenCalledWith('local-key', framedEnrollment(['code-hash', 'credential', 'public-spki', 'nonce']));
-  expect(key.fingerprint).toBe('b'.repeat(64));
-  expect(JSON.parse(mockMetadata!)).toHaveLength(2);
-});
-
 test('framing uses unsigned big-endian byte lengths', () => {
-  const bytes = toByteArray(framedEnrollment(['é']));
+  const bytes = toByteArray(framedOffer(['é']));
   const domainLength = new DataView(bytes.buffer).getUint32(0, false);
-  expect(domainLength).toBe(22);
+  expect(domainLength).toBe(32);
   expect(new DataView(bytes.buffer).getUint32(4 + domainLength, false)).toBe(2);
 });
 
 test.each([
-  ['key_invalidated', 'Approval key needs re-enrollment.'],
+  ['key_invalidated', 'Ask this host to send a new setup request.'],
   ['biometry_lockout', 'Face ID is locked. Unlock Face ID, then retry.'],
   ['cancelled', 'Face ID approval canceled.'],
 ])('native error %s maps to actionable text', (code, expected) => {
@@ -99,16 +95,11 @@ test.each([
   expect(mockSign).toHaveBeenCalledTimes(2);
  });
 
- test('enrollment stops if the host changes while Face ID signs', async () => {
-  mockSign.mockImplementationOnce(async () => { mockConnection = 2; return 'signed-tuple'; });
-  await expect(enrollApprovalKey('ABCDEFGH')).rejects.toThrow('connection changed');
-  expect(mockRpc.mock.calls.map(([verb]) => verb)).toEqual(['consent_key.prepare']);
- });
  test('only an exact verified approval receipt marks the local key active', async () => {
   const ch = {...challenge, challenge_id:'receipt-challenge'};
   mockMetadata = JSON.stringify([{key_id:'enrolled-key',keyTag:'local-key',fingerprint:'a'.repeat(64),state:'pending_confirm'}]);
   mockRpc.mockResolvedValueOnce({receipt:{consent_id:'wrong'},challenge:{challenge_id:ch.challenge_id,state:'approved',approved_by_key_id:'enrolled-key'}});
-  await approveConsent(ch);
+  await expect(approveConsent(ch)).rejects.toThrow('Approval receipt does not match');
   expect(JSON.parse(mockMetadata!)[0].state).toBe('pending_confirm');
   mockRpc.mockResolvedValueOnce({receipt:{consent_id:ch.challenge_id},challenge:{challenge_id:ch.challenge_id,state:'approved',approved_by_key_id:'enrolled-key'}});
   await approveConsent(ch);
@@ -128,3 +119,23 @@ test.each([
  });
 
 afterEach(async () => { await act(async () => {}); });
+
+test('card cannot claim approval from a mismatched receipt', async () => {
+  const ui=render(<ConsentCard intent={{...challenge,request_id:'request',host_id:'host'} as ConsentIntent}/>);
+  await act(async()=>fireEvent.press(ui.getByText('Open request')));
+  mockRpc.mockResolvedValueOnce({receipt:{consent_id:'another-request'},challenge:{challenge_id:challenge.challenge_id,state:'approved',approved_by_key_id:'enrolled-key'}});
+  await act(async()=>fireEvent.press(ui.getByTestId('consent-approve')));
+  expect(ui.queryByText('approved')).toBeNull();
+  expect(ui.getByText('Approval receipt does not match this request.')).toBeTruthy();
+});
+
+test('enrollment framing matches the shared daemon fixture',()=>{
+  const fixture=require('./fixtures/consent-offer-transcript.json');
+  expect(framedOffer(fixture.fields)).toBe(fixture.base64);
+});
+
+test('connection switch during native signing blocks the old tuple send',async()=>{
+  mockSign.mockImplementationOnce(async()=>{mockConnection++;return 'signed-tuple';});
+  await expect(approveConsent(challenge)).rejects.toThrow('Host connection changed');
+  expect(mockRpc).not.toHaveBeenCalled();
+});

@@ -2,7 +2,7 @@ import { act, renderHook, waitFor } from '@testing-library/react-native';
 import * as Notifications from 'expo-notifications';
 import { router } from 'expo-router';
 import usePushNotifications from '../../src/hooks/usePushNotifications';
-import { usePentacleStreamActions, usePentacleStreamSelector } from '../../src/services/pentacleStream';
+import { consentConnection, sendConsentCommand, usePentacleStreamActions, usePentacleStreamSelector } from '../../src/services/pentacleStream';
 
 let mockResponseListener: ((response: any) => void) | undefined;
 let mockNotificationHandler: any;
@@ -40,11 +40,14 @@ jest.mock('expo-notifications', () => ({
     return { remove: mockResponseRemove };
   }),
   getLastNotificationResponseAsync: jest.fn(),
+  clearLastNotificationResponseAsync: jest.fn().mockResolvedValue(undefined),
 }));
 
 jest.mock('expo-router', () => require('../helpers/mocks/expoRouter').makeMock());
 
 jest.mock('../../src/services/pentacleStream', () => ({
+  consentConnection: jest.fn(()=>null),
+  sendConsentCommand: jest.fn().mockResolvedValue({}),
   usePentacleStreamActions: jest.fn(),
   usePentacleStreamSelector: jest.fn(),
 }));
@@ -53,6 +56,9 @@ beforeEach(() => {
   delete process.env.EXPO_PUBLIC_HARNESS;
   mockPlatform.OS = 'ios';
   require('expo-constants').default.expoConfig.extra.eas.projectId = 'project-123';
+  require('expo-constants').default.expoConfig.extra.pushEnvironment = 'development';
+  (consentConnection as jest.Mock).mockReturnValue(null);
+  (sendConsentCommand as jest.Mock).mockResolvedValue({push_status:'registered'});
   mockResponseListener = undefined;
   mockRegisterPushToken.mockResolvedValue(true);
   mockPrefetchStreamEvents.mockClear();
@@ -260,4 +266,59 @@ test('skips every native notification registration path in harness builds', asyn
   expect(Notifications.addNotificationResponseReceivedListener).not.toHaveBeenCalled();
   expect(Notifications.getLastNotificationResponseAsync).not.toHaveBeenCalled();
   expect(mockRegisterPushToken).not.toHaveBeenCalled();
+});
+
+test('consent registration binds the current scope and repeats for a new credential',async()=>{
+  (consentConnection as jest.Mock).mockReturnValue({scope:'host|a',host_id:'host',credential_id:'a',generation:1});
+  const hook=renderHook(()=>usePushNotifications());
+  await waitFor(()=>expect(sendConsentCommand).toHaveBeenCalledWith('consent.push_register',{push_token:'ExponentPushToken[one]',platform:'ios',project_id:'project-123',environment:'development'}));
+  expect(mockRegisterPushToken).not.toHaveBeenCalled();
+  (sendConsentCommand as jest.Mock).mockClear();
+  (consentConnection as jest.Mock).mockReturnValue({scope:'host|b',host_id:'host',credential_id:'b',generation:2});
+  hook.rerender(undefined);
+  await waitFor(()=>expect(sendConsentCommand).toHaveBeenCalledTimes(1));
+  expect((sendConsentCommand as jest.Mock).mock.calls[0][1]).not.toHaveProperty('credential_id');
+});
+
+test('denied permission removes only the freshly authenticated consent binding',async()=>{
+  (consentConnection as jest.Mock).mockReturnValue({scope:'host|a',host_id:'host',credential_id:'a',generation:1});
+  (Notifications.getPermissionsAsync as jest.Mock).mockResolvedValue({status:'denied'});
+  (Notifications.requestPermissionsAsync as jest.Mock).mockResolvedValue({status:'denied'});
+  renderHook(()=>usePushNotifications());
+  await waitFor(()=>expect(sendConsentCommand).toHaveBeenCalledWith('consent.push_register',{permission:'denied'}));
+  expect(mockRegisterPushToken).not.toHaveBeenCalled();
+});
+
+test('consent OS tap waits for unlock and routes to the exact request without opening or signing',async()=>{
+  (consentConnection as jest.Mock).mockReturnValue({scope:'host|a',host_id:'host',credential_id:'a',generation:1});
+  const hook=renderHook((props:{locked:boolean})=>usePushNotifications(props),{initialProps:{locked:true}});
+  await waitFor(()=>expect(Notifications.addNotificationResponseReceivedListener).toHaveBeenCalled());
+  act(()=>mockResponseListener?.({notification:{request:{content:{data:{kind:'approval',host_id:'host',request_id:'exact-request'}}}}}));
+  expect(router.push).not.toHaveBeenCalled();
+  hook.rerender({locked:false});
+  await waitFor(()=>expect(router.push).toHaveBeenCalledWith(expect.objectContaining({pathname:'/approval',params:expect.objectContaining({kind:'approval',host_id:'host',request_id:'exact-request',gesture:expect.any(String)})})));
+  expect((sendConsentCommand as jest.Mock).mock.calls.every(call=>call[0]==='consent.push_register')).toBe(true);
+  expect(mockPrefetchStreamEvents).not.toHaveBeenCalled();
+});
+
+test('cold consent tap waits for a matching authenticated reconnect and refuses a foreign host hint',async()=>{
+  (Notifications.getLastNotificationResponseAsync as jest.Mock).mockResolvedValue({notification:{request:{content:{data:{kind:'enrollment',host_id:'host',request_id:'cold-offer'}}}}});
+  const hook=renderHook(()=>usePushNotifications());
+  await waitFor(()=>expect(Notifications.getLastNotificationResponseAsync).toHaveBeenCalled());
+  expect(router.push).not.toHaveBeenCalled();
+  (consentConnection as jest.Mock).mockReturnValue({scope:'host|a',host_id:'host',credential_id:'a',generation:1});
+  hook.rerender(undefined);
+  await waitFor(()=>expect(router.push).toHaveBeenCalledWith(expect.objectContaining({pathname:'/approval',params:expect.objectContaining({request_id:'cold-offer'})})));
+  (router.push as jest.Mock).mockClear();
+  act(()=>mockResponseListener?.({notification:{request:{content:{data:{kind:'approval',host_id:'foreign',request_id:'other-request'}}}}}));
+  expect(router.push).not.toHaveBeenCalled();
+  expect(mockPrefetchStreamEvents).not.toHaveBeenCalled();
+});
+
+test('consuming a cold consent tap clears the native cached response before later normal launches',async()=>{
+  (consentConnection as jest.Mock).mockReturnValue({scope:'host|a',host_id:'host',credential_id:'a',generation:1});
+  (Notifications.getLastNotificationResponseAsync as jest.Mock).mockResolvedValue({notification:{request:{identifier:'last-tap',content:{data:{kind:'approval',host_id:'host',request_id:'old-tap'}}}}});
+  renderHook(()=>usePushNotifications());
+  await waitFor(()=>expect(router.push).toHaveBeenCalled());
+  expect(Notifications.clearLastNotificationResponseAsync).toHaveBeenCalled();
 });

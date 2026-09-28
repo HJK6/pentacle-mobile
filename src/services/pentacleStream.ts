@@ -491,19 +491,18 @@ const harnessPersistedEventSeqKeys = new Set<string>();
 const deferredBackgroundLiveEventsByStream = new Map<string, PentacleEvent[]>();
 
 let state: PentacleStreamState = initialPentacleStreamState;
-// A hint from this socket's latest snapshot, never persisted or used as authority.
-let consentEnrollmentReady = false;
-function setConsentEnrollmentReady(ready: boolean) {
-  if (consentEnrollmentReady === ready) return;
-  consentEnrollmentReady = ready;
-  emit();
+export type ConsentConnection = {scope: string; host_id: string; credential_id: string; generation: number};
+let consentHostId = '';
+let consentProtocolSupported = false;
+export function consentConnection(): ConsentConnection | null {
+  if (!state.connected || state.connecting || !consentProtocolSupported || !consentHostId || !authToken?.startsWith(OPERATOR_AUTH_V2_PREFIX)) return null;
+  try {
+    const credential = parseOperatorAuthV2Envelope(authToken);
+    return {scope: JSON.stringify([urlHost(ws?.url || connectionUrls()[0] || ''), consentHostId, credential.credentialId]),
+      host_id: consentHostId, credential_id: credential.credentialId, generation: currentSocketGeneration};
+  } catch { return null; }
 }
-export function consentEnrollmentConnection(): number | null {
-  return consentEnrollmentReady ? currentSocketGeneration : null;
-}
-export function useConsentEnrollmentReady(): boolean {
-  return useSyncExternalStore(subscribePentacleStream, () => consentEnrollmentReady, () => false);
-}
+function resetConsentConnection() { consentProtocolSupported = false; consentHostId = ''; }
 
 function monotonicNowMs() {
   return globalThis.performance?.now?.() ?? 0;
@@ -1348,7 +1347,12 @@ function shallowEqualState(a: PentacleStreamState, b: PentacleStreamState) {
 }
 
 function setState(next: PentacleStreamState, notify = true) {
-  if (!next.connected || next.connecting) setConsentEnrollmentReady(false);
+  if (!next.connected || next.connecting) {
+    resetConsentConnection();
+    if (next.notifications.some(record=>record.producer?.startsWith('consent.'))) {
+      next={...next,notifications:next.notifications.filter(record=>!record.producer?.startsWith('consent.'))};
+    }
+  }
   next = withPendingClosePresentation(next);
   if (shallowEqualState(state, next)) {
     return false;
@@ -1592,7 +1596,7 @@ function socketGenerationMatches(generation: number) {
 }
 
 function invalidateCurrentSocketGeneration() {
-  setConsentEnrollmentReady(false);
+  resetConsentConnection();
   currentSocketGeneration += 1;
 }
 
@@ -3559,7 +3563,8 @@ function handleMessageInner(raw: string) {
 
   if (message.type === 'snapshot') {
     const capabilities = message.capabilities as Record<string, unknown> | undefined;
-    setConsentEnrollmentReady(state.connected && !state.connecting && capabilities?.consent_enrollment_v1 === true);
+    consentProtocolSupported = capabilities?.consent_enrollment_offer_v1 === true && capabilities?.consent_open_v1 === true;
+    consentHostId = typeof message.consent_host_id === 'string' ? message.consent_host_id : '';
     const sessions = Array.isArray(message.sessions)
       ? (message.sessions as PentacleSessionSummary[])
       : undefined;
@@ -4340,7 +4345,7 @@ function connect() {
   }
 
   clearTimers();
-  setConsentEnrollmentReady(false);
+  resetConsentConnection();
   updateState({ connecting: true });
   const urls = connectionUrls();
   const targetUrl = urls[Math.min(reconnectAttempt, urls.length - 1)] || getDefaultPentacleWsUrl();
@@ -4416,6 +4421,8 @@ function connect() {
       ...authentication,
       capabilities: {
         assistant_composite_v1: true,
+        consent_enrollment_offer_v1: true,
+        consent_open_v1: true,
       },
       // Narrowed fleet scope: the app renders only default-visible sessions and
       // filters hidden/nested/subagent seats client-side, so include_subagents:false
@@ -6879,12 +6886,19 @@ export function getPentacleWsUrl() {
   return wsUrl;
 }
 
+function unregisterConsentPushBeforeSwitch() {
+  if (ws?.readyState === WebSocket.OPEN && consentConnection()) {
+    ws.send(JSON.stringify({type:'consent.push_unregister',request_id:requestId('consent-unregister')}));
+  }
+}
+
 export function setPentacleWsUrl(next: string | null) {
   const trimmed = String(next || '').trim();
   const nextUrl = trimmed || getDefaultPentacleWsUrl();
   if (wsUrl === nextUrl) {
     return;
   }
+  unregisterConsentPushBeforeSwitch();
   wsUrl = nextUrl;
   reconnectPentacleStream('endpoint-change');
 }
@@ -6893,6 +6907,7 @@ export function setPentacleAuthToken(token: string | null) {
   if (authToken === token) {
     return;
   }
+  unregisterConsentPushBeforeSwitch();
   authToken = token;
   reconnectPentacleStream('credential-change');
 }

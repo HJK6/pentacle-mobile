@@ -1,3 +1,4 @@
+import ConsentInbox from '../src/components/ConsentInbox';
 import VoiceRecordingOverlay from '../src/components/voice/VoiceRecordingOverlay';
 import { LogBox, Linking } from 'react-native';
 
@@ -1071,7 +1072,7 @@ export default function RootLayout() {
             <Stack.Screen name="pentacle/session/[streamId]" options={{ headerShown: false }} />
           </Stack>
         )}
-        {(!locked || DISABLE_LOCAL_AUTH_FOR_TESTING) ? <VoiceRecordingOverlay /> : null}
+        {(!locked || DISABLE_LOCAL_AUTH_FOR_TESTING) ? <><VoiceRecordingOverlay /><ConsentInbox /></> : null}
       </ThemeProvider>
     </GestureHandlerRootView>
   );

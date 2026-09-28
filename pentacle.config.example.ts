@@ -18,6 +18,8 @@ export type PentacleConfig = {
     androidPackage: string;
     expoOwner: string;
     easProjectId: string;
+    // Must match the app's signed aps-environment entitlement.
+    pushEnvironment?: 'development' | 'production';
   };
   backend: {
     wsUrl: string;

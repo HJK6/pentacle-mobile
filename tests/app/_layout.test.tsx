@@ -22,6 +22,8 @@ const mockPentacleStream = {
   getPentacleStreamState: jest.fn(),
   subscribePentacleStream: jest.fn(),
   setPentacleWsUrl: jest.fn(),
+  consentConnection: jest.fn(()=>null),
+  usePentacleStreamSelector: jest.fn((selector:any)=>selector({connected:false,notifications:[]})),
 };
 const mockPentacleToken = {
   reloadPentacleToken: jest.fn(() => Promise.resolve()),

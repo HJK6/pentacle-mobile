@@ -28,6 +28,9 @@ function validateConfig(config: PentacleConfig): PentacleConfig {
     },
   } as PentacleConfig;
   requireString(normalized.backend?.wsUrl, 'backend.wsUrl');
+  if (normalized.apple.pushEnvironment && !['development','production'].includes(normalized.apple.pushEnvironment)) {
+    throw new Error('apple.pushEnvironment must match a development or production APNs entitlement.');
+  }
   if (!normalized.hosts || typeof normalized.hosts !== 'object' || Array.isArray(normalized.hosts)) {
     throw new Error('pentacle.config.local.ts must define hosts.');
   }
@@ -93,6 +96,7 @@ export function buildExpoExtra(config: PentacleConfig, wsUrl: string) {
     hostOrder: config.hostOrder || [],
     ...(config.features ? { features: config.features } : {}),
     eas: { projectId: config.apple.easProjectId },
+    pushEnvironment: config.apple.pushEnvironment || 'development',
   };
 }
 
@@ -127,6 +131,7 @@ export default function defineConfig(_context: ConfigContext): ExpoConfig {
       supportsTablet: true,
       bundleIdentifier: harnessBuild ? `${config.apple.bundleId}.harness` : config.apple.bundleId,
       buildNumber,
+      entitlements: {'aps-environment': config.apple.pushEnvironment || 'development'},
       infoPlist: {
         ITSAppUsesNonExemptEncryption: false,
         NSFaceIDUsageDescription: 'Pentacle uses Face ID to secure access to live machine sessions.',

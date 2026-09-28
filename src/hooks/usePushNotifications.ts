@@ -3,11 +3,14 @@ import { Platform } from 'react-native';
 import Constants from 'expo-constants';
 import { router } from 'expo-router';
 import {
+  consentConnection,
+  sendConsentCommand,
   usePentacleStreamActions,
   usePentacleStreamSelector,
 } from '../services/pentacleStream';
 import { logTelemetry } from 'pentacle-chat-core';
 import { TELEMETRY_EVENTS } from 'pentacle-chat-core';
+import {consentHint,navigateConsent,type ConsentHint} from '../services/consentNavigation';
 import { getNativeNotifications } from '../services/nativeNotifications';
 
 const Notifications = getNativeNotifications();
@@ -126,6 +129,11 @@ function routeNotificationTap(
   scheduleRoute: (pending: PendingNotificationRoute) => void,
   delayMs = 0,
 ) {
+  const consent = consentHint(data);
+  if (consent) {
+    scheduleRoute({route:'consent',data:consent,source});
+    return;
+  }
   const streamId = notificationStreamId(data);
   const route = streamId
     ? `/pentacle/session/${encodeURIComponent(streamId)}`
@@ -151,6 +159,10 @@ export default function usePushNotifications(options: PushNotificationOptions = 
   const [expoPushToken, setExpoPushToken] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const registeredTokenRef = useRef<string | null>(null);
+  const scope = usePentacleStreamSelector(() => consentConnection()?.scope || '',Object.is);
+  const [permissionDenied,setPermissionDenied] = useState(false);
+  const pendingConsentRef = useRef<ConsentHint | null>(null);
+  const consumedResponseRef = useRef('');
   const locked = Boolean(options.locked);
   const lockedRef = useRef(locked);
   const pendingRouteRef = useRef<PendingNotificationRoute | null>(null);
@@ -158,6 +170,11 @@ export default function usePushNotifications(options: PushNotificationOptions = 
   const scheduleRoute = useRef((pending: PendingNotificationRoute) => {
     if (lockedRef.current) {
       pendingRouteRef.current = pending;
+      return;
+    }
+    if(pending.route==='consent') {
+      const hint=consentHint(pending.data);
+      if(hint&&!navigateConsent(hint)&&!consentConnection())pendingConsentRef.current=hint;
       return;
     }
     pushNotificationRoute(pending.route, pending.data, pending.source);
@@ -171,45 +188,59 @@ export default function usePushNotifications(options: PushNotificationOptions = 
     scheduleRoute(pending);
   }, [locked, scheduleRoute]);
 
+  useEffect(()=>{
+    if(locked||!scope||!pendingConsentRef.current)return;
+    const hint=pendingConsentRef.current;pendingConsentRef.current=null;navigateConsent(hint);
+  },[locked,scope]);
+
   useEffect(() => {
     if (Platform.OS === 'web' || process.env.EXPO_PUBLIC_HARNESS === '1' || !Notifications) return;
 
     registerForPushNotifications()
       .then((token) => {
         if (token) setExpoPushToken(token);
+        else setPermissionDenied(true);
       })
       .catch((err) => setError(err instanceof Error ? err.message : 'Push registration failed'));
 
-    const responseSub = Notifications.addNotificationResponseReceivedListener((response) => {
-      const data = response.notification.request.content.data as Record<string, unknown>;
-      logNotificationReceived(data, 'response_listener');
-      routeNotificationTap(data, 'response_listener', actions, scheduleRoute);
-    });
+    const handleResponse=(response: Parameters<Parameters<typeof Notifications.addNotificationResponseReceivedListener>[0]>[0],source:string)=>{
+      const data=response.notification.request.content.data as Record<string,unknown>;
+      if(consentHint(data)) {
+        const identity=JSON.stringify([response.notification.request.identifier,response.actionIdentifier,data]);
+        if(consumedResponseRef.current===identity)return;
+        consumedResponseRef.current=identity;
+        // This OS tap is consumed once. A later normal launch must not replay a
+        // cached tap and silently start another signing clock.
+        void Notifications.clearLastNotificationResponseAsync?.().catch(()=>undefined);
+      }
+      logNotificationReceived(data,source);routeNotificationTap(data,source,actions,scheduleRoute);
+    };
+    const responseSub=Notifications.addNotificationResponseReceivedListener(response=>handleResponse(response,'response_listener'));
+    Notifications.getLastNotificationResponseAsync().then(response=>{if(response)handleResponse(response,'last_response');});
 
-    Notifications.getLastNotificationResponseAsync().then((response) => {
-      if (!response) return;
-      const data = response.notification.request.content.data as Record<string, unknown>;
-      logNotificationReceived(data, 'last_response');
-      routeNotificationTap(data, 'last_response', actions, scheduleRoute, 500);
+    const tokenSub=Notifications.addPushTokenListener?.(()=>{
+      void registerForPushNotifications().then(token=>{if(token)setExpoPushToken(token);}).catch(err=>setError(err instanceof Error?err.message:'Push registration failed'));
     });
-
-    return () => responseSub.remove();
+    return () => {responseSub.remove();tokenSub?.remove();};
   }, [actions, scheduleRoute]);
 
   useEffect(() => {
-    if (!connected || !expoPushToken || registeredTokenRef.current === expoPushToken) return;
-    actions
-      .registerPushToken({
-        pushToken: expoPushToken,
-        platform: Platform.OS,
-        deviceName: `Pentacle ${Platform.OS}`,
-      })
-      .then(() => {
-        registeredTokenRef.current = expoPushToken;
-        setError(null);
-      })
-      .catch((err) => setError(err instanceof Error ? err.message : 'Push token registration failed'));
-  }, [actions, connected, expoPushToken]);
+    if(!connected)return;
+    const current=consentConnection();
+    const binding=current?JSON.stringify([current.scope,expoPushToken]):'';
+    if(current&&permissionDenied) {
+      void sendConsentCommand('consent.push_register',{permission:'denied'}).catch(()=>undefined);return;
+    }
+    if(!expoPushToken||registeredTokenRef.current===(binding||expoPushToken))return;
+    const registration=current
+      ?sendConsentCommand('consent.push_register',{push_token:expoPushToken,platform:Platform.OS,
+        project_id:Constants.expoConfig?.extra?.eas?.projectId,environment:Constants.expoConfig?.extra?.pushEnvironment||'development'})
+      :actions.registerPushToken({pushToken:expoPushToken,platform:Platform.OS,deviceName:`Pentacle ${Platform.OS}`});
+    void registration.then(()=>{
+      if(current&&consentConnection()?.scope!==current.scope)return;
+      registeredTokenRef.current=binding||expoPushToken;setError(null);
+    }).catch(err=>setError(err instanceof Error?err.message:'Push token registration failed'));
+  },[actions,connected,expoPushToken,scope,permissionDenied]);
 
   return { expoPushToken, error };
 }

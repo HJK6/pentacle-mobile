@@ -1,3 +1,4 @@
+import type { ConsentIntent } from '../services/privilegedConsent';
 /**
  * Screenshot-harness fixtures (spec: example-mobile mock screenshot harness).
  *
@@ -925,6 +926,23 @@ const WIDE_TABLE_SNAPSHOT: HarnessSnapshot = {
 // (screen, variant) registry.
 // ---------------------------------------------------------------------------
 
+const consentFixture = (expired: boolean): HarnessFixture => {
+  const intent: ConsentIntent = {
+    request_id: 'screenshot-consent', host_id: 'hosta', action: 'lifecycle.designate',
+    target_stream_id: 'hosta:manager', target_generation: 'generation-42', expected_revision: 0,
+    requester: {kind: 'operator', identity: 'operator:fixture', generation: ''},
+    audience_key_ids: ['fixture-phone'], display_text: 'Approve on: Paired phone',
+    expires_at: expired ? 1 : Date.now() / 1000 + 86400, state: expired ? 'expired' : 'pending',
+  };
+  const card: PentacleNotification & {consent: ConsentIntent} = {
+    ...notification({notification_id: 'screenshot-consent', title: 'Approval requested',
+      body: 'Approval requested on phone', producer: 'consent.v1', actions: []}),
+    expires_at: expired ? '1970-01-01T00:00:01Z' : new Date(intent.expires_at * 1000).toISOString(),
+    consent: intent,
+  };
+  return {snapshot: {...POPULATED_SNAPSHOT, notifications: [card]}, opts: SEEDED};
+};
+
 export const FIXTURES: Record<string, HarnessFixture> = {
   "enroll:default": { snapshot: POPULATED_SNAPSHOT, opts: SEEDED },
   'chats:populated': { snapshot: POPULATED_SNAPSHOT, opts: SEEDED },
@@ -936,6 +954,8 @@ export const FIXTURES: Record<string, HarnessFixture> = {
   'chats:loading': { snapshot: {}, opts: LOADING },
   'chats:error': { snapshot: { hosts: POPULATED_HOSTS, hosts_stats: POPULATED_MACHINE_STATS, sessions: [] }, opts: ERRORED },
 
+  'updates:consent_pending': consentFixture(false),
+  'updates:consent_expired': consentFixture(true),
   'updates:populated': { snapshot: POPULATED_SNAPSHOT, opts: SEEDED },
   'updates:empty': { snapshot: EMPTY_SNAPSHOT, opts: SEEDED },
   'updates:loading': { snapshot: {}, opts: LOADING },

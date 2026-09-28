@@ -1,5 +1,7 @@
 import ConsentCard from './ConsentCard';
-import type { ConsentChallenge } from '../services/privilegedConsent';
+import {navigateConsent} from '../services/consentNavigation';
+import EnrollmentOfferCard from './EnrollmentOfferCard';
+import type { EnrollmentOffer, ConsentIntent } from '../services/privilegedConsent';
 import React, { useCallback, useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Fonts, SEV, Tokens } from '@/constants/Colors';
@@ -500,7 +502,10 @@ const styles = StyleSheet.create({
 });
 
 export default function NotificationCard(props: Props) {
-  const consent = (props.notification as PentacleNotification & {consent?: ConsentChallenge}).consent;
-  if (props.notification.producer === 'consent.v1' && consent) return <ConsentCard challenge={consent} />;
+  const record = props.notification as PentacleNotification & {consent?: ConsentIntent;consent_offer?: EnrollmentOffer;offer_id?:string;host_id?:string};
+  const consent = record.consent;
+  if(record.producer==='consent.security.v1'&&record.offer_id&&record.host_id)return <View style={{padding:16,gap:12}}><Text style={{color:Tokens.palette.text}}>{record.title}</Text><Text style={{color:Tokens.palette.text}}>Ask this host to review or revoke this Approval key.</Text><Pressable onPress={()=>navigateConsent({kind:'enrollment',host_id:record.host_id!,request_id:record.offer_id!})}><Text style={{color:Tokens.palette.text}}>Review setup request</Text></Pressable></View>;
+  if (record.producer === 'consent.enrollment.v1' && record.consent_offer) return <EnrollmentOfferCard offer={record.consent_offer} />;
+  if (props.notification.producer === 'consent.v1' && consent?.request_id) return <ConsentCard intent={consent} />;
   return <OrdinaryNotificationCard {...props} />;
 }
