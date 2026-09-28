@@ -1,18 +1,20 @@
 import React,{useState} from 'react';
 import {Pressable,Text,View} from 'react-native';
-import {usePathname} from 'expo-router';
+import {useGlobalSearchParams,usePathname} from 'expo-router';
 import {Tokens} from '@/constants/Colors';
 import {usePentacleStreamSelector,consentConnection} from '../services/pentacleStream';
 import {navigateConsent} from '../services/consentNavigation';
 export default function ConsentInbox() {
   const notifications=usePentacleStreamSelector(state=>state.notifications);
   const connected=usePentacleStreamSelector(state=>state.connected);
-  const pathname=usePathname();const [dismissed,setDismissed]=useState<string[]>([]);
+  const pathname=usePathname();const params=useGlobalSearchParams();const [dismissed,setDismissed]=useState<string[]>([]);
   const current=consentConnection();
-  if(!connected||!current||pathname==='/approval')return null;
+  if(!connected||!current)return null;
   const record=notifications.find((notification:any)=>{
     const request=notification.consent_offer||notification.consent;
-    return request?.state==='pending'&&request.host_id===current.host_id&&!dismissed.includes(notification.notification_id);
+    const alreadyOpen=pathname==='/approval'&&params.host_id===request?.host_id&&
+      params.request_id===(request?.offer_id||request?.request_id)&&params.kind===(notification.consent_offer?'enrollment':'approval');
+    return request?.state==='pending'&&request.host_id===current.host_id&&!alreadyOpen&&!dismissed.includes(notification.notification_id);
   }) as any;
   if(!record)return null;
   const request=record.consent_offer||record.consent;

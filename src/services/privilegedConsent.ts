@@ -94,7 +94,7 @@ async function bindOffer(record: OfferRecord, result: OfferResponse, before: Con
   const receipt = result.receipt;
   if (!receipt || receipt.offer_id !== record.offer_id || receipt.host_id !== before.host_id || receipt.credential_id !== before.credential_id ||
       receipt.spki_hash !== hex(sha256(toByteArray(record.spki))) || result.offer.accepted_key_id !== receipt.key_id) throw new Error('Setup receipt does not match this phone key.');
-  const prior = await localApprovalKeys();
+  const prior = await localApprovalKeys(); same(before);
   const state: LocalKey['state']=result.offer.key_state === 'active' ? 'active' : 'revoked';
   const existing=prior.find(key=>key.key_id===receipt.key_id);
   await saveKeys(existing?prior.map(key=>key.key_id===receipt.key_id?{...key,state,scope:before.scope}:key):[...prior,{key_id:receipt.key_id,keyTag:record.keyTag,scope:before.scope,state}]);
@@ -136,6 +136,7 @@ export async function declineOffer(offer: EnrollmentOffer) {
 export async function openConsent(intent: ConsentIntent): Promise<ConsentChallenge> {
   const before=connection(intent.host_id);
   const key=(await localApprovalKeys()).find((candidate)=>intent.audience_key_ids.includes(candidate.key_id)&&(!candidate.scope||candidate.scope===before.scope));
+  same(before);
   if (!key) throw new Error('Ask this host to send a new setup request.');
   const result=await sendConsentCommand<{challenge: ConsentChallenge}>('consent.open',{intent_id:intent.request_id,key_id:key.key_id});same(before);
   return {...result.challenge,connection_scope:before.scope};
@@ -149,6 +150,7 @@ export async function approveConsent(challenge: ConsentChallenge): Promise<unkno
   if (!tuple) {
     if (challenge.state!=='pending'||challenge.expires_at*1000<=Date.now()) throw new Error('This approval has expired or already ended.');
     const key=(await localApprovalKeys()).find((candidate)=>challenge.audience_key_ids.includes(candidate.key_id)&&(!candidate.scope||candidate.scope===before.scope));
+    same(before);
     if (!key) throw new Error('Ask this host to send a new setup request.');
     let signature: string;
     try {signature=await nativeConsentSigner().signConsent(key.keyTag,challenge.challenge_bytes);}
@@ -168,6 +170,7 @@ export async function approveConsent(challenge: ConsentChallenge): Promise<unkno
 export async function denyConsent(challenge: ConsentChallenge): Promise<unknown> {
   const before=connection();
   if(challenge.connection_scope!==before.scope)throw new Error('Host connection changed. Open this request again.');
-  const key=(await localApprovalKeys()).find((candidate)=>challenge.audience_key_ids.includes(candidate.key_id));
+  const key=(await localApprovalKeys()).find((candidate)=>challenge.audience_key_ids.includes(candidate.key_id)&&(!candidate.scope||candidate.scope===before.scope));
+  same(before);
   const result=await sendConsentCommand('consent.deny',{challenge_id:challenge.challenge_id,key_id:key?.key_id});same(before);return result;
 }

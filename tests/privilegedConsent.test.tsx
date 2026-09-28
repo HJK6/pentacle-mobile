@@ -2,18 +2,21 @@ import React from 'react';
 import {act, fireEvent, render} from '@testing-library/react-native';
 import {toByteArray} from 'base64-js';
 import ConsentCard from '../src/components/ConsentCard';
-import {approveConsent, consentError, framedOffer, type ConsentChallenge, type ConsentIntent} from '../src/services/privilegedConsent';
+import {approveConsent, openConsent, denyConsent, consentError, framedOffer, type ConsentChallenge, type ConsentIntent} from '../src/services/privilegedConsent';
 
 let mockReadiness = true;
 let mockConnection = 1;
+let mockScope = "host|phone";
+let mockHost = "host";
+let mockMetadataReadHook: (()=>void)|undefined;
 let mockMetadata: string | null = null;
 let mockTuples: Record<string,string> = {};
 const mockSign = jest.fn().mockResolvedValue('signed-tuple');
 const mockCreate = jest.fn().mockResolvedValue({keyTag: 'local-key', spki: 'public-spki'});
 const mockRpc = jest.fn();
 jest.mock('../modules/pentacle-consent', () => ({nativeConsentSigner: () => ({createKey: mockCreate, signConsent: mockSign})}));
-jest.mock('../src/services/pentacleStream', () => ({consentConnection: () => mockReadiness ? {scope: 'host|phone',host_id:'host',credential_id:'phone',generation:mockConnection} : null, sendConsentCommand: (...args: unknown[]) => mockRpc(...args)}));
-jest.mock('expo-secure-store', () => ({getItemAsync: async (key: string) => key==='pentacle-consent-key-metadata-v1'?mockMetadata:mockTuples[key]||null, setItemAsync: async (key: string, value: string) => {if(key==='pentacle-consent-key-metadata-v1')mockMetadata=value;else mockTuples[key]=value;}}));
+jest.mock('../src/services/pentacleStream', () => ({consentConnection: () => mockReadiness ? {scope: mockScope,host_id:mockHost,credential_id:'phone',generation:mockConnection} : null, sendConsentCommand: (...args: unknown[]) => mockRpc(...args)}));
+jest.mock('expo-secure-store', () => ({getItemAsync: async (key: string) => {if(key==='pentacle-consent-key-metadata-v1'){mockMetadataReadHook?.();return mockMetadata;}return mockTuples[key]||null;}, setItemAsync: async (key: string, value: string) => {if(key==='pentacle-consent-key-metadata-v1')mockMetadata=value;else mockTuples[key]=value;}}));
 
 const challenge: ConsentChallenge = {
   connection_scope: 'host|phone', challenge_id: 'exact-challenge', action: 'lifecycle.designate', target_stream_id: 'hosta:bart',
@@ -28,7 +31,7 @@ beforeEach(() => {
   jest.clearAllMocks();
   mockTuples = {};
   mockReadiness = true;
-  mockConnection = 1;
+  mockConnection = 1;mockScope="host|phone";mockHost="host";mockMetadataReadHook=undefined;
   mockMetadata = JSON.stringify([{key_id: 'enrolled-key', keyTag: 'local-key', fingerprint: 'a'.repeat(64)}]);
   mockSign.mockResolvedValue('signed-tuple');
   mockRpc.mockImplementation(async (verb: string, fields: any) => {
@@ -138,4 +141,11 @@ test('connection switch during native signing blocks the old tuple send',async()
   mockSign.mockImplementationOnce(async()=>{mockConnection++;return 'signed-tuple';});
   await expect(approveConsent(challenge)).rejects.toThrow('Host connection changed');
   expect(mockRpc).not.toHaveBeenCalled();
+});
+
+test.each(['open','deny','approve'])('host switch during metadata read blocks %s before RPC or native signing',async(action)=>{
+  mockMetadataReadHook=()=>{mockHost='other';mockScope='other|phone';mockConnection++;};
+  const pending=action==='open'?openConsent({...challenge,request_id:'request',host_id:'host'} as ConsentIntent):action==='deny'?denyConsent(challenge):approveConsent(challenge);
+  await expect(pending).rejects.toThrow('Host connection changed');
+  expect(mockRpc).not.toHaveBeenCalled();expect(mockSign).not.toHaveBeenCalled();
 });

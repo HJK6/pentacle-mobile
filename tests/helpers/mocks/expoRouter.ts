@@ -51,6 +51,7 @@ export function makeMock(options: RouterMockOptions = {}) {
     useRouter: () => router,
     usePathname: () => '/chats',
     useLocalSearchParams: <T extends Record<string, unknown>>() => (options.getParams?.() || options.params || {}) as T,
+    useGlobalSearchParams: <T extends Record<string, unknown>>() => (options.getParams?.() || options.params || {}) as T,
     Redirect: ({ href }: { href: string }) => {
       redirect(href);
       return null;
