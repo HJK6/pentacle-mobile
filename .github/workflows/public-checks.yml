@@ -30,6 +30,14 @@ jobs:
         run: |
           python3 -m pip install -r test/e2e/tools/requirements.txt
           PYTHONPATH=test/e2e python3 -m pytest test/e2e/tests/test_mock_v2_daemon.py test/e2e/tests/test_waivers_render.py test/e2e/tests/test_public_replay.py test/e2e/tests/test_public_harness_helpers.py
+      - name: Native archive semantics for Hermes fixtures
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libarchive-tools
+          mkdir -p "$RUNNER_TEMP/native-archive-tools"
+          ln -s /usr/bin/bsdtar "$RUNNER_TEMP/native-archive-tools/tar"
+          echo "$RUNNER_TEMP/native-archive-tools" >> "$GITHUB_PATH"
+          /usr/bin/bsdtar --version
       - run: npm run test:unit
       - run: npm run typecheck
       - run: npm run validate
