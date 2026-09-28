@@ -1,6 +1,8 @@
 import socket
 import threading
 import time
+import os
+import pytest
 
 from e2e.harness.live_connection_proxy import LiveConnectionProxy
 
@@ -43,3 +45,37 @@ def test_only_owned_connection_is_cut_and_new_connection_recovers(tmp_path):
         stop.set()
         worker.join(2)
         server.close()
+
+
+def test_preexisting_control_is_never_overwritten(tmp_path):
+    control = tmp_path / 'connection'
+    control.write_text('another owner\n')
+    identity = control.stat().st_ino
+    with pytest.raises(FileExistsError):
+        LiveConnectionProxy(('127.0.0.1', 1), control)
+    assert control.read_text() == 'another owner\n'
+    assert control.stat().st_ino == identity
+
+
+def test_replacement_control_survives_proxy_shutdown(tmp_path):
+    control = tmp_path / 'connection'
+    with LiveConnectionProxy(('127.0.0.1', 1), control) as proxy:
+        descriptor = proxy.control_fd
+        control.unlink()
+        control.write_text('replacement owner\n')
+        assert not proxy.enabled()
+    assert control.read_text() == 'replacement owner\n'
+    assert not proxy.accept_thread.is_alive()
+    assert proxy.listener.fileno() == -1
+    with pytest.raises(OSError):
+        os.fstat(descriptor)
+
+
+def test_listener_setup_failure_removes_only_owned_control(tmp_path, monkeypatch):
+    control = tmp_path / 'connection'
+    def refuse_socket():
+        raise OSError('synthetic listener allocation failure')
+    monkeypatch.setattr(socket, 'socket', refuse_socket)
+    with pytest.raises(OSError, match='synthetic listener'):
+        LiveConnectionProxy(('127.0.0.1', 1), control)
+    assert not control.exists()

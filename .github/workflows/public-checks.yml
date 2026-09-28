@@ -29,7 +29,9 @@ jobs:
       - name: Portable synthetic harness
         run: |
           python3 -m pip install -r test/e2e/tools/requirements.txt
-          PYTHONPATH=test/e2e python3 -m pytest test/e2e/tests/test_mock_v2_daemon.py test/e2e/tests/test_waivers_render.py test/e2e/tests/test_public_replay.py test/e2e/tests/test_public_harness_helpers.py
+          PYTHONPATH=test:test/e2e python3 -m pytest test/e2e/tests/test_mock_v2_daemon.py test/e2e/tests/test_waivers_render.py test/e2e/tests/test_public_replay.py test/e2e/tests/test_public_harness_helpers.py test/e2e/tests/test_public_progress_telemetry.py test/e2e/tests/test_public_wire_contract_validator.py test/e2e/tests/test_public_four_leg_diagnostics.py test/e2e/tests/test_transcript_order_chunks.py test/e2e/tests/test_live_connection_proxy.py test/e2e/tests/test_public_telemetry_events.py test/e2e/tests/test_public_timer_label_diff.py
+      - name: Configured synthetic dashboard mock
+        run: node --test test/e2e/tests/test_dashboard_hub_mock_server.cjs
       - name: Native archive semantics for Hermes fixtures
         run: |
           sudo apt-get update
