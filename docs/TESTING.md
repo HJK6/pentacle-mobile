@@ -31,3 +31,5 @@ The Summon picker uses configured and discovered host identities. Host labels
 need not match the example palette; offline hosts remain visible but disabled.
 
 Public main is the normal development and build source. See [repository workflow](repo_workflow.md) for the mandatory pre-push content/history guard and required CI. Private-data exceptions use immediate reviewed public projection; keep local config out of Git.
+
+The portable synthetic harness gate and retained private inputs are documented in [Public source boundary](public_boundary.md). CI runs only the four named Python mock/helper test files; JavaScript export validation uses the disposable ignored example config.

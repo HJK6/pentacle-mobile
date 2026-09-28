@@ -1,0 +1,169 @@
+#!/usr/bin/env python3
+"""Pentacle replay-events helper.
+
+Reads a JSONL fixture file (one JSON event per line), wraps it in an envelope
+``{"stream_id": ..., "events": [...]}``, atomically drops it into the
+chat_streamd replay inbox, and waits up to 5 seconds for chat_streamd to
+rename it to ``*.jsonl.done`` (success) or ``*.jsonl.error`` (parse failure).
+
+Exit codes:
+- 0  success (``.done`` observed)
+- 1  parse-failure on the daemon side (``.error`` observed); the
+      ``.error.log`` contents are printed to stderr
+- 2  timeout (no ``.done`` / ``.error`` within 5s)
+- 3  helper-side error (bad fixture path / argument)
+
+The tmp file is created INSIDE the inbox directory so the final
+``os.rename`` is on the same filesystem and atomic per POSIX. The poller
+skips ``*.tmp``.
+
+Spec: spec_pentacle_mobile_e2e_telemetry_flows_2026_05_13 Stage 1.2.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import sys
+import time
+import uuid
+from pathlib import Path
+
+
+DEFAULT_INBOX = "~/.pentacle-test/replay-inbox"
+POLL_TIMEOUT_SECONDS = 5.0
+POLL_INTERVAL_SECONDS = 0.1
+
+
+def _parse_args(argv: list[str]) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Replay a JSONL fixture into chat_streamd via the replay inbox.")
+    # Accept fixture and stream_id from CLI OR env so the scenario harness
+    # (run_command_action in test/e2e/harness/scenario_control.py), which
+    # injects PENTACLE_FIXTURE_PATH only, can invoke this command without
+    # CLI flags. Stream id defaults to a stable replay sentinel when neither
+    # CLI nor env supplies one.
+    env_fixture = os.environ.get("PENTACLE_FIXTURE_PATH") or ""
+    env_stream_id = os.environ.get("PENTACLE_STREAM_ID") or ""
+    parser.add_argument(
+        "--fixture",
+        required=not env_fixture,
+        default=env_fixture or None,
+        help="path to a JSONL fixture (env: PENTACLE_FIXTURE_PATH)",
+    )
+    parser.add_argument(
+        "--stream-id",
+        required=False,
+        default=env_stream_id or "pentacle-replay-events",
+        help="stream_id to scope the envelope (env: PENTACLE_STREAM_ID)",
+    )
+    parser.add_argument(
+        "--inbox",
+        default=None,
+        help=(
+            "inbox directory (default $PENTACLE_REPLAY_INBOX, "
+            "fallback ~/.pentacle-test/replay-inbox)"
+        ),
+    )
+    return parser.parse_args(argv)
+
+
+def _resolve_inbox(arg: str | None) -> Path:
+    raw = arg or os.environ.get("PENTACLE_REPLAY_INBOX") or DEFAULT_INBOX
+    return Path(os.path.expanduser(raw))
+
+
+def _read_fixture(path: Path) -> list[dict]:
+    events: list[dict] = []
+    with path.open("r", encoding="utf-8") as fh:
+        for lineno, line in enumerate(fh, 1):
+            stripped = line.strip()
+            if not stripped:
+                continue
+            try:
+                value = json.loads(stripped)
+            except json.JSONDecodeError as exc:
+                raise ValueError(f"{path}:{lineno}: invalid JSON: {exc}") from exc
+            if not isinstance(value, dict):
+                raise ValueError(f"{path}:{lineno}: expected JSON object, got {type(value).__name__}")
+            events.append(value)
+    return events
+
+
+def _wait_for_outcome(inbox: Path, base_name: str) -> tuple[str, Path | None]:
+    """Poll for ``<base_name>.done`` / ``<base_name>.error`` until timeout.
+
+    Returns (outcome, log_path) where outcome is one of:
+    ``done``, ``error``, ``timeout``.
+    """
+    done = inbox / (base_name + ".done")
+    error = inbox / (base_name + ".error")
+    log_path = inbox / (base_name + ".error.log")
+    deadline = time.monotonic() + POLL_TIMEOUT_SECONDS
+    while time.monotonic() < deadline:
+        if done.exists():
+            return ("done", None)
+        if error.exists():
+            return ("error", log_path if log_path.exists() else None)
+        time.sleep(POLL_INTERVAL_SECONDS)
+    return ("timeout", None)
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = _parse_args(argv if argv is not None else sys.argv[1:])
+    fixture_path = Path(os.path.expanduser(args.fixture))
+    if not fixture_path.is_file():
+        print(f"pentacle-replay-events: fixture not found: {fixture_path}", file=sys.stderr)
+        return 3
+    try:
+        events = _read_fixture(fixture_path)
+    except ValueError as exc:
+        print(f"pentacle-replay-events: {exc}", file=sys.stderr)
+        return 3
+
+    inbox = _resolve_inbox(args.inbox)
+    try:
+        inbox.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        print(f"pentacle-replay-events: cannot create inbox {inbox}: {exc}", file=sys.stderr)
+        return 3
+
+    envelope = {"stream_id": args.stream_id, "events": events}
+    payload = json.dumps(envelope)
+
+    base_name = f"{uuid.uuid4()}.jsonl"
+    tmp_path = inbox / (base_name + ".tmp")
+    final_path = inbox / base_name
+    try:
+        tmp_path.write_text(payload, encoding="utf-8")
+        os.rename(tmp_path, final_path)
+    except OSError as exc:
+        print(f"pentacle-replay-events: failed to write drop {final_path}: {exc}", file=sys.stderr)
+        try:
+            if tmp_path.exists():
+                tmp_path.unlink()
+        except OSError:
+            pass
+        return 3
+
+    outcome, log_path = _wait_for_outcome(inbox, base_name)
+    if outcome == "done":
+        return 0
+    if outcome == "error":
+        if log_path is not None:
+            try:
+                sys.stderr.write(log_path.read_text(encoding="utf-8"))
+            except OSError as exc:
+                print(f"pentacle-replay-events: could not read error log: {exc}", file=sys.stderr)
+        else:
+            print("pentacle-replay-events: daemon reported error (no .error.log found)", file=sys.stderr)
+        return 1
+    print(
+        f"pentacle-replay-events: timed out after {POLL_TIMEOUT_SECONDS}s waiting for "
+        f"{base_name}.done or {base_name}.error in {inbox}",
+        file=sys.stderr,
+    )
+    return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

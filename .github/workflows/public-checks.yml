@@ -26,6 +26,10 @@ jobs:
         run: scripts/check-public-boundary.sh origin/main
       - run: npm ci
       - run: cp pentacle.config.example.ts pentacle.config.local.ts
+      - name: Portable synthetic harness
+        run: |
+          python3 -m pip install -r test/e2e/tools/requirements.txt
+          PYTHONPATH=test/e2e python3 -m pytest test/e2e/tests/test_mock_v2_daemon.py test/e2e/tests/test_waivers_render.py test/e2e/tests/test_public_replay.py test/e2e/tests/test_public_harness_helpers.py
       - run: npm run test:unit
       - run: npm run typecheck
       - run: npm run validate
