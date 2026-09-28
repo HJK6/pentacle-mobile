@@ -1191,7 +1191,10 @@ def test_public_reader_never_returns_partial_during_replacement(tmp_path: Path) 
         for sequence in range(2, 30):
             writer.publish(_snapshot(sequence=sequence))
         stop.set(); thread.join()
-    assert failures == []
+    import traceback
+    assert failures == [], "\n".join(
+        "".join(traceback.format_exception(exc)) for exc in failures
+    )
     assert seen and min(seen) >= 1 and max(seen) <= 29
 
 
