@@ -1815,4 +1815,3 @@ def test_concurrent_active_readers_classify_one_dead_ticket_consistently(tmp_pat
         assert reader.returncode == 0 and stderr == b""
         payloads.append(json.loads(stdout))
     assert all(row == {"schema_version": 1, "active_runs": [], "ignored_dead": 1} for row in payloads)
-

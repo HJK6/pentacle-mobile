@@ -35,4 +35,3 @@ def transcript_orders(events, target, *, after=0):
                     data=dict(kind='transcript_order_complete', stream_id=target, order_id=generation,
                               row_order=[{'id': rows[i]} for i in range(count)])))
     return sorted(complete, key=lambda event: event.received_at)
-

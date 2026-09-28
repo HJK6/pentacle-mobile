@@ -78,4 +78,3 @@ def parse_telemetry_line(line: str) -> TelemetryEvent | None:
         received_at=time.monotonic(),
         raw=line.rstrip("\n"),
     )
-

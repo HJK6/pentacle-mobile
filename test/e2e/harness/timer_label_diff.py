@@ -398,4 +398,3 @@ def _string(value: Any) -> str | None:
 
 def _md(value: str) -> str:
     return value.replace("|", "\\|").replace("\n", " ")
-
