@@ -160,7 +160,7 @@ test('v2 waits for the operator challenge and never exposes the bearer envelope'
   expect(hello).toEqual({
     type: 'hello',
     client: 'pentacle-mobile',
-    capabilities: { assistant_composite_v1: true },
+    capabilities: { assistant_composite_v1: true, consent_enrollment_offer_v1: true, consent_open_v1: true },
     auth_v2: {
       scheme: 'hmac-sha256-v2',
       credential_id: '123e4567-e89b-12d3-a456-426614174000',
@@ -399,7 +399,7 @@ test('connects, opens, and dispatches snapshot messages to subscribers', () => {
   expect(JSON.parse(socket.sent[0])).toEqual({
     type: 'hello',
     client: 'pentacle-mobile',
-    capabilities: { assistant_composite_v1: true },
+    capabilities: { assistant_composite_v1: true, consent_enrollment_offer_v1: true, consent_open_v1: true },
     subscribe: { events_mode: 'summary', include_subagents: false },
   });
   expect(sentFrames(socket, 'specs.capabilities')).toHaveLength(1);
@@ -2039,7 +2039,7 @@ test('stale onopen after await cannot mutate state, while current onopen still c
   expect(JSON.parse(second.sent[0])).toEqual({
     type: 'hello',
     client: 'pentacle-mobile',
-    capabilities: { assistant_composite_v1: true },
+    capabilities: { assistant_composite_v1: true, consent_enrollment_offer_v1: true, consent_open_v1: true },
     subscribe: { events_mode: 'summary', include_subagents: false },
   });
   expect(stream.getPentacleStreamState().connected).toBe(true);

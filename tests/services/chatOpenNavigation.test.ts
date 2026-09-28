@@ -535,6 +535,7 @@ function collectTypedProbeCalls(source: string): NavCall[] {
 // A same-expression positional swap is outside this guard; import/blank-line shifts are harmless.
 // Constants are reviewed classifications, never derived from the source during the census.
 const NAV_ALLOWLIST: { file: string; argExpression: string; count: number; reason: string }[] = [
+  { file: "src/services/consentNavigation.ts", argExpression: "{pathname:'/approval',params:{...hint,gesture:token}} as any", count: 1, reason: "product: authenticated same-host consent tap; daemon owns open authority" },
   { file: "src/services/chatOpenNavigation.ts", argExpression: "href", count: 4, reason: "shared navigation unit owns its push/replace calls" },
   { file: "app/(tabs)/chats.tsx", argExpression: "href as any", count: 2, reason: "shared-unit navigator adapter (openChat push+replace)" },
   { file: "app/(tabs)/chats.tsx", argExpression: "{ pathname: '/pentacle/session/[streamId]', params: { streamId, openStatus: '1' } } as any", count: 1, reason: "product: status open" },

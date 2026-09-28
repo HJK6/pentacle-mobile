@@ -1489,7 +1489,7 @@ test('composite hello/send keeps wire identity, reply metadata, acceptance, and 
   const hello = socket.sent
     .map((frame) => JSON.parse(frame))
     .find((frame) => frame.type === 'hello');
-  expect(hello?.capabilities).toEqual({ assistant_composite_v1: true });
+  expect(hello?.capabilities).toEqual({ assistant_composite_v1: true, consent_enrollment_offer_v1: true, consent_open_v1: true });
 
   const optimisticId = stream.sendTurn('hosta:hosta', 'follow up');
   const firstSend = stream.sendPentacleMessage({
