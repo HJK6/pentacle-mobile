@@ -8,7 +8,7 @@ from e2e.harness.four_leg_diagnostics import compute_diagnostics
 from e2e.harness.telemetry_events import TelemetryEvent
 
 
-STREAM_ID = "merlin:claude-merlin-test"
+STREAM_ID = "samplehost:claude-samplehost-test"
 
 
 def _evt(message: str, data: dict, t: float) -> TelemetryEvent:

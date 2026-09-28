@@ -891,7 +891,7 @@ def test_sigkill_owner_becomes_dead_and_next_writer_reaps_ticket(tmp_path: Path)
         "from progress_telemetry import TelemetryRun; "
         "r=TelemetryRun(progress_file=Path(sys.argv[1])/\'progress\'/\'run-1.json\',"
         "runs_dir=Path(sys.argv[1]),run_id=\'run-1\',advertised=True,"
-        "source_commit=\'9327ba2\',host=\'merlin\',total=0); "
+        "source_commit=\'9327ba2\',host=\'samplehost\',total=0); "
         "r.__enter__(); r.coordinator.emit_initial(); print(\'READY\',flush=True); time.sleep(60)"
     )
     proc = subprocess.Popen(
