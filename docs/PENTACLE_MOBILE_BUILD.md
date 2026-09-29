@@ -27,3 +27,41 @@ the guard inside its existing `ios-export` stage, before Expo starts, so positio
 cannot reach a release artifact while the release receipt keeps its established stage inventory. The
 guard names each offending host id; coverage is the frozen
 `tests/fixtures/hostSigilGuard.fixture.json` fixture.
+
+## iOS scene lifecycle on SDK 54
+
+Apps linked with the iOS 27 SDK must adopt scenes to launch on iOS 27.
+This app declares one `PentacleSceneDelegate` through `withSceneLifecycle`.
+The app delegate still creates and binds the public `ExpoReactNativeFactory`;
+the scene creates its window and starts module `main`. The window is also
+available on the app delegate for React Native 0.81 and Expo module compatibility.
+A scene reconnection reuses the existing root instead of starting another engine.
+
+Cold URLs and browsing activities become React Native launch options; scene
+URL/activity callbacks use the existing Expo/RCTLinkingManager overrides.
+Scene foreground/background callbacks reach Expo's app delegate subscribers.
+Notification responses remain on the existing UN notification center delegate,
+which queues cold responses for Expo's notification emitter. The scene must not
+dispatch that response a second time. SecureStore options and signing entitlements
+are independent of this adapter and remain unchanged.
+
+The lock resolves Expo 54.0.37 from the declared `~54.0.33` range. SDK 54 has no
+`ExpoAppSceneDelegate` or `enableSceneSupport` setting; this local plugin uses its
+public factory API and follows Expo's window and link migration. When upgrading
+Expo, replace the adapter with the SDK's built-in integration. See
+[Expo's scene lifecycle guide](https://github.com/expo/fyi/blob/main/ios-scene-lifecycle.md)
+and [the SDK 57 scene backport](https://github.com/expo/expo/pull/50191).
+
+`tests/sceneLifecycle.test.ts` checks plugin composition, repeated generation,
+manifest safety and unsupported templates. On macOS it also runs
+`node scripts/test-scene-lifecycle-native.cjs`: executable generated Swift plus
+the locked Expo notification manager/emitter, with explicit platform, factory,
+module DSL and serialization stubs. This proves cold response replay once;
+actual UIKit compilation and JavaScript AppState background/active delivery
+require a Release simulator build. A disposable diagnostic JS subscriber may
+capture AppState without changing the shipped entry or certified runner; retain
+its bundle provenance and the candidate native executable hash separately.
+
+Use only synthetic config for these rehearsals, and remove the owned ignored
+`pentacle.config.local.ts` stand-in afterward. Simulator checks do not prove
+physical Face ID, existing protected-token access or APNs delivery.

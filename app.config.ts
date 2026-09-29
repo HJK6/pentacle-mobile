@@ -153,6 +153,9 @@ export default function defineConfig(_context: ConfigContext): ExpoConfig {
     plugins: [
       './plugins/withHermesBuildState',
       './plugins/withNativeCompilerPolicy',
+      // AppDelegate mods run in reverse registration order: preserve harness
+      // launch options first, then defer the bound factory to the scene.
+      './plugins/withSceneLifecycle',
       './plugins/withHarnessLaunchUrl',
       'expo-router',
       'expo-updates',
