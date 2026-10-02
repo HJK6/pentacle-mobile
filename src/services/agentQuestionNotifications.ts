@@ -231,6 +231,17 @@ export function agentQuestionStreamId(notification: PentacleNotification) {
   return notification.question?.producer_stream_id || notification.answer_to_stream_id || '';
 }
 
+// The chat a question card is shown in. The daemon names it when the producer
+// has no chat of its own for the operator (a hidden bound assistant asking on
+// behalf of its composite chat); otherwise it is the producer's chat. This never
+// changes who is answered: answers go by notification/question id.
+export function agentQuestionSurfaceStreamId(notification: PentacleNotification) {
+  const surfaced = typeof notification.surfaced_to_stream_id === 'string'
+    ? notification.surfaced_to_stream_id.trim()
+    : '';
+  return surfaced || agentQuestionStreamId(notification);
+}
+
 export function isOpenAgentQuestionNotification(notification: PentacleNotification) {
   return notification.state === 'open' && (!notification.question || notification.question.state === 'open');
 }
@@ -241,7 +252,7 @@ export function selectOpenAgentQuestionStreamIds(
   const streamIds = new Set<string>();
   for (const notification of notifications || []) {
     if (!isAgentQuestionNotification(notification) || !isOpenAgentQuestionNotification(notification)) continue;
-    const streamId = agentQuestionStreamId(notification);
+    const streamId = agentQuestionSurfaceStreamId(notification);
     if (streamId) streamIds.add(streamId);
   }
   return streamIds;
@@ -255,7 +266,7 @@ export function selectOpenAgentQuestionNotificationsForStream(
     (notification) =>
       isAgentQuestionNotification(notification) &&
       isOpenAgentQuestionNotification(notification) &&
-      agentQuestionStreamId(notification) === streamId &&
+      agentQuestionSurfaceStreamId(notification) === streamId &&
       !!notification.question,
   );
 }

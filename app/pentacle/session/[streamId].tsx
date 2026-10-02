@@ -124,7 +124,7 @@ import {
   buildDurableQuestionResolution,
   buildDurableQuestionAnswerText,
   agentQuestionMatchesSessionQuestion,
-  agentQuestionStreamId,
+  agentQuestionSurfaceStreamId,
   durableQuestionCardModel,
   durableQuestionDisplaySelections,
   fullyCoveredOptimisticQuestionNotificationIds,
@@ -1259,7 +1259,7 @@ export default function PentacleSessionScreen() {
   const questionNotifications = usePentacleStreamSelectorWhen(
     isFocused,
     (state) => ((state.notifications ?? []) as PentacleNotification[]).filter(
-      (notification) => isAgentQuestionNotification(notification) && agentQuestionStreamId(notification) === streamId,
+      (notification) => isAgentQuestionNotification(notification) && agentQuestionSurfaceStreamId(notification) === streamId,
     ),
     sameNotificationIds,
   );

@@ -407,6 +407,10 @@ export interface PentacleNotification {
   updated_at: string;
   producer: string;
   answer_to_stream_id?: string | null;
+  // The chat that shows this notification when it is not the producer's own
+  // (a hidden bound assistant's question surfaces in its composite chat).
+  // Display only: answers are addressed by notification/question id.
+  surfaced_to_stream_id?: string | null;
   severity: NotificationSeverity;
   title: string;
   body: string;

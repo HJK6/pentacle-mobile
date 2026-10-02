@@ -53,7 +53,7 @@ import {
 } from '../../src/components/MobileQuestions';
 import type { RenderAttachment } from '../../src/types/renderAttachment';
 import {
-  agentQuestionStreamId,
+  agentQuestionSurfaceStreamId,
   durableQuestionCardModel,
   isAgentQuestionNotification,
   type DurableQuestionCardModel,
@@ -173,7 +173,7 @@ export function selectQuestionItems(
     if (notification.state !== 'open' || notification.question?.state !== 'open') return [];
     const model = durableQuestionCardModel(notification);
     if (!model) return [];
-    const streamId = agentQuestionStreamId(notification);
+    const streamId = agentQuestionSurfaceStreamId(notification);
     if (!streamId) return [];
     // Under a narrowed subscription (include_subagents:false) a hidden seat's session row
     // is absent, but its question notification still arrives globally. Render from the

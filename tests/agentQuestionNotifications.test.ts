@@ -45,3 +45,51 @@ test('multi-question optimistic suppression requires every distinct child and re
   expect(fullyCoveredOptimisticQuestionNotificationIds([open], [first, second]).has('n-multi')).toBe(true);
   expect(fullyCoveredOptimisticQuestionNotificationIds([open], [first]).has('n-multi')).toBe(false);
 });
+
+describe('question surface stream', () => {
+  const {
+    agentQuestionStreamId,
+    agentQuestionSurfaceStreamId,
+    selectOpenAgentQuestionNotificationsForStream,
+    selectOpenAgentQuestionStreamIds,
+  } = require('../src/services/agentQuestionNotifications');
+
+  const card = (overrides: Record<string, unknown> = {}) => ({
+    notification_id: 'n-card',
+    producer: 'agent_question.v1',
+    state: 'open',
+    answer_to_stream_id: 'hosta:v2-bound',
+    question: { question_id: 'q-card', producer_stream_id: 'hosta:v2-bound', state: 'open', options: [] },
+    ...overrides,
+  }) as any;
+
+  test('a card surfaced to a composite chat is listed there, not under its hidden producer', () => {
+    const surfaced = card({ surfaced_to_stream_id: 'composite:assistant' });
+    expect([...selectOpenAgentQuestionStreamIds([surfaced])]).toEqual(['composite:assistant']);
+    expect(selectOpenAgentQuestionNotificationsForStream([surfaced], 'composite:assistant')).toEqual([surfaced]);
+    expect(selectOpenAgentQuestionNotificationsForStream([surfaced], 'hosta:v2-bound')).toEqual([]);
+  });
+
+  test('the surface never changes the producer or answer identity', () => {
+    const surfaced = card({ surfaced_to_stream_id: 'composite:assistant' });
+    expect(agentQuestionSurfaceStreamId(surfaced)).toBe('composite:assistant');
+    expect(agentQuestionStreamId(surfaced)).toBe('hosta:v2-bound');
+    expect(surfaced.answer_to_stream_id).toBe('hosta:v2-bound');
+    expect(surfaced.question.producer_stream_id).toBe('hosta:v2-bound');
+  });
+
+  test('without a usable surface the card stays in its producer chat', () => {
+    for (const value of [undefined, null, '', '   ', 42]) {
+      const plain = card({ surfaced_to_stream_id: value });
+      expect(agentQuestionSurfaceStreamId(plain)).toBe('hosta:v2-bound');
+      expect(selectOpenAgentQuestionNotificationsForStream([plain], 'hosta:v2-bound')).toEqual([plain]);
+      expect([...selectOpenAgentQuestionStreamIds([plain])]).toEqual(['hosta:v2-bound']);
+    }
+  });
+
+  test('a resolved surfaced card is not listed as open', () => {
+    const answered = card({ surfaced_to_stream_id: 'composite:assistant', state: 'answered' });
+    expect(selectOpenAgentQuestionNotificationsForStream([answered], 'composite:assistant')).toEqual([]);
+    expect([...selectOpenAgentQuestionStreamIds([answered])]).toEqual([]);
+  });
+});

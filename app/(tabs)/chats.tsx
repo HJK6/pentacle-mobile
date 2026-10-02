@@ -84,7 +84,7 @@ import { CHAT_ROW_SWIPE_OPEN_THRESHOLD } from '../../src/services/chatRowSwipeSe
 import { performChatOpenNavigation } from '../../src/services/chatOpenNavigation';
 import { resetChatOpenNavigationIntents } from '../../src/services/chatOpenNavigationIntent';
 import {
-  agentQuestionStreamId,
+  agentQuestionSurfaceStreamId,
   agentQuestionMatchesSessionQuestion,
   buildDurableQuestionResolution,
   buildDurableQuestionAnswerText,
@@ -381,7 +381,7 @@ function indexOpenQuestions(
   const openNotificationByStream = new Map<string, PentacleNotification>();
   for (const notification of notifications) {
     if (!isAgentQuestionNotification(notification)) continue;
-    const streamId = agentQuestionStreamId(notification);
+    const streamId = agentQuestionSurfaceStreamId(notification);
     if (!streamId) continue;
     const open = isOpenAgentQuestionNotification(notification);
     if (open) {
