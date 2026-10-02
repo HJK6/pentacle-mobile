@@ -43,3 +43,9 @@ test('rejects available_models under an unknown provider', () => {
   input.available_models = { nope: { 'gpt-6-luna': { efforts: EFFORTS } } };
   expect(() => validateSpawnCatalog(input)).toThrow(/incomplete/);
 });
+
+test('rejects an empty available_models provider map (would narrow the picker to nothing)', () => {
+  const input = base();
+  input.available_models = { codex: {} };
+  expect(() => validateSpawnCatalog(input)).toThrow(/incomplete/);
+});

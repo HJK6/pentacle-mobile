@@ -1,5 +1,5 @@
 import React from 'react';
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import ChatsScreen from '../app/(tabs)/chats';
 import usePentacleToken from '../src/hooks/usePentacleToken';
 import { usePentacleStreamActions, usePentacleStreamSelectorWhen } from '../src/services/pentacleStream';
@@ -89,10 +89,27 @@ beforeEach(() => {
   mockActions.spawnSessionV2.mockResolvedValue({ session: { stream_id: 'hostc:codex:new' } });
 });
 
+afterEach(async () => {
+  // Let any in-flight loadSpawnCatalog settle (it toggles setSpawnCatalogLoading
+  // in a finally) INSIDE act(), then unmount — so no async state update lands
+  // after the test and no open handle survives (quiets act()/open-handle warnings).
+  await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+  cleanup();
+});
+
+// Wrap a fire-and-forget async handler (loadSpawnCatalog) so its state updates
+// land INSIDE act(): press, then drain a timer tick within the same act scope.
+async function pressSettled(testID: string) {
+  await act(async () => {
+    fireEvent.press(screen.getByTestId(testID));
+    await new Promise((r) => setTimeout(r, 0));
+  });
+}
+
 async function openPicker() {
   render(<ChatsScreen />);
-  fireEvent.press(screen.getByTestId('new-chat-button'));
-  fireEvent.press(screen.getByTestId('summon-machine-hostc'));
+  await pressSettled('new-chat-button'); // triggers loadSpawnCatalog (async)
+  await pressSettled('summon-machine-hostc');
 }
 
 function modelChipOrder(): string[] {
@@ -145,4 +162,16 @@ test('a hidden profile default never gates submission — falls back to first vi
   await waitFor(() => expect(mockActions.spawnSessionV2).toHaveBeenCalledWith(expect.objectContaining({
     host: 'hostc', provider: 'codex', model: 'gpt-6-luna',
   })));
+});
+
+test('an empty available_models provider map is refused (catalog error), not a silent empty picker', async () => {
+  const catalog = withAvailableModels();
+  (catalog.available_models as any).codex = {}; // empty narrowed map
+  mockActions.getSpawnCatalog.mockResolvedValue(catalog);
+  await openPicker();
+  // validateSpawnCatalog refuses the empty map => the sheet surfaces a catalog
+  // error with retry, rather than rendering an empty, un-submittable model list.
+  await screen.findByTestId('summon-catalog-error');
+  expect(screen.queryByTestId('summon-model-gpt-6-luna')).toBeNull();
+  expect(screen.getByTestId('summon-catalog-retry')).toBeTruthy();
 });

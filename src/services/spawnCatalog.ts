@@ -60,6 +60,10 @@ export function validateSpawnCatalog(value: unknown): SpawnCatalog {
     if (!isRecord(value.available_models)) malformedCatalog();
     for (const [provider, providerModels] of Object.entries(value.available_models)) {
       if (!SPAWN_PROVIDERS.includes(provider as SpawnProvider) || !isRecord(providerModels)) malformedCatalog();
+      // A present-but-empty provider map would narrow the picker to nothing.
+      // Mirror the daemon's non-empty rule and fail closed (the picker also
+      // falls back to the full catalog defensively — see SummonModal).
+      if (Object.keys(providerModels).length === 0) malformedCatalog();
       const fullProviderModels = value.models[provider as SpawnProvider];
       for (const [model, definition] of Object.entries(providerModels)) {
         // Must be a subset of the authoritative `models` catalog.
