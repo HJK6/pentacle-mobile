@@ -110,8 +110,19 @@ export default function SummonModal({
   const selectedName = selected ? getHostMachineName(selected.host) : undefined;
   const selectedMeta = selectedName ? MACHINES[selectedName] : MACHINES[MACHINE_ORDER[0]];
   const profileDefault = catalog?.profiles.desktop_manual?.[provider];
-  const selection = byProvider[provider] || (profileDefault ? { model: profileDefault[0], effort: profileDefault[1] } : null);
-  const models = catalog ? Object.entries(catalog.models[provider] || {}) : [];
+  // Display-only filtering (operator dispatch 7c2717e4; mirrors web
+  // catalogForNewSession): the picker OFFERS available_models[provider] when the
+  // daemon sends it, in that config list order, else the full models catalog.
+  const models = catalog ? Object.entries(catalog.available_models?.[provider] ?? catalog.models[provider] ?? {}) : [];
+  const seeded = byProvider[provider] || (profileDefault ? { model: profileDefault[0], effort: profileDefault[1] } : null);
+  // Narrowing must never strand a valid tuple: if the seeded model (e.g. a hidden
+  // profile default) is not in the visible set, fall back to the first visible
+  // model so there is always a submittable selection. The full catalog.models
+  // stays authoritative for explicit/handoff resolution elsewhere (Spec QA finding 1).
+  const seededVisible = !!seeded && models.some(([model]) => model === seeded.model);
+  const selection = seeded && !seededVisible && models.length > 0
+    ? { model: models[0][0], effort: models[0][1].efforts.includes(seeded.effort) ? seeded.effort : models[0][1].efforts[0] }
+    : seeded;
   const efforts = selection ? (catalog?.models[provider]?.[selection.model]?.efforts || []) : [];
   const canSubmit = Boolean(
     selected &&
