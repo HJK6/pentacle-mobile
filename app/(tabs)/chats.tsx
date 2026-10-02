@@ -1732,7 +1732,7 @@ export const ChatRow = memo(function ChatRow({
               onPressIn={handlePressIn}
               onPress={handleOpen}
             >
-              <ArcaneRingFrame machine={machineName} size={54} sigilSize={34} />
+              <ArcaneRingFrame identity={smartChat.sessionKind === 'assistant_composite'} machine={machineName} size={54} sigilSize={34} />
               <View style={styles.chatCopy}>
                 <View style={styles.chatTitleRow}>
                   <StatusTag

@@ -1,3 +1,4 @@
+import { MachineRosterProvider } from '../src/components/MachineRosterContext';
 import ConsentInbox from '../src/components/ConsentInbox';
 import VoiceRecordingOverlay from '../src/components/voice/VoiceRecordingOverlay';
 import { LogBox, Linking } from 'react-native';
@@ -1049,6 +1050,7 @@ export default function RootLayout() {
   return (
     <GestureHandlerRootView style={lockStyles.root}>
       <ThemeProvider value={AppTheme}>
+        <MachineRosterProvider>
         {!DISABLE_LOCAL_AUTH_FOR_TESTING && locked ? (
           lockScreen
         ) : (
@@ -1073,6 +1075,7 @@ export default function RootLayout() {
           </Stack>
         )}
         {(!locked || DISABLE_LOCAL_AUTH_FOR_TESTING) ? <><VoiceRecordingOverlay /><ConsentInbox /></> : null}
+      </MachineRosterProvider>
       </ThemeProvider>
     </GestureHandlerRootView>
   );

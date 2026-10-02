@@ -406,12 +406,13 @@ export function MobileQuestionOne({ entry, draft, accent, disabled, onChange, on
   );
 }
 
-export function QuestionOverlay<T>({ entries, activeIndex, flow, accent, machineName, title, submitting, error, onIndexChange, onCancel, onSend }: {
+export function QuestionOverlay<T>({ entries, activeIndex, flow, accent, machineName, identity, title, submitting, error, onIndexChange, onCancel, onSend }: {
   entries: readonly MobileQuestionEntry<T>[];
   activeIndex: number;
   flow: ReturnType<typeof useMobileQuestionFlow<T>>;
   accent: string;
   machineName?: MachineName;
+  identity?: boolean;
   title: string;
   submitting?: boolean;
   error?: string | null;
@@ -476,7 +477,7 @@ export function QuestionOverlay<T>({ entries, activeIndex, flow, accent, machine
     <View testID="question-overlay" accessibilityViewIsModal style={styles.overlay}>
       <Starfield />
       <View style={[styles.overlayHeader, { borderBottomColor: `${accent}33` }]}>
-        <ArcaneRingFrame machine={machineName} color={accent} size={32} sigilSize={18} />
+        <ArcaneRingFrame identity={identity} machine={machineName} color={accent} size={32} sigilSize={18} />
         <View style={styles.headerCopy}>
           <Text testID="question-page-label" style={[styles.counter, { color: accent }]}>QUESTION {activeIndex + 1} / {entries.length}</Text>
           <Text numberOfLines={1} style={styles.chatTitle}>{title}</Text>

@@ -1,4 +1,6 @@
-import React from 'react';
+import React, { useContext } from 'react';
+import { getMachineHostCount, showMachineIcons } from '../config/local';
+import { MachineRosterContext } from './MachineRosterContext';
 import { StyleSheet, View } from 'react-native';
 import Svg, { Circle, Line } from 'react-native-svg';
 import { MACHINES, Tokens, type MachineName, type MachineSigilKind } from '@/constants/Colors';
@@ -11,6 +13,7 @@ type Props = {
   machine?: MachineName;
   sigilSize?: number;
   children?: React.ReactNode;
+  identity?: boolean;
 };
 
 // Memoized: this renders an SVG ring (2 circles + 12 trig-computed tick lines)
@@ -27,7 +30,11 @@ function ArcaneRingFrame({
   machine,
   sigilSize,
   children,
+  identity = false,
 }: Props) {
+  const roster = useContext(MachineRosterContext);
+  const hostCount = roster?.hostCount ?? getMachineHostCount();
+  if (!children && !identity && !showMachineIcons(hostCount, roster?.singleHostCondition)) return null;
   const machineMeta = machine ? MACHINES[machine] : undefined;
   const accent = color ?? machineMeta?.accent ?? Tokens.palette.green;
   const sigilKind = kind ?? machineMeta?.kind;
@@ -51,7 +58,7 @@ function ArcaneRingFrame({
   }
 
   return (
-    <View style={[styles.frame, { width: size, height: size }]}>
+    <View testID={children || identity ? undefined : "machine-icon"} style={[styles.frame, { width: size, height: size }]}>
       <Svg width={size} height={size} viewBox="0 0 100 100" style={StyleSheet.absoluteFill}>
         <Circle cx="50" cy="50" r="47" fill="none" stroke={accent} strokeWidth="1.4" opacity="0.6" />
         <Circle

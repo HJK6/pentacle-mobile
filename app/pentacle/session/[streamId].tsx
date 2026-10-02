@@ -3295,7 +3295,7 @@ export default function PentacleSessionScreen() {
           <Text {...NON_SELECTABLE_TEXT} style={styles.headerBackGlyph}>‹</Text>
         </Pressable>
         <Pressable testID="session-status-overlay-trigger" onPress={() => setStatusOverlayOpen(true)} accessibilityRole="button" accessibilityLabel="Open session status" style={styles.headerStatusTrigger}>
-          <ArcaneRingFrame machine={chrome.machineName} size={42} sigilSize={26} />
+          <ArcaneRingFrame identity={session?.session_kind === 'assistant_composite'} machine={chrome.machineName} size={42} sigilSize={26} />
           <View style={styles.headerTitleBlock}>
             <Text {...NON_SELECTABLE_TEXT} style={styles.headerTitle} numberOfLines={1}>
               {title}
@@ -3379,7 +3379,7 @@ export default function PentacleSessionScreen() {
               <Text {...NON_SELECTABLE_TEXT} style={styles.headerBackGlyph}>‹</Text>
             </Pressable>
             <View style={styles.headerStatusTrigger}>
-              <ArcaneRingFrame machine={chrome.machineName} size={42} sigilSize={26} />
+              <ArcaneRingFrame identity={session?.session_kind === 'assistant_composite'} machine={chrome.machineName} size={42} sigilSize={26} />
               <View style={styles.headerTitleBlock}>
                 <Text {...NON_SELECTABLE_TEXT} style={styles.headerTitle} numberOfLines={1}>{title}</Text>
                 <View style={styles.headerMetaRow}>
@@ -3622,6 +3622,7 @@ export default function PentacleSessionScreen() {
             activeIndex={activeQuestionPageIndex}
             flow={visibleQuestionFlow}
             accent={chrome.accent}
+            identity={session?.session_kind === 'assistant_composite'}
             machineName={chrome.machineName}
             title={currentTitle}
             submitting={questionSubmitting}

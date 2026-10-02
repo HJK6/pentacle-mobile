@@ -107,6 +107,7 @@ export function getHostOrder(state?: Pick<PentacleStreamState, 'hosts' | 'sessio
   };
 
   getConfiguredHostOrder().forEach(push);
+  Object.keys(configuredHosts()).forEach(push);
   if (state) {
     Object.values(state.hosts || {}).forEach((host) => push(host.host));
     state.sessions?.forEach((session) => push(session.host));
@@ -179,4 +180,13 @@ export function getChatMachineName(host: string, sessionKind?: string | null): M
     return 'hosta';
   }
   return getHostMachineName(host);
+}
+
+// The condition cannot suppress identification when there are multiple hosts.
+export function showMachineIcons(hostCount: number, singleHostCondition = true) {
+  return hostCount !== 1 || !singleHostCondition;
+}
+
+export function getMachineHostCount(state?: Pick<PentacleStreamState, 'hosts' | 'sessions' | 'machineStats'>) {
+  return getHostOrder(state).filter(host => !isIdentityHost(host)).length;
 }

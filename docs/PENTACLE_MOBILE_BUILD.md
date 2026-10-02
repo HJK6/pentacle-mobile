@@ -65,3 +65,13 @@ its bundle provenance and the candidate native executable hash separately.
 Use only synthetic config for these rehearsals, and remove the owned ignored
 `pentacle.config.local.ts` stand-in afterward. Simulator checks do not prove
 physical Face ID, existing protected-token access or APNs delivery.
+
+## Single-machine appearance
+
+Machine icons and their decorative rings hide automatically with exactly one
+physical host. The roster, chat rows, session and question headers, Summon picker
+and machine stats share this rule. With two or more configured or discovered
+hosts, icons always appear, including for offline hosts and when filtering to
+one host. No setting is required. `hosts` and `hostOrder` in the local config
+plus the live roster determine the count; the example palette's `MACHINE_ORDER`
+does not. Labels, accents and assistant identity artwork remain.
