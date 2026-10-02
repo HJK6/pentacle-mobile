@@ -5,6 +5,11 @@ It connects to the daemon in [**HJK6/pentacle**](https://github.com/HJK6/pentacl
 which runs on the computer where your agents work. Set up that daemon first;
 the phone app does not run it. The desktop app is optional for mobile users.
 
+## See the app
+
+[View iOS screenshots](docs/screenshots.md) of the agent list, a conversation
+and the New Chat picker, using a single-machine workspace with invented data.
+
 ## Getting started
 
 1. Set up the [Pentacle daemon](https://github.com/HJK6/pentacle) on the computer
