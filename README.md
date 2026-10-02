@@ -10,6 +10,27 @@ the phone app does not run it. The desktop app is optional for mobile users.
 [View iOS screenshots](docs/screenshots.md) of the agent list, a conversation
 and the New Chat picker, using a single-machine workspace with invented data.
 
+*The screenshots below also use sample data — invented conversations and
+synthetic machine names.*
+
+Your machines, ready to chat with or summon:
+
+![Mobile chat list and summon view showing several machines, each with its agent label](docs/images/kitv2-mobile-machines.png)
+
+A machine's live status at a glance:
+
+![Mobile status card showing a machine's current goal and progress](docs/images/kitv2-mobile-status-card.png)
+
+Talk to the always-on assistant:
+
+![Mobile chat with the always-on assistant showing a sample conversation](docs/images/kitv2-mobile-bart-chat.png)
+
+Open any machine and read its chat:
+
+![Mobile chat from a single machine showing its transcript](docs/images/kitv2-mobile-machine-chat.png)
+
+Agents also publish reviewable reports and assets you can open and read on the phone.
+
 ## Getting started
 
 1. Set up the [Pentacle daemon](https://github.com/HJK6/pentacle) on the computer
@@ -67,6 +88,24 @@ Use our shipped logo and colors, or replace the existing PNG assets and theme
 tokens in your own build. [Branding instructions](docs/COSMIC_THEME.md#branding)
 list sizes, native versus web asset references, palette locations, and how to
 rebuild or reset to the shipped defaults.
+
+## Always-on assistant
+
+Pentacle includes an optional **always-on assistant** — a persistent chat for
+talking to your whole fleet in one place. This kit names it **Bart** and gives
+it an icon; both the name and icon are yours to change. It is opt-in: set
+`features.assistantRole` in your `pentacle.config.local.ts` to match the
+daemon's assistant role. You choose the assistant's name and provider when you
+bootstrap it on the daemon host — see the desktop
+[assistant guide](https://github.com/HJK6/pentacle/blob/main/docs/assistant.md).
+Each machine's icon (sigil) and colours are set per host; see
+[Branding](docs/COSMIC_THEME.md#branding) and
+[AGENT_SETUP.md](AGENT_SETUP.md#configure-the-app).
+
+## Contributions
+
+PRs, feature requests, and bug reports are welcome — open an issue or pull
+request at <https://github.com/HJK6/pentacle-mobile/issues>.
 
 ## Development
 
