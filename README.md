@@ -56,6 +56,13 @@ Finally, [enroll the app](AGENT_SETUP.md#enroll-the-app) using a fresh link
 issued on the daemon host. For a physical iPhone, follow the guide's device and
 network steps. `npm start` runs Metro; it does not install or enroll an app.
 
+## BRANDING
+
+Use our shipped logo and colors, or replace the existing PNG assets and theme
+tokens in your own build. [Branding instructions](docs/COSMIC_THEME.md#branding)
+list sizes, native versus web asset references, palette locations, and how to
+rebuild or reset to the shipped defaults.
+
 ## Development
 
 Run `npm run typecheck` and `npm test` for offline checks. These do not prove

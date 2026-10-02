@@ -64,6 +64,12 @@ Preserve an existing local config instead of replacing it. Set:
 Host keys identify daemon machines; labels are display text. Keep credentials
 out of this ignored file. Enrollment stores them in the device's SecureStore.
 
+## BRANDING
+
+Before building, follow [the branding guide](docs/COSMIC_THEME.md#branding) to
+replace logos or change colors. It covers asset sizes, the existing palette
+tokens, native rebuild requirements, and restoring the shipped defaults.
+
 ## Build and install
 
 For an initial simulator build:
