@@ -102,3 +102,10 @@ test('missing keys and empty daemon payloads fail before exposing unusable attac
   await expect(fetchRenderAttachments([{ key: 'empty', mime: 'image/jpeg' }])).rejects.toThrow('Fetched attachment was empty');
   expect(mockWriteAsStringAsync).not.toHaveBeenCalled();
 });
+
+test('managed file descriptors remain visible without prefetch or trusting a caller URI',async()=>{
+ const attachment={key:'a'.repeat(64),mime:'application/pdf',filename:'synthetic.pdf',size:12,uri:'file:///untrusted'};
+ expect(renderAttachmentsWithLocalUris([attachment])).toEqual([{kind:'file',uri:'',attachment}]);
+ await expect(fetchRenderAttachments([attachment])).resolves.toEqual([{kind:'file',uri:'',attachment}]);
+ expect(mockFetchBlobBase64).not.toHaveBeenCalled();expect(mockWriteAsStringAsync).not.toHaveBeenCalled();
+});

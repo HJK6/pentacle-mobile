@@ -58,7 +58,8 @@ import ChatActionSheet from '../../../src/components/ChatActionSheet';
 import RenameChatModal from '../../../src/components/RenameChatModal';
 import { AgentThreadHistoryModal, type AgentThreadHistoryTarget } from '../../../src/components/AgentThreadHistoryModal';
 import { Spinner } from '../../../src/components/ArcaneAtoms';
-import { MediaBubble } from '../../../src/components/MediaBubble';
+import { AttachmentBubble } from '../../../src/components/AttachmentBubble';
+import { isImageAttachment } from '../../../src/services/fileAttachmentShare';
 import { ImageViewerModal } from '../../../src/components/ImageViewerModal';
 import ReportViewerModal from '../../../src/components/ReportViewerModal';
 import {
@@ -4007,8 +4008,10 @@ export const TranscriptRow = memo(function TranscriptRow({
         {attachments?.length ? (
           <View style={styles.userAttachments} testID={`message-attachments-${item.id}`}>
             {attachments.map((att, i) => (
-              <MediaBubble
+              <AttachmentBubble
                 key={i}
+                kind={att.kind}
+                attachment={att.attachment}
                 uri={att.uri}
                 width={att.width}
                 height={att.height}
@@ -4223,8 +4226,10 @@ export const TranscriptRow = memo(function TranscriptRow({
       {attachments?.length ? (
         <View style={styles.assistantAttachments} testID={`assistant-message-attachments-${item.id}`}>
           {attachments.map((att, i) => (
-            <MediaBubble
+            <AttachmentBubble
               key={i}
+              kind={att.kind}
+              attachment={att.attachment}
               uri={att.uri}
               width={att.width}
               height={att.height}
@@ -4292,19 +4297,19 @@ function TranscriptRowWithFetchedAttachments({
 
   useEffect(() => {
     let cancelled = false;
-    if (localAttachments?.length || !item.attachments?.length) {
+    if (!item.attachments?.length || item.attachments.every(a => !isImageAttachment(a.mime) || typeof (a as { uri?: unknown }).uri === 'string')) {
       setFetchedAttachments(localAttachments);
       return () => {
         cancelled = true;
       };
     }
-    setFetchedAttachments(undefined);
+    setFetchedAttachments(localAttachments);
     fetchRenderAttachments(item.attachments)
       .then((next) => {
         if (!cancelled) setFetchedAttachments(next);
       })
       .catch(() => {
-        if (!cancelled) setFetchedAttachments(undefined);
+        if (!cancelled) setFetchedAttachments(localAttachments);
       });
     return () => {
       cancelled = true;

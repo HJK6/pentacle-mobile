@@ -1,0 +1,21 @@
+appId: ${APP_ID}
+name: Managed file download and unavailable-state gate
+---
+- launchApp
+- openLink: "pentacle://pentacle/session/fixture%3Afile-chat"
+- extendedWaitUntil:
+    visible: "fixture-expired.pdf"
+    timeout: 30000
+- tapOn: "Save or share fixture-expired.pdf"
+- extendedWaitUntil:
+    visible: "File expired or unavailable"
+    timeout: 30000
+- assertVisible:
+    text: "Save or share fixture-expired.pdf"
+    enabled: false
+- takeScreenshot: file-unavailable
+- tapOn: "Save or share fixture-present.pdf"
+- extendedWaitUntil:
+    visible: "Save to Files"
+    timeout: 30000
+- takeScreenshot: file-native-share

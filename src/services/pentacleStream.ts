@@ -3823,7 +3823,7 @@ function handleMessageInner(raw: string) {
     const pending = pendingRequests.get(message.request_id);
     if (pending) {
       settlePendingRequest(message.request_id);
-      pending.reject(new Error(String(message.error || message.error_code || 'blob fetch failed')));
+      pending.reject(Object.assign(new Error(String(message.error || message.error_code || 'blob fetch failed')), { code: String(message.error_code || 'fetch_failed') }));
     }
     return;
   }
