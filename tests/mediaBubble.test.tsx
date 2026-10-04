@@ -152,6 +152,8 @@ test('an assistant image row renders the existing MediaBubble and opens the exis
 
   expect(screen.getByTestId('assistant-message-attachments-assist_1')).toBeTruthy();
   expect(screen.getByTestId('assistant-message-image-0')).toBeTruthy();
+  expect(screen.queryByTestId('assistant-message-image-0-file')).toBeNull();
+  expect(screen.getByTestId('assistant-message-image-0-img').props.accessible).toBe(true);
   fireEvent.press(screen.getByTestId('assistant-message-image-0'));
   expect(onPressAttachment).toHaveBeenCalledWith('file:///tmp/a.jpg');
 });

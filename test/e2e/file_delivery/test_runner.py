@@ -3,6 +3,7 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 spec=importlib.util.spec_from_file_location('file_gate',Path(__file__).with_name('run.py'))
 gate=importlib.util.module_from_spec(spec);spec.loader.exec_module(gate)
@@ -17,6 +18,23 @@ def receipt():
 class Contract(unittest.TestCase):
     def test_source_is_not_runtime_evidence(self):
         self.assertEqual(gate.check_source()['runtime'],'not_run')
+    def test_first_link_dialog_guard_precedes_required_journey(self):
+        flow=gate.FLOW.read_text()
+        self.assertLess(flow.index('openLink:'),flow.index('Open in .*Pentacle.*'))
+        self.assertLess(flow.index('- tapOn: "Open"'),flow.index('fixture-expired.pdf'))
+        with patch.object(Path,'read_text',return_value=flow.replace('Open in .*Pentacle.*','unrelated')):
+            with self.assertRaises(ValueError):gate.check_source()
+
+    def test_screenshot_receipts_require_only_the_two_actual_flow_artifacts(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp)
+            with self.assertRaises(ValueError):gate.check_screenshots(root)
+            for name in ('file-unavailable','file-native-share'):
+                (root/(name+'.png')).write_bytes(b'\x89PNG\r\n\x1a\nsynthetic')
+            gate.check_screenshots(root)
+            (root/'file-native-share.png').write_bytes(b'bad')
+            with self.assertRaises(ValueError):gate.check_screenshots(root)
+
     def test_receipt(self):
         self.assertEqual(gate.validate_receipt(receipt(),NOW),receipt())
     def test_missing_extra_and_unsafe_fields(self):

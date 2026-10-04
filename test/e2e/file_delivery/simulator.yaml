@@ -3,6 +3,12 @@ name: Managed file download and unavailable-state gate
 ---
 - launchApp
 - openLink: "pentacle://pentacle/session/fixture%3Afile-chat"
+# iOS may confirm the first deep link in this disposable simulator.
+- runFlow:
+    when:
+      visible: 'Open in .*Pentacle.*'
+    commands:
+      - tapOn: "Open"
 - extendedWaitUntil:
     visible: "fixture-expired.pdf"
     timeout: 30000

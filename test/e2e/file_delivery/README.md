@@ -47,3 +47,18 @@ reports a native run as passed from a source check or from unit mocks.
 
 Maestro reference: https://docs.maestro.dev/maestro-cli/maestro-cli-commands-and-options
 and https://docs.maestro.dev/reference/commands-available/assertvisible
+
+The flow conditionally accepts the iOS first-deep-link “Open in Pentacle”
+confirmation (including the Pentacle Harness display name) before the mandatory
+file assertions. Subsequent runs may have no dialog. The source contract checks
+its position and presence; fleet must re-prove both fresh and remembered-dialog
+journeys on the actual simulator. This follows the [Maestro openLink guidance](https://docs.maestro.dev/reference/commands-available/openlink).
+
+Inline images expose their own `assistant-message-image-N-img` native
+accessibility identifier. The touchable wrapper is not an accessibility group;
+on iOS, the image has a button role, a descriptive label and a VoiceOver activation
+handler while retaining the original tap target. Android retains the original
+accessible touchable wrapper and its activation path. Fleet's inline-PNG cell should
+assert that identifier and the viewer journey on the rebuilt simulator app.
+Source regressions also verify one PNG produces one media item, not a duplicate
+file bubble; unrelated PDF publications may legitimately have file selectors.

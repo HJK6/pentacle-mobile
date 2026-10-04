@@ -6,6 +6,7 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   StyleSheet,
+  Platform,
 } from 'react-native';
 
 /**
@@ -75,6 +76,10 @@ function MediaBubbleSource({
 
   return (
     <TouchableOpacity
+      // Expose the native Image instead of collapsing it into this touchable.
+      accessible={Platform.OS !== 'ios' || broken || !uri}
+      accessibilityRole={broken || !uri ? 'button' : undefined}
+      accessibilityLabel={broken || !uri ? 'Attached image unavailable' : undefined}
       activeOpacity={0.85}
       onPress={onPress}
       testID={testID}
@@ -82,6 +87,10 @@ function MediaBubbleSource({
     >
       {!broken && uri ? (
         <Image
+          accessible={Platform.OS === 'ios'}
+          accessibilityRole={Platform.OS === 'ios' ? 'button' : undefined}
+          accessibilityLabel={Platform.OS === 'ios' ? 'Open attached image' : undefined}
+          onAccessibilityTap={Platform.OS === 'ios' ? onPress : undefined}
           source={{ uri }}
           style={styles.image}
           resizeMode="cover"

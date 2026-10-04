@@ -77,9 +77,16 @@ def report_passed(path):
     return len(cases)
 
 
+def check_screenshots(output):
+    for name in ('file-unavailable','file-native-share'):
+        screenshots=list(output.rglob(name+'.png'))
+        if len(screenshots)!=1 or screenshots[0].read_bytes()[:8]!=b'\x89PNG\r\n\x1a\n':
+            raise ValueError('Required screenshot missing')
+
+
 def check_source():
     flow=FLOW.read_text()
-    for marker in ('fixture-present.pdf','fixture-expired.pdf','enabled: false','Save to Files','file-unavailable','file-native-share'):
+    for marker in ('fixture-present.pdf','fixture-expired.pdf','enabled: false','Save to Files','file-unavailable','file-native-share', 'Open in .*Pentacle.*', '- tapOn: "Open"'):
         if marker not in flow: raise ValueError('Missing simulator oracle: '+marker)
     if any(word in flow for word in ('clearState','clearKeychain','setPermissions','http://','https://','optional:')):
         raise ValueError('Unexpected destructive, network or optional command')
@@ -118,9 +125,7 @@ def run(receipt_path, device):
         if len(current)!=1 or current[0].is_symlink() or current[0].read_bytes()!=BODY:
             raise ValueError('Fresh native share file missing or digest mismatch')
         verdict['download_sha256']=hashlib.sha256(current[0].read_bytes()).hexdigest()
-        for name in ('file-unavailable','file-native-share'):
-            screenshots=list(output.rglob(name+'.png'))
-            if len(screenshots)!=1 or screenshots[0].read_bytes()[:8]!=b'\x89PNG\r\n\x1a\n': raise ValueError('Required screenshot missing')
+        check_screenshots(output)
         verdict['status']='passed'
     except Exception as exc:
         verdict['error']=str(exc)

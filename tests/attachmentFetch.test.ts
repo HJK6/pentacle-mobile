@@ -109,3 +109,15 @@ test('managed file descriptors remain visible without prefetch or trusting a cal
  await expect(fetchRenderAttachments([attachment])).resolves.toEqual([{kind:'file',uri:'',attachment}]);
  expect(mockFetchBlobBase64).not.toHaveBeenCalled();expect(mockWriteAsStringAsync).not.toHaveBeenCalled();
 });
+
+test('an inline PNG maps once to media and never duplicates a file bubble', async () => {
+ const image={key:'b'.repeat(64),mime:'image/png',filename:'synthetic.png',size:32,uri:'file:///synthetic.png'};
+ const local=renderAttachmentsWithLocalUris([image]);
+ expect(local).toEqual([{uri:'file:///synthetic.png',width:undefined,height:undefined}]);
+ mockGetInfoAsync.mockResolvedValue({exists:false});
+ mockFetchBlobBase64.mockResolvedValue({content_b64:'c3ludGhldGlj'});
+ const fetched=await fetchRenderAttachments([image]);
+ expect(fetched).toHaveLength(1);
+ expect(fetched?.[0].kind).toBeUndefined();
+ expect(fetched?.[0].attachment).toBeUndefined();
+});
