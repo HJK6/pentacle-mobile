@@ -58,7 +58,7 @@ export async function downloadAndShareAttachment(attachment: ChatAttachment, sig
   if (!FileSystem.cacheDirectory || !await Sharing.isAvailableAsync()) throw refusal('sharing_unavailable');
   current();
   let fetched;
-  try { fetched = await fetchBlobBase64(attachment.key); }
+  try { fetched = await fetchBlobBase64(attachment.key, { maxBytes: size }); }
   catch (error) {
     if ((error as { code?: string })?.code === 'blob_unknown') throw refusal('blob_unknown');
     throw refusal('file_fetch_failed');

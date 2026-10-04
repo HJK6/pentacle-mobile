@@ -19,7 +19,7 @@ beforeEach(()=>{
 });
 test('authenticated fetched bytes are verified, written and read back before native sharing',async()=>{
  await downloadAndShareAttachment(attachment);
- expect(mockFetch).toHaveBeenCalledWith(key);
+ expect(mockFetch).toHaveBeenCalledWith(key, { maxBytes: body.length });
  expect(mockWrite.mock.calls[0][1]).toBe(body.toString('base64'));
  expect(mockRead).toHaveBeenCalled();
  expect(mockShare).toHaveBeenCalledWith(expect.stringMatching(/sample\.pdf$/),expect.objectContaining({mimeType:'application/pdf'}));
