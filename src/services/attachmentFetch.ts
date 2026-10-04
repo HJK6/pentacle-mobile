@@ -3,6 +3,7 @@ import type { ChatAttachment } from 'pentacle-chat-core';
 
 import { fetchBlobBase64 } from './pentacleStream';
 import type { RenderAttachment } from '../types/renderAttachment';
+import { isImageAttachment, fileType } from './fileAttachmentShare';
 
 type AttachmentWithLocalUri = ChatAttachment & { uri?: unknown };
 
@@ -11,7 +12,7 @@ const memoryCache = new Map<string, string>();
 const inFlight = new Map<string, Promise<string>>();
 
 function extensionForMime(mime: string) {
-  return mime === 'image/png' ? 'png' : 'jpg';
+  return mime === 'image/png' ? 'png' : mime === 'image/jpeg' ? 'jpg' : fileType(mime)?.extension || 'bin';
 }
 
 function cachePath(attachment: ChatAttachment) {
@@ -54,7 +55,8 @@ async function fetchAttachmentUri(attachment: ChatAttachment): Promise<string> {
 
 export function renderAttachmentsWithLocalUris(attachments?: ChatAttachment[]): RenderAttachment[] | undefined {
   if (!attachments?.length) return undefined;
-  const renderAttachments = attachments.flatMap((attachment) => {
+  const renderAttachments = attachments.flatMap<RenderAttachment>((attachment) => {
+    if (!isImageAttachment(attachment.mime)) return [{ kind: 'file' as const, uri: '', attachment }];
     const uri = (attachment as AttachmentWithLocalUri).uri;
     return typeof uri === 'string'
       ? [{ uri, width: attachment.width, height: attachment.height }]
@@ -65,11 +67,14 @@ export function renderAttachmentsWithLocalUris(attachments?: ChatAttachment[]): 
 
 export async function fetchRenderAttachments(attachments?: ChatAttachment[]): Promise<RenderAttachment[] | undefined> {
   if (!attachments?.length) return undefined;
-  const renderAttachments = await Promise.all(attachments.map(async (attachment) => ({
-    uri: await fetchAttachmentUri(attachment),
-    width: attachment.width,
-    height: attachment.height,
-  })));
+  const renderAttachments: RenderAttachment[] = await Promise.all(attachments.map(async (attachment) => {
+    if (!isImageAttachment(attachment.mime)) return { kind: 'file' as const, uri: '', attachment };
+    return {
+      uri: await fetchAttachmentUri(attachment),
+      width: attachment.width,
+      height: attachment.height,
+    };
+  }));
   return renderAttachments.length > 0 ? renderAttachments : undefined;
 }
 

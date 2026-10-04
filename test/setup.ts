@@ -38,3 +38,9 @@ jest.mock('expo-audio', () => ({
   RecordingPresets: { HIGH_QUALITY: {} },
   setAudioModeAsync: jest.fn().mockResolvedValue(undefined),
 }));
+
+// Native share/save remains an explicit user action; unit tests mock only the OS boundary.
+jest.mock('expo-sharing', () => ({
+  isAvailableAsync: jest.fn().mockResolvedValue(true),
+  shareAsync: jest.fn().mockResolvedValue(undefined),
+}));

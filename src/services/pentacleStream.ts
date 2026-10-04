@@ -1,3 +1,4 @@
+import { acceptBlobChunk, newBlobFetchBudget, type BlobFetchBudget } from './blobFetchBudget';
 import { useCallback, useSyncExternalStore } from 'react';
 import { fromByteArray, toByteArray } from 'base64-js';
 import { AppState, type AppStateStatus } from 'react-native';
@@ -313,6 +314,7 @@ if (process.env.EXPO_PUBLIC_HARNESS === '1') {
 }
 
 type PendingRequest = {
+  blobBudget?: BlobFetchBudget;
   resolve: (value: any) => void;
   reject: (reason?: unknown) => void;
   timeout: ReturnType<typeof setTimeout> | null;
@@ -3797,6 +3799,14 @@ function handleMessageInner(raw: string) {
     const pending = pendingRequests.get(message.request_id);
     if (pending && typeof message.content_b64 === 'string') {
       const chunks = pendingFetchBlobChunks.get(message.request_id) ?? [];
+      try {
+        if (!pending.blobBudget) throw new Error('Unexpected blob reply');
+        acceptBlobChunk(pending.blobBudget, message.content_b64);
+      } catch (error) {
+        settlePendingRequest(message.request_id);
+        pending.reject(error);
+        return;
+      }
       chunks.push(message.content_b64);
       pendingFetchBlobChunks.set(message.request_id, chunks);
     }
@@ -3807,7 +3817,20 @@ function handleMessageInner(raw: string) {
     const pending = pendingRequests.get(message.request_id);
     if (pending) {
       const chunks = pendingFetchBlobChunks.get(message.request_id) ?? [];
-      if (typeof message.content_b64 === 'string') chunks.push(message.content_b64);
+      try {
+        if (!pending.blobBudget) throw new Error('Unexpected blob reply');
+        if (typeof message.size_bytes === 'number' && message.size_bytes > pending.blobBudget.maxBytes) {
+          throw Object.assign(new Error('blob_too_large'), { code: 'blob_too_large' });
+        }
+        if (typeof message.content_b64 === 'string') {
+          acceptBlobChunk(pending.blobBudget, message.content_b64);
+          chunks.push(message.content_b64);
+        }
+      } catch (error) {
+        settlePendingRequest(message.request_id);
+        pending.reject(error);
+        return;
+      }
       const content_b64 = assembleFetchBlobChunks(chunks);
       settlePendingRequest(message.request_id);
       pending.resolve({
@@ -3823,7 +3846,7 @@ function handleMessageInner(raw: string) {
     const pending = pendingRequests.get(message.request_id);
     if (pending) {
       settlePendingRequest(message.request_id);
-      pending.reject(new Error(String(message.error || message.error_code || 'blob fetch failed')));
+      pending.reject(Object.assign(new Error(String(message.error || message.error_code || 'blob fetch failed')), { code: String(message.error_code || 'fetch_failed') }));
     }
     return;
   }
@@ -4718,6 +4741,7 @@ function sendCommand<T>(
     optimisticId?: string;
     retryOnOptimisticIdConflict?: boolean;
     retryTelemetry?: RetryTelemetryContext;
+    blobMaxBytes?: number;
   } = {},
 ): Promise<T> {
   if (!ws || ws.readyState !== WebSocket.OPEN) {
@@ -4735,6 +4759,7 @@ function sendCommand<T>(
       socket,
       requestPrefix,
       timeoutMs: RPC_TIMEOUT_MS,
+      blobBudget: requestPrefix === 'fetch_blob' ? newBlobFetchBudget(options.blobMaxBytes) : undefined,
       optimisticId: options.optimisticId,
       retryOnOptimisticIdConflict: options.retryOnOptimisticIdConflict,
       retryTelemetry: options.retryTelemetry,
@@ -5342,6 +5367,7 @@ function dispatchHeldSend(
   options: {
     retryOnOptimisticIdConflict?: boolean;
     retryTelemetry?: RetryTelemetryContext;
+    blobMaxBytes?: number;
   } = {},
 ): Promise<boolean> {
   const optimistic = state.optimisticSends?.[optimisticId];
@@ -5843,12 +5869,13 @@ export function assembleFetchBlobChunks(chunks: string[]): string {
   return fromByteArray(bytes);
 }
 
-export function fetchBlobBase64(blobSha: string): Promise<FetchBlobResult> {
+export function fetchBlobBase64(blobSha: string, options: { maxBytes?: number } = {}): Promise<FetchBlobResult> {
   const trimmed = String(blobSha || '').trim();
   if (!trimmed) return Promise.reject(new Error('Missing blob sha'));
   return sendCommand<FetchBlobResult>(
     { type: 'fetch_blob', blob_sha: trimmed },
     'fetch_blob',
+    { blobMaxBytes: options.maxBytes },
   );
 }
 

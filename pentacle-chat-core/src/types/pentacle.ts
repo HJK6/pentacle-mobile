@@ -58,7 +58,10 @@ export interface PentacleSendAcceptance {
 // type.
 export interface ChatAttachment {
   key: string; // blob sha — the durable ref the client sends on the wire.
-  mime: string; // post HEIC→transcode: "image/jpeg" | "image/png".
+  mime: string; // Canonical image or managed file MIME.
+  filename?: string; // Sanitized daemon-issued download name.
+  size?: number; // Daemon-verified managed file byte count.
+  upload_id?: string; // Server provenance identifier, not authority.
   width?: number; // px, for bubble layout.
   height?: number; // px, for bubble layout.
   bytes?: number; // size after client-side compression.

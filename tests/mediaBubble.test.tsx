@@ -152,6 +152,8 @@ test('an assistant image row renders the existing MediaBubble and opens the exis
 
   expect(screen.getByTestId('assistant-message-attachments-assist_1')).toBeTruthy();
   expect(screen.getByTestId('assistant-message-image-0')).toBeTruthy();
+  expect(screen.queryByTestId('assistant-message-image-0-file')).toBeNull();
+  expect(screen.getByTestId('assistant-message-image-0-img').props.accessible).toBe(true);
   fireEvent.press(screen.getByTestId('assistant-message-image-0'));
   expect(onPressAttachment).toHaveBeenCalledWith('file:///tmp/a.jpg');
 });
@@ -167,4 +169,13 @@ test('ImageViewerModal shows the tapped image and closes', () => {
   // No uri → nothing to view.
   rerender(<ImageViewerModal uri={null} onClose={onClose} />);
   expect(screen.queryByTestId('image-viewer-image')).toBeNull();
+});
+
+test('an attachment-only managed file uses the actual transcript file row without an image viewer',()=>{
+ const attachment={key:'a'.repeat(64),mime:'application/pdf',filename:'synthetic.pdf',size:12};
+ render(<TranscriptRow item={assistantImageItem({kind:'ASSIST_TEXT',text:''} as any)} chrome={chrome}
+  streamId="fixture:assistant" attachments={[{kind:'file',uri:'',attachment}]} onPressAttachment={jest.fn()}/>);
+ expect(screen.getByText('synthetic.pdf')).toBeTruthy();
+ expect(screen.getByTestId('assistant-message-image-0-file-share')).toBeTruthy();
+ expect(screen.queryByTestId('assistant-message-image-0-img')).toBeNull();
 });
