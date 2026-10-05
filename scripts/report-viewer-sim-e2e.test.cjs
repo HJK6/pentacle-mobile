@@ -1140,6 +1140,7 @@ function payload(runId, source = 'console.error', fatal = false) {
     verdict: 'FAIL',
     all_events: [{
       message: 'harness:runtime_error',
+      native_process_id: '431',
       data: { scenario_run_id: runId, source, fatal, detail: 'runtime sentinel console_error', stack: 'Error: runtime sentinel console_error\n at test' },
     }],
     raw_log_sidecar: 'runtime.applog',
@@ -1259,6 +1260,24 @@ test('crash-only rejects an unverified, wrong-signal, wrong-PID, or evidence-les
   }
 });
 
+test('expected-red runtime errors must carry the launched native PID', () => {
+  for (const sentinel of ['console_error', 'unhandled_rejection', 'delayed_post_return']) {
+    const expected = SENTINELS[sentinel];
+    const valid = payload('run-pid', expected.source, expected.fatal);
+    valid.all_events[0].data.detail = `runtime sentinel ${sentinel}`;
+    valid.all_events[0].data.stack = `Error: runtime sentinel ${sentinel}\n at test`;
+    const options = { runId: 'run-pid', sentinel, expected };
+    assert.equal(validateSentinelResult(valid, options).length, 1);
+    for (const pid of [undefined, null, '999', 431]) {
+      const invalid = structuredClone(valid);
+      if (pid === undefined) delete invalid.all_events[0].native_process_id;
+      else invalid.all_events[0].native_process_id = pid;
+      invalid.all_events[0].data.process_id = '431'; // Payload identity cannot replace the native envelope.
+      assert.throws(() => validateSentinelResult(invalid, options), /run-filtered/, `${sentinel}: ${String(pid)}`);
+    }
+  }
+});
+
 test('expected-red validation requires source, fatal flag, stack, run ID, and runtime monitor', () => {
   assert.equal(validateSentinelResult(payload('run-1'), {
     runId: 'run-1', sentinel: 'console_error', expected: { source: 'console.error', fatal: false },
@@ -1327,6 +1346,12 @@ test('fatal expected-red requires exact-PID release and runtime-error evidence',
   assert.equal(validateSentinelResult(fatal, {
     runId: 'run-fatal', sentinel: 'fatal', expected: { source: 'uncaught', fatal: true },
   }).length, 1);
+
+  const foreignRuntimeError = structuredClone(fatal);
+  foreignRuntimeError.all_events[0].native_process_id = '432';
+  assert.throws(() => validateSentinelResult(foreignRuntimeError, {
+    runId: 'run-fatal', sentinel: 'fatal', expected: { source: 'uncaught', fatal: true },
+  }), /run-filtered/);
 
   const missingRelease = structuredClone(fatal);
   missingRelease.result.extras.runtime_monitor.post_identity_release = null;

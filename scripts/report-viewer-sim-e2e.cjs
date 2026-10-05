@@ -496,7 +496,8 @@ function validateSentinelResult(payload, { runId, sentinel, expected }) {
   }
   const marker = `runtime sentinel ${sentinel}`;
   const errors = runErrors.filter((event) =>
-    event?.data?.source === expected.source
+    event?.native_process_id === processIdentity.launch_pid
+    && event?.data?.source === expected.source
     && event?.data?.fatal === expected.fatal
     && typeof event?.data?.stack === 'string'
     && event.data.stack.includes(marker)
