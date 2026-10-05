@@ -417,22 +417,47 @@ function candidateOrigin(candidateRoot) {
   return execFileSync('git', ['remote', 'get-url', 'origin'], { cwd: candidateRoot, encoding: 'utf8' }).trim();
 }
 
-function cleanCandidateClone(tempRoot) {
+function cleanCandidateClone(tempRoot, { legacySubmodule = false, parentIdentity } = {}) {
   const candidateRoot = path.join(tempRoot, 'candidate');
-  const submoduleRemote = execFileSync('git', ['config', '-f', path.join(ROOT, '.gitmodules'), '--get', 'submodule.pentacle-chat-core.url'], { encoding: 'utf8' }).trim();
-  const submoduleLocal = fs.realpathSync(path.join(ROOT, 'pentacle-chat-core'));
-  execFileSync('git', [
-    '-c', `url.${submoduleLocal}.insteadOf=${submoduleRemote}`,
-    '-c', 'protocol.file.allow=always',
-    'clone', '--quiet', '--recurse-submodules', ROOT, candidateRoot,
-  ], { stdio: 'ignore', env: { ...process.env, GIT_ALLOW_PROTOCOL: 'file' } });
+  const entry = execFileSync('git', ['ls-tree', 'HEAD', '--', 'pentacle-chat-core'], { cwd: ROOT, encoding: 'utf8' }).trim();
+  const cloneArgs = ['-c', 'protocol.file.allow=always'];
+  if (entry.startsWith('160000 commit ')) {
+    const remote = execFileSync('git', ['config', '-f', path.join(ROOT, '.gitmodules'), '--get', 'submodule.pentacle-chat-core.url'], { encoding: 'utf8' }).trim();
+    cloneArgs.push('-c', `url.${fs.realpathSync(path.join(ROOT, 'pentacle-chat-core'))}.insteadOf=${remote}`);
+  } else assert.match(entry, /^040000 tree /, 'fixture source must declare its actual core representation');
+  cloneArgs.push('clone', '--quiet', '--recurse-submodules', ROOT, candidateRoot);
+  execFileSync('git', cloneArgs, { stdio: 'ignore', env: { ...process.env, GIT_ALLOW_PROTOCOL: 'file' } });
+  fs.mkdirSync(path.join(candidateRoot, 'config'), { recursive: true });
+  fs.copyFileSync(path.join(ROOT, 'config/pentacle-chat-core-pin.json'), path.join(candidateRoot, 'config/pentacle-chat-core-pin.json'));
+  if (legacySubmodule) {
+    const coreOrigin = path.join(tempRoot, 'fixture-core');
+    execFileSync('git', ['init', '--quiet', coreOrigin]);
+    fs.writeFileSync(path.join(coreOrigin, 'source.txt'), 'public synthetic core fixture\n');
+    execFileSync('git', ['add', '.'], { cwd: coreOrigin });
+    execFileSync('git', ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.test', 'commit', '--quiet', '-m', 'core'], { cwd: coreOrigin });
+    execFileSync('git', ['rm', '-r', '--quiet', 'pentacle-chat-core'], { cwd: candidateRoot });
+    execFileSync('git', ['-c', 'protocol.file.allow=always', 'submodule', 'add', '--quiet', coreOrigin, 'pentacle-chat-core'], { cwd: candidateRoot });
+    const commit = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: coreOrigin, encoding: 'utf8' }).trim();
+    fs.writeFileSync(path.join(candidateRoot, 'config/pentacle-chat-core-pin.json'), JSON.stringify({ schema: 1, path: 'pentacle-chat-core', commit, remote: coreOrigin }));
+    assert.match(execFileSync('git', ['ls-files', '--stage', 'pentacle-chat-core'], { cwd: candidateRoot, encoding: 'utf8' }), /^160000 /);
+    assert.ok(fs.existsSync(path.join(candidateRoot, '.gitmodules')));
+  }
   fs.copyFileSync(path.join(ROOT, 'scripts', 'full-gate.cjs'), path.join(candidateRoot, 'scripts', 'full-gate.cjs'));
   fs.copyFileSync(path.join(ROOT, 'scripts', 'gate-code-provenance.cjs'), path.join(candidateRoot, 'scripts', 'gate-code-provenance.cjs'));
   fs.copyFileSync(path.join(ROOT, 'scripts', 'sim-resource-guard.cjs'), path.join(candidateRoot, 'scripts', 'sim-resource-guard.cjs'));
   fs.copyFileSync(path.join(ROOT, 'plugins', 'withHarnessLaunchUrl.js'), path.join(candidateRoot, 'plugins', 'withHarnessLaunchUrl.js'));
+  if (parentIdentity) {
+    const project = path.join(candidateRoot, 'ios/Pentacle.xcodeproj/project.pbxproj');
+    const source = fs.readFileSync(project, 'utf8');
+    let edited = source.replaceAll('PRODUCT_BUNDLE_IDENTIFIER = com.example.pentacle.mobile;', `PRODUCT_BUNDLE_IDENTIFIER = ${parentIdentity};`);
+    if (parentIdentity === 'mixed') edited = source.replace('PRODUCT_BUNDLE_IDENTIFIER = com.example.pentacle.mobile;', 'PRODUCT_BUNDLE_IDENTIFIER = quest.pentacle.mobile;');
+    if (parentIdentity === 'count-mismatch') edited = source.replace('PRODUCT_BUNDLE_IDENTIFIER = com.example.pentacle.mobile;', '');
+    fs.writeFileSync(project, edited);
+    execFileSync('git', ['add', '-f', 'ios/Pentacle.xcodeproj/project.pbxproj'], { cwd: candidateRoot });
+  }
   const helpers = ['owned-process.cjs', 'gate-host-health.cjs', 'gate-cpu-accounting.cjs', 'gate-process-cpu.py', 'gate-checks.cjs', 'gate-build-policy.cjs', 'gate-app-ready.cjs'];
   for (const name of helpers) fs.copyFileSync(path.join(ROOT, 'scripts', name), path.join(candidateRoot, 'scripts', name));
-  execFileSync('git', ['add', 'scripts/full-gate.cjs', 'scripts/gate-code-provenance.cjs', 'scripts/sim-resource-guard.cjs', 'plugins/withHarnessLaunchUrl.js', ...helpers.map((name) => `scripts/${name}`)], { cwd: candidateRoot });
+  execFileSync('git', ['add', 'config/pentacle-chat-core-pin.json', ...(legacySubmodule ? ['.gitmodules', 'pentacle-chat-core'] : []), 'scripts/full-gate.cjs', 'scripts/gate-code-provenance.cjs', 'scripts/sim-resource-guard.cjs', 'plugins/withHarnessLaunchUrl.js', ...helpers.map((name) => `scripts/${name}`)], { cwd: candidateRoot });
   if (spawnSync('git', ['diff', '--cached', '--quiet'], { cwd: candidateRoot }).status !== 0) {
     execFileSync('git', ['-c', 'user.name=Gate Test', '-c', 'user.email=gate@example.test', 'commit', '--quiet', '-m', 'gate preflight'], { cwd: candidateRoot });
   }
@@ -445,7 +470,7 @@ function cleanCandidateClone(tempRoot) {
 
 function derivedClone(tempRoot, candidateRoot, { matchingOrigin = true, nonIos = false, largeIosDiff = false, externalNodeModules = false, externalLocalConfig = false, initializeSubmodules = true, narrowLaunch = false, appDelegateMutation = false, projectMutation = false } = {}) {
   const nativeRoot = path.join(tempRoot, 'native');
-  const cloneArgs = ['clone', '--quiet'];
+  const cloneArgs = ['-c', 'protocol.file.allow=always', 'clone', '--quiet'];
   if (initializeSubmodules) cloneArgs.push('--recurse-submodules');
   cloneArgs.push(candidateRoot, nativeRoot);
   execFileSync('git', cloneArgs, { stdio: 'ignore' });
@@ -479,6 +504,7 @@ function derivedClone(tempRoot, candidateRoot, { matchingOrigin = true, nonIos =
     fs.writeFileSync(appDelegate, patchAppDelegate(fs.readFileSync(appDelegate, 'utf8')));
     const projectSource = fs.readFileSync(project, 'utf8');
     fs.writeFileSync(project, projectSource
+      .replaceAll('PRODUCT_BUNDLE_IDENTIFIER = com.example.pentacle.mobile;', 'PRODUCT_BUNDLE_IDENTIFIER = com.example.pentacle.harness;')
       .replaceAll('PRODUCT_BUNDLE_IDENTIFIER = quest.pentacle.mobile;', 'PRODUCT_BUNDLE_IDENTIFIER = com.example.pentacle.harness;')
       .replaceAll('PRODUCT_NAME = "Pentacle";', 'PRODUCT_NAME = "PentacleHarness";'));
   }
@@ -760,10 +786,37 @@ test('preflight rejects a derived root with external local config', () => {
   fs.rmSync(tempRoot, { recursive: true, force: true });
 });
 
+test('preflight accepts a genuine initialized legacy submodule', () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'pentacle-mobile-full-gate-legacy-'));
+  try {
+    const candidateRoot = cleanCandidateClone(tempRoot, { legacySubmodule: true });
+    const nativeRoot = derivedClone(tempRoot, candidateRoot);
+    assert.match(execFileSync('git', ['submodule', 'status'], { cwd: nativeRoot, encoding: 'utf8' }), /^ [0-9a-f]{40} /);
+    const result = preflight(nativeRoot, path.join(tempRoot, 'artifacts'), candidateRoot);
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+  } finally { fs.rmSync(tempRoot, { recursive: true, force: true }); }
+});
+
+for (const identity of ['quest.pentacle.mobile', 'mixed', 'unknown.synthetic.mobile', 'count-mismatch']) {
+  test(`minimal native delta independently validates ${identity} parent identity`, () => {
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'pentacle-native-parent-'));
+    try {
+      const candidateRoot = cleanCandidateClone(tempRoot, { parentIdentity: identity });
+      const nativeRoot = derivedClone(tempRoot, candidateRoot, { narrowLaunch: true });
+      const result = preflight(nativeRoot, path.join(tempRoot, 'artifacts'), candidateRoot);
+      if (identity === 'quest.pentacle.mobile') assert.equal(result.status, 0, result.stdout + result.stderr);
+      else {
+        assert.notEqual(result.status, 0);
+        assert.match(result.stdout + result.stderr, /parent project identity is not an approved exact pair/);
+      }
+    } finally { fs.rmSync(tempRoot, { recursive: true, force: true }); }
+  });
+}
+
 test('preflight rejects a derived root with an uninitialized submodule', () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'pentacle-mobile-full-gate-submodule-'));
   const artifactDir = path.join(tempRoot, 'artifacts');
-  const candidateRoot = cleanCandidateClone(tempRoot);
+  const candidateRoot = cleanCandidateClone(tempRoot, { legacySubmodule: true });
   const nativeRoot = derivedClone(tempRoot, candidateRoot, { initializeSubmodules: false });
   const result = preflight(nativeRoot, artifactDir, candidateRoot);
   assert.notEqual(result.status, 0);

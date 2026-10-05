@@ -734,6 +734,15 @@ test('macOS sandbox reads host preferences truthfully and writes only the two gu
   const domain = `com.pentacle.storagegate.test-${crypto.randomUUID()}`;
   const defaultsIn = (rendered, ...args) => spawnSync('/usr/bin/sandbox-exec', ['-p', rendered, '/usr/bin/defaults', ...args], { encoding: 'utf8' });
   const hostDefaults = (...args) => spawnSync('/usr/bin/defaults', args, { encoding: 'utf8' });
+  const assertFabricatedAbsent = (result) => {
+    assert.notEqual(result.status, 0);
+    assert.equal(String(result.stdout).trim(), '');
+    const diagnostic = String(result.stderr).trim();
+    // macOS versions report the same absent-domain result with either diagnostic. Both
+    // must identify this exact throwaway domain; a generic permission error cannot pass.
+    assert.ok(diagnostic === `Error: Domain '${domain}' not found.`
+      || (diagnostic.includes(domain) && /does not exist/.test(diagnostic)), diagnostic);
+  };
 
   try {
     assert.equal(hostDefaults('write', domain, 'probeKey', '-bool', 'true').status, 0);
@@ -748,16 +757,14 @@ test('macOS sandbox reads host preferences truthfully and writes only the two gu
     const withoutShm = profile.split('\n').filter((line) => !line.startsWith('(allow ipc-posix-shm')).join('\n');
     assert.notEqual(withoutShm, profile);
     const unmapped = defaultsIn(withoutShm, 'read', domain, 'probeKey');
-    assert.notEqual(unmapped.status, 0);
-    assert.match(String(unmapped.stderr), /does not exist/);
+    assertFabricatedAbsent(unmapped);
 
     // Control 2 - the grant must match the region EXACTLY. One altered character and the read
     // silently degrades again, so a stale hardcoded uid cannot pass this test.
     const wrongName = profile.replace(/apple\.cfprefs\.\d+v1/g, 'apple.cfprefs.0v1');
     assert.notEqual(wrongName, profile);
     const mismatched = defaultsIn(wrongName, 'read', domain, 'probeKey');
-    assert.notEqual(mismatched.status, 0);
-    assert.match(String(mismatched.stderr), /does not exist/);
+    assertFabricatedAbsent(mismatched);
 
     // Privilege cost, to the layer-11 standard: a NON-granted domain is denied, and the host value
     // it would have changed is untouched.
@@ -1643,6 +1650,37 @@ test('the child is given a derived host PYTHONPATH so sandboxed idb can import',
   assert.match(resolver, /path\.join\(site, 'idb'\)/);
   // An inherited PYTHONPATH is preserved rather than clobbered.
   assert.match(resolver, /process\.env\.PYTHONPATH/);
+});
+
+test('idb user-site lookup follows the actual launcher interpreter and rejects unknown wrappers', () => {
+  const source = fs.readFileSync(path.join(__dirname, 'storage-gate.cjs'), 'utf8');
+  const resolver = source.slice(source.indexOf('function hostUserSitePackages'), source.indexOf('function createSimulator'));
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'idb-interpreter-')));
+  try {
+    const site = path.join(root, 'consumer-site');
+    fs.mkdirSync(path.join(site, 'idb'), { recursive: true });
+    const interpreter = path.join(root, 'python3.13');
+    fs.writeFileSync(interpreter, '#!/bin/sh\n');
+    fs.chmodSync(interpreter, 0o755);
+    const launcher = path.join(root, 'idb');
+    const resolve = (line) => {
+      fs.writeFileSync(launcher, line + '\n');
+      fs.chmodSync(launcher, 0o755);
+      const calls = [];
+      const actual = require('node:vm').runInNewContext(resolver + '\nhostUserSitePackages()', {
+        fs, path, process: { env: { PATH: root, PYTHONPATH: '/inherited/site' } },
+        spawnSync(command, args) { calls.push([command, args]); return { status: 0, stdout: site + '\n', stderr: '' }; },
+      });
+      assert.equal(actual, `${site}:/inherited/site`);
+      assert.equal(calls[0][0], interpreter);
+      assert.equal(calls[0][1][1], 'import site;print(site.getusersitepackages())');
+    };
+    resolve(`#!${interpreter}`);
+    resolve('#!/usr/bin/env python3.13');
+    assert.throws(() => resolve('#!/bin/sh'), /GATE_IDB_INTERPRETER_UNSUPPORTED/);
+    fs.rmSync(path.join(site, 'idb'), { recursive: true });
+    assert.throws(() => resolve(`#!${interpreter}`), /GATE_USER_SITE_NO_IDB/);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
 // LAYER 16. `-DeviceSetPath` is the entire difference between a surface that ATTACHES to the gate's

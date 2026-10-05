@@ -33,3 +33,39 @@ need not match the example palette; offline hosts remain visible but disabled.
 Public main is the normal development and build source. See [repository workflow](repo_workflow.md) for the mandatory pre-push content/history guard and required CI. Private-data exceptions use immediate reviewed public projection; keep local config out of Git.
 
 The portable synthetic harness gate and retained private inputs are documented in [Public source boundary](public_boundary.md). CI runs only the four named Python mock/helper test files; JavaScript export validation uses the disposable ignored example config.
+
+## Certified native gate and storage
+
+Use the clean, origin-advertised candidate with the installed storage authority:
+
+```sh
+env -u npm_config_cache PATH="$PWD/node_modules/.bin:$PATH" node scripts/storage-cli.cjs gate:native-root HEAD
+env -u npm_config_cache PATH="$PWD/node_modules/.bin:$PATH" node scripts/storage-cli.cjs gate:full RUN_ID LOCK_TOKEN
+```
+
+The first command returns the opaque run ID and lock token for the second. The
+host singleton and shared `sim-queue` serialize native work. Candidate and gate
+code provenance, native process identity, all fixed simulator cases, finalized
+video and owned cleanup must pass. See [public harness contracts](PUBLIC_CERTIFIED_HARNESS.md).
+
+Storage uses the installed fixed layout and rejects caller-selected paths. The
+installed authority binds host, UID and generation; journal schema and reference
+checks bind each run, container, worktree ticket and scheduler transaction to
+that authority. Capacity requires 60 GiB free at start and 40 GiB while running.
+The limits are 1 MiB for copied configuration, 64 MiB for state, 12 GiB for scratch
+and 2 GiB for evidence. Build cache admission also preserves its measured free
+space reserve. Evidence classification and digest checks precede publication.
+Dead-owner scratch uses a 24-hour wait; published passing evidence is retained
+for 7 days and failed evidence for 30 days. Recovery requires the journal's
+exact owned identity and does not confer authority over unrelated resources.
+
+Lifecycle commands use the same CLI: `storage:install`, `storage:update`,
+`storage:restore`, `storage:uninstall`, `storage:register-worktree MAIN_REPO_ID
+SPEC_ID LANE_ID` and `storage:retire-worktree TICKET_ID`. The installed LaunchAgent
+runs `storage:janitor dry-run` every six hours; `storage:janitor apply` is an
+explicit action. Its nonzero last-exit status in `launchctl list` means failure.
+An authorized `launchctl kickstart` can exercise the installed job; inspect its
+bound report afterward. The regular `disabled` file in the installed state is
+the kill-switch for apply mode. Do not replace lifecycle commands with manual
+deletion. Failed-run recovery uses `storage:recover-run RUN_ID` and retains the
+same identity and ownership checks.

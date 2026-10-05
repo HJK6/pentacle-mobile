@@ -1066,7 +1066,25 @@ function stopSimulatorSurfaceTrigger(trigger, evidenceRoot, runId) {
 // which is a 20-second timeout with no cause. Every failure below is named and fatal for that reason:
 // there is no useful run without idb, and a nameless empty value is the exact shape this removes.
 function hostUserSitePackages() {
-  const resolved = spawnSync('python3', ['-c', 'import site;print(site.getusersitepackages())'], { encoding: 'utf8' });
+  // Resolve the interpreter of the executable actually called by the scenarios.
+  // A different default python can report a valid but unrelated user-site tree.
+  const executable = (name) => {
+    for (const directory of String(process.env.PATH || '').split(path.delimiter)) {
+      if (!directory) continue;
+      const candidate = path.resolve(directory, name);
+      try { fs.accessSync(candidate, fs.constants.X_OK); if (fs.statSync(candidate).isFile()) return fs.realpathSync(candidate); }
+      catch { /* inspect the next explicit PATH entry */ }
+    }
+    throw new Error(`GATE_IDB_EXECUTABLE_MISSING:${name}`);
+  };
+  const launcher = executable('idb');
+  const firstLine = fs.readFileSync(launcher, 'utf8').split(/\r?\n/, 1)[0];
+  const match = /^#!\s*(\/\S+)(?:\s+(\S+))?\s*$/.exec(firstLine);
+  let interpreter;
+  if (match && path.basename(match[1]) === 'env' && /^python(?:3(?:\.\d+)?)?$/.test(match[2] || '')) interpreter = executable(match[2]);
+  else if (match && !match[2] && /^python(?:3(?:\.\d+)?)?$/.test(path.basename(match[1]))) interpreter = match[1];
+  else throw new Error('GATE_IDB_INTERPRETER_UNSUPPORTED');
+  const resolved = spawnSync(interpreter, ['-c', 'import site;print(site.getusersitepackages())'], { encoding: 'utf8' });
   if (resolved.status !== 0) {
     throw new Error(`GATE_USER_SITE_UNRESOLVED:${resolved.status}:${String(resolved.stderr || '').trim().slice(0, 200)}`);
   }

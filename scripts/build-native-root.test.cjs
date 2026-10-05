@@ -1,7 +1,7 @@
 'use strict';
 
 const assert = require('node:assert/strict');
-const { spawnSync } = require('node:child_process');
+const { spawnSync, execFileSync } = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -24,6 +24,8 @@ test('snapshot builder keeps the candidate clone source on the invoking reposito
 });
 
 test('macOS gate sandbox builds both clone stages from local repositories with remote transports disabled', { skip: process.platform !== 'darwin' ? 'requires macOS sandbox-exec' : false }, () => {
+  const sourceFixture = coreFixture('gitlink');
+  const cloneSource = sourceFixture.root;
   const containerRoot = fs.mkdtempSync(path.join(fs.realpathSync(os.homedir()), '.pentacle-builder-local-clone-'));
   const roots = ['scratch', 'evidence', 'state'].map((name) => {
     const target = path.join(containerRoot, name);
@@ -47,18 +49,18 @@ test('macOS gate sandbox builds both clone stages from local repositories with r
       });
       return sandboxedGit(cwd, command.args, command.environment);
     };
-    const candidateSha = spawnSync('/usr/bin/git', ['rev-parse', 'HEAD'], { cwd: EXPECTED_ROOT, encoding: 'utf8' }).stdout.trim();
-    const submoduleSha = spawnSync('/usr/bin/git', ['rev-parse', `HEAD:${EXPECTED_SUBMODULE_PATH}`], { cwd: EXPECTED_ROOT, encoding: 'utf8' }).stdout.trim();
+    const candidateSha = spawnSync('/usr/bin/git', ['rev-parse', 'HEAD'], { cwd: cloneSource, encoding: 'utf8' }).stdout.trim();
+    const submoduleSha = spawnSync('/usr/bin/git', ['rev-parse', `HEAD:${EXPECTED_SUBMODULE_PATH}`], { cwd: cloneSource, encoding: 'utf8' }).stdout.trim();
     const candidateRoot = path.join(roots[0], 'candidate');
-    const cloned = sandboxedGit(roots[0], ['clone', '--no-checkout', EXPECTED_ROOT, candidateRoot]);
+    const cloned = sandboxedGit(roots[0], ['clone', '--no-checkout', cloneSource, candidateRoot]);
     assert.equal(cloned.status, 0, cloned.stderr);
     const candidateCheckout = sandboxedGit(candidateRoot, ['checkout', '--detach', candidateSha]);
     assert.equal(candidateCheckout.status, 0, candidateCheckout.stderr);
-    const candidateSubmodules = updateSubmodules(candidateRoot, EXPECTED_ROOT);
+    const candidateSubmodules = updateSubmodules(candidateRoot, cloneSource);
     assert.equal(candidateSubmodules.status, 0, candidateSubmodules.stderr);
     const origin = spawnSync('/usr/bin/git', ['remote', 'get-url', 'origin'], { cwd: candidateRoot, encoding: 'utf8' });
     assert.equal(origin.status, 0, origin.stderr);
-    assert.equal(origin.stdout.trim(), EXPECTED_ROOT);
+    assert.equal(origin.stdout.trim(), cloneSource);
     assert.equal(spawnSync('/usr/bin/git', ['rev-parse', 'HEAD'], { cwd: path.join(candidateRoot, EXPECTED_SUBMODULE_PATH), encoding: 'utf8' }).stdout.trim(), submoduleSha);
 
     const nativeRoot = path.join(roots[0], 'native');
@@ -68,10 +70,11 @@ test('macOS gate sandbox builds both clone stages from local repositories with r
     assert.equal(nativeCheckout.status, 0, nativeCheckout.stderr);
     const nativeSubmodules = updateSubmodules(nativeRoot, candidateRoot);
     assert.equal(nativeSubmodules.status, 0, nativeSubmodules.stderr);
-    assert.equal(spawnSync('/usr/bin/git', ['remote', 'get-url', 'origin'], { cwd: nativeRoot, encoding: 'utf8' }).stdout.trim(), EXPECTED_ROOT);
+    assert.equal(spawnSync('/usr/bin/git', ['remote', 'get-url', 'origin'], { cwd: nativeRoot, encoding: 'utf8' }).stdout.trim(), cloneSource);
     assert.equal(spawnSync('/usr/bin/git', ['rev-parse', 'HEAD'], { cwd: path.join(nativeRoot, EXPECTED_SUBMODULE_PATH), encoding: 'utf8' }).stdout.trim(), submoduleSha);
   } finally {
     fs.rmSync(containerRoot, { recursive: true, force: true });
+    fs.rmSync(sourceFixture.parent, { recursive: true, force: true });
   }
 });
 
@@ -135,6 +138,23 @@ const PROJECT_BASE = [
   'PRODUCT_BUNDLE_IDENTIFIER = quest.pentacle.mobile;',
   'PRODUCT_NAME = "Pentacle";',
 ].join('\n');
+
+for (const identity of ['com.example.pentacle.mobile', 'quest.pentacle.mobile']) {
+  test(`builder transforms exactly four native replacements for ${identity}`, () => {
+    const source = PROJECT_BASE.replaceAll('quest.pentacle.mobile', identity);
+    const actual = builder.patchProject(source);
+    assert.equal(actual, source.replaceAll(identity, 'com.example.pentacle.harness').replaceAll('"Pentacle"', '"PentacleHarness"'));
+  });
+}
+for (const [name, source] of [
+  ['mixed', PROJECT_BASE.replace('quest.pentacle.mobile', 'com.example.pentacle.mobile')],
+  ['unknown', PROJECT_BASE.replaceAll('quest.pentacle.mobile', 'unknown.synthetic.mobile')],
+  ['missing bundle entry', PROJECT_BASE.replace('PRODUCT_BUNDLE_IDENTIFIER = quest.pentacle.mobile;', '')],
+  ['extra bundle entry', PROJECT_BASE + '\nPRODUCT_BUNDLE_IDENTIFIER = quest.pentacle.mobile;'],
+  ['missing product entry', PROJECT_BASE.replace('PRODUCT_NAME = "Pentacle";', '')],
+]) {
+  test(`builder rejects ${name} parent identities`, () => assert.throws(() => builder.patchProject(source), /expected/));
+}
 
 function derivedRoot({ appDelegateDiffers, appDelegateContent = GATE_BASE }) {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'native-root-')));
@@ -284,4 +304,73 @@ test('rename detection is disabled, so a rename reports both endpoints to the pa
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
+});
+
+// Invoke the exact internal runtime helper without opening a path-taking production API.
+function internalUpdate() {
+  const filename = path.join(__dirname, 'build-native-root.cjs');
+  const context = { require: require('node:module').createRequire(filename), module: { exports: {} }, __dirname, process, console, Buffer };
+  require('node:vm').runInNewContext(fs.readFileSync(filename, 'utf8') + '\nmodule.exports.testUpdate = updateSubmodulesFromLocal;', context, { filename });
+  return context.module.exports.testUpdate;
+}
+
+function coreFixture(form) {
+  const parent = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'native-builder-core-')));
+  const root = path.join(parent, 'source');
+  fs.mkdirSync(root);
+  const git = (cwd, ...args) => execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+  const commit = (cwd) => { git(cwd, 'add', '.'); git(cwd, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.test', 'commit', '--quiet', '-m', 'fixture'); };
+  git(root, 'init', '--quiet');
+  let pin;
+  if (form === 'gitlink') {
+    const core = path.join(parent, 'core-origin');
+    fs.mkdirSync(core);
+    git(core, 'init', '--quiet');
+    fs.writeFileSync(path.join(core, 'source.txt'), 'public fixture core\n');
+    commit(core);
+    git(root, '-c', 'protocol.file.allow=always', 'submodule', 'add', '--quiet', core, 'pentacle-chat-core');
+    // The runtime rewrite must use the declared legacy URL and local source objects.
+    git(root, 'config', '-f', '.gitmodules', 'submodule.pentacle-chat-core.url', EXPECTED_SUBMODULE_REMOTE);
+    pin = { schema: 1, path: 'pentacle-chat-core', commit: git(core, 'rev-parse', 'HEAD'), remote: EXPECTED_SUBMODULE_REMOTE };
+  } else {
+    fs.mkdirSync(path.join(root, 'pentacle-chat-core'));
+    fs.writeFileSync(path.join(root, 'pentacle-chat-core/source.txt'), 'public fixture core\n');
+    git(root, 'add', '.');
+    pin = { schema: 2, representation: 'vendored_tree', path: 'pentacle-chat-core', tree: git(root, 'write-tree', '--prefix=pentacle-chat-core/') };
+  }
+  fs.mkdirSync(path.join(root, 'config'));
+  fs.writeFileSync(path.join(root, 'config/pentacle-chat-core-pin.json'), JSON.stringify(pin));
+  commit(root);
+  return { parent, root, pin, git };
+}
+
+for (const form of ['vendored', 'gitlink']) {
+  test(`runtime native clone initializes only the verified ${form} representation`, () => {
+    const fixture = coreFixture(form);
+    try {
+      const candidate = path.join(fixture.parent, 'candidate');
+      fixture.git(fixture.parent, 'clone', '--quiet', fixture.root, candidate);
+      internalUpdate()(candidate, fixture.root);
+      assert.deepEqual(require('./check-provision-pin.cjs').assertProvisionPin(candidate), form === 'gitlink'
+        ? { path: 'pentacle-chat-core', commit: fixture.pin.commit }
+        : { path: 'pentacle-chat-core', representation: 'vendored_tree', tree: fixture.pin.tree });
+      assert.equal(fs.existsSync(path.join(candidate, 'pentacle-chat-core/.git')), form === 'gitlink');
+      assert.equal(fixture.git(candidate, 'status', '--porcelain'), '');
+      if (form === 'vendored') {
+        fs.appendFileSync(path.join(candidate, 'pentacle-chat-core/source.txt'), 'drift\n');
+        assert.throws(() => internalUpdate()(candidate, fixture.root), /TEST_PROVISION_CORE_DIRTY/);
+      }
+    } finally { fs.rmSync(fixture.parent, { recursive: true, force: true }); }
+  });
+}
+
+test('runtime native clone rejects a pin representation mismatch before initialization', () => {
+  const fixture = coreFixture('vendored');
+  try {
+    const candidate = path.join(fixture.parent, 'candidate');
+    fixture.git(fixture.parent, 'clone', '--quiet', fixture.root, candidate);
+    fs.writeFileSync(path.join(candidate, 'config/pentacle-chat-core-pin.json'), JSON.stringify({ schema: 1, path: 'pentacle-chat-core', commit: fixture.pin.tree }));
+    assert.throws(() => internalUpdate()(candidate, fixture.root), /TEST_PROVISION_PIN_DRIFT/);
+    assert.equal(fs.existsSync(path.join(candidate, 'pentacle-chat-core/.git')), false);
+  } finally { fs.rmSync(fixture.parent, { recursive: true, force: true }); }
 });

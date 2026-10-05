@@ -315,14 +315,23 @@ function requireSemanticMinimalLaunchNativeDiff(nativeRoot, parentSha, nativeSha
     }
   }
   if (derivedPaths.includes(project)) {
+    // Independent of the builder: inspect the pinned parent and admit exactly
+    // four replacements, using one of the two explicit production identities.
+    const parent = rawGitValue(nativeRoot, ['show', `${parentSha}:${project}`]);
+    const identities = [...parent.matchAll(/PRODUCT_BUNDLE_IDENTIFIER = ([^;]+);/g)].map((match) => match[1]);
+    if (identities.length !== 2 || identities[0] !== identities[1]
+      || !['com.example.pentacle.mobile', 'quest.pentacle.mobile'].includes(identities[0])
+      || parent.split('PRODUCT_NAME = "Pentacle";').length - 1 !== 2) {
+      throw new Error('PENTACLE_GATE_NATIVE_ROOT parent project identity is not an approved exact pair');
+    }
     const changes = rawGitValue(nativeRoot, ['diff', '--unified=0', parentSha, nativeSha, '--', project])
       .split('\n')
       .filter((line) => (/^[+-]/).test(line) && !line.startsWith('+++') && !line.startsWith('---'))
       .map((line) => `${line[0]}${line.slice(1).trim()}`)
       .sort();
     const expected = [
-      '-PRODUCT_BUNDLE_IDENTIFIER = quest.pentacle.mobile;',
-      '-PRODUCT_BUNDLE_IDENTIFIER = quest.pentacle.mobile;',
+      `-PRODUCT_BUNDLE_IDENTIFIER = ${identities[0]};`,
+      `-PRODUCT_BUNDLE_IDENTIFIER = ${identities[0]};`,
       '-PRODUCT_NAME = "Pentacle";',
       '-PRODUCT_NAME = "Pentacle";',
       '+PRODUCT_BUNDLE_IDENTIFIER = com.example.pentacle.harness;',
