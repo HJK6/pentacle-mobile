@@ -618,11 +618,18 @@ function releaseSmoke(artifactDir, native, dependencies = {}) {
       } catch (error) { launchChecks.push({ name: 'readiness-receipt', status: 'failed', dependencies: [], error: error.message }); }
     }
   }
-  const verifyArgs = [process.execPath, require.resolve('./gate-app-ready.cjs'), JSON.stringify({ ...launchInput, verify: true })];
+  const verifyArgs = [process.execPath, require.resolve('./gate-app-ready.cjs'), JSON.stringify({
+    ...launchInput, target: targetState.value, verify: true, teardown: true,
+  })];
   requireChecks(collectChecks([
     { name: 'release-sim-settle', run: () => evidence.push(runGate('release-sim-settle', ['sleep', '2'], artifactDir, { timeoutMs: SIMULATOR_STAGE_TIMEOUT_MS['release-sim-settle'] })) },
     { name: 'release-sim-liveness', run: () => evidence.push(runGate('release-sim-liveness', verifyArgs, artifactDir, { timeoutMs: SIMULATOR_STAGE_TIMEOUT_MS['release-sim-liveness'] })) },
   ], launchChecks));
+  // Keep the historic readiness PID/nonce and persist the separate, exact-owned handoff.
+  const stopped = JSON.parse(fs.readFileSync(receiptFile, 'utf8')).smoke_teardown;
+  if (stopped?.status !== 'stopped' || stopped.pid !== targetState.value.live_pid || stopped.nonce !== nonce)
+    throw new Error('APP_SMOKE_TEARDOWN_RECEIPT_INVALID');
+  targetState.advance('ready', { smoke_teardown: stopped });
   return { evidence, target: targetState.value };
 }
 

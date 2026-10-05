@@ -14,10 +14,13 @@ import tempfile
 import threading
 import time
 
+from harness import scenario_simctl_command
+
 
 class VideoRecorder:
-    def __init__(self, udid: str, path: Path, *, popen=subprocess.Popen):
+    def __init__(self, udid: str, path: Path, *, popen=subprocess.Popen, config=None):
         self.udid, self.path, self.popen = udid, path, popen
+        self.config = config
         self.process = None
         self.stderr = []
         self.ready = threading.Event()
@@ -35,7 +38,7 @@ class VideoRecorder:
     def start(self):
         self.started_at = time.time()
         self.process = self.popen(
-            ["xcrun", "simctl", "io", self.udid, "recordVideo", "--codec=h264", str(self.path)],
+            scenario_simctl_command("io", self.udid, "recordVideo", "--codec=h264", str(self.path), config=self.config),
             stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True,
         )
         self.reader = threading.Thread(target=self._read, daemon=True)
@@ -124,6 +127,7 @@ def preflight(udid: str, *, probe_fn=probe, command=subprocess.run):
         bound = os.environ.get("PENTACLE_GATE_BOUND_SIMULATOR_UDID")
         if bound and bound != udid:
             raise ValueError("simulator identity differs from bound UDID")
+        simctl = scenario_simctl_command()
         initial = probe_fn(udid, "initial")
         evidence["ownership_probes"].append(initial)
         if initial["contract_passed"]:
@@ -134,7 +138,7 @@ def preflight(udid: str, *, probe_fn=probe, command=subprocess.run):
             remediation.update(attempted=True, attempts=1, status="failed")
             for label, timeout, suffix in [("shutdown", 60, []), ("boot", 60, []), ("bootstatus", 120, ["-b"])]:
                 before = time.time()
-                result = command(["xcrun", "simctl", label, udid, *suffix], capture_output=True, text=True, timeout=timeout, check=False)
+                result = command([*simctl, label, udid, *suffix], capture_output=True, text=True, timeout=timeout, check=False)
                 after = time.time()
                 remediation["commands"].append({"label": label, "started_at": before, "finished_at": after,
                     "duration_s": after - before, "returncode": result.returncode, "stdout": result.stdout, "stderr": result.stderr})

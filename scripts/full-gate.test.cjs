@@ -228,6 +228,7 @@ test('release smoke polls native readiness for the built override and preserves 
   const appPath = path.join(root, 'release-sim-derived-data/Build/Products/Release-iphonesimulator/PentacleHarness.app');
   fs.mkdirSync(appPath, { recursive: true });
   const prior = { ...process.env }; const calls = []; const targets = [];
+  let smokePid = 1234;
   Object.assign(process.env, { PENTACLE_GATE_SIMULATOR_UDID: 'SIMULATOR-1', PENTACLE_BUNDLE_ID: 'quest.pentacle.mobile' });
   try {
     const release = releaseSmoke(root, { nativeRoot: root, workspace: path.join(root, 'ios/Pentacle.xcworkspace') }, {
@@ -244,7 +245,18 @@ test('release smoke polls native readiness for the built override and preserves 
           const input = JSON.parse(args.at(-1));
           assert.equal(input.target.bundleId, 'quest.pentacle.mobile');
           assert.match(input.nonce, /^[0-9a-f-]{36}$/);
-          fs.writeFileSync(input.receiptFile, JSON.stringify({ ready: true, pid: 1234, nonce: input.nonce }));
+          fs.writeFileSync(input.receiptFile, JSON.stringify({ ready: true, pid: 1234, nonce: input.nonce,
+            target: input.target, process_birth: '123456789',
+            native_receipt: { pid: 1234, nonce: input.nonce, bundle_id: input.target.bundleId } }));
+        }
+        if (name === 'release-sim-liveness') {
+          const input = JSON.parse(args.at(-1));
+          if (input.teardown) require('./gate-app-ready.cjs').stopOwnedSmoke(input, {
+            readPid: () => smokePid, readBirth: () => smokePid === null ? null : '123456789',
+            signal: (target, pid) => {
+              assert.equal(target.udid, 'SIMULATOR-1'); assert.equal(pid, 1234); smokePid = null;
+            },
+          });
         }
         return { name, status: 0, owned_process_group: 1234, readiness: options?.readiness };
       },
@@ -254,7 +266,99 @@ test('release smoke polls native readiness for the built override and preserves 
     assert.equal(release.target.phase, 'ready');
     assert.equal(targets[0].bundleId, null);
     assert.equal(targets[0].phase, 'allocated');
+    const caseState = smokePid === null ? 'cases starting' : 'SETUP_FAIL: bound harness bundle already has a running process';
+    assert.equal(caseState, 'cases starting');
+    assert.equal(release.target.smoke_teardown.status, 'stopped');
+    const receipt = JSON.parse(fs.readFileSync(path.join(root, 'release-sim-readiness.json')));
+    assert.equal(receipt.smoke_teardown.pid, 1234);
+    assert.equal(receipt.smoke_teardown.nonce, release.target.launch_nonce);
+    assert.equal(receipt.smoke_teardown.process_birth, '123456789');
   } finally { for (const key of Object.keys(process.env)) if (!(key in prior)) delete process.env[key]; Object.assign(process.env, prior); fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('owned smoke teardown refuses a foreign PID, reused PID, nonce or target before signaling', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pentacle-smoke-refusal-'));
+  const target = { deviceSetRoot: '/private/synthetic/Devices', udid: 'OWNED-UDID', bundleId: 'synthetic.harness', live_pid: 431 };
+  const input = { target, nonce: 'owned-nonce', receiptFile: path.join(root, 'readiness.json') };
+  try {
+    for (const change of ['foreign-pid', 'reused-pid', 'reuse-before-signal', 'missing-birth', 'foreign-nonce', 'foreign-target', 'native-nonce']) {
+      let signals = 0;
+      let birthReads = 0;
+      const receipt = { ready: true, pid: 431, nonce: input.nonce, target: { ...target }, process_birth: '123456789',
+        native_receipt: { pid: 431, nonce: input.nonce, bundle_id: target.bundleId } };
+      if (change === 'missing-birth') delete receipt.process_birth;
+      if (change === 'foreign-nonce') receipt.nonce = 'foreign';
+      if (change === 'foreign-target') receipt.target.deviceSetRoot = '/foreign/Devices';
+      if (change === 'native-nonce') receipt.native_receipt.nonce = 'foreign';
+      fs.writeFileSync(input.receiptFile, JSON.stringify(receipt));
+      assert.throws(() => require('./gate-app-ready.cjs').stopOwnedSmoke(input, {
+        readPid: () => change === 'foreign-pid' ? 432 : 431,
+        readBirth: () => change === 'reused-pid' || (change === 'reuse-before-signal' && birthReads++ > 0) ? '987654321' : '123456789',
+        signal: () => { signals += 1; },
+      }), /APP_(READY|SMOKE)_/);
+      assert.equal(signals, 0, change);
+      const saved = JSON.parse(fs.readFileSync(input.receiptFile));
+      assert.equal(saved.smoke_teardown.status, 'failed');
+      assert.equal(saved.smoke_teardown.signal_sent, false);
+    }
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('smoke birth identity uses the existing legacy collector and fails closed with temporary-input cleanup', () => {
+  const { processBirth } = require('./gate-app-ready.cjs');
+  for (const vector of [
+    { row: { pid: 431, cpuProbeErrno: 0, start: '123456789' }, value: '123456789' },
+    { row: { pid: 431, cpuProbeErrno: 3 }, value: null },
+    ...[1, 13, 99].map((cpuProbeErrno) => ({ row: { pid: 431, cpuProbeErrno }, error: /APP_SMOKE_BIRTH_UNAVAILABLE/ })),
+    { row: { pid: 432, cpuProbeErrno: 0, start: '123456789' }, error: /APP_SMOKE_BIRTH_ROW_INVALID/ },
+    { row: { pid: 431, cpuProbeErrno: 0, start: 123 }, error: /APP_SMOKE_BIRTH_UNAVAILABLE/ },
+    { row: { pid: 431, cpuProbeErrno: 0, start: '0' }, error: /APP_SMOKE_BIRTH_UNAVAILABLE/ },
+    { row: { pid: 431, cpuProbeErrno: 3, start: '123' }, error: /APP_SMOKE_BIRTH_UNAVAILABLE/ },
+    { status: 1, error: /APP_SMOKE_BIRTH_READ_FAILED/ },
+  ]) {
+    let file;
+    const command = (binary, args, options) => {
+      assert.equal(binary, 'python3'); assert.equal(args[0], require.resolve('./gate-process-cpu.py'));
+      assert.equal(options.timeout, 5000); file = args[1];
+      assert.deepEqual(JSON.parse(fs.readFileSync(file)), [{ pid: 431 }]);
+      return { status: vector.status || 0, stdout: JSON.stringify({ rows: [vector.row] }) };
+    };
+    if (vector.error) assert.throws(() => processBirth(431, command), vector.error);
+    else assert.equal(processBirth(431, command), vector.value);
+    assert.equal(fs.existsSync(file), false);
+    assert.equal(fs.existsSync(path.dirname(file)), false);
+  }
+});
+
+test('native readiness binds a kernel process birth before accepting the nonce and PID', async () => {
+  const { waitForAppReady } = require('./gate-app-ready.cjs');
+  const options = { nonce: 'owned-nonce', bundleId: 'synthetic.harness', startedAt: 100, deadlineMs: 2, pollMs: 1 };
+  for (const birth of [null, '0', 123, '123456789']) {
+    let elapsed = 0;
+    const result = waitForAppReady(options, { now: () => elapsed, sleep: async (ms) => { elapsed += ms; },
+      transport: () => ({ status: 0 }), read: async () => ({ livePid: 431, processBirth: birth,
+        receipt: { nonce: options.nonce, bundle_id: options.bundleId, pid: 431, created_at: 100 } }),
+    });
+    if (birth === '123456789') assert.equal((await result).process_birth, birth);
+    else await assert.rejects(result, /APP_READY_TIMEOUT/);
+  }
+});
+
+test('owned smoke teardown does not signal a replacement process after its one owned signal', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pentacle-smoke-replacement-'));
+  const target = { deviceSetRoot: '/private/synthetic/Devices', udid: 'OWNED-UDID', bundleId: 'synthetic.harness', live_pid: 431 };
+  const input = { target, nonce: 'owned-nonce', receiptFile: path.join(root, 'readiness.json') };
+  let signals = 0;
+  fs.writeFileSync(input.receiptFile, JSON.stringify({ ready: true, pid: 431, nonce: input.nonce, target,
+    process_birth: '123456789', native_receipt: { pid: 431, nonce: input.nonce, bundle_id: target.bundleId } }));
+  try {
+    assert.throws(() => require('./gate-app-ready.cjs').stopOwnedSmoke(input, {
+      readPid: () => 431, readBirth: () => signals ? '987654321' : '123456789',
+      signal: () => { signals += 1; },
+    }), /APP_SMOKE_PID_REUSED/);
+    assert.equal(signals, 1);
+    assert.equal(JSON.parse(fs.readFileSync(input.receiptFile)).smoke_teardown.status, 'failed');
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
 test('release target persists known and null identities before every failing assertion', () => {

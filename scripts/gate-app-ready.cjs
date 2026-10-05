@@ -21,11 +21,13 @@ async function waitForAppReady(options, dependencies) {
     const receipt = observation?.receipt;
     const valid = receipt?.nonce === options.nonce && receipt.bundle_id === options.bundleId
       && Number.isSafeInteger(receipt.pid) && receipt.pid > 1 && observation.livePid === receipt.pid
+      && typeof observation.processBirth === 'string' && /^[1-9][0-9]*$/.test(observation.processBirth)
       && Number.isFinite(receipt.created_at) && receipt.created_at >= options.startedAt
       && receipt.created_at <= options.startedAt + Math.min(options.deadlineMs, now() - started + 1000);
     samples.push({ elapsed_ms: now() - started, pid: receipt?.pid || null, live_pid: observation?.livePid || null,
       bound: valid, ...(error ? { error } : {}) });
     if (valid && now() - started <= options.deadlineMs) return { ready: true, pid: receipt.pid, nonce: options.nonce,
+      process_birth: observation.processBirth,
       elapsed_ms: now() - started, native_receipt: receipt, transport, samples };
     if (now() - started >= options.deadlineMs) throw Object.assign(new Error('APP_READY_TIMEOUT'), { readiness: { elapsed_ms: now() - started, transport, samples } });
     await sleep(Math.min(options.pollMs, options.deadlineMs - (now() - started)));
@@ -47,6 +49,26 @@ function currentPid(target, timeout) {
     return match && label.test(match[2]) ? [Number(match[1])] : [];
   });
   return pids.length === 1 ? pids[0] : null;
+}
+
+function processBirth(pid, command = runOwnedSync) {
+  if (!Number.isSafeInteger(pid) || pid <= 1) throw new Error('APP_SMOKE_PID_INVALID');
+  const root = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'pentacle-smoke-birth-'));
+  try {
+    const file = path.join(root, 'pid.json');
+    fs.writeFileSync(file, JSON.stringify([{ pid }]));
+    // Reuse the public collector's legacy input contract and exact kernel birth value.
+    const result = command('python3', [require.resolve('./gate-process-cpu.py'), file],
+      { encoding: 'utf8', timeout: 5000, maxBuffer: 1024 * 1024 });
+    if (result.error || result.status !== 0) throw result.error || new Error('APP_SMOKE_BIRTH_READ_FAILED');
+    const rows = JSON.parse(result.stdout).rows;
+    if (!Array.isArray(rows) || rows.length !== 1 || rows[0].pid !== pid) throw new Error('APP_SMOKE_BIRTH_ROW_INVALID');
+    const row = rows[0];
+    if (row.cpuProbeErrno === 3 && row.start == null) return null; // Actual ESRCH only.
+    if (row.cpuProbeErrno !== 0 || typeof row.start !== 'string' || !/^[1-9][0-9]*$/.test(row.start))
+      throw new Error('APP_SMOKE_BIRTH_UNAVAILABLE');
+    return row.start;
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
 }
 
 async function launchAndWait(input) {
@@ -74,7 +96,8 @@ async function launchAndWait(input) {
         if (stat.size > 4096) throw new Error('APP_READY_RECEIPT_OVERSIZED');
         const receipt = JSON.parse(fs.readFileSync(marker, 'utf8'));
         if (receipt.nonce !== nonce) return { receipt, livePid: null };
-        return { receipt, livePid: currentPid(target, Math.min(2000, remaining)) };
+        const livePid = currentPid(target, Math.min(2000, remaining));
+        return { receipt, livePid, processBirth: livePid === receipt.pid ? processBirth(livePid) : null };
       },
     });
     return outcome;
@@ -92,24 +115,76 @@ async function launchAndWait(input) {
   }
 }
 
-function verifyReady(input, readPid = currentPid) {
+function verifyReady(input, readPid = currentPid, readBirth = processBirth) {
   const { collectChecks, requireChecks } = require('./gate-checks.cjs');
   let receipt; let pid;
   const checks = collectChecks([
     { name: 'readiness-receipt', run: () => { receipt = JSON.parse(fs.readFileSync(input.receiptFile, 'utf8')); } },
-    { name: 'receipt-binding', dependsOn: ['readiness-receipt'], run: () => { if (!receipt.ready || receipt.nonce !== input.nonce) throw new Error('APP_READY_RECEIPT_INVALID'); } },
+    { name: 'receipt-binding', dependsOn: ['readiness-receipt'], run: () => {
+      if (!receipt.ready || receipt.nonce !== input.nonce || !Number.isSafeInteger(receipt.pid) || receipt.pid <= 1
+        || receipt.native_receipt?.nonce !== input.nonce || receipt.native_receipt?.pid !== receipt.pid
+        || receipt.native_receipt?.bundle_id !== input.target.bundleId
+        || ['deviceSetRoot', 'udid', 'bundleId'].some((key) => receipt.target?.[key] !== input.target[key])
+        || (input.target.live_pid != null && receipt.pid !== input.target.live_pid)) throw new Error('APP_READY_RECEIPT_INVALID');
+    } },
     { name: 'live-pid-readback', run: () => { pid = readPid(input.target, 5000); } },
     { name: 'pid-binding', dependsOn: ['readiness-receipt', 'live-pid-readback'], run: () => { if (pid !== receipt.pid) throw new Error('APP_READY_PID_MISMATCH'); } },
+    { name: 'process-birth-binding', dependsOn: ['receipt-binding', 'pid-binding'], run: () => {
+      if (typeof receipt.process_birth !== 'string' || !/^[1-9][0-9]*$/.test(receipt.process_birth)
+        || readBirth(pid) !== receipt.process_birth) throw new Error('APP_READY_PROCESS_BIRTH_MISMATCH');
+    } },
   ]);
   try { requireChecks(checks); } catch (error) { throw new Error(`APP_READY_LIVENESS_FAILED:${error.message}`); }
   return checks;
 }
 
+function stopOwnedSmoke(input, dependencies = {}) {
+  const readPid = dependencies.readPid || currentPid;
+  const readBirth = dependencies.readBirth || processBirth;
+  const signal = dependencies.signal || ((target, pid) => simctl(target, ['spawn', target.udid, 'kill', '-TERM', String(pid)]));
+  const now = dependencies.now || (() => performance.now());
+  const sleep = dependencies.sleep || ((ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms));
+  const started = now();
+  let receipt;
+  const teardown = { status: 'pending', pid: input.target.live_pid, nonce: input.nonce, signal_sent: false,
+    started_at: new Date().toISOString() };
+  try {
+    receipt = JSON.parse(fs.readFileSync(input.receiptFile, 'utf8'));
+    teardown.pid = receipt.pid;
+    teardown.process_birth = receipt.process_birth;
+    teardown.checks = verifyReady(input, readPid, readBirth);
+    // Check the exact bundle PID again after the birth read, before the only signal.
+    if (readPid(input.target, 5000) !== receipt.pid) throw new Error('APP_SMOKE_PID_CHANGED');
+    if (readBirth(receipt.pid) !== receipt.process_birth) throw new Error('APP_SMOKE_PID_REUSED');
+    signal(input.target, receipt.pid);
+    teardown.signal_sent = true;
+    for (;;) {
+      const pid = readPid(input.target, 5000);
+      const birth = readBirth(receipt.pid);
+      if (pid === null && birth === null) break;
+      if (pid !== null && pid !== receipt.pid) throw new Error('APP_SMOKE_FOREIGN_PID');
+      if (birth !== null && birth !== receipt.process_birth) throw new Error('APP_SMOKE_PID_REUSED');
+      if (now() - started >= 30000) throw new Error('APP_SMOKE_TEARDOWN_TIMEOUT');
+      sleep(50);
+    }
+    teardown.status = 'stopped';
+    teardown.live_pid_after = null;
+    teardown.process_birth_after = null;
+    return teardown;
+  } catch (error) { teardown.status = 'failed'; teardown.error = error.message; throw error; }
+  finally {
+    teardown.finished_at = new Date().toISOString();
+    teardown.elapsed_ms = now() - started;
+    if (receipt) fs.writeFileSync(input.receiptFile, JSON.stringify({ ...receipt, smoke_teardown: teardown }));
+  }
+}
+
 if (require.main === module) {
   const input = JSON.parse(process.argv[2]);
   if (input.verify) {
-    verifyReady(input);
+    if (input.teardown) stopOwnedSmoke(input);
+    else verifyReady(input);
   } else launchAndWait(input).catch((error) => { console.error(error.message); process.exitCode = 1; });
 }
 
-module.exports = { verifyReady, waitForAppReady, launchAndWait, currentPid };
+module.exports = { verifyReady, waitForAppReady, launchAndWait, currentPid, processBirth, stopOwnedSmoke };

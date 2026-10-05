@@ -7,12 +7,14 @@ import signal
 import subprocess
 import threading
 
+from . import scenario_simctl_command
 from .telemetry_events import TelemetryEvent, parse_telemetry_line
 
 
 class LogStream:
-    def __init__(self, udid: str, raw_path: Path, *, bundle_id="com.example.pentacle.harness", popen=subprocess.Popen):
+    def __init__(self, udid: str, raw_path: Path, *, bundle_id="com.example.pentacle.harness", popen=subprocess.Popen, config=None):
         self.udid, self.raw_path, self.popen = udid, raw_path, popen
+        self.config = config
         self.bundle_id = bundle_id
         self.events, self.lines = [], []
         self.pending = queue.Queue()
@@ -37,9 +39,10 @@ class LogStream:
             self.pending.put(event)
 
     def start(self):
-        self.output = self.raw_path.open("w", encoding="utf-8")
         predicate = 'process == "PentacleHarness" OR eventMessage CONTAINS ' + json.dumps(self.bundle_id)
-        self.process = self.popen(["xcrun", "simctl", "spawn", self.udid, "log", "stream", "--style", "ndjson", "--level", "debug", "--predicate", predicate],
+        command = scenario_simctl_command("spawn", self.udid, "log", "stream", "--style", "ndjson", "--level", "debug", "--predicate", predicate, config=self.config)
+        self.output = self.raw_path.open("w", encoding="utf-8")
+        self.process = self.popen(command,
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
         def consume():
             for line in self.process.stdout:

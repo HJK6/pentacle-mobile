@@ -9,6 +9,12 @@ import pytest
 import recorder_preflight as recorder
 
 UDID = "12345678-1234-1234-1234-123456789abc"
+DEVICE_SET = "/synthetic/private simulator set"
+
+
+@pytest.fixture(autouse=True)
+def private_device_set(monkeypatch):
+    monkeypatch.setenv("PENTACLE_SCENARIO_DEVICE_SET_ROOT", DEVICE_SET)
 
 
 class Process:
@@ -51,9 +57,30 @@ def test_real_probe_boundary_binds_udid_gracefully_finalizes_and_removes_video()
     assert evidence["video_finalized"] is True and evidence["video_bytes"] > 0
     assert len(evidence["video_sha256"]) == 64
     assert evidence["video_retained"] is False
-    assert owned[0].argv[:5] == ["xcrun", "simctl", "io", UDID, "recordVideo"]
+    assert owned[0].argv[:7] == ["xcrun", "simctl", "--set", DEVICE_SET, "io", UDID, "recordVideo"]
     assert owned[0].signals == [signal.SIGINT]
     assert not owned[0].path.exists() and not owned[0].path.parent.exists()
+
+
+def test_private_device_set_recorder_reproduces_certified_preflight_dispatch():
+    """The fixture device exists only in the private set, as in the real gate."""
+    owned = []
+    def create(udid, path):
+        def popen(argv, **kwargs):
+            scoped = argv[:4] == ["xcrun", "simctl", "--set", DEVICE_SET]
+            process = Process(argv, mode="healthy" if scoped else "error", **kwargs)
+            if not scoped:
+                process.status = 148
+                process.stderr = io.StringIO(f"Invalid device: {UDID}\n")
+            owned.append(process)
+            return process
+        return recorder.VideoRecorder(udid, path, popen=popen)
+    evidence = recorder.probe(UDID, "initial", recorder_factory=create, sample_sleep=lambda _: None)
+    assert evidence["contract_passed"] is True, evidence.get("video_unavailable_reason")
+    assert evidence["video_finalized"] is True and evidence["video_alive_after_teardown"] is False
+    assert owned[0].argv[:7] == ["xcrun", "simctl", "--set", DEVICE_SET, "io", UDID, "recordVideo"]
+    assert owned[0].signals == [signal.SIGINT]
+    assert not owned[0].path.exists()
 
 
 @pytest.mark.parametrize("mode", ["error", "stuck", "orphan", "early_exit"])
@@ -78,7 +105,8 @@ def test_exact_busy_retries_once_and_commands_preserve_udid_and_timeouts():
     result = recorder.preflight(UDID, probe_fn=probe, command=command)
     assert result["setup_verdict"] == "PASS" and result["outcome"] == "remediated"
     assert phases == ["initial", "post_remediation"]
-    assert [(argv[2], argv[3], timeout) for argv, timeout in calls] == [("shutdown", UDID, 60), ("boot", UDID, 60), ("bootstatus", UDID, 120)]
+    assert all(argv[:4] == ["xcrun", "simctl", "--set", DEVICE_SET] for argv, _ in calls)
+    assert [(argv[4], argv[5], timeout) for argv, timeout in calls] == [("shutdown", UDID, 60), ("boot", UDID, 60), ("bootstatus", UDID, 120)]
     assert calls[-1][0][-1] == "-b"
 
 
@@ -107,3 +135,17 @@ def test_remediation_timeout_fails_without_a_retry():
     result = recorder.preflight(UDID, probe_fn=lambda udid, phase: recorder.probe(udid, phase, recorder_factory=factory("busy", [])), command=timed_out)
     assert result["setup_verdict"] == "SETUP_FAIL"
     assert len(result["ownership_probes"]) == 1
+
+
+@pytest.mark.parametrize("root", [None, "", "relative/device-set"])
+def test_recorder_missing_or_invalid_private_set_rejects_before_probe(monkeypatch, root):
+    if root is None:
+        monkeypatch.delenv("PENTACLE_SCENARIO_DEVICE_SET_ROOT", raising=False)
+    else:
+        monkeypatch.setenv("PENTACLE_SCENARIO_DEVICE_SET_ROOT", root)
+    def forbidden(*_args, **_kwargs):
+        pytest.fail("invalid namespace must not probe, remediate or guess a device set")
+    result = recorder.preflight(UDID, probe_fn=forbidden, command=forbidden)
+    assert result["setup_verdict"] == "SETUP_FAIL"
+    assert "PENTACLE_SCENARIO_DEVICE_SET_ROOT" in result["failure_reason"]
+    assert result["ownership_probes"] == [] and result["remediation"]["attempted"] is False

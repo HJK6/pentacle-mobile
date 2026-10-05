@@ -74,17 +74,22 @@ def test_crash_proof_requires_the_exact_launched_pid_and_native_signal():
     assert proof["pid"] == "91" and proof["signal"] == "SIGABRT"
 
 
+@pytest.mark.parametrize("sentinel", ["clean", "crash_only", "liveness_loss"])
 @pytest.mark.parametrize("armed_pid,expected", [("91", "PASS"), ("77", "SETUP_FAIL")])
-def test_native_dispatch_binds_actual_launch_and_census_and_cleans_its_resources(tmp_path, monkeypatch, armed_pid, expected):
+def test_native_dispatch_binds_actual_launch_and_census_and_cleans_its_resources(tmp_path, monkeypatch, armed_pid, expected, sentinel):
     state = {"launched": False, "log_closed": False, "recorder_closed": False}
     bundle = "com.example.synthetic.harness"
     udid = "12345678-1234-1234-1234-123456789abc"
+    device_set = "/synthetic/private simulator set"
+    monkeypatch.setenv("PENTACLE_SCENARIO_DEVICE_SET_ROOT", device_set)
+    if armed_pid == "91" and sentinel != "clean":
+        expected = "FAIL"  # The reporter consumes these owned-exit cases as expected RED.
     def event(message, **data):
         item = TelemetryEvent("harness", message, "", data, 1, "supplied native record")
         item.native_pid = armed_pid
         return item
     events = [event("harness:harness_armed", scenario_run_id="owned", scenario="report_viewer_runtime_sentinel"),
-              event("harness:runtime_sentinel_ready", scenario_run_id="owned", sentinel="clean")]
+              event("harness:runtime_sentinel_ready", scenario_run_id="owned", sentinel=sentinel)]
     class Logs:
         def __init__(self, _udid, raw_path, **_kwargs):
             raw_path.write_text("supplied fixture log\n")
@@ -94,7 +99,7 @@ def test_native_dispatch_binds_actual_launch_and_census_and_cleans_its_resources
         def next_event(self, **_kwargs): return None
         def close(self): state["log_closed"] = True
     class Video:
-        def __init__(self, _udid, path): self.path, self.process = path, object()
+        def __init__(self, _udid, path, **_kwargs): self.path, self.process = path, object()
         def start(self): self.path.write_bytes(b"supplied fixture video"); return True
         def stop(self):
             state["recorder_closed"] = True
@@ -102,18 +107,23 @@ def test_native_dispatch_binds_actual_launch_and_census_and_cleans_its_resources
     calls = []
     def native(argv, **_kwargs):
         calls.append(argv)
-        assert argv[:2] == ["xcrun", "simctl"]
-        if argv[2:4] == ["spawn", udid]:
-            output = f"91 0 UIKitApplication:{bundle}[fixture]\n" if state["launched"] else ""
-        elif argv[2] == "launch":
-            assert argv[3:5] == [udid, bundle]
-            state["launched"] = True
-            output = bundle + ": 91\n"
-        elif argv[2] == "terminate":
-            assert argv[3:] == [udid, bundle]
+        assert argv[:4] == ["xcrun", "simctl", "--set", device_set]
+        args = argv[4:]
+        if args[:4] == ["spawn", udid, "kill", "-ABRT"] or args[:4] == ["spawn", udid, "kill", "-TERM"]:
+            assert args[-1] == "91"
             state["launched"] = False
             output = ""
-        elif argv[2] == "io":
+        elif args[:2] == ["spawn", udid]:
+            output = f"91 0 UIKitApplication:{bundle}[fixture]\n" if state["launched"] else ""
+        elif args[0] == "launch":
+            assert args[1:3] == [udid, bundle]
+            state["launched"] = True
+            output = bundle + ": 91\n"
+        elif args[0] == "terminate":
+            assert args[1:] == [udid, bundle]
+            state["launched"] = False
+            output = ""
+        elif args[0] == "io":
             Path(argv[-1]).write_bytes(b"supplied screenshot")
             output = ""
         else: pytest.fail(f"unexpected native boundary: {argv}")
@@ -122,11 +132,64 @@ def test_native_dispatch_binds_actual_launch_and_census_and_cleans_its_resources
     monkeypatch.setattr(runner, "VideoRecorder", Video)
     monkeypatch.setattr(runner.subprocess, "run", native)
     monkeypatch.setattr(runner.time, "sleep", lambda _: None)
-    config = {"PENTACLE_GATE_BOUND_SIMULATOR_UDID": udid, "PENTACLE_GATE_BOUND_BUNDLE_ID": bundle, "scenario_run_id": "owned", "runtime_sentinel": "clean"}
+    config = {"PENTACLE_GATE_BOUND_SIMULATOR_UDID": udid, "PENTACLE_GATE_BOUND_BUNDLE_ID": bundle, "PENTACLE_SCENARIO_DEVICE_SET_ROOT": device_set, "scenario_run_id": "owned", "runtime_sentinel": sentinel}
     payload, proof = runner.execute_native("report_viewer_runtime_sentinel", config, tmp_path, "owned")
     assert payload["verdict"] == expected
     assert state == {"launched": False, "log_closed": True, "recorder_closed": True}
     assert proof == {"attempted": 1, "closed": [f"native:{udid}:91"], "closed_count": 1, "orphans": [], "orphan_count": 0}
-    if expected == "PASS":
+    if armed_pid == "91":
         identity = payload["result"]["extras"]["runtime_monitor"]["process_identity"]
         assert identity["launch_pid"] == identity["armed_telemetry_pid"] == "91"
+        assert any(argv[4] == "io" for argv in calls)
+        if sentinel != "clean":
+            assert any(argv[4:7] == ["spawn", udid, "kill"] for argv in calls)
+
+
+@pytest.mark.parametrize("root", [None, "", "relative/device-set", "/synthetic/foreign/device-set"])
+def test_native_dispatch_invalid_or_mismatched_private_set_never_starts(tmp_path, monkeypatch, root):
+    monkeypatch.setenv("PENTACLE_SCENARIO_DEVICE_SET_ROOT", "/synthetic/private simulator set")
+    def forbidden(*_args, **_kwargs):
+        pytest.fail("invalid or foreign namespace must not start native resources")
+    monkeypatch.setattr(runner, "LogStream", forbidden)
+    monkeypatch.setattr(runner, "VideoRecorder", forbidden)
+    monkeypatch.setattr(runner.subprocess, "run", forbidden)
+    config = {"PENTACLE_GATE_BOUND_SIMULATOR_UDID": "12345678-1234-1234-1234-123456789abc",
+              "PENTACLE_GATE_BOUND_BUNDLE_ID": "com.example.synthetic.harness",
+              "PENTACLE_SCENARIO_DEVICE_SET_ROOT": root,
+              "scenario_run_id": "owned", "runtime_sentinel": "clean"}
+    with pytest.raises(ValueError, match="PENTACLE_SCENARIO_DEVICE_SET_ROOT"):
+        runner.execute_native("report_viewer_runtime_sentinel", config, tmp_path, "owned")
+    assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.parametrize("running_pid", ["91", "99"])
+def test_native_dispatch_refuses_an_existing_foreign_or_reused_pid(tmp_path, monkeypatch, running_pid):
+    device_set = "/synthetic/private simulator set"
+    udid = "12345678-1234-1234-1234-123456789abc"
+    bundle = "com.example.synthetic.harness"
+    monkeypatch.setenv("PENTACLE_SCENARIO_DEVICE_SET_ROOT", device_set)
+    calls = []
+    def native(argv, **_kwargs):
+        calls.append(argv)
+        assert argv == ["xcrun", "simctl", "--set", device_set, "spawn", udid, "launchctl", "list"]
+        return SimpleNamespace(returncode=0, stdout=f"{running_pid} 0 UIKitApplication:{bundle}[foreign-or-reused]\n", stderr="")
+    def forbidden(*_args, **_kwargs):
+        pytest.fail("an existing PID must not be adopted, signaled or started as a case")
+    class DormantLogs:
+        def __init__(self, *_args, **_kwargs): pass
+        start = forbidden
+        def close(self): pass
+        def all_events(self): return []
+    class DormantVideo:
+        process = None
+        def __init__(self, *_args, **_kwargs): pass
+        start = forbidden
+    monkeypatch.setattr(runner.subprocess, "run", native)
+    monkeypatch.setattr(runner, "LogStream", DormantLogs)
+    monkeypatch.setattr(runner, "VideoRecorder", DormantVideo)
+    config = {"PENTACLE_GATE_BOUND_SIMULATOR_UDID": udid, "PENTACLE_GATE_BOUND_BUNDLE_ID": bundle,
+              "PENTACLE_SCENARIO_DEVICE_SET_ROOT": device_set, "scenario_run_id": "owned", "runtime_sentinel": "clean"}
+    payload, proof = runner.execute_native("report_viewer_runtime_sentinel", config, tmp_path, "foreign")
+    assert payload["verdict"] == "SETUP_FAIL"
+    assert payload["result"]["error"] == "bound harness bundle already has a running process"
+    assert len(calls) == 1 and proof["attempted"] == 0 and proof["closed_count"] == 0

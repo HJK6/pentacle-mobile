@@ -18,6 +18,7 @@ from urllib.parse import urlencode
 import uuid
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from e2e.harness import scenario_simctl_command
 from e2e.harness.asserts import EventSpec, Verdict, assert_no_events, await_event
 from e2e.harness.log_capture import LogStream
 from recorder_preflight import VideoRecorder
@@ -122,7 +123,7 @@ class NativeCapture:
 
     def screenshot(self, label):
         name = self.stem + "-" + re.sub(r"[^A-Za-z0-9_.-]", "_", label) + ".png"
-        result = subprocess.run(["xcrun", "simctl", "io", self.config["SIMULATOR_UDID"], "screenshot", str(self.runs_dir / name)], capture_output=True, text=True, timeout=20, check=False)
+        result = subprocess.run(scenario_simctl_command("io", self.config["SIMULATOR_UDID"], "screenshot", str(self.runs_dir / name), config=self.config), capture_output=True, text=True, timeout=20, check=False)
         self.config["trace"]("screenshot", result)
         if result.returncode or not (self.runs_dir / name).is_file():
             raise RuntimeError("bound simulator screenshot failed")
@@ -136,12 +137,13 @@ def execute_native(name, config, runs_dir, stem):
     bundle = config.get("PENTACLE_GATE_BOUND_BUNDLE_ID") or config.get("PENTACLE_BUNDLE_ID")
     if not re.fullmatch(r"[0-9A-Fa-f]{8}(?:-[0-9A-Fa-f]{4}){3}-[0-9A-Fa-f]{12}", udid or "") or not bundle:
         raise ValueError("exact bound simulator and bundle are required")
+    simctl = scenario_simctl_command(config=config)
     config["SIMULATOR_UDID"] = udid
     run_id, sentinel = config["scenario_run_id"], config.get("runtime_sentinel", "clean")
     module = importlib.import_module(REPORT_MODULES[name])
     raw_name, trace_name = stem + ".log", stem + ".ui.jsonl"
-    stream = LogStream(udid, runs_dir / raw_name, bundle_id=bundle)
-    recorder = VideoRecorder(udid, runs_dir / (stem + ".mp4"))
+    stream = LogStream(udid, runs_dir / raw_name, bundle_id=bundle, config=config)
+    recorder = VideoRecorder(udid, runs_dir / (stem + ".mp4"), config=config)
     cap = NativeCapture(config, runs_dir, stem)
     trace_file = (runs_dir / trace_name).open("w", encoding="utf-8")
     def trace(action, result):
@@ -150,7 +152,7 @@ def execute_native(name, config, runs_dir, stem):
         trace_file.flush()
     config["trace"] = trace
     def command(*args):
-        result = subprocess.run(["xcrun", "simctl", *args], capture_output=True, text=True, timeout=30, check=False)
+        result = subprocess.run([*simctl, *args], capture_output=True, text=True, timeout=30, check=False)
         trace("simctl " + " ".join(args), result)
         return result
     def liveness():

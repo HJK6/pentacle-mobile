@@ -1,11 +1,55 @@
 from __future__ import annotations
+import io
 import json
 from pathlib import Path
+import signal
 from types import SimpleNamespace
 import pytest
 from e2e.harness.log_capture import LogStream
 from e2e.scenarios import report_viewer_horizontal_scroll as scroll
 from e2e.scenarios import report_viewer_comments_keyboard as comments
+
+
+def test_native_log_stream_uses_the_exact_private_device_set_and_closes(tmp_path, monkeypatch):
+    device_set = "/synthetic/private simulator set"
+    monkeypatch.setenv("PENTACLE_SCENARIO_DEVICE_SET_ROOT", device_set)
+    calls = []
+    class Process:
+        def __init__(self):
+            self.stdout = io.StringIO("")
+            self.status = None
+            self.signals = []
+        def poll(self): return self.status
+        def send_signal(self, value): self.signals.append(value); self.status = 0
+        def wait(self, timeout): return self.status
+    process = Process()
+    def popen(argv, **kwargs):
+        calls.append((argv, kwargs))
+        return process
+    stream = LogStream("synthetic-udid", tmp_path / "native.log", popen=popen)
+    stream.start()
+    stream.close()
+    assert calls[0][0][:7] == ["xcrun", "simctl", "--set", device_set, "spawn", "synthetic-udid", "log"]
+    assert process.signals == [signal.SIGTERM]
+    assert stream.output.closed and not stream.reader.is_alive()
+
+
+@pytest.mark.parametrize("root", [None, "", "relative/device-set"])
+def test_native_log_invalid_private_set_never_starts_or_creates_log(tmp_path, monkeypatch, root):
+    if root is None:
+        monkeypatch.delenv("PENTACLE_SCENARIO_DEVICE_SET_ROOT", raising=False)
+    else:
+        monkeypatch.setenv("PENTACLE_SCENARIO_DEVICE_SET_ROOT", root)
+    def forbidden(*_args, **_kwargs):
+        pytest.fail("invalid namespace must not start log capture")
+    path = tmp_path / "native.log"
+    stream = LogStream("synthetic-udid", path, popen=forbidden)
+    try:
+        with pytest.raises(ValueError, match="PENTACLE_SCENARIO_DEVICE_SET_ROOT"):
+            stream.start()
+    finally:
+        stream.close()
+    assert not path.exists()
 
 
 def test_native_log_envelope_preserves_pid_and_never_invents_it(tmp_path):
