@@ -269,6 +269,8 @@ test('telemetry registry names are unique and case anchored', () => {
       expectedRef = 'spec_pentacle_mobile__voice_input_thoth_transcription_2026_09';
     } else if (name === TELEMETRY_EVENTS.CHAT_IMAGE_LOAD_STATE) {
       expectedRef = 'spec_pentacle_mobile__decoded_photo_spinner_overlay_2026_09';
+    } else if (name === TELEMETRY_EVENTS.CHAT_SEND_LANDING_APPLIED) {
+      expectedRef = 'spec_pentacle_mobile__queued_state_and_sent_parity_2026_10';
     } else if (chatUiBugBatchEvents.has(name)) {
       expectedRef = CHAT_UI_BUG_BATCH_REF;
     } else if (chatUiParityBatch3Events.has(name)) {
