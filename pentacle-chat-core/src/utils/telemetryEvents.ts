@@ -8,6 +8,7 @@ export const CHAT_RENDER_STABILITY_REF = 'spec_pentacle_mobile__chat_render_stab
 export const CHAT_QUICK_WINS_REF = 'spec_pentacle_mobile_chat_quick_wins_2026_06_10';
 export const TURN_PHASE_DERIVED_REF = 'spec_pentacle_mobile__chat_detail_working_indicator_missing_2026_06_16';
 export const OPTIMISTIC_ORPHAN_TELEMETRY_REF = 'spec_pentacle__chat_streamd_optimistic_send_orphan_telemetry';
+export const NATIVE_QUEUE_SENT_REF = 'spec_pentacle_mobile__queued_state_and_sent_parity_2026_10';
 export const VOICE_INPUT_REF = 'spec_pentacle_mobile__voice_input_thoth_transcription_2026_09';
 
 const HARNESS_PREFIX = 'harness';
@@ -54,6 +55,7 @@ export const TELEMETRY_EVENTS = {
   CHAT_SURFACE_TRAILING_BLANK_DROPPED: 'chat_surface:trailing_blank_dropped',
   CHAT_COMPOSE_OPTIMISTIC_INSERT: 'chat.compose.optimistic_insert',
   CHAT_COMPOSE_OPTIMISTIC_RECONCILED: 'chat.compose.optimistic_reconciled',
+  CHAT_SEND_LANDING_APPLIED: 'chat:send_landing_applied',
   CHAT_COMPOSE_OPTIMISTIC_FAILED: 'chat.compose.optimistic_failed',
   CHAT_COMPOSE_OPTIMISTIC_ORPHAN_SUSPECTED: 'chat.compose.optimistic_orphan_suspected',
   // FEAT-SEND-RETRY: the user tapped Retry on a "failed sending" overlay; the
@@ -188,6 +190,7 @@ export const TELEMETRY_EVENT_BUG_REFS: Record<TelemetryEvent, string> = {
     TelemetryEvent,
     string
   >,
+  [TELEMETRY_EVENTS.CHAT_SEND_LANDING_APPLIED]: NATIVE_QUEUE_SENT_REF,
   [TELEMETRY_EVENTS.CHAT_IMAGE_LOAD_STATE]: 'spec_pentacle_mobile__decoded_photo_spinner_overlay_2026_09',
   [TELEMETRY_EVENTS.CHAT_SURFACE_TRAILING_BLANK_DROPPED]: CHAT_UI_BUG_BATCH_REF,
   [TELEMETRY_EVENTS.CHAT_COMPOSE_OPTIMISTIC_INSERT]: CHAT_UI_BUG_BATCH_REF,

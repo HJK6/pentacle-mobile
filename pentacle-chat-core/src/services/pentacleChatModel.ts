@@ -36,7 +36,7 @@ import {
 
 export type PentacleSessionStatus = 'unresponsive' | 'working' | 'sending' | 'live' | 'idle' | 'offline';
 export type PentacleTranscriptTone = 'user' | 'agent' | 'assistant' | 'tool' | 'thinking' | 'system';
-export type PentacleReceiptCaption = 'sending' | 'sent' | 'failed';
+export type PentacleReceiptCaption = 'sending' | 'queued' | 'sent' | 'failed';
 
 export type PentacleMachineCard = {
   host: string;
@@ -139,6 +139,8 @@ export type PentacleTranscriptItem = {
   // bubble). Absent for server-origin rows.
   sendState?: PentacleSendState;
   queuedWhileWorking?: boolean;
+  // Native provider queue presentation is independent of the client turn hold.
+  providerQueued?: boolean;
   eventKey?: string;
   optimisticId?: string;
   correlatedDaemonSeq?: number | null;
@@ -330,15 +332,33 @@ function normalizedReceiptField(event: PentacleEvent, field: 'receipt_state' | '
   return String(event.raw?.[field] ?? '').trim().toLowerCase();
 }
 
+function hasCorrelatedDaemonSeq(event: PentacleEvent): boolean {
+  return typeof event.correlatedDaemonSeq === 'number' && Number.isFinite(event.correlatedDaemonSeq);
+}
+
 function isDirectMatchedUserEcho(event: PentacleEvent): boolean {
   return event.client_origin === true && Boolean(event.optimistic_id) &&
     event.receiptDirectMatch === true &&
-    Number.isFinite(Number(event.correlatedDaemonSeq));
+    hasCorrelatedDaemonSeq(event);
 }
 
-function receiptCaptionForLatestUserEvent(event: PentacleEvent): PentacleReceiptCaption | undefined {
+function isProviderQueuedAwaitingEcho(
+  event: PentacleEvent,
+  send: { status?: OptimisticSendStatus; provider_queued?: boolean } | undefined,
+): boolean {
+  return send?.provider_queued === true && send.status !== 'failed' &&
+    send.status !== 'cancelled' && !hasCorrelatedDaemonSeq(event);
+}
+
+function receiptCaptionForLatestUserEvent(
+  event: PentacleEvent,
+  send?: { status?: OptimisticSendStatus; provider_queued?: boolean },
+): PentacleReceiptCaption | undefined {
   if (!event.client_origin || !event.optimistic_id) return undefined;
-  if (!Number.isFinite(Number(event.correlatedDaemonSeq))) return 'sending';
+  if (!hasCorrelatedDaemonSeq(event)) {
+    if (isProviderQueuedAwaitingEcho(event, send)) return 'queued';
+    return send?.status === 'acked' ? 'sent' : 'sending';
+  }
   if (!isDirectMatchedUserEcho(event)) return undefined;
   const receiptState = normalizedReceiptField(event, 'receipt_state');
   const receiptDelivery = normalizedReceiptField(event, 'receipt_delivery');
@@ -754,6 +774,7 @@ function sameTranscriptItem(a: PentacleTranscriptItem, b: PentacleTranscriptItem
     a.receiptCaption === b.receiptCaption &&
     a.sendState === b.sendState &&
     a.queuedWhileWorking === b.queuedWhileWorking &&
+    a.providerQueued === b.providerQueued &&
     a.attachments === b.attachments &&
     (a.voice?.duration_s) === (b.voice?.duration_s)
   );
@@ -1811,8 +1832,11 @@ function buildSessionTranscriptRows(
       // the latest matching durable USER echo.
       nextItem.sendState = sendState;
     }
+    if (event.client_origin === true && isProviderQueuedAwaitingEcho(event, send)) {
+      nextItem.providerQueued = true;
+    }
     if (event === latestUserEvent && send?.status !== 'cancelled') {
-      const receiptCaption = receiptCaptionForLatestUserEvent(event);
+      const receiptCaption = receiptCaptionForLatestUserEvent(event, send);
       if (receiptCaption) nextItem.receiptCaption = receiptCaption;
     }
     transcriptItems.push(reuseTranscriptItem(previousItems, nextItem));

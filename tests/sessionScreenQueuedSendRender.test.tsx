@@ -141,6 +141,17 @@ test('an ordinary idle send (not queued-origin) shows neither Queued nor Sent ca
   act(() => { renderer.unmount(); });
 });
 
+test('an earlier native provider queue remains visibly Queued without a latest-row receipt caption', () => {
+  const renderer = render(<TranscriptRow item={userItem({ providerQueued: true })} chrome={chrome} />);
+  expect(has(renderer, 'queued-message-row')).toBe(true);
+  expect(allTextNodes(renderer)).toContain('Queued');
+  act(() => {
+    renderer.rerender(<TranscriptRow item={userItem({ providerQueued: undefined })} chrome={chrome} />);
+  });
+  expect(has(renderer, 'queued-message-row')).toBe(false);
+  act(() => { renderer.unmount(); });
+});
+
 test('the stamped receipt caption traces Sending → Failed → Sent', () => {
   const renderer = render(
     <TranscriptRow item={userItem({ receiptCaption: 'sending' })} chrome={chrome} queuedWhileWorking={false} />,
@@ -186,4 +197,3 @@ test('a cancelled queued row reads "Canceled" (cancel wins over the queued/sent 
   expect(has(renderer, 'user-send-sent')).toBe(false);
   act(() => { renderer.unmount(); });
 });
-

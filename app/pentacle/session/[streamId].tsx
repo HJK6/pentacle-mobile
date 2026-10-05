@@ -3867,7 +3867,7 @@ function ToolResultCard({
 type UserSendAffordance = 'queued' | 'sending' | 'sent' | 'failed' | 'cancelled' | 'none';
 
 function userSendAffordance(
-  item: Pick<PentacleTranscriptItem, 'receiptCaption' | 'sendState'>,
+  item: Pick<PentacleTranscriptItem, 'receiptCaption' | 'sendState' | 'providerQueued'>,
   queuedWhileWorking: boolean,
 ): UserSendAffordance {
   if (item.sendState === 'cancelled') return 'cancelled';
@@ -3875,6 +3875,7 @@ function userSendAffordance(
   // The daemon can retain its prior "sending" receipt while publishing the
   // failed optimistic state, and the retry affordance must remain reachable.
   if (item.sendState === 'failed') return 'failed';
+  if (item.providerQueued === true) return 'queued';
   if (item.receiptCaption) return item.receiptCaption;
   if (queuedWhileWorking && (item.sendState === 'queued' || item.sendState === 'sending')) return 'queued';
   return 'none';
