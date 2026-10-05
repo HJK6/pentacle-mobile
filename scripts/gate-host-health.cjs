@@ -6,7 +6,7 @@ const path = require('node:path');
 const http = require('node:http');
 const crypto = require('node:crypto');
 const { runOwnedSync, probeSignalCapability } = require('./owned-process.cjs');
-const { parseCensus, accountCpu } = require('./gate-cpu-accounting.cjs');
+const { accountCpu } = require('./gate-cpu-accounting.cjs');
 const GiB = 1024 ** 3;
 // The accepted executable snapshot is removed before final evidence sealing.
 // Freeze the consumer's expected identity now; probes still hash the file they run.
@@ -97,6 +97,12 @@ function getJson(route, apiKey) {
   });
 }
 
+function readProcessCensus(command, ownedContext, simulatorPid, probePid = process.pid) {
+  return JSON.parse(command('python3', [require.resolve('./gate-process-cpu.py'), '--complete-census',
+    '--owner-pid', String(ownedContext.ownerPid), '--probe-pid', String(probePid),
+    '--simulator-pid', String(simulatorPid)], 5000));
+}
+
 async function collectSnapshot(ownedContext = null) {
   const probeErrors = []; const commands = [];
   const probe = (label, action) => { try { return action(); } catch (error) { probeErrors.push(`${label}: ${error.code || error.message}`); return null; } };
@@ -113,14 +119,7 @@ async function collectSnapshot(ownedContext = null) {
     if (!Number.isInteger(pid) || pid <= 1) throw new Error('invalid simulator manager PID');
     return pid;
   });
-  const census = () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pentacle-cpu-census-'));
-    try {
-      const input = path.join(root, 'pids.json');
-      fs.writeFileSync(input, JSON.stringify(parseCensus(command('ps', ['-axo', 'pid=,ppid=,pgid=,lstart=,time=,comm=']))));
-      return JSON.parse(command('python3', [require.resolve('./gate-process-cpu.py'), input]));
-    } finally { fs.rmSync(root, { recursive: true, force: true }); }
-  };
+  const census = () => readProcessCensus(command, ownedContext, simulatorPid);
   const intervalStarted = performance.now();
   const initialCpu = cpuTicks();
   const processBefore = ownedContext ? probe('owned CPU before', census) : null;
@@ -368,4 +367,4 @@ if (require.main === module) Promise.resolve().then(() => {
   }
 }).catch((error) => { console.error(`HOST_HEALTH_UNAVAILABLE:${error.message}`); process.exitCode = 1; });
 
-module.exports = { admissionReceiptErrors, preparationSampleErrors, settleAdmission, ownedArgs, POLICY, collectSnapshot, evaluateSnapshot, requireHostHealth, openPreparationSamples };
+module.exports = { admissionReceiptErrors, preparationSampleErrors, settleAdmission, ownedArgs, POLICY, collectSnapshot, evaluateSnapshot, requireHostHealth, openPreparationSamples, readProcessCensus };
