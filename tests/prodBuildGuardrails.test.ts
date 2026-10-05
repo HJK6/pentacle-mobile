@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -49,6 +50,40 @@ describe('production build guardrails', () => {
     expect(clean.PENTACLE_VERSION_BUMP).toBe('patch');
     expect(clean.TEST_AMBIENT_SECRET).toBeUndefined();
   });
+
+  const runVersionConsumer = (buildNumber?: string) => {
+    const env: NodeJS.ProcessEnv = {
+      PATH: process.env.PATH || '',
+      NODE_ENV: 'production',
+      PENTACLE_UNREVIEWED_SECRET: 'synthetic-unrecognized',
+    };
+    if (buildNumber !== undefined) env.PENTACLE_BUILD_NUMBER = buildNumber;
+    return spawnSync(process.execPath, [
+      'scripts/prod-build.cjs', 'run', process.execPath,
+      '-r', require.resolve('sucrase/register/ts'), '-e',
+      'console.log(JSON.stringify({ number: require("./app.config.ts").computeBuildNumber(), unknown: process.env.PENTACLE_UNREVIEWED_SECRET ?? null }))',
+    ], { cwd: path.join(__dirname, '..'), env, encoding: 'utf8', timeout: 5000 });
+  };
+
+  test('actual production CLI preserves the required explicit build number without allowing unknown base keys', () => {
+    const result = runVersionConsumer('42');
+    expect(result.error).toBeUndefined();
+    expect(result.status).toBe(0);
+    expect(JSON.parse(result.stdout.trim())).toEqual({ number: '42', unknown: null });
+  });
+
+  test.each([undefined, '', '0', '-1', '1.5', 'NaN'])(
+    'actual production CLI retains consumer rejection for missing or invalid build number %s',
+    (buildNumber) => {
+      const result = runVersionConsumer(buildNumber);
+      expect(result.error).toBeUndefined();
+      expect(result.status).toBe(1);
+      const expectedError = buildNumber === undefined || buildNumber === ''
+        ? /PENTACLE_BUILD_NUMBER is required/
+        : /PENTACLE_BUILD_NUMBER must be a positive integer/;
+      expect(result.stderr).toMatch(expectedError);
+    },
+  );
 
   test('public production profile and Expo config route through the guard', () => {
     const packageJson = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
