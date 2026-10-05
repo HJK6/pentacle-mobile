@@ -809,24 +809,31 @@ export function markOptimisticDispatchedByRequestId(
   dispatchedAt: number,
   socketGeneration?: number,
 ): PentacleStreamState {
-  return updateOptimisticSendByRequestId(state, requestId, (send) => ({
-    ...send,
-    status: 'dispatched',
-    dispatched_at: dispatchedAt,
-    window_started_at: send.window_started_at ?? dispatchedAt,
-    socket_generation: socketGeneration ?? send.socket_generation,
-  }));
+  return updateOptimisticSendByRequestId(state, requestId, (send) => {
+    // The bridge can resolve after send.result; dispatch must not regress a
+    // confirmed, indeterminate or terminal delivery.
+    if (send.status !== 'queued' && send.status !== 'dispatched') return null;
+    return {
+      ...send,
+      status: 'dispatched',
+      dispatched_at: dispatchedAt,
+      window_started_at: send.window_started_at ?? dispatchedAt,
+      socket_generation: socketGeneration ?? send.socket_generation,
+    };
+  });
 }
 
 export function markOptimisticAckedByRequestId(
   state: PentacleStreamState,
   requestId: string,
   ackedAt: number,
+  opts: { providerQueued?: boolean } = {},
 ): PentacleStreamState {
   return updateOptimisticSendByRequestId(state, requestId, (send) => ({
     ...send,
     status: 'acked',
     acked_at: ackedAt,
+    ...(opts.providerQueued === true ? { provider_queued: true } : {}),
   }));
 }
 

@@ -398,6 +398,7 @@ export interface PentacleAgentQuestionOption {
 export interface PentacleAgentQuestionPayload {
   question_id: string;
   producer_stream_id: string;
+  producer_provider?: string | null;
   response_mode: AgentQuestionResponseMode;
   options: PentacleAgentQuestionOption[];
   state: 'open' | 'answered' | 'expired' | string;
@@ -529,6 +530,8 @@ export interface OptimisticSendState {
   // stream returns to idle. Absent/false for an ordinary in-flight send.
   turn_queued?: boolean;
   queued_at?: number;
+  // Native provider ownership after confirmed landing; never a client turn hold.
+  provider_queued?: boolean;
   // Image attachments the user sent with this message (spec ## Attachment
   // model). Populated on the optimistic send so the queued/sending bubble can
   // render thumbnails before the daemon echoes the message back. FIFO order.

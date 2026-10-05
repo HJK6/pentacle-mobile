@@ -231,6 +231,16 @@ export function agentQuestionStreamId(notification: PentacleNotification) {
   return notification.question?.producer_stream_id || notification.answer_to_stream_id || '';
 }
 
+// A v2 seat ID carries no provider. Prefer explicit metadata, then the provider
+// segment in legacy three-part IDs; missing metadata stays unknown.
+export function agentQuestionProvider(notification: PentacleNotification) {
+  const explicit = String(notification.question?.producer_provider || '').trim().toLowerCase();
+  if (explicit === 'claude' || explicit === 'codex') return explicit;
+  const parts = agentQuestionStreamId(notification).split(':');
+  const legacy = parts.length >= 3 ? parts[1].toLowerCase() : '';
+  return legacy === 'claude' || legacy === 'codex' ? legacy : '';
+}
+
 // The chat a question card is shown in. The daemon names it when the producer
 // has no chat of its own for the operator (a hidden bound assistant asking on
 // behalf of its composite chat); otherwise it is the producer's chat. This never

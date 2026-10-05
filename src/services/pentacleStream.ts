@@ -3761,6 +3761,8 @@ function handleMessageInner(raw: string) {
       notification_id: record.notification_id,
       state: record.state,
       producer: record.producer,
+      surfaced_to_stream_id: record.surfaced_to_stream_id,
+      producer_stream_id: record.question?.producer_stream_id,
     });
     return;
   }
@@ -3969,7 +3971,14 @@ function handleMessageInner(raw: string) {
           message.request_id,
           acceptance,
         );
-        setState(markOptimisticAckedByRequestId(acceptedState, message.request_id, Date.now()));
+        setState(markOptimisticAckedByRequestId(acceptedState, message.request_id, Date.now(), {
+          providerQueued: message.provider_queued === true,
+        }));
+        logTelemetry(TELEMETRY_EVENTS.CHAT_SEND_LANDING_APPLIED, {
+          stream_id: optimistic?.stream_id,
+          optimistic_id: optimisticId,
+          provider_queued: message.provider_queued === true,
+        });
         if (optimisticId && optimistic && optimistic.status !== 'acked') {
           logOptimisticReconciled(optimisticId, undefined, optimistic.created_at, optimistic.stream_id);
         }
@@ -4894,7 +4903,9 @@ function applyDurableSendReceipt(
     const acceptedState = recordOptimisticSendAcceptanceByRequestId(state, requestId, acceptance);
     setState(event
       ? reconcileOptimisticSendWithServerEvent(acceptedState, optimisticId, event)
-      : markOptimisticAckedByRequestId(acceptedState, requestId, Date.now()));
+      : markOptimisticAckedByRequestId(acceptedState, requestId, Date.now(), {
+        providerQueued: receipt.provider_queued === true,
+      }));
     if (send.status !== 'acked') {
       logOptimisticReconciled(optimisticId, event, send.created_at, send.stream_id);
     }
