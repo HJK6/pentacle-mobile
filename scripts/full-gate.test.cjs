@@ -469,7 +469,7 @@ test('simulator stage bounds are explicit and a hanging owned group fails closed
   const started = Date.now();
   assert.throws(() => runGate(
     'synthetic-simctl-launch',
-    [process.execPath, '-e', `const fs=require('node:fs');const child=require('node:child_process').spawn(process.execPath,['-e','setInterval(()=>{},1000)'],{stdio:'ignore'});fs.writeFileSync(${JSON.stringify(descendantPidPath)},String(child.pid));setInterval(()=>{},1000)`],
+    ['/bin/sh', '-c', '/bin/sleep 30 & child=$!; printf "%s" "$child" > "$1"; wait', 'synthetic-hanging-group', descendantPidPath],
     artifactDir,
     { timeoutMs: 100, env: { TESTTIME_BIN: path.join(tempRoot, 'missing-testtime') } },
   ), /timed out after 100ms; owned child (terminated|killed)/);
