@@ -75,6 +75,13 @@ other roots are refused before any change. Prepare it with `git clone`, `npm ci 
 and `git fetch` before updating. Admission is checked at install/update only; scheduled runs
 execute whatever that checkout contains, so keep it clean and on public `main`. The update
 is transactional and rolls back to the prior plist.
+Admission catches ordinary accidents: a wrong or private root, a plainly dirty tree, an
+unmerged commit, a redirected worktree or a remapped origin refspec. It does not detect every
+dirty state and does not authenticate the source against an actor running as the same user.
+Accepted residuals: edited files hidden by index flags (`assume-unchanged`, `skip-worktree`,
+`core.ignoreStat`), untracked files hidden by `.git/info/exclude` or `core.excludesFile`, a
+second remote whose fetch refspec rewrites `refs/remotes/origin/main`, and direct edits of
+`refs/remotes/origin/main` (only an online `ls-remote` would catch these).
 An authorized `launchctl kickstart` can exercise the installed job; inspect its
 bound report afterward. The regular `disabled` file in the installed state is
 the kill-switch for apply mode. Do not replace lifecycle commands with manual
