@@ -25,7 +25,7 @@ test('the byte-pinned certified recorder mutation suite executes completely', ()
   const target = path.join(__dirname, 'report-viewer-sim-e2e.test.cjs');
   assert.equal(
     crypto.createHash('sha256').update(fs.readFileSync(target)).digest('hex'),
-    '225a7181792be00bbf22a658eee95f4b11db6fe15c9e8c7578193bcfff63c7f2',
+    '1a64cd821062084bdc8519fe29160191de3785a440e7fed410c9a5414e05871b',
   );
   const childEnvironment = { ...process.env };
   delete childEnvironment.NODE_TEST_CONTEXT;
