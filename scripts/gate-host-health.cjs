@@ -6,7 +6,7 @@ const path = require('node:path');
 const http = require('node:http');
 const crypto = require('node:crypto');
 const { runOwnedSync, probeSignalCapability } = require('./owned-process.cjs');
-const { accountCpu } = require('./gate-cpu-accounting.cjs');
+const { accountCpu, isAncestor } = require('./gate-cpu-accounting.cjs');
 const GiB = 1024 ** 3;
 // The accepted executable snapshot is removed before final evidence sealing.
 // Freeze the consumer's expected identity now; probes still hash the file they run.
@@ -103,7 +103,52 @@ function readProcessCensus(command, ownedContext, simulatorPid, probePid = proce
     '--simulator-pid', String(simulatorPid)], 5000));
 }
 
+function validPid(value, minimum = 0) {
+  return Number.isInteger(value) && value >= minimum && value <= 0x7fffffff;
+}
+
+function buildPidsFromCensus(result, context, simulatorPid, previous) {
+  if (!result || !Array.isArray(result.rows) || !result.rows.length || !Array.isArray(result.exitedPids)
+      || !Number.isFinite(result.monotonicMs) || !(result.monotonicMs > previous?.monotonicMs)) throw new Error('BUILD_CENSUS_INCOMPLETE');
+  const ticks = result.cpuTicks;
+  if (!ticks || !Number.isInteger(ticks.count) || ticks.count < 1 || !Number.isFinite(ticks.total)
+      || !Number.isFinite(ticks.idle) || ticks.idle < 0 || ticks.total < ticks.idle) throw new Error('BUILD_CENSUS_TICKS_INVALID');
+  const rows = new Map();
+  for (const row of result.rows) {
+    if (!row || !validPid(row.pid) || rows.has(row.pid) || !validPid(row.ppid) || !validPid(row.pgid)
+        || typeof row.command !== 'string' || !row.command.trim() || row.command.includes('\0')) throw new Error('BUILD_CENSUS_ROW_INVALID');
+    const available = row.cpuProbeErrno === 0 && Number.isFinite(row.cpuSeconds) && row.cpuSeconds >= 0
+      && typeof row.start === 'string' && row.start.length > 0;
+    const denied = [1, 13].includes(row.cpuProbeErrno) && row.cpuSeconds === null && row.start === null;
+    if (!available && !denied) throw new Error('BUILD_CENSUS_COUNTER_INVALID');
+    rows.set(row.pid, row);
+  }
+  const roots = [context.ownerPid, process.pid, simulatorPid];
+  if (![0, ...roots].every(pid => rows.has(pid))) throw new Error('BUILD_CENSUS_ROOT_MISSING');
+  const exited = new Set();
+  for (const row of result.exitedPids) {
+    if (!row || !validPid(row.pid, 1) || row.errno !== 3 || rows.has(row.pid) || exited.has(row.pid)
+        || roots.includes(row.pid)) throw new Error('BUILD_CENSUS_EXIT_INVALID');
+    exited.add(row.pid);
+  }
+  for (const pid of roots) {
+    const row = rows.get(pid); const before = previous?.rows?.find(entry => entry.pid === pid);
+    if (!before || row.cpuProbeErrno !== 0 || row.start !== before.start || row.cpuSeconds < before.cpuSeconds)
+      throw new Error('BUILD_CENSUS_ROOT_CHANGED');
+  }
+  if (!isAncestor(result.rows, context.ownerPid, process.pid)
+      || path.basename(rows.get(simulatorPid).command) !== 'launchd_sim') throw new Error('BUILD_CENSUS_OWNERSHIP_INVALID');
+  // Approved host guard identity: kernel accounting name, not argv[0] or
+  // executable authentication. Include every row regardless of CPU ownership.
+  return result.rows.filter(row => row.command === 'xcodebuild').map(row => row.pid);
+}
+
 async function collectSnapshot(ownedContext = null) {
+  if (ownedContext !== null && (!ownedContext || typeof ownedContext !== 'object' || Array.isArray(ownedContext)
+      || !validPid(ownedContext.ownerPid, 2) || !validPid(process.pid, 2)
+      || typeof ownedContext.deviceSetRoot !== 'string' || !path.isAbsolute(ownedContext.deviceSetRoot) || ownedContext.deviceSetRoot.includes('\0')
+      || typeof ownedContext.udid !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(ownedContext.udid)))
+    throw new Error('HOST_HEALTH_OWNERSHIP_ARGUMENTS_INVALID');
   const probeErrors = []; const commands = [];
   const probe = (label, action) => { try { return action(); } catch (error) { probeErrors.push(`${label}: ${error.code || error.message}`); return null; } };
   const command = (binary, args, timeout = 5000, options = {}) => {
@@ -116,9 +161,10 @@ async function collectSnapshot(ownedContext = null) {
   let simulatorPid = null;
   if (ownedContext) simulatorPid = probe('owned simulator identity', () => {
     const pid = Number(command('/usr/bin/xcrun', ['simctl', '--set', ownedContext.deviceSetRoot, 'spawn', ownedContext.udid, 'launchctl', 'managerpid'], 10000).trim());
-    if (!Number.isInteger(pid) || pid <= 1) throw new Error('invalid simulator manager PID');
+    if (!validPid(pid, 2)) throw new Error('invalid simulator manager PID');
     return pid;
   });
+  if (ownedContext && !validPid(simulatorPid, 2)) throw new Error('HOST_HEALTH_OWNERSHIP_SIMULATOR_INVALID');
   const census = () => readProcessCensus(command, ownedContext, simulatorPid);
   const intervalStarted = performance.now();
   const initialCpu = cpuTicks();
@@ -151,11 +197,22 @@ async function collectSnapshot(ownedContext = null) {
     if (!data.devices || typeof data.devices !== 'object') throw new Error('devices missing');
     return Object.values(data.devices).flat().filter((device) => device.state === 'Booted').length;
   });
-  const competingBuildPids = probe('build census', () => command('ps', ['-axo', 'pid=,comm=']).trim().split('\n').flatMap((line) => {
-    const match = line.trim().match(/^(\d+)\s+(.+)$/);
-    if (!match) throw new Error('process row malformed');
-    return path.basename(match[2]) === 'xcodebuild' ? [Number(match[1])] : [];
-  }));
+  let rawBuildCensus = null;
+  const competingBuildPids = probe('build census', () => {
+    if (ownedContext) {
+      // Keep the observation at the old ps point. Earlier CPU rows can miss a
+      // foreign build that starts during intervening memory/simulator probes.
+      rawBuildCensus = { producer_sha256: producerIdentity.sha256, probe_pid: process.pid, command_index: commands.length };
+      rawBuildCensus.result = census();
+      return buildPidsFromCensus(rawBuildCensus.result, ownedContext, simulatorPid, processAfter);
+    }
+    // Standalone callers retain their existing ps/argv[0] contract.
+    return command('ps', ['-axo', 'pid=,comm=']).trim().split('\n').flatMap((line) => {
+      const match = line.trim().match(/^(\d+)\s+(.+)$/);
+      if (!match) throw new Error('process row malformed');
+      return path.basename(match[2]) === 'xcodebuild' ? [Number(match[1])] : [];
+    });
+  });
   let sync = null;
   try {
     const config = fs.readFileSync(path.join(realHome, 'Library/Application Support/Syncthing/config.xml'), 'utf8');
@@ -173,7 +230,7 @@ async function collectSnapshot(ownedContext = null) {
   const rawCpu = ownedContext ? probe('raw CPU producer identity', () => ({ before: processBefore, after: processAfter, probe_pid: process.pid,
     producer_sha256: crypto.createHash('sha256').update(fs.readFileSync(require.resolve('./gate-process-cpu.py'))).digest('hex') })) : null;
   return { cpuCount: after.count, load1: os.loadavg()[0], idleRatio, cpuAccounting,
-    rawCpu, rawDiskIo: io,
+    rawCpu, rawBuildCensus, rawDiskIo: io,
     freeBytes, memoryPressure, diskTransfersPerSecond, bootedSimulators, competingBuildPids, sync, signalCapability, probeErrors, commands };
 }
 
