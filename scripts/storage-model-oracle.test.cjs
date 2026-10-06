@@ -19,7 +19,7 @@ const EXPECTED_PINS = {
   'scripts/gate-checks.cjs': '314c7bdb6b6d2ee47ec6e51f0a67af3c9c8bd6ab1579a1b5b1af029545ea1ba8',
   'scripts/gate-code-provenance.cjs': '472d3f0c31c11d12c2c30ad005b1dfb221c23dc0bbbf4506cc53f2fd1ccc1317',
   'scripts/gate-cpu-accounting.cjs': '52f98392780db563dbb1f38425e968b190b84f6f4c57dd8e84594d438e931b58',
-  'scripts/gate-host-health.cjs': '07d7c4be8047cf37e2a1bde285630bcde833302ad52ee31effcf8e4cde6bd173',
+  'scripts/gate-host-health.cjs': '58c84599dd4586270730af4c4d297e1fb62bd8823e6e8852ea9fe6abd16da740',
   'scripts/gate-process-cpu.py': '6028f1ee162a0b881fe046caa5c06960aa23384807772b7f5b7c1f89d658d1cf',
   'scripts/owned-process.cjs': '9f0a45f47395af5b6de954e9b787f339b3067be6a5ebffd634075a03690818db',
   'scripts/prod-build.cjs': 'e39cf6c13c66edd3b8be13ebd02b2e8a45ed204b5fe866600a4b4bed17a5d349',
