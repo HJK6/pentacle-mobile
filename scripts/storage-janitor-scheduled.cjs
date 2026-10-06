@@ -63,16 +63,23 @@ function openLogs(state) {
   if (!existing) fs.mkdirSync(directory, { mode: 0o700 });
   else if (!existing.isDirectory() || existing.isSymbolicLink()) throw Object.assign(new Error('LOGS_NOT_DIRECTORY'), { code: 'ENOTDIR' });
   const flags = fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_NOFOLLOW;
-  return ['janitor.stdout.log', 'janitor.stderr.log'].map((name) => {
-    if (!LOG_NAME.test(name)) throw new Error('LOG_NAME');
-    const current = path.join(directory, name);
-    const prior = fs.lstatSync(current, { throwIfNoEntry: false });
-    if (prior) {
-      if (!prior.isFile() || prior.isSymbolicLink()) throw Object.assign(new Error('LOG_NOT_FILE'), { code: 'EEXIST' });
-      fs.renameSync(current, `${current}.1`);
+  const opened = [];
+  try {
+    for (const name of ['janitor.stdout.log', 'janitor.stderr.log']) {
+      if (!LOG_NAME.test(name)) throw new Error('LOG_NAME');
+      const current = path.join(directory, name);
+      const prior = fs.lstatSync(current, { throwIfNoEntry: false });
+      if (prior) {
+        if (!prior.isFile() || prior.isSymbolicLink()) throw Object.assign(new Error('LOG_NOT_FILE'), { code: 'EEXIST' });
+        fs.renameSync(current, `${current}.1`);
+      }
+      opened.push(new Capture(fs.openSync(current, flags, 0o600)));
     }
-    return new Capture(fs.openSync(current, flags, 0o600));
-  });
+  } catch (error) {
+    for (const capture of opened) { try { fs.closeSync(capture.descriptor); } catch { /* already closed */ } }
+    throw error;
+  }
+  return opened;
 }
 
 function run({ state = fixedLayout().state, command = process.execPath, args = [path.join(__dirname, 'storage-cli.cjs'), ...FIXED_ARGUMENTS], cwd = path.resolve(__dirname, '..'), env = process.env } = {}) {

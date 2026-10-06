@@ -70,7 +70,9 @@ truncated file carries a marker and stderr ends with an exit marker. `storage:in
 and `storage:update` run only from the canonical `~/repos/pentacle-mobile` checkout
 when it is clean, a plain clone of the public `HJK6/pentacle-mobile` origin, and
 contained in a fetched `origin/main`; other roots are refused before any change.
-Fetch before updating. The update is transactional and rolls back to the prior plist.
+Fetch before updating. Admission is checked at install/update only; scheduled runs execute
+whatever the canonical checkout contains, so keep it clean and on public `main`. The update
+is transactional and rolls back to the prior plist.
 An authorized `launchctl kickstart` can exercise the installed job; inspect its
 bound report afterward. The regular `disabled` file in the installed state is
 the kill-switch for apply mode. Do not replace lifecycle commands with manual

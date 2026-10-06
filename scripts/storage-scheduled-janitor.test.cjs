@@ -74,6 +74,11 @@ test('public-root admission refuses private, lookalike, unpublished, dirty and a
     git(repo, 'remote', 'set-url', '--push', 'origin', 'git@github.com:HJK6/pentacle-mobile-private.git');
     assert.throws(() => assertPublicRoot(layout, scripts), /PUBLIC_ROOT_ORIGIN/, 'a private push URL is not the public root');
     git(repo, 'config', '--unset-all', 'remote.origin.pushurl');
+    git(repo, 'remote', 'set-url', 'origin', 'https://evil.example/x.git');
+    git(repo, 'config', `url.${PUBLIC_ORIGIN}.insteadOf`, 'https://evil.example/x.git');
+    assert.throws(() => assertPublicRoot(layout, scripts), /PUBLIC_ROOT_ORIGIN/, 'an insteadOf rewrite cannot disguise another origin');
+    git(repo, 'config', '--unset-all', `url.${PUBLIC_ORIGIN}.insteadOf`);
+    git(repo, 'remote', 'set-url', 'origin', PUBLIC_ORIGIN);
     fs.writeFileSync(path.join(repo, 'stray.txt'), 'untracked');
     assert.throws(() => assertPublicRoot(layout, scripts), /PUBLIC_ROOT_DIRTY/);
     fs.unlinkSync(path.join(repo, 'stray.txt'));
@@ -296,4 +301,18 @@ transactional('the exact scheduled argv runs a real dry-run, writes one bound re
   assert.deepEqual(evidence.errors, []);
   assert.deepEqual(evidence.logs, ['janitor.stderr.log', 'janitor.stdout.log']);
   assert.equal(evidence.footer, '[pentacle-janitor-run exit=0 signal=none at=*');
+});
+
+test('wrapper closes the stdout log when the stderr log cannot be opened', async () => {
+  const home = temporary('janitor-logs-partial');
+  const state = stateRoot(home);
+  fs.mkdirSync(path.join(state, 'logs', 'janitor.stderr.log'), { recursive: true });
+  const { run } = require('./storage-janitor-scheduled.cjs');
+  const descriptors = () => fs.readdirSync('/dev/fd').length;
+  const before = descriptors();
+  const write = process.stderr.write;
+  process.stderr.write = () => true;
+  try { assert.equal(await run({ state, command: process.execPath, args: ['-e', 'process.exit(0)'] }), 0); }
+  finally { process.stderr.write = write; }
+  assert.ok(descriptors() <= before, 'no descriptor outlives the failed open');
 });
