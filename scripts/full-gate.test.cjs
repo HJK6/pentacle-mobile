@@ -304,6 +304,91 @@ test('owned smoke teardown refuses a foreign PID, reused PID, nonce or target be
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
+function withSmokeCommand(command, run) {
+  const owned = require('./owned-process.cjs');
+  const original = owned.runOwnedSync;
+  const modulePath = require.resolve('./gate-app-ready.cjs');
+  const cached = require.cache[modulePath];
+  try {
+    owned.runOwnedSync = command;
+    delete require.cache[modulePath];
+    const ready = require(modulePath);
+    owned.runOwnedSync = original;
+    return run(ready);
+  } finally {
+    owned.runOwnedSync = original;
+    if (cached) require.cache[modulePath] = cached;
+    else delete require.cache[modulePath];
+  }
+}
+
+test('smoke teardown default command terminates the verified app in the exact private simulator', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pentacle-smoke-command-'));
+  const target = { deviceSetRoot: '/private/synthetic/Devices', udid: 'OWNED-UDID', bundleId: 'synthetic.harness', live_pid: 431 };
+  const input = { target, nonce: 'owned-nonce', receiptFile: path.join(root, 'readiness.json') };
+  let livePid = 431;
+  const calls = [];
+  fs.writeFileSync(input.receiptFile, JSON.stringify({ ready: true, pid: 431, nonce: input.nonce, target,
+    process_birth: '123456789', native_receipt: { pid: 431, nonce: input.nonce, bundle_id: target.bundleId } }));
+  try {
+    const stopped = withSmokeCommand((binary, args, options) => {
+      calls.push({ binary, args, options });
+      assert.equal(binary, '/usr/bin/xcrun');
+      assert.deepEqual(args.slice(0, 3), ['simctl', '--set', target.deviceSetRoot]);
+      assert.equal(options.timeout, 10000);
+      if (args[3] === 'spawn' && args[5] === 'kill') return { status: 2, stdout: '', stderr:
+        'An error was encountered processing the command (domain=NSPOSIXErrorDomain, code=2):\nNo such file or directory\n' };
+      if (args[3] === 'spawn' && args[5] === '/bin/kill') return { status: 111, stdout: '', stderr:
+        'Process spawn via launchd failed.\nInvalid or missing Program/ProgramArguments\n' };
+      assert.deepEqual(args.slice(3), ['terminate', target.udid, target.bundleId]);
+      livePid = null;
+      return { status: 0, stdout: '', stderr: '' };
+    }, ({ stopOwnedSmoke }) => stopOwnedSmoke(input, {
+      readPid: () => livePid, readBirth: () => livePid === null ? null : '123456789',
+    }));
+    assert.equal(stopped.status, 'stopped');
+    assert.equal(stopped.signal_sent, true);
+    assert.equal(calls.length, 1);
+    assert.equal(JSON.parse(fs.readFileSync(input.receiptFile)).smoke_teardown.status, 'stopped');
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('smoke teardown retains failed subcommand stderr and stdout in its receipt', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pentacle-smoke-command-failure-'));
+  const target = { deviceSetRoot: '/private/synthetic/Devices', udid: 'OWNED-UDID', bundleId: 'synthetic.harness', live_pid: 431 };
+  const input = { target, nonce: 'owned-nonce', receiptFile: path.join(root, 'readiness.json') };
+  const stderr = 'An error was encountered processing the command (domain=NSPOSIXErrorDomain, code=2):\nNo such file or directory\n';
+  const stdout = 'partial command output\n';
+  try {
+    for (const vector of [
+      { status: 2, error: null },
+      { status: null, error: Object.assign(new Error('spawn ETIMEDOUT'), { code: 'ETIMEDOUT' }) },
+    ]) {
+      fs.writeFileSync(input.receiptFile, JSON.stringify({ ready: true, pid: 431, nonce: input.nonce, target,
+        process_birth: '123456789', native_receipt: { pid: 431, nonce: input.nonce, bundle_id: target.bundleId } }));
+      let calls = 0;
+      withSmokeCommand((binary, args, options) => {
+        calls += 1;
+        assert.equal(binary, '/usr/bin/xcrun');
+        assert.equal(options.timeout, 10000);
+        return { ...vector, signal: null, stdout, stderr };
+      }, ({ stopOwnedSmoke }) => assert.throws(() => stopOwnedSmoke(input, {
+        readPid: () => 431, readBirth: () => '123456789',
+      }), error => error.message.includes(stderr)));
+      assert.equal(calls, 1);
+      const saved = JSON.parse(fs.readFileSync(input.receiptFile)).smoke_teardown;
+      assert.equal(saved.status, 'failed');
+      assert.equal(saved.signal_sent, false);
+      assert.equal(saved.command_failure.status, vector.status);
+      assert.equal(saved.command_failure.error, vector.error?.code || null);
+      assert.equal(saved.command_failure.stdout, stdout);
+      assert.equal(saved.command_failure.stderr, stderr);
+      assert.equal(saved.command_failure.timeout_ms, 10000);
+      assert.deepEqual(saved.command_failure.args, ['simctl', '--set', target.deviceSetRoot, 'terminate', target.udid, target.bundleId]);
+    }
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
 test('smoke birth identity uses the existing legacy collector and fails closed with temporary-input cleanup', () => {
   const { processBirth } = require('./gate-app-ready.cjs');
   for (const vector of [
@@ -328,6 +413,32 @@ test('smoke birth identity uses the existing legacy collector and fails closed w
     assert.equal(fs.existsSync(file), false);
     assert.equal(fs.existsSync(path.dirname(file)), false);
   }
+});
+
+test('smoke birth and PID-read failures preserve the real command output before receipt sealing', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pentacle-smoke-read-failure-'));
+  const target = { deviceSetRoot: '/private/synthetic/Devices', udid: 'OWNED-UDID', bundleId: 'synthetic.harness', live_pid: 431 };
+  const input = { target, nonce: 'owned-nonce', receiptFile: path.join(root, 'readiness.json') };
+  try {
+    const ready = require('./gate-app-ready.cjs');
+    assert.throws(() => ready.processBirth(431, () => ({ status: 1, stdout: 'partial counter output', stderr: 'original collector error' })), error => {
+      assert.equal(error.command_failure.status, 1);
+      assert.equal(error.command_failure.stderr, 'original collector error');
+      assert.equal(error.command_failure.stdout, 'partial counter output');
+      assert.equal(error.command_failure.timeout_ms, 5000);
+      assert.equal(error.command_failure.owner_pid, process.pid);
+      return /APP_SMOKE_BIRTH_READ_FAILED/.test(error.message);
+    });
+    fs.writeFileSync(input.receiptFile, JSON.stringify({ ready: true, pid: 431, nonce: input.nonce, target,
+      process_birth: '123456789', native_receipt: { pid: 431, nonce: input.nonce, bundle_id: target.bundleId } }));
+    withSmokeCommand(() => ({ status: 2, stdout: 'partial launchctl output', stderr: 'original private-set lookup failure' }),
+      ({ stopOwnedSmoke }) => assert.throws(() => stopOwnedSmoke(input), /APP_READY_LIVENESS_FAILED/));
+    const saved = JSON.parse(fs.readFileSync(input.receiptFile)).smoke_teardown;
+    assert.equal(saved.signal_sent, false);
+    assert.equal(saved.command_failures.length, 1);
+    assert.equal(saved.command_failures[0].stderr, 'original private-set lookup failure');
+    assert.equal(saved.command_failures[0].stdout, 'partial launchctl output');
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
 test('native readiness binds a kernel process birth before accepting the nonce and PID', async () => {

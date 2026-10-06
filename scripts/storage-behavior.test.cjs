@@ -241,6 +241,58 @@ function reportViewerFixture() {
   return { root, runs, cases };
 }
 
+function directSurfaceValidator() {
+  const source = fs.readFileSync(process.env.PENTACLE_DIRECT_ADAPTER_WRAPPER_TEST_SOURCE || path.join(__dirname, 'storage-gate.cjs'), 'utf8');
+  const fn = source.match(/^function validateSurfaceTriggerEvidence\([\s\S]*?^\}/m);
+  assert.ok(fn);
+  return require('node:vm').runInNewContext(`(${fn[0]})`, { fs, path, require,
+    reportViewerResultsBeforeKeyboard: () => require('./storage-gate.cjs').reportViewerResultsBeforeKeyboard() });
+}
+
+test('direct-device evidence requires the ninth real keyboard case and matching owned binding', () => {
+  const fixture = reportViewerFixture();
+  const context = { schema: 1, adapter: 'private-idb', owner_pid: 99, companion_pid: 4321,
+    companion_birth: '12345', device_set_root: path.join(fixture.root, 'Devices'), udid: 'OWNED-UDID', socket: path.join(fixture.root, 'owned.sock') };
+  const contextHash = crypto.createHash('sha256').update(JSON.stringify(context)).digest('hex');
+  const record = { schema: 2, run_id: 'owned-run', adapter: 'private-idb', status: 'verified', reason: 'case-results-complete',
+    observed_results: 8, required_results: 8, context, context_sha256: contextHash, gui_launched: false,
+    cleanup: { status: 'not-required', error: null, outcomes: [] }, completed_at: '2026-10-06T00:00:00Z' };
+  const marker = path.join(fixture.root, 'storage-surface-trigger.json');
+  fs.writeFileSync(marker, JSON.stringify(record));
+  const body = String(parseInt(crypto.createHash('sha256').update('run-8').digest('hex').slice(0, 12), 16));
+  const payload = { verdict: 'PASS', result: { extras: { runtime_monitor: { process_identity: {
+    verified: true, launch_pid: '431', armed_telemetry_pid: '431' } } } },
+    all_events: [
+      { message: 'report:comment_keyboard', native_process_id: '431', data: { scenario_run_id: 'run-8', unobscured: true, input_bottom: 478, keyboard_top: 546 } },
+      { message: 'report:comment_confirmed', native_process_id: '431', data: { scenario_run_id: 'run-8', body } },
+    ], artifacts: { screenshots: ['run-8-keyboard.png'] } };
+  const payloadPath = path.join(fixture.runs, 'case-8.json');
+  fs.writeFileSync(payloadPath, JSON.stringify(payload));
+  const manifestPath = path.join(fixture.runs, 'manifest.json');
+  const manifest = JSON.parse(fs.readFileSync(manifestPath));
+  manifest.cases[8].input_adapter = { context, context_sha256: contextHash };
+  fs.writeFileSync(manifestPath, JSON.stringify(manifest));
+  const validate = directSurfaceValidator();
+  assert.doesNotThrow(() => validate(fixture.root, 'owned-run', 0));
+  for (const altered of [
+    { ...record, gui_launched: true },
+    { ...record, observed_results: 7 },
+    { ...record, context_sha256: 'a'.repeat(64) },
+    { ...record, context: { ...context, companion_pid: 4322 } },
+  ]) { fs.writeFileSync(marker, JSON.stringify(altered)); assert.throws(() => validate(fixture.root, 'owned-run', 0)); }
+  fs.writeFileSync(marker, JSON.stringify(record));
+  manifest.cases.pop(); fs.writeFileSync(manifestPath, JSON.stringify(manifest));
+  assert.throws(() => validate(fixture.root, 'owned-run', 0), /EVIDENCE_DIRECT_INPUT_BINDING/);
+  manifest.cases.push(fixture.cases[8]); manifest.cases[8].input_adapter = { context, context_sha256: contextHash };
+  fs.writeFileSync(manifestPath, JSON.stringify(manifest));
+  for (const altered of [
+    { ...payload, verdict: 'SKIPPED' },
+    { ...payload, all_events: payload.all_events.slice(1) },
+    { ...payload, all_events: payload.all_events.map(e => ({ ...e, native_process_id: '999' })) },
+    { ...payload, artifacts: { screenshots: [] } },
+  ]) { fs.writeFileSync(payloadPath, JSON.stringify(altered)); assert.throws(() => validate(fixture.root, 'owned-run', 0), /REAL_KEYBOARD/); }
+});
+
 test('nine single-attempt report-viewer results bind status, result digest, video digest, and time', () => {
   const fixture = reportViewerFixture();
   const files = require('./storage-gate.cjs').enumerateEvidence(fixture.root);
@@ -1153,6 +1205,65 @@ test('a failed run seals with partial report-viewer evidence while a passed run 
   fs.rmSync(rebuilt.root, { recursive: true, force: true });
 });
 
+for (const [label, verdict, status, keepVideo] of [
+  ['unexpected FAIL', 'FAIL', 1, true],
+  ['SETUP_FAIL without capture', 'SETUP_FAIL', 4, false],
+]) {
+  test(`truthful ${label} seals as failed with its original evidence`, () => {
+    const fixture = reportViewerFixture();
+    for (const entry of fixture.cases.slice(1)) {
+      fs.unlinkSync(path.join(fixture.runs, entry.result));
+      fs.unlinkSync(path.join(fixture.runs, entry.result.replace('.json', '.mp4')));
+    }
+    const payload = { scenario: fixture.cases[0].scenario, verdict,
+      result: { error: 'original native adapter failure' },
+      owned_session_teardown_sidecar: 'case-0.teardown.json',
+      ...(keepVideo ? { artifacts: { video: 'case-0.mp4' }, extras: { screen_capture: {
+        video_ready: false, video_returncode: 2, video_finalized: false,
+        video_forced_kill: false, video_alive_after_teardown: false,
+      } } } : {}) };
+    if (keepVideo) fs.writeFileSync(path.join(fixture.runs, 'case-0.mp4'), '');
+    else fs.unlinkSync(path.join(fixture.runs, 'case-0.mp4'));
+    fs.writeFileSync(path.join(fixture.runs, 'case-0.teardown.json'), JSON.stringify({
+      attempted: 1, closed: [], closed_count: 0,
+      orphans: [{ stream_id: 'owned-native', error: 'original teardown failure' }], orphan_count: 1,
+    }));
+    const resultPath = path.join(fixture.runs, 'case-0.json');
+    fs.writeFileSync(resultPath, JSON.stringify(payload));
+    const item = { ...fixture.cases[0], status, sha256: digest(resultPath) };
+    const manifestPath = path.join(fixture.runs, 'manifest.json');
+    fs.writeFileSync(manifestPath, JSON.stringify({ status: 'failed', attempts_per_case: 1,
+      recorder_preflight: { setup_verdict: 'PASS', outcome: 'clear' }, cases: [item] }));
+    const gate = require('./storage-gate.cjs');
+    assert.doesNotThrow(() => gate.validateReportViewer(fixture.root, gate.enumerateEvidence(fixture.root), 'failed'));
+    assert.equal(JSON.parse(fs.readFileSync(resultPath)).result.error, 'original native adapter failure');
+    assert.throws(() => gate.validateReportViewer(fixture.root, gate.enumerateEvidence(fixture.root), 'passed'), /EVIDENCE_CASE_MANIFEST_INVALID/);
+    item.sha256 = '0'.repeat(64);
+    fs.writeFileSync(manifestPath, JSON.stringify({ status: 'failed', attempts_per_case: 1, cases: [item] }));
+    assert.throws(() => gate.validateReportViewer(fixture.root, gate.enumerateEvidence(fixture.root), 'failed'), /EVIDENCE_CASE_RESULT_DIGEST/);
+    item.sha256 = digest(resultPath);
+    payload.raw_log_sidecar = '../foreign.log';
+    fs.writeFileSync(resultPath, JSON.stringify(payload)); item.sha256 = digest(resultPath);
+    fs.writeFileSync(manifestPath, JSON.stringify({ status: 'failed', attempts_per_case: 1, cases: [item] }));
+    assert.throws(() => gate.validateReportViewer(fixture.root, gate.enumerateEvidence(fixture.root), 'failed'), /EVIDENCE_CASE_SIDECAR_NAME_INVALID/);
+  });
+}
+
+test('truthful failed retention cannot turn a failed first case into a strict nine-case PASS', () => {
+  const fixture = reportViewerFixture();
+  const resultPath = path.join(fixture.runs, 'case-0.json');
+  const payload = JSON.parse(fs.readFileSync(resultPath));
+  payload.verdict = 'FAIL';
+  fs.writeFileSync(resultPath, JSON.stringify(payload));
+  const manifestPath = path.join(fixture.runs, 'manifest.json');
+  const manifest = JSON.parse(fs.readFileSync(manifestPath));
+  manifest.cases[0].status = 1; manifest.cases[0].sha256 = digest(resultPath);
+  fs.writeFileSync(manifestPath, JSON.stringify(manifest));
+  const gate = require('./storage-gate.cjs');
+  assert.doesNotThrow(() => gate.validateReportViewer(fixture.root, gate.enumerateEvidence(fixture.root), 'failed'));
+  assert.throws(() => gate.validateReportViewer(fixture.root, gate.enumerateEvidence(fixture.root), 'passed'), /EVIDENCE_CASE_VERDICT/);
+});
+
 test('the failing child stage is lifted into the journal on every path that records a failure', () => {
   // Fix C arrived in three instalments, each found only when the previous one was seen to have stopped
   // short (R1): the cleanup path, then the seal-FAILURE path, then the seal-SUCCEEDED-but-gate-FAILED
@@ -1598,7 +1709,7 @@ test('the idb companion is spawned by a boot watcher, never eagerly at simulator
   const source = fs.readFileSync(path.join(__dirname, 'storage-gate.cjs'), 'utf8');
   const run = source.slice(source.indexOf('async function runFullGate'));
   // The run must start the WATCHER, and must not spawn a companion directly at any point.
-  assert.match(run, /startIdbCompanionWatcher\(environment\.simulatorUdid, environment\.deviceSet\)/);
+  assert.match(run, /startIdbCompanionWatcher\(environment\.simulatorUdid, environment\.deviceSet, environment\.inputContextFile\)/);
   assert.equal(/=\s*spawnIdbCompanion\(/.test(run), false, 'the run must never spawn a companion eagerly');
   // The child's address is derived from the udid, NOT from a spawn result, so it can be handed over
   // before the socket exists.
@@ -1729,7 +1840,11 @@ test('the wrapper launches the Simulator surface bound to the gate device set, a
   assert.match(run, /path\.join\(scratch, 'diagnostic-surface-trigger'\)/);
   assert.match(run, /PENTACLE_DIAGNOSTIC_SURFACE_TRIGGER_DIR: diagnosticSurfaceTriggerDirectory/);
   assert.match(run, /requiredResults: reportViewerResultsBeforeKeyboard\(\)/);
-  assert.match(run, /launch: \(\) => launchSimulatorSurface\(environment\.simulatorUdid, environment\.deviceSet\)/);
+  assert.match(run, /validateDirectInputContext\(JSON\.parse\(raw\)\)/);
+  assert.match(run, /context\.udid !== environment\.simulatorUdid/);
+  assert.match(run, /context\.owner_pid !== process\.pid/);
+  assert.match(run, /environment\.simulatorSurfaceTrigger\.adapter = 'private-idb'/);
+  assert.equal(/launch: \(\) => launchSimulatorSurface/.test(run), false, 'private-device input must not launch a GUI surface');
   // Teardown stops the trigger before deleting the simulator and reports action or reasoned inaction.
   const cleanup = run.slice(run.indexOf('const cleanupResources'), run.indexOf('releaseHostResources is defined'));
   assert.ok(cleanup.indexOf("step('simulator-surface'") < cleanup.indexOf("step('simulator'"));

@@ -59,6 +59,31 @@ def swipe(config, frame):
         raise RuntimeError(result.stderr or "native swipe failed")
 
 
+def _await_qualified_scroll(stream, where, cutoff):
+    # A native animation starts with small offsets. Qualify the movement while
+    # waiting under one deadline, rather than judging its first sample.
+    deadline = time.monotonic() + 10
+
+    def qualifies(event):
+        return event is not None and event.message == "report:table_scrolled" \
+            and cutoff <= event.received_at <= deadline \
+            and all(event.data.get(key) == value for key, value in where.items()) \
+            and event.data.get("offset_x", 0) > 20
+
+    for event in stream.all_events():
+        if time.monotonic() > deadline:
+            return None
+        if qualifies(event):
+            return event
+    while time.monotonic() < deadline:
+        event = stream.next_event(timeout_s=min(.5, deadline - time.monotonic()))
+        if time.monotonic() > deadline:
+            return None
+        if qualifies(event):
+            return event
+    return None
+
+
 def run(config, stream, cap=None):
     run_id = config["scenario_run_id"]
     where = {"scenario_run_id": run_id, "block_id": f"wide-matrix--{run_id}"}
@@ -71,7 +96,7 @@ def run(config, stream, cap=None):
         return Verdict(name, "FAIL", error="report table accessibility target absent").finish()
     cutoff = time.monotonic()
     swipe(config, next(iter(frames.values())))
-    moved = await_event(stream, EventSpec("report:table_scrolled", where, 10), not_before=cutoff)
+    moved = _await_qualified_scroll(stream, where, cutoff)
     if cap:
         cap.screenshot("scrolled")
     passed = moved is not None and moved.data.get("offset_x", 0) > 20

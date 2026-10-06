@@ -352,6 +352,31 @@ function enumerateEvidence(root) {
 function validateSurfaceTriggerEvidence(root, runId, gateStatus) {
   const record = JSON.parse(fs.readFileSync(path.join(root, 'storage-surface-trigger.json'), 'utf8'));
   const exact = (value, keys) => value && JSON.stringify(Object.keys(value).sort()) === JSON.stringify([...keys].sort());
+  if (record.schema === 2) {
+    if (!exact(record, ['schema', 'run_id', 'adapter', 'status', 'reason', 'observed_results', 'required_results', 'context', 'context_sha256', 'gui_launched', 'cleanup', 'completed_at'])
+      || record.run_id !== runId || record.adapter !== 'private-idb' || record.gui_launched !== false
+      || !['verified', 'not-ready', 'failed'].includes(record.status)
+      || !Number.isInteger(record.observed_results) || record.observed_results < 0
+      || record.required_results !== reportViewerResultsBeforeKeyboard() || !Number.isFinite(Date.parse(record.completed_at))
+      || !exact(record.cleanup, ['status', 'error', 'outcomes']) || record.cleanup.status !== 'not-required'
+      || record.cleanup.error !== null || !Array.isArray(record.cleanup.outcomes) || record.cleanup.outcomes.length) throw new Error('EVIDENCE_DIRECT_INPUT_INVALID');
+    if (record.reason !== ({ verified: 'case-results-complete', 'not-ready': 'case-results-incomplete', failed: 'adapter-binding-failed' })[record.status]) throw new Error('EVIDENCE_DIRECT_INPUT_INVALID');
+    if (record.context !== null) require('./report-viewer-sim-e2e.cjs').validateDirectInputContext(record.context);
+    if (record.context === null ? record.context_sha256 !== null : !/^[0-9a-f]{64}$/.test(record.context_sha256)) throw new Error('EVIDENCE_DIRECT_INPUT_CONTEXT');
+    if (record.status === 'verified' && (record.reason !== 'case-results-complete' || record.observed_results < record.required_results || !record.context)) throw new Error('EVIDENCE_DIRECT_INPUT_REQUIRED');
+    if (gateStatus === 0) {
+      if (record.status !== 'verified') throw new Error('EVIDENCE_DIRECT_INPUT_REQUIRED');
+      const manifest = JSON.parse(fs.readFileSync(path.join(root, 'report-viewer-sim-e2e/manifest.json')));
+      const item = manifest.cases?.[8];
+      if (manifest.status !== 'passed' || manifest.attempts_per_case !== 1 || manifest.cases.length !== 9
+        || item?.scenario !== 'report_viewer_comments_keyboard' || item.expected !== 'PASS' || item.status !== 0
+        || item.input_adapter?.context_sha256 !== record.context_sha256
+        || JSON.stringify(item.input_adapter.context) !== JSON.stringify(record.context)) throw new Error('EVIDENCE_DIRECT_INPUT_BINDING');
+      const payload = JSON.parse(fs.readFileSync(path.join(root, 'report-viewer-sim-e2e', item.result)));
+      require('./report-viewer-sim-e2e.cjs').validateDirectKeyboardResult(payload, item.run_id);
+    }
+    return record;
+  }
   if (!exact(record, ['schema', 'run_id', 'status', 'reason', 'observed_results', 'required_results', 'launch', 'cleanup', 'completed_at']) || record.schema !== 1 || record.run_id !== runId || !['fired', 'skipped'].includes(record.status) || typeof record.reason !== 'string' || !Number.isInteger(record.observed_results) || record.observed_results < 0 || record.required_results !== reportViewerResultsBeforeKeyboard() || !Number.isFinite(Date.parse(record.completed_at))) throw new Error('EVIDENCE_SURFACE_TRIGGER_INVALID');
   if (!exact(record.launch, ['status', 'error', 'pids']) || !['launched', 'failed', 'not-available', 'not-attempted'].includes(record.launch.status) || !(record.launch.error === null || typeof record.launch.error === 'string') || !Array.isArray(record.launch.pids) || record.launch.pids.some((pid) => !Number.isInteger(pid) || pid <= 1) || new Set(record.launch.pids).size !== record.launch.pids.length) throw new Error('EVIDENCE_SURFACE_TRIGGER_LAUNCH');
   if ((record.launch.status === 'launched' && (record.launch.error !== null || record.launch.pids.length !== 1)) || (['failed', 'not-available'].includes(record.launch.status) && typeof record.launch.error !== 'string') || (record.launch.status === 'not-attempted' && (record.launch.error !== null || record.launch.pids.length))) throw new Error('EVIDENCE_SURFACE_TRIGGER_LAUNCH');
@@ -505,8 +530,8 @@ function validateCertifiedStages(root, summary, outcome = 'passed') {
 // diagnosability - the property this program ranks highest. validateCertifiedStages was already
 // failure-aware and compares a PREFIX for a failed run; this is now symmetric with it. Nothing is
 // weakened on the passed path: strict still means 9 cases, single attempt, manifest passed. On a failed
-// run every case that IS present is still fully validated - plan position, digests, video binding,
-// sidecars, unknown-file rejection - because a partial run's evidence must still be trustworthy.
+// run every present case retains its plan position, byte digests, declared capture and sidecars,
+// with unknown files rejected. Failed capture remains truthful failure evidence.
 function validateReportViewer(root, files, outcome = 'passed') {
   const runs = path.join(root, 'report-viewer-sim-e2e');
   const manifestFile = path.join(runs, 'manifest.json');
@@ -548,18 +573,28 @@ function validateReportViewer(root, files, outcome = 'passed') {
       if (!supportedHostSkip) throw new Error('EVIDENCE_CASE_HOST_SKIP');
       continue;
     }
-    if (payload.scenario !== item.scenario || (item.expected === 'PASS' ? item.status !== 0 || payload.verdict !== 'PASS' : item.status !== 1)) throw new Error('EVIDENCE_CASE_VERDICT');
+    if (payload.scenario !== item.scenario || (strict
+      ? (item.expected === 'PASS' ? item.status !== 0 || payload.verdict !== 'PASS' : item.status !== 1)
+      : !(['PASS', 'FAIL', 'SETUP_FAIL'].includes(payload.verdict)
+        && Number.isSafeInteger(item.status) && item.status >= 0
+        && (payload.verdict === 'PASS' ? item.status === 0 : item.status !== 0)))) throw new Error('EVIDENCE_CASE_VERDICT');
     const video = payload.artifacts?.video;
     const capture = payload.extras?.screen_capture;
-    if (typeof video !== 'string' || videos.has(video) || !/^[A-Za-z0-9_.-]+\.mp4$/.test(video)) throw new Error('EVIDENCE_CASE_VIDEO_IDENTITY');
-    videos.add(video);
-    const videoEntry = indexed.get(`report-viewer-sim-e2e/${video}`);
-    allowed.add(`report-viewer-sim-e2e/${video}`);
-    if (!videoEntry || videoEntry.size <= 0 || !/^[0-9a-f]{64}$/.test(videoEntry.sha256)) throw new Error('EVIDENCE_CASE_VIDEO_DIGEST');
-    if (capture?.video_ready !== true || capture.video_returncode !== 0 || capture.video_finalized !== true || capture.video_forced_kill !== false || capture.video_alive_after_teardown !== false) throw new Error('EVIDENCE_CASE_VIDEO_RECORDER');
-    const started = Number(capture.video_started_at) * 1000;
-    const finished = Number(capture.video_finished_at) * 1000;
-    if (!Number.isFinite(started) || !Number.isFinite(finished) || started > finished || videoEntry.mtime_ms < started - 2000 || videoEntry.mtime_ms > finished + 2000) throw new Error('EVIDENCE_CASE_VIDEO_TIME_BINDING');
+    // Failed capture may be absent or partial. Bind every declared byte without
+    // asserting success on the FAILED seal; the passed path retains all checks.
+    if (strict || video != null) {
+      if (typeof video !== 'string' || videos.has(video) || !/^[A-Za-z0-9_.-]+\.mp4$/.test(video)) throw new Error('EVIDENCE_CASE_VIDEO_IDENTITY');
+      videos.add(video);
+      const videoEntry = indexed.get(`report-viewer-sim-e2e/${video}`);
+      allowed.add(`report-viewer-sim-e2e/${video}`);
+      if (!videoEntry || (strict && videoEntry.size <= 0) || !/^[0-9a-f]{64}$/.test(videoEntry.sha256)) throw new Error('EVIDENCE_CASE_VIDEO_DIGEST');
+      if (strict) {
+        if (capture?.video_ready !== true || capture.video_returncode !== 0 || capture.video_finalized !== true || capture.video_forced_kill !== false || capture.video_alive_after_teardown !== false) throw new Error('EVIDENCE_CASE_VIDEO_RECORDER');
+        const started = Number(capture.video_started_at) * 1000;
+        const finished = Number(capture.video_finished_at) * 1000;
+        if (!Number.isFinite(started) || !Number.isFinite(finished) || started > finished || videoEntry.mtime_ms < started - 2000 || videoEntry.mtime_ms > finished + 2000) throw new Error('EVIDENCE_CASE_VIDEO_TIME_BINDING');
+      }
+    }
     const teardown = payload.owned_session_teardown_sidecar;
     if (teardown !== undefined && teardown !== null) {
       if (typeof teardown !== 'string' || path.basename(teardown) !== teardown
@@ -573,7 +608,8 @@ function validateReportViewer(root, files, outcome = 'passed') {
         || !Number.isSafeInteger(proof.attempted) || proof.attempted < 0
         || !Array.isArray(proof.closed) || !proof.closed.every((id) => typeof id === 'string' && id.length > 0)
         || new Set(proof.closed).size !== proof.closed.length || proof.closed_count !== proof.closed.length
-        || !Array.isArray(proof.orphans) || proof.orphan_count !== 0 || proof.orphans.length !== 0
+        || !Array.isArray(proof.orphans) || proof.orphan_count !== proof.orphans.length
+        || (strict && proof.orphan_count !== 0)
         || proof.attempted !== proof.closed_count + proof.orphan_count) throw new Error('EVIDENCE_CASE_TEARDOWN_INVALID');
       allowed.add(relative);
     }
@@ -591,6 +627,42 @@ function validateReportViewer(root, files, outcome = 'passed') {
       if (typeof sidecar !== 'string' || path.basename(sidecar) !== sidecar) throw new Error(`EVIDENCE_CASE_SIDECAR_NAME_INVALID:${sidecar}`);
       if (!indexed.has(`report-viewer-sim-e2e/${sidecar}`)) throw new Error(`EVIDENCE_CASE_SIDECAR_MISSING:${sidecar}`);
       allowed.add(`report-viewer-sim-e2e/${sidecar}`);
+    }
+  }
+  // Invocation output is written before primary-result discovery. On a failed
+  // invocation it retains the actual files even when there was no parseable
+  // primary result; it never supplies a passing case or relaxes its video checks.
+  if (manifest.invocations !== undefined) {
+    if (!Array.isArray(manifest.invocations) || manifest.invocations.length > plan.length
+      || (strict && manifest.invocations.length !== manifest.cases.filter(item => !item.skip_reason).length)) throw new Error('EVIDENCE_CASE_INVOCATIONS');
+    const seen = new Set();
+    for (const [index, item] of manifest.invocations.entries()) {
+      if (typeof item.file !== 'string' || !/^[A-Za-z0-9_.-]+\.json$/.test(item.file) || seen.has(item.file)) throw new Error('EVIDENCE_CASE_INVOCATION_IDENTITY');
+      seen.add(item.file);
+      const relative = `report-viewer-sim-e2e/invocations/${item.file}`;
+      const entry = indexed.get(relative);
+      if (!entry || entry.sha256 !== item.sha256) throw new Error('EVIDENCE_CASE_INVOCATION_DIGEST');
+      const invocation = JSON.parse(fs.readFileSync(path.join(root, relative), 'utf8'));
+      if (invocation.schema !== 1 || invocation.scenario !== plan[index][0]
+        || item.file !== `${invocation.run_id}.json` || invocation.binary !== 'python3'
+        || !Array.isArray(invocation.args) || !invocation.args.every(arg => typeof arg === 'string')
+        || !Number.isSafeInteger(invocation.owner_pid) || invocation.owner_pid <= 1
+        || !Number.isFinite(Date.parse(invocation.started_at)) || Date.parse(invocation.finished_at) < Date.parse(invocation.started_at)
+        || !Number.isFinite(Date.parse(invocation.finished_at))
+        || typeof invocation.stdout !== 'string' || typeof invocation.stderr !== 'string'
+        || !Array.isArray(invocation.artifacts)) throw new Error('EVIDENCE_CASE_INVOCATION_SCHEMA');
+      if (strict && (invocation.run_id !== manifest.cases[index].run_id || invocation.status !== manifest.cases[index].status
+        || invocation.signal !== null || invocation.error !== null)) throw new Error('EVIDENCE_CASE_INVOCATION_OUTCOME');
+      const artifactNames = new Set();
+      for (const artifact of invocation.artifacts) {
+        if (typeof artifact.name !== 'string' || path.basename(artifact.name) !== artifact.name
+          || artifactNames.has(artifact.name) || artifact.name === 'manifest.json') throw new Error('EVIDENCE_CASE_INVOCATION_ARTIFACT_IDENTITY');
+        artifactNames.add(artifact.name);
+        const artifactRelative = `report-viewer-sim-e2e/${artifact.name}`;
+        if (indexed.get(artifactRelative)?.sha256 !== artifact.sha256) throw new Error('EVIDENCE_CASE_INVOCATION_ARTIFACT_DIGEST');
+        if (!strict) allowed.add(artifactRelative);
+      }
+      allowed.add(relative);
     }
   }
   for (const entry of files.filter((item) => item.relative.startsWith('report-viewer-sim-e2e/'))) if (!allowed.has(entry.relative)) throw new Error(`EVIDENCE_UNKNOWN_NESTED_FILE:${entry.relative}`);
@@ -850,7 +922,7 @@ function idbCompanionSocket(udid) { return path.join(idbRoot(), `${udid}_compani
 // in sim-e2e, many minutes after boot. If the device never boots the socket never appears and the client
 // fails loudly at connect - the failure is reported here too, so a watcher that never fired is visible
 // rather than silent (R8).
-function startIdbCompanionWatcher(udid, deviceSet) {
+function startIdbCompanionWatcher(udid, deviceSet, inputContextFile = null) {
   const state = { companion: null, failure: null, timer: null, booted: false };
   const booted = () => {
     const listed = spawnSync('/usr/bin/xcrun', ['simctl', '--set', deviceSet, 'list', 'devices', '--json'], { encoding: 'utf8' });
@@ -866,7 +938,10 @@ function startIdbCompanionWatcher(udid, deviceSet) {
     try { ready = booted(); } catch (error) { state.failure = `probe:${String(error.message || error)}`; }
     if (!ready) return;
     state.booted = true;
-    try { state.companion = spawnIdbCompanion(udid, deviceSet, (owner) => { state.companion = owner; }); }
+    try {
+      state.companion = spawnIdbCompanion(udid, deviceSet, (owner) => { state.companion = owner; });
+      if (inputContextFile) atomicJson(inputContextFile, require('./report-viewer-sim-e2e.cjs').createDirectInputContext(state.companion, deviceSet, udid));
+    }
     catch (error) { state.failure = String(error.message || error); }
     // LAYER 16 DELIBERATELY DOES **NOT** RIDE THIS EDGE, and the empty space is the point. Launching the
     // Simulator surface here was MEASURED at run example-01 and took the diagnostic from 7/9 to 0/9: the
@@ -1032,6 +1107,18 @@ function simulatorSurfaceProcessState(pid) {
 
 function stopSimulatorSurfaceTrigger(trigger, evidenceRoot, runId) {
   if (trigger) trigger.stop();
+  if (trigger?.adapter === 'private-idb') {
+    const context = trigger.inputContext || null;
+    const record = { schema: 2, run_id: runId, adapter: 'private-idb',
+      status: trigger.failure || trigger.probeFailure ? 'failed' : context ? 'verified' : 'not-ready',
+      reason: trigger.failure || trigger.probeFailure ? 'adapter-binding-failed' : context ? 'case-results-complete' : 'case-results-incomplete',
+      observed_results: trigger.observedResults || 0, required_results: trigger.requiredResults,
+      context, context_sha256: trigger.inputContextSha256 || null, gui_launched: false,
+      cleanup: { status: 'not-required', error: null, outcomes: [] }, completed_at: new Date().toISOString() };
+    atomicJson(path.join(evidenceRoot, 'storage-surface-trigger.json'), record);
+    process.stderr.write(`[storage-gate] input adapter: private-idb status=${record.status} gui_launched=no\n`);
+    return;
+  }
   const surfaces = [...new Map((trigger?.surfaces || []).map((surface) => [surface.pid, surface])).values()];
   const cleanupFailures = [];
   const cleanupOutcomes = [];
@@ -1631,7 +1718,8 @@ async function runFullGate(runId, lockToken, dependencies = {}) {
     reapHostSimulatorSubstrate(environment);
     // AFTER the reap, which kills stale companions - spawning before it would have this run's own
     // companion reaped by the very sweep meant to clear the previous run's.
-    environment.idbCompanionWatcher = startIdbCompanionWatcher(environment.simulatorUdid, environment.deviceSet);
+    environment.inputContextFile = path.join(scratch, 'direct-device-input.json');
+    environment.idbCompanionWatcher = startIdbCompanionWatcher(environment.simulatorUdid, environment.deviceSet, environment.inputContextFile);
     // The certified denial wait absorbs the race between case 9 entering its keyboard wrapper and this
     // host-side launch. Count the run's own result JSONs under the wrapper-resolved evidence mount: once
     // case 8 completes, launch within the wait window. The diagnostic driver mirrors the same real case
@@ -1645,9 +1733,18 @@ async function runFullGate(runId, lockToken, dependencies = {}) {
         diagnosticSurfaceTriggerDirectory,
       ],
       requiredResults: reportViewerResultsBeforeKeyboard(),
-      launch: () => launchSimulatorSurface(environment.simulatorUdid, environment.deviceSet),
+      launch: () => {
+        const raw = fs.readFileSync(environment.inputContextFile, 'utf8');
+        const context = require('./report-viewer-sim-e2e.cjs').validateDirectInputContext(JSON.parse(raw));
+        if (context.udid !== environment.simulatorUdid || context.device_set_root !== fs.realpathSync(environment.deviceSet)
+          || context.owner_pid !== process.pid) throw new Error('DIRECT_INPUT_WRAPPER_BINDING');
+        environment.simulatorSurfaceTrigger.inputContext = context;
+        environment.simulatorSurfaceTrigger.inputContextSha256 = crypto.createHash('sha256').update(raw).digest('hex');
+        return null; // The case uses the owned companion; no GUI process is launched.
+      },
       onHostSkip: (skip) => atomicJson(path.join(diagnosticSurfaceTriggerDirectory, 'host-simulator-surface-skip.json'), { schema: 1, ...skip }),
     });
+    environment.simulatorSurfaceTrigger.adapter = 'private-idb';
     // /bin/ps is SETUID ROOT and the kernel refuses to exec a setuid binary under sandbox-exec. Verified
     // here under the REAL rendered profile, not a hand-rolled one: real /bin/ps fails execvp with
     // "Operation not permitted" at rc 71, while a de-setuid, AD-HOC RE-SIGNED copy of the same binary runs
@@ -1697,6 +1794,7 @@ async function runFullGate(runId, lockToken, dependencies = {}) {
       // in-container client talks straight to the wrapper's device-set-aware companion and never runs
       // the target resolution that cannot see a private device set.
       IDB_COMPANION: idbCompanionSocket(environment.simulatorUdid),
+      PENTACLE_REPORT_VIEWER_INPUT_CONTEXT: environment.inputContextFile,
       // LAYER 18, and it is the reason three companion fixes changed nothing observable: `idb` is a
       // pip --user install, so its module lives ONLY in python's USER site-packages, and
       // site.getusersitepackages() is derived from HOME. This wrapper redirects HOME into the scratch,

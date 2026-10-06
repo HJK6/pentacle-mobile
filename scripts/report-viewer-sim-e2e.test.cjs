@@ -39,6 +39,47 @@ test('unknown and duplicate primary JSON remain counted', (t) => {
   assert.deepEqual(selectScenarioResults(root), ['duplicate.json', 'primary.json', 'unknown.json']);
 });
 
+for (const resultCount of [0, 2]) {
+  test(`scenario discovery preserves argv and original child output with ${resultCount} results`, (t) => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'scenario-invocation-'));
+    t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+    const runsDir = path.join(root, 'report-viewer-sim-e2e'); fs.mkdirSync(runsDir);
+    const source = fs.readFileSync(require.resolve(runnerModule), 'utf8');
+    const actual = source.match(/^function runScenario\([\s\S]*?^\}/m);
+    assert.ok(actual, 'actual private scenario boundary must exist');
+    const manifest = { status: 'failed', attempts_per_case: 1, cases: [] };
+    const execute = vm.runInNewContext(`(${actual[0]})`, {
+      fs, path, crypto: require('node:crypto'), ROOT: '/synthetic/public/product',
+      process: { pid: 431, env: { PRIVATE_TEST_SECRET: 'do-not-record-environments' } },
+      resultFiles: require(runnerModule).resultFiles,
+      spawnSync(binary, args, options) {
+        assert.equal(binary, 'python3');
+        assert.equal(options.env.PRIVATE_TEST_SECRET, 'do-not-record-environments');
+        for (let index = 0; index < resultCount; index += 1) fs.writeFileSync(path.join(runsDir, `primary-${index}.json`), '{"original":"bytes"}');
+        return { status: 29, signal: null, stdout: 'original stdout\n', stderr: 'original native failure\n' };
+      },
+    });
+    assert.throws(() => execute({ scenario: 'report_viewer_horizontal_scroll', runsDir, runId: 'owned-run', manifest }), new RegExp(`produced ${resultCount} result JSON files`));
+    const invocationPath = path.join(runsDir, 'invocations', 'owned-run.json');
+    const raw = fs.readFileSync(invocationPath, 'utf8');
+    assert.ok(!raw.includes('do-not-record-environments'));
+    const receipt = JSON.parse(raw);
+    assert.equal(receipt.status, 29); assert.equal(receipt.owner_pid, 431);
+    assert.equal(receipt.stdout, 'original stdout\n'); assert.equal(receipt.stderr, 'original native failure\n');
+    assert.deepEqual(receipt.args, ['test/e2e/run_scenario.py', 'report_viewer_horizontal_scroll', '--runs-dir', runsDir]);
+    assert.equal(receipt.artifacts.length, resultCount);
+    assert.equal(manifest.invocations[0].sha256, require('node:crypto').createHash('sha256').update(raw).digest('hex'));
+    fs.writeFileSync(path.join(runsDir, 'manifest.json'), JSON.stringify(manifest));
+    const gate = require('./storage-gate.cjs');
+    assert.doesNotThrow(() => gate.validateReportViewer(root, gate.enumerateEvidence(root), 'failed'));
+    assert.throws(() => gate.validateReportViewer(root, gate.enumerateEvidence(root), 'passed'), /EVIDENCE_CASE_MANIFEST_INVALID/);
+    if (resultCount) {
+      fs.writeFileSync(path.join(runsDir, 'primary-0.json'), 'tampered');
+      assert.throws(() => gate.validateReportViewer(root, gate.enumerateEvidence(root), 'failed'), /EVIDENCE_CASE_INVOCATION_ARTIFACT_DIGEST/);
+    }
+  });
+}
+
 for (const [label, payload] of [
   ['primary disguised as teardown', { verdict: 'PASS' }],
   ['orphaned owner', { attempted: 1, closed: [], closed_count: 0, orphans: [{ stream_id: 'owned' }], orphan_count: 1 }],
@@ -55,6 +96,71 @@ test('scenario results reject malformed teardown JSON', (t) => {
   assert.throws(() => selectScenarioResults(root), /SCENARIO_TEARDOWN_INVALID/);
 });
 const { commandHasExactArgumentPair, recordCaseAttempt, requireRecorderPreflight, runRecorderPreflight, scenarioPlan, SENTINELS, suppressCrashReporterDialogs, validateSentinelResult, withSoftwareKeyboard } = require(runnerModule);
+
+async function directInputFixture(t) {
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'report-direct-input-')));
+  const deviceSet = path.join(root, 'Devices'); fs.mkdirSync(deviceSet);
+  const socket = path.join(root, 'owned.sock');
+  const server = require('node:net').createServer();
+  await new Promise((resolve, reject) => { server.once('error', reject); server.listen(socket, resolve); });
+  t.after(async () => { await new Promise(resolve => server.close(resolve)); fs.rmSync(root, { recursive: true, force: true }); });
+  const context = { schema: 1, adapter: 'private-idb', owner_pid: 9911,
+    companion_pid: 4321, companion_birth: '12345', device_set_root: deviceSet, udid: 'SIM-EXACT', socket };
+  const file = path.join(root, 'input.json'); fs.writeFileSync(file, JSON.stringify(context));
+  return { context, file, env: { PENTACLE_SCENARIO_DEVICE_SET_ROOT: deviceSet,
+    PENTACLE_GATE_BOUND_SIMULATOR_UDID: 'SIM-EXACT', IDB_COMPANION: socket,
+    SIM_QUEUE_OWNER_VERIFIED_PID: '9911', PENTACLE_REPORT_VIEWER_INPUT_CONTEXT: file } };
+}
+
+test('private idb adapter uses the exact owned companion without a GUI prerequisite', async (t) => {
+  const fixture = await directInputFixture(t);
+  const calls = [];
+  const execution = { marker: 'case-execution-only' }; // No manufactured native verdict.
+  const command = (binary, args) => {
+    calls.push([binary, args]);
+    if (binary === 'python3') return { status: 0, stdout: JSON.stringify({ rows: [{ pid: 4321, start: '12345', cpuProbeErrno: 0 }] }), stderr: '' };
+    if (binary === 'idb') return { status: 0, stdout: JSON.stringify({ udid: 'SIM-EXACT', state: 'Booted', target_type: 'simulator' }), stderr: '' };
+    throw new Error(`unexpected GUI command ${binary}`);
+  };
+  const result = withSoftwareKeyboard(() => execution, command, fixture.env, () => {}, () => {}, () => {});
+  assert.equal(result, execution);
+  assert.equal(result.inputAdapter.context.companion_pid, 4321);
+  assert.deepEqual(calls.map(([binary]) => binary), ['python3', 'idb', 'python3']);
+});
+
+test('private idb adapter refuses absent context, foreign bindings and reused PID without falling back', async (t) => {
+  const fixture = await directInputFixture(t);
+  const run = () => assert.fail('invalid binding must not start a case');
+  const command = (binary) => {
+    assert.equal(binary, 'python3');
+    return { status: 0, stdout: JSON.stringify({ rows: [{ pid: 4321, start: '54321', cpuProbeErrno: 0 }] }), stderr: '' };
+  };
+  for (const override of [
+    { PENTACLE_REPORT_VIEWER_INPUT_CONTEXT: undefined },
+    { PENTACLE_GATE_BOUND_SIMULATOR_UDID: 'FOREIGN' },
+    { SIM_QUEUE_OWNER_VERIFIED_PID: '9912' },
+    { IDB_COMPANION: fixture.env.IDB_COMPANION + '.foreign' },
+    { PENTACLE_SCENARIO_DEVICE_SET_ROOT: '' },
+  ]) assert.throws(() => withSoftwareKeyboard(run, command, { ...fixture.env, ...override }), /DIRECT_INPUT/);
+  const noRoot = { ...fixture.env }; delete noRoot.PENTACLE_SCENARIO_DEVICE_SET_ROOT;
+  assert.throws(() => withSoftwareKeyboard(run, command, noRoot), /DIRECT_INPUT/);
+  assert.throws(() => withSoftwareKeyboard(run, command, fixture.env), /DIRECT_INPUT_COMPANION_IDENTITY/);
+});
+
+test('private idb adapter retains target-probe stderr and refuses a different or unavailable device', async (t) => {
+  const fixture = await directInputFixture(t);
+  for (const probe of [
+    { status: 1, stdout: '', stderr: 'original companion failure' },
+    { status: 0, stdout: '{malformed', stderr: '' },
+    { status: 0, stdout: JSON.stringify({ udid: 'FOREIGN', state: 'Booted', target_type: 'simulator' }), stderr: '' },
+    { status: 0, stdout: JSON.stringify({ udid: 'SIM-EXACT', state: 'Shutdown', target_type: 'simulator' }), stderr: '' },
+  ]) {
+    const command = binary => binary === 'python3'
+      ? { status: 0, stdout: JSON.stringify({ rows: [{ pid: 4321, start: '12345', cpuProbeErrno: 0 }] }), stderr: '' }
+      : probe;
+    assert.throws(() => withSoftwareKeyboard(() => assert.fail('must refuse'), command, fixture.env), /DIRECT_INPUT_TARGET/);
+  }
+});
 
 function successfulRecorderProbe(phase, startedAt = 10) {
   return {

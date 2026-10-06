@@ -116,6 +116,27 @@ def crash_signal(lines, pid):
     return None
 
 
+def signal_owned_native(command, udid, bundle, pid, signal):
+    """Signal the exact simulator launchd job resolved to the armed native PID."""
+    if signal not in {"SIGTERM", "SIGABRT"} or not re.fullmatch(r"[1-9][0-9]*", str(pid)):
+        raise RuntimeError("owned native signal identity invalid")
+    listed = command("spawn", udid, "launchctl", "list")
+    if resolve_pids(listed, bundle) != [pid]:
+        raise RuntimeError("owned termination identity changed")
+    labels = []
+    for line in listed.stdout.splitlines():
+        parts = line.split()
+        if len(parts) == 3 and parts[0] == pid and re.search(r"(?:^|:)" + re.escape(bundle) + r"(?:\[|$)", parts[2]):
+            labels.append(parts[2])
+    if len(labels) != 1:
+        raise RuntimeError("owned native signal job is not unique")
+    service = "system/" + labels[0]
+    killed = command("spawn", udid, "launchctl", "kill", signal, service)
+    if killed.returncode:
+        raise RuntimeError("owned native sentinel termination failed: " + killed.stderr)
+    return {"signal": signal, "pid": pid, "service": service, "returncode": killed.returncode}
+
+
 class NativeCapture:
     def __init__(self, config, runs_dir, stem):
         self.config, self.runs_dir, self.stem = config, runs_dir, stem
@@ -128,6 +149,15 @@ class NativeCapture:
         if result.returncode or not (self.runs_dir / name).is_file():
             raise RuntimeError("bound simulator screenshot failed")
         self.screenshots.append(name)
+
+
+def record_cleanup_failure(result, message):
+    if result.error and not result.extras.get("cleanup_failures"):
+        result.extras["primary_failure"] = {"verdict": result.verdict, "error": result.error}
+    result.extras.setdefault("cleanup_failures", []).append(message)
+    result.verdict = "SETUP_FAIL"
+    if not result.error:
+        result.error = message
 
 
 def execute_native(name, config, runs_dir, stem):
@@ -151,8 +181,8 @@ def execute_native(name, config, runs_dir, stem):
             "stdout": result.stdout, "stderr": result.stderr}) + "\n")
         trace_file.flush()
     config["trace"] = trace
-    def command(*args):
-        result = subprocess.run([*simctl, *args], capture_output=True, text=True, timeout=30, check=False)
+    def command(*args, env=None):
+        result = subprocess.run([*simctl, *args], capture_output=True, text=True, timeout=30, check=False, env=env)
         trace("simctl " + " ".join(args), result)
         return result
     def liveness():
@@ -168,6 +198,7 @@ def execute_native(name, config, runs_dir, stem):
     teardown = {"attempted": 0, "closed": [], "closed_count": 0, "orphans": [], "orphan_count": 0}
     monitor = None
     video = None
+    owned_signal = None
     try:
         # A running bundle belongs to another journey; the runner must not adopt or kill it.
         if liveness()["resolved_pids"]:
@@ -196,7 +227,8 @@ def execute_native(name, config, runs_dir, stem):
             config["runtime_sentinel_release_url"] = f"http://127.0.0.1:{release_server.server_port}/{token}"
         query = {"scenario": name, "scenario_run_id": run_id, "actions": ",".join(module.actions(config)), **module.params(config)}
         url = "pentacle://harness?" + urlencode(query)
-        launched = command("launch", udid, bundle, "-PentacleHarnessURL", url)
+        launched = command("launch", udid, bundle, "-HarnessUrl", url,
+            env={**os.environ, "SIMCTL_CHILD_PENTACLE_ALLOW_HARNESS_LAUNCH_ARG": "1"})
         match = re.fullmatch(re.escape(bundle) + r":\s*(\d+)\s*", launched.stdout.strip())
         if launched.returncode or not match:
             raise RuntimeError("bound harness launch did not return its exact PID")
@@ -217,9 +249,8 @@ def execute_native(name, config, runs_dir, stem):
             current = liveness()
             if current["resolved_pids"] != [launch_pid]:
                 raise RuntimeError("owned termination identity changed")
-            killed = command("spawn", udid, "kill", "-ABRT" if sentinel == "crash_only" else "-TERM", launch_pid)
-            if killed.returncode:
-                raise RuntimeError("owned native sentinel termination failed")
+            owned_signal = signal_owned_native(command, udid, bundle, launch_pid,
+                "SIGABRT" if sentinel == "crash_only" else "SIGTERM")
         time.sleep(2.5)
         after = liveness()
         errors = [e for e in stream.all_events() if e.message == "harness:runtime_error" and e.data.get("scenario_run_id") == run_id and getattr(e, "native_pid", None) == launch_pid]
@@ -227,7 +258,8 @@ def execute_native(name, config, runs_dir, stem):
         owned = sentinel if name == "report_viewer_runtime_sentinel" and sentinel in {"crash_only", "liveness_loss"} else None
         kind = "harness_owned_crash" if owned == "crash_only" else "harness_owned_termination" if owned == "liveness_loss" else "alive" if after["bundle_present"] else "unexpected_exit"
         monitor = {"settle_s": 2.5, "fresh_crash_report": None, "crash_exit_signal": signal_evidence,
-            "liveness": after, "process_identity": identity, "outcome": {"kind": kind, "pids": after["resolved_pids"]}, "owned_termination": owned}
+            "liveness": after, "process_identity": identity, "outcome": {"kind": kind, "pids": after["resolved_pids"]}, "owned_termination": owned,
+            "owned_signal": owned_signal}
         if sentinel == "fatal":
             released = [e for e in stream.all_events() if e.message == "harness:runtime_sentinel_released" and e.data.get("scenario_run_id") == run_id and e.data.get("sentinel") == sentinel and getattr(e, "native_pid", None) == launch_pid]
             fatal = [e for e in errors if e.data.get("source") == "uncaught" and e.data.get("fatal") is True]
@@ -259,15 +291,15 @@ def execute_native(name, config, runs_dir, stem):
                 teardown["closed"].append(f"native:{udid}:{launch_pid}")
             except Exception as exc:
                 teardown["orphans"].append(f"native:{udid}:{launch_pid}")
-                result.verdict, result.error = "SETUP_FAIL", str(exc)
+                record_cleanup_failure(result, str(exc))
         if recorder.process:
             video = recorder.stop()
             if not video.get("video_finalized") or video.get("video_alive_after_teardown") or video.get("video_forced_kill"):
-                result.verdict, result.error = "SETUP_FAIL", "case recorder teardown failed"
+                record_cleanup_failure(result, "case recorder teardown failed")
         try:
             stream.close()
         except Exception as exc:
-            result.verdict, result.error = "SETUP_FAIL", str(exc)
+            record_cleanup_failure(result, str(exc))
         trace_file.close()
         teardown.update(closed_count=len(teardown["closed"]), orphan_count=len(teardown["orphans"]))
     result.finish()

@@ -74,9 +74,41 @@ def test_crash_proof_requires_the_exact_launched_pid_and_native_signal():
     assert proof["pid"] == "91" and proof["signal"] == "SIGABRT"
 
 
+@pytest.mark.parametrize("listing", [
+    "99 0 UIKitApplication:com.example.harness[foreign]\n",
+    "91 0 UIKitApplication:com.example.harness.other[foreign]\n",
+    "91 0 UIKitApplication:com.example.harness[a]\n91 0 UIKitApplication:com.example.harness[b]\n",
+])
+def test_owned_native_signal_refuses_foreign_or_reused_job_without_signaling(listing):
+    calls = []
+    def command(*args):
+        calls.append(args)
+        assert args == ("spawn", "EXACT-UDID", "launchctl", "list")
+        return SimpleNamespace(returncode=0, stdout=listing, stderr="")
+    with pytest.raises(RuntimeError, match="identity changed|not unique"):
+        runner.signal_owned_native(command, "EXACT-UDID", "com.example.harness", "91", "SIGABRT")
+    assert len(calls) == 1
+
+
+def test_owned_native_signal_retains_real_command_failure_and_rejects_unknown_signal():
+    calls = []
+    def command(*args):
+        calls.append(args)
+        if args[-1] == "list":
+            return SimpleNamespace(returncode=0, stdout="91 0 UIKitApplication:com.example.harness[owned]\n", stderr="")
+        return SimpleNamespace(returncode=111, stdout="", stderr="original launchd signal failure\n")
+    with pytest.raises(RuntimeError, match="original launchd signal failure"):
+        runner.signal_owned_native(command, "EXACT-UDID", "com.example.harness", "91", "SIGTERM")
+    assert calls[-1] == ("spawn", "EXACT-UDID", "launchctl", "kill", "SIGTERM", "system/UIKitApplication:com.example.harness[owned]")
+    calls.clear()
+    with pytest.raises(RuntimeError, match="identity invalid"):
+        runner.signal_owned_native(command, "EXACT-UDID", "com.example.harness", "91", "SIGKILL")
+    assert calls == []
+
+
 @pytest.mark.parametrize("sentinel", ["clean", "crash_only", "liveness_loss"])
 @pytest.mark.parametrize("armed_pid,expected", [("91", "PASS"), ("77", "SETUP_FAIL")])
-def test_native_dispatch_binds_actual_launch_and_census_and_cleans_its_resources(tmp_path, monkeypatch, armed_pid, expected, sentinel):
+def test_native_dispatch_binds_actual_launch_and_census_and_cleans_its_resources(tmp_path, monkeypatch, armed_pid, expected, sentinel, close_error=False):
     state = {"launched": False, "log_closed": False, "recorder_closed": False}
     bundle = "com.example.synthetic.harness"
     udid = "12345678-1234-1234-1234-123456789abc"
@@ -97,7 +129,10 @@ def test_native_dispatch_binds_actual_launch_and_census_and_cleans_its_resources
         def start(self): return self
         def all_events(self): return events
         def next_event(self, **_kwargs): return None
-        def close(self): state["log_closed"] = True
+        def close(self):
+            state["log_closed"] = True
+            if close_error:
+                raise RuntimeError("native log capture did not close")
     class Video:
         def __init__(self, _udid, path, **_kwargs): self.path, self.process = path, object()
         def start(self): self.path.write_bytes(b"supplied fixture video"); return True
@@ -109,14 +144,18 @@ def test_native_dispatch_binds_actual_launch_and_census_and_cleans_its_resources
         calls.append(argv)
         assert argv[:4] == ["xcrun", "simctl", "--set", device_set]
         args = argv[4:]
-        if args[:4] == ["spawn", udid, "kill", "-ABRT"] or args[:4] == ["spawn", udid, "kill", "-TERM"]:
-            assert args[-1] == "91"
+        if args[:3] == ["spawn", udid, "kill"]:
+            return SimpleNamespace(returncode=2, stdout="", stderr="No such file or directory\n")
+        if args[:4] == ["spawn", udid, "launchctl", "kill"]:
+            assert args[4:] == ["SIGABRT" if sentinel == "crash_only" else "SIGTERM", f"system/UIKitApplication:{bundle}[fixture]"]
             state["launched"] = False
             output = ""
         elif args[:2] == ["spawn", udid]:
             output = f"91 0 UIKitApplication:{bundle}[fixture]\n" if state["launched"] else ""
         elif args[0] == "launch":
             assert args[1:3] == [udid, bundle]
+            assert args[3] == "-HarnessUrl"
+            assert _kwargs["env"]["SIMCTL_CHILD_PENTACLE_ALLOW_HARNESS_LAUNCH_ARG"] == "1"
             state["launched"] = True
             output = bundle + ": 91\n"
         elif args[0] == "terminate":
@@ -137,12 +176,21 @@ def test_native_dispatch_binds_actual_launch_and_census_and_cleans_its_resources
     assert payload["verdict"] == expected
     assert state == {"launched": False, "log_closed": True, "recorder_closed": True}
     assert proof == {"attempted": 1, "closed": [f"native:{udid}:91"], "closed_count": 1, "orphans": [], "orphan_count": 0}
+    if close_error:
+        assert payload["result"]["error"] == "same-run arming did not verify the exact launched native PID"
+        assert payload["result"]["extras"]["cleanup_failures"] == ["native log capture did not close"]
     if armed_pid == "91":
         identity = payload["result"]["extras"]["runtime_monitor"]["process_identity"]
         assert identity["launch_pid"] == identity["armed_telemetry_pid"] == "91"
         assert any(argv[4] == "io" for argv in calls)
         if sentinel != "clean":
-            assert any(argv[4:7] == ["spawn", udid, "kill"] for argv in calls)
+            assert any(argv[4:8] == ["spawn", udid, "launchctl", "kill"] for argv in calls)
+            assert not any(argv[4:7] == ["spawn", udid, "kill"] for argv in calls)
+
+
+def test_native_setup_and_log_cleanup_failures_preserve_both_errors(tmp_path, monkeypatch):
+    test_native_dispatch_binds_actual_launch_and_census_and_cleans_its_resources(
+        tmp_path, monkeypatch, "77", "SETUP_FAIL", "clean", close_error=True)
 
 
 @pytest.mark.parametrize("root", [None, "", "relative/device-set", "/synthetic/foreign/device-set"])

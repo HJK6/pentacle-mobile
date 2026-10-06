@@ -128,6 +128,45 @@ test('actual report producer mounts the real report and comment target without a
   expect(screen.getByTestId('report-comment-send')).toBeTruthy();
 });
 
+test('actual fixture comment enables Send, persists the body and confirms the same run', async () => {
+  const core = require('pentacle-chat-core');
+  const telemetry: Array<{ message: string; data: Record<string, unknown> }> = [];
+  const stop = core.teeTelemetrySink((payload: typeof telemetry[number]) => telemetry.push(payload));
+  try {
+    render(<SessionScreen />);
+    const marker = await screen.findByTestId(`report-block-comment-target--${runId}`);
+    expect(marker.props.pointerEvents).toBe('none');
+    expect(marker.props.accessible).toBe(true);
+    const interaction = screen.getByTestId(`report-block-interaction-comment-target--${runId}`);
+    expect(interaction.props.accessible).toBe(false);
+    fireEvent.press(interaction);
+    const input = await screen.findByTestId('report-comment-input');
+    expect(screen.getByTestId('report-comment-send').props.accessibilityState.disabled).toBe(true);
+    // The native scenario sends an ASCII decimal string; this mounted check
+    // verifies real state/persistence and never synthesizes a keyboard event.
+    const body = '197835260411993';
+    fireEvent.changeText(input, body);
+    await waitFor(() => expect(screen.getByTestId('report-comment-send').props.accessibilityState.disabled).toBe(false));
+    await act(async () => fireEvent.press(screen.getByTestId('report-comment-send')));
+    const assets = require('../src/services/pentacleAssets');
+    const report = assets.getSessionReports(mockParams.streamId)[0];
+    const comments = await assets.listReportComments(mockParams.streamId, report);
+    expect(comments).toHaveLength(1);
+    expect(comments[0]).toMatchObject({
+      comment_id: 'harness-comment-1', asset_id: report.asset_id,
+      section_id: 'matrix-section', block_id: `comment-target--${runId}`, body,
+    });
+    expect(telemetry.filter(event => event.message === 'report:comment_confirmed')).toEqual([
+      expect.objectContaining({ data: { block_id: `comment-target--${runId}`,
+        comment_id: 'harness-comment-1', body, scenario_run_id: runId } }),
+    ]);
+    expect(telemetry.some(event => event.message === 'report:comment_keyboard')).toBe(false);
+    expect(mockActions.sendMessage).not.toHaveBeenCalled();
+  } finally {
+    stop();
+  }
+});
+
 test.each(['unarmed', 'wrong-run', 'missing-action'] as const)('report fixture refuses %s and retains normal auth', async (condition) => {
   if (condition === 'unarmed') runtime.reset();
   if (condition === 'wrong-run') mockParams.streamId = `fixture:report-viewer:another-run`;

@@ -1,8 +1,11 @@
 from __future__ import annotations
-import io
 import json
+import os
 from pathlib import Path
 import signal
+import subprocess
+import sys
+import time
 from types import SimpleNamespace
 import pytest
 from e2e.harness.log_capture import LogStream
@@ -16,7 +19,9 @@ def test_native_log_stream_uses_the_exact_private_device_set_and_closes(tmp_path
     calls = []
     class Process:
         def __init__(self):
-            self.stdout = io.StringIO("")
+            read_fd, write_fd = os.pipe()
+            os.close(write_fd)
+            self.stdout = os.fdopen(read_fd, "r")
             self.status = None
             self.signals = []
         def poll(self): return self.status
@@ -32,6 +37,46 @@ def test_native_log_stream_uses_the_exact_private_device_set_and_closes(tmp_path
     assert calls[0][0][:7] == ["xcrun", "simctl", "--set", device_set, "spawn", "synthetic-udid", "log"]
     assert process.signals == [signal.SIGTERM]
     assert stream.output.closed and not stream.reader.is_alive()
+
+
+def test_native_log_close_stops_its_owned_pipe_reader_when_another_writer_remains(tmp_path, monkeypatch):
+    monkeypatch.setenv("PENTACLE_SCENARIO_DEVICE_SET_ROOT", "/synthetic/private simulator set")
+    read_fd, write_fd = os.pipe()
+    process = None
+    def popen(argv, **_kwargs):
+        nonlocal process
+        assert argv[:7] == ["xcrun", "simctl", "--set", "/synthetic/private simulator set", "spawn", "exact-owned-udid", "log"]
+        process = subprocess.Popen([sys.executable, "-c", "import time;time.sleep(30)"], stdout=write_fd)
+        process.stdout = os.fdopen(read_fd, "r")
+        return process
+    stream = LogStream("exact-owned-udid", tmp_path / "native.log", popen=popen)
+    try:
+        stream.start()
+        line = json.dumps({"processID": 91, "eventMessage": '[TELEMETRY] {"message":"harness:harness_armed","data":{"scenario_run_id":"owned"}}'}) + "\n"
+        os.write(write_fd, line.encode())
+        deadline = time.monotonic() + 2
+        while not stream.all_events() and time.monotonic() < deadline:
+            time.sleep(.01)
+        assert stream.all_events()[0].native_pid == "91"
+        os.write(write_fd, line.encode())
+        started = time.monotonic()
+        stream.close()
+        assert time.monotonic() - started < 2
+        assert process.returncode == -signal.SIGTERM
+        assert stream.output.closed and process.stdout.closed and not stream.reader.is_alive()
+        assert (tmp_path / "native.log").read_text() == line * 2
+        assert len(stream.all_events()) == 2
+    finally:
+        os.close(write_fd)
+        if process and process.poll() is None:
+            process.kill()
+            process.wait(timeout=2)
+        if hasattr(stream, "reader"):
+            stream.reader.join(timeout=2)
+        if hasattr(stream, "output") and not stream.output.closed:
+            stream.output.close()
+        if process and not process.stdout.closed:
+            process.stdout.close()
 
 
 @pytest.mark.parametrize("root", [None, "", "relative/device-set"])

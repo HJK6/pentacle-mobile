@@ -37,9 +37,11 @@ def run(config, stream, cap=None):
             raise RuntimeError(f"missing accessibility target {identifier}")
         frame = frames[identifier]
         invoke("tap", str(int(frame["x"] + frame["width"] / 2)), str(int(frame["y"] + frame["height"] / 2)))
-    tap(f"report-block-interaction-comment-target--{run_id}")
+    tap(f"report-block-comment-target--{run_id}")
     tap("report-comment-input")
     keyboard = await_event(stream, EventSpec("report:comment_keyboard", {"scenario_run_id": run_id, "unobscured": True}, 10))
+    if cap and keyboard:
+        cap.screenshot("keyboard")
     body = comment_body(run_id)
     invoke("text", body)
     tap("report-comment-send")
