@@ -24,7 +24,7 @@ const EXPECTED_PINS = {
   'scripts/owned-process.cjs': '9f0a45f47395af5b6de954e9b787f339b3067be6a5ebffd634075a03690818db',
   'scripts/prod-build.cjs': 'e39cf6c13c66edd3b8be13ebd02b2e8a45ed204b5fe866600a4b4bed17a5d349',
   'scripts/report-viewer-sim-e2e.cjs': '39173856affcd35fcadb20ac10d240456506cd11c732e88970f5f2b43efc5fdd',
-  'scripts/report-viewer-sim-e2e.test.cjs': '1c26f8757e82c417eebb643f67bab9d40356931d534d416e0d02f7ebef1c8be1',
+  'scripts/report-viewer-sim-e2e.test.cjs': '1a64cd821062084bdc8519fe29160191de3785a440e7fed410c9a5414e05871b',
   'scripts/reset-simulator-app.cjs': '9b41a6acaba3fe27f319a89f4d7824a4e221c764efd657fa77e33bcb089284f5',
   'scripts/sim-resource-guard.cjs': '5d9c910ba81db1526f5a5cb74db47ff206497979aa280461d1b67b4db7a15b9c',
   'scripts/sim-substrate.cjs': '7d357248c077e9d7833e84d5ff5ea7e7dece7ccff1f0d6014d2c6e57e8396c59',
