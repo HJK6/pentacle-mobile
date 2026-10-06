@@ -320,9 +320,10 @@ const PUBLIC_ORIGINS = new Set([
   'git@github.com:HJK6/pentacle-mobile.git', 'ssh://git@github.com/HJK6/pentacle-mobile.git',
 ]);
 
-function publicRootGit(repository, args) {
+function publicRootGit(repository, args, { discover = false } = {}) {
+  const pin = discover ? [] : [`--git-dir=${path.join(repository, '.git')}`, `--work-tree=${repository}`];
   try {
-    const stdout = execFileSync('/usr/bin/git', ['-c', 'core.fsmonitor=false', '-C', repository, ...args], {
+    const stdout = execFileSync('/usr/bin/git', ['-c', 'core.fsmonitor=false', ...pin, '-C', repository, ...args], {
       encoding: 'utf8', timeout: 30000, stdio: ['ignore', 'pipe', 'pipe'],
       env: { PATH: '/usr/bin:/bin', HOME: os.homedir(), LC_ALL: 'C', GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1', GIT_TERMINAL_PROMPT: '0' },
     });
@@ -353,6 +354,10 @@ function assertPublicRoot(layout = fixedLayout(), scriptRoot = __dirname, git = 
     if (result.status !== 0 || lines.length < 1 || !lines.every((line) => PUBLIC_ORIGINS.has(line))) throw new Error('PUBLIC_ROOT_ORIGIN');
   }
   if (git(repository, ['config', '--includes', '--get-regexp', '^url\\..*\\.(push)?insteadof$']).status !== 1) throw new Error('PUBLIC_ROOT_ORIGIN');
+  const refspecs = git(repository, ['config', '--includes', '--get-all', 'remote.origin.fetch']);
+  if (refspecs.status !== 0 || refspecs.stdout !== '+refs/heads/*:refs/remotes/origin/*\n') throw new Error('PUBLIC_ROOT_ORIGIN');
+  const toplevel = git(repository, ['rev-parse', '--show-toplevel'], { discover: true });
+  if (toplevel.status !== 0 || toplevel.stdout.trim() !== repository) throw new Error('PUBLIC_ROOT_WORKTREE');
   const status = git(repository, ['status', '--porcelain=v1', '--untracked-files=all']);
   if (status.status !== 0 || status.stdout !== '') throw new Error('PUBLIC_ROOT_DIRTY');
   const head = git(repository, ['rev-parse', '--verify', '--quiet', 'HEAD^{commit}']);

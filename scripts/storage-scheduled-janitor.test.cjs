@@ -128,6 +128,60 @@ test('public-root admission refuses symlinked, ephemeral, worktree and non-canon
   });
 });
 
+test('public-root admission inspects the root itself, not a core.worktree redirect', () => {
+  const home = temporary('janitor-root-wt');
+  withHome(home, () => {
+    const { assertPublicRoot, fixedLayout } = require('./storage-authority.cjs');
+    const repo = checkout(home);
+    const scripts = path.join(repo, 'scripts');
+    const layout = fixedLayout();
+    const decoy = path.join(home, 'decoy');
+    fs.mkdirSync(decoy);
+    fs.cpSync(scripts, path.join(decoy, 'scripts'), { recursive: true });
+    for (const name of ['package.json', '.gitignore']) fs.copyFileSync(path.join(repo, name), path.join(decoy, name));
+    git(repo, 'config', 'core.worktree', decoy);
+    assert.throws(() => assertPublicRoot(layout, scripts), /PUBLIC_ROOT_WORKTREE/, 'a redirected worktree is refused even when the root is clean');
+    fs.appendFileSync(path.join(scripts, 'storage-cli.cjs'), '\n// unreviewed local edit\n');
+    assert.throws(() => assertPublicRoot(layout, scripts), /PUBLIC_ROOT_(WORKTREE|DIRTY)/, 'a clean decoy cannot hide an edited root');
+    const included = path.join(home, 'worktree.gitconfig');
+    fs.writeFileSync(included, `[core]\n\tworktree = ${decoy}\n`);
+    git(repo, 'config', '--unset-all', 'core.worktree');
+    git(repo, 'config', 'include.path', included);
+    assert.throws(() => assertPublicRoot(layout, scripts), /PUBLIC_ROOT_(WORKTREE|DIRTY)/, 'an included redirect cannot hide an edited root');
+  });
+});
+
+test('public-root admission requires origin to use the default fetch refspec', () => {
+  const home = temporary('janitor-root-refspec');
+  withHome(home, () => {
+    const { assertPublicRoot, fixedLayout } = require('./storage-authority.cjs');
+    const repo = checkout(home);
+    const scripts = path.join(repo, 'scripts');
+    const layout = fixedLayout();
+    assert.doesNotThrow(() => assertPublicRoot(layout, scripts));
+    git(repo, 'config', 'remote.origin.fetch', '+refs/heads/feature:refs/remotes/origin/main');
+    assert.throws(() => assertPublicRoot(layout, scripts), /PUBLIC_ROOT_ORIGIN/, 'a remapped refspec lets an unmerged branch pose as origin/main');
+    git(repo, 'config', 'remote.origin.fetch', '+refs/heads/*:refs/remotes/origin/*');
+    git(repo, 'config', '--add', 'remote.origin.fetch', '+refs/heads/feature:refs/remotes/origin/main');
+    assert.throws(() => assertPublicRoot(layout, scripts), /PUBLIC_ROOT_ORIGIN/, 'an extra refspec is refused');
+    git(repo, 'config', '--unset-all', 'remote.origin.fetch');
+    assert.throws(() => assertPublicRoot(layout, scripts), /PUBLIC_ROOT_ORIGIN/, 'no refspec is refused');
+  });
+});
+
+test('public-root admission refuses a root reached through a symlinked ancestor', () => {
+  const home = temporary('janitor-root-anc');
+  withHome(home, () => {
+    const { assertPublicRoot, fixedLayout } = require('./storage-authority.cjs');
+    const layout = fixedLayout();
+    const real = checkout(home, { location: path.join(home, 'elsewhere', 'repos', 'pentacle-mobile-public') });
+    fs.symlinkSync(path.join(home, 'elsewhere', 'repos'), path.join(home, 'repos'));
+    assert.equal(fs.lstatSync(layout.schedulerRoot).isSymbolicLink(), false, 'only the ancestor is a symlink');
+    assert.ok(fs.existsSync(path.join(real, 'scripts')));
+    assert.throws(() => assertPublicRoot(layout, path.join(layout.schedulerRoot, 'scripts')), /PUBLIC_ROOT_SYMLINK/);
+  });
+});
+
 test('the LaunchAgent keeps its six-hour dry-run /dev/null contract and runs the bounded wrapper', () => {
   const home = temporary('janitor-plist');
   withHome(home, () => {
