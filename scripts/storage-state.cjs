@@ -265,11 +265,19 @@ function validateMutationClaim(kind, directory, name, expectedId = null) {
 
 function validateStateLayout(root) {
   const topFiles = new Set(['authority.json', 'gate.lock', 'janitor.lock', 'scheduler.lock', 'worktree.lock', 'scheduler-baseline.json', 'disabled']);
-  const topDirectories = new Set(['runs', 'tickets', 'scheduler', 'reports', '.fseventsd', '.Spotlight-V100', '.Trashes']);
+  const topDirectories = new Set(['runs', 'tickets', 'scheduler', 'reports', 'logs', '.fseventsd', '.Spotlight-V100', '.Trashes']);
   for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
     if (entry.isSymbolicLink()) throw new Error('STATE_LAYOUT_SYMLINK');
     if (entry.isDirectory()) {
       if (!topDirectories.has(entry.name)) throw new Error(`STATE_LAYOUT_UNKNOWN:${entry.name}`);
+      if (entry.name === 'logs') {
+        const { LOG_CAP_BYTES, LOG_NAME } = require('./storage-janitor-scheduled.cjs');
+        const expectedUid = typeof process.getuid === 'function' ? process.getuid() : null;
+        for (const child of fs.readdirSync(path.join(root, 'logs'), { withFileTypes: true })) {
+          const stat = fs.lstatSync(path.join(root, 'logs', child.name));
+          if (!LOG_NAME.test(child.name) || !stat.isFile() || stat.isSymbolicLink() || stat.size > LOG_CAP_BYTES || stat.nlink !== 1 || (expectedUid !== null && stat.uid !== expectedUid)) throw new Error(`STATE_LAYOUT_UNKNOWN:logs/${child.name}`);
+        }
+      }
       if (['runs', 'tickets', 'scheduler', 'reports'].includes(entry.name)) {
         for (const child of fs.readdirSync(path.join(root, entry.name), { withFileTypes: true })) {
           if (validateMutationClaim(entry.name, path.join(root, entry.name), child.name)) continue;

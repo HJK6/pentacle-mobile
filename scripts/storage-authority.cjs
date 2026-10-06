@@ -4,6 +4,7 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { execFileSync } = require('node:child_process');
 
 const CONTRACT = Object.freeze({
   endpoints: Object.freeze({
@@ -307,6 +308,55 @@ function assertSchedulerArgvDurable(layout = fixedLayout(), scriptRoot = __dirna
   return layout;
 }
 
+// The scheduled janitor may only run code that was reviewed and published. The root is the one fixed
+// repositories['pentacle-mobile'] path, a plain clone (not a symlink, linked worktree or lane clone) of
+// the public origin, with a clean tree whose HEAD is already on origin/main. Evaluated at install and
+// update, before any scheduler mutation; it takes no caller-supplied path.
+const PUBLIC_ORIGINS = new Set([
+  'https://github.com/HJK6/pentacle-mobile', 'https://github.com/HJK6/pentacle-mobile.git',
+  'git@github.com:HJK6/pentacle-mobile.git', 'ssh://git@github.com/HJK6/pentacle-mobile.git',
+]);
+
+function publicRootGit(repository, args) {
+  try {
+    const stdout = execFileSync('/usr/bin/git', ['-c', 'core.fsmonitor=false', '-C', repository, ...args], {
+      encoding: 'utf8', timeout: 30000, stdio: ['ignore', 'pipe', 'pipe'],
+      env: { PATH: '/usr/bin:/bin', HOME: os.homedir(), LC_ALL: 'C', GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1', GIT_TERMINAL_PROMPT: '0' },
+    });
+    return { status: 0, stdout };
+  } catch (error) { return { status: Number.isInteger(error.status) ? error.status : -1, stdout: '' }; }
+}
+
+function assertPublicRoot(layout = fixedLayout(), scriptRoot = __dirname, git = publicRootGit) {
+  const repository = layout.repositories['pentacle-mobile'];
+  const requested = path.resolve(scriptRoot);
+  if (isResolvedAncestor(path.resolve(layout.worktrees), requested)) throw new Error('PUBLIC_ROOT_EPHEMERAL');
+  if (requested !== path.join(repository, 'scripts')) throw new Error(`PUBLIC_ROOT_NOT_CANONICAL:${requested}`);
+  const scripts = path.join(repository, 'scripts');
+  let stat;
+  try {
+    if (fs.lstatSync(repository).isSymbolicLink() || fs.lstatSync(scripts).isSymbolicLink() || fs.realpathSync.native(repository) !== repository) throw new Error('PUBLIC_ROOT_SYMLINK');
+    stat = fs.statSync(repository);
+  } catch (error) {
+    if (error.message === 'PUBLIC_ROOT_SYMLINK') throw error;
+    throw new Error(`PUBLIC_ROOT_NOT_CANONICAL:${requested}`);
+  }
+  if (!stat.isDirectory() || stat.uid !== process.getuid() || (stat.mode & 0o022) !== 0) throw new Error('PUBLIC_ROOT_OWNER');
+  const dotGit = fs.lstatSync(path.join(repository, '.git'), { throwIfNoEntry: false });
+  if (!dotGit || dotGit.isSymbolicLink() || !dotGit.isDirectory()) throw new Error('PUBLIC_ROOT_WORKTREE');
+  const urls = [['remote', 'get-url', '--all', 'origin'], ['remote', 'get-url', '--push', '--all', 'origin']].map((args) => git(repository, args));
+  for (const result of urls) {
+    const lines = result.stdout.split('\n').filter(Boolean);
+    if (result.status !== 0 || lines.length < 1 || !lines.every((line) => PUBLIC_ORIGINS.has(line))) throw new Error('PUBLIC_ROOT_ORIGIN');
+  }
+  const status = git(repository, ['status', '--porcelain=v1', '--untracked-files=all']);
+  if (status.status !== 0 || status.stdout !== '') throw new Error('PUBLIC_ROOT_DIRTY');
+  const head = git(repository, ['rev-parse', '--verify', '--quiet', 'HEAD^{commit}']);
+  const published = git(repository, ['rev-parse', '--verify', '--quiet', 'refs/remotes/origin/main^{commit}']);
+  if (head.status !== 0 || published.status !== 0 || git(repository, ['merge-base', '--is-ancestor', head.stdout.trim(), published.stdout.trim()]).status !== 0) throw new Error('PUBLIC_ROOT_UNPUBLISHED');
+  return { repository, head: head.stdout.trim() };
+}
+
 function assertIdentityOwnership(layout = fixedLayout()) {
   assertSchedulerArgvDurable(layout);
   const classified = new Set([...OWNED_UNDER_ROOT, ...Object.keys(HOST_GLOBAL_IDENTITIES), ...EXTERNAL_REFERENCE_ROOTS]);
@@ -410,6 +460,7 @@ module.exports = {
   SCHEDULER_EDGES,
   TICKET_EDGES,
   assertIdentityOwnership,
+  assertPublicRoot,
   assertSchedulerArgvDurable,
   isResolvedAncestor,
   assertToolchainSafeLayout,

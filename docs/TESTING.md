@@ -62,8 +62,15 @@ exact owned identity and does not confer authority over unrelated resources.
 Lifecycle commands use the same CLI: `storage:install`, `storage:update`,
 `storage:restore`, `storage:uninstall`, `storage:register-worktree MAIN_REPO_ID
 SPEC_ID LANE_ID` and `storage:retire-worktree TICKET_ID`. The installed LaunchAgent
-runs `storage:janitor dry-run` every six hours; `storage:janitor apply` is an
-explicit action. Its nonzero last-exit status in `launchctl list` means failure.
+runs `storage:janitor dry-run` every six hours through `scripts/storage-janitor-scheduled.cjs`;
+`storage:janitor apply` is an explicit action. Its nonzero last-exit status in
+`launchctl list` means failure. The wrapper keeps the last two runs of stdout and
+stderr in `State/logs` (1 MiB per file, 4 MiB total, inside the state budget); a
+truncated file carries a marker and stderr ends with an exit marker. `storage:install`
+and `storage:update` run only from the canonical `~/repos/pentacle-mobile` checkout
+when it is clean, a plain clone of the public `HJK6/pentacle-mobile` origin, and
+contained in a fetched `origin/main`; other roots are refused before any change.
+Fetch before updating. The update is transactional and rolls back to the prior plist.
 An authorized `launchctl kickstart` can exercise the installed job; inspect its
 bound report afterward. The regular `disabled` file in the installed state is
 the kill-switch for apply mode. Do not replace lifecycle commands with manual
