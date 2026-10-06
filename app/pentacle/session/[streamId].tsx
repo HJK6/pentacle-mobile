@@ -1018,9 +1018,9 @@ export default function PentacleSessionScreen() {
   const reportViewerHarnessRoute =
     params.reportHarness === '1' &&
     reportViewerHarnessRunId.length > 0 &&
-    streamId === `harness:report-viewer-e2e:${reportViewerHarnessRunId}` &&
+    streamId === `fixture:report-viewer:${reportViewerHarnessRunId}` &&
     activeHarnessRuntime?.isArmed() === true &&
-    activeHarnessRuntime.hasAction('open_report_viewer_e2e');
+    activeHarnessRuntime.hasAction('open_report_viewer');
   const { token, isReady } = usePentacleToken();
   const actions = usePentacleStreamActions();
   const [isDragging, setIsDragging] = useState(false);
