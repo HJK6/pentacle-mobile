@@ -78,6 +78,14 @@ test('public-root admission refuses private, lookalike, unpublished, dirty and a
     git(repo, 'config', `url.${PUBLIC_ORIGIN}.insteadOf`, 'https://evil.example/x.git');
     assert.throws(() => assertPublicRoot(layout, scripts), /PUBLIC_ROOT_ORIGIN/, 'an insteadOf rewrite cannot disguise another origin');
     git(repo, 'config', '--unset-all', `url.${PUBLIC_ORIGIN}.insteadOf`);
+    const included = path.join(home, 'included.gitconfig');
+    fs.writeFileSync(included, `[url "${PUBLIC_ORIGIN}"]\n\tinsteadOf = https://evil.example/x.git\n`);
+    git(repo, 'config', 'include.path', included);
+    assert.throws(() => assertPublicRoot(layout, scripts), /PUBLIC_ROOT_ORIGIN/, 'an included insteadOf rewrite cannot disguise another origin');
+    git(repo, 'config', '--unset-all', 'include.path');
+    git(repo, 'config', `includeIf.gitdir:${repo}/.path`, included);
+    assert.throws(() => assertPublicRoot(layout, scripts), /PUBLIC_ROOT_ORIGIN/, 'a conditionally included rewrite cannot disguise another origin');
+    git(repo, 'config', '--unset-all', `includeIf.gitdir:${repo}/.path`);
     git(repo, 'remote', 'set-url', 'origin', PUBLIC_ORIGIN);
     fs.writeFileSync(path.join(repo, 'stray.txt'), 'untracked');
     assert.throws(() => assertPublicRoot(layout, scripts), /PUBLIC_ROOT_DIRTY/);

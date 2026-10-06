@@ -349,7 +349,7 @@ function assertPublicRoot(layout = fixedLayout(), scriptRoot = __dirname, git = 
     const lines = result.stdout.split('\n').filter(Boolean);
     if (result.status !== 0 || lines.length < 1 || !lines.every((line) => PUBLIC_ORIGINS.has(line))) throw new Error('PUBLIC_ROOT_ORIGIN');
   }
-  if (git(repository, ['config', '--local', '--get-regexp', '^url\\..*\\.(push)?insteadof$']).status !== 1) throw new Error('PUBLIC_ROOT_ORIGIN');
+  if (git(repository, ['config', '--includes', '--get-regexp', '^url\\..*\\.(push)?insteadof$']).status !== 1) throw new Error('PUBLIC_ROOT_ORIGIN');
   const status = git(repository, ['status', '--porcelain=v1', '--untracked-files=all']);
   if (status.status !== 0 || status.stdout !== '') throw new Error('PUBLIC_ROOT_DIRTY');
   const head = git(repository, ['rev-parse', '--verify', '--quiet', 'HEAD^{commit}']);
