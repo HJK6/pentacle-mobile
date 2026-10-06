@@ -241,6 +241,52 @@ function reportViewerFixture() {
   return { root, runs, cases };
 }
 
+// Result discovery and failed retention cross the reporter/wrapper boundary.
+// Keep this integration in the wrapper suite, outside the certified reporter roots.
+const runnerModule = process.env.PENTACLE_REPORT_VIEWER_RUNNER_MODULE || './report-viewer-sim-e2e.cjs';
+const vm = require('node:vm');
+
+for (const resultCount of [0, 2]) {
+  test(`scenario discovery preserves argv and original child output with ${resultCount} results`, (t) => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'scenario-invocation-'));
+    t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+    const runsDir = path.join(root, 'report-viewer-sim-e2e'); fs.mkdirSync(runsDir);
+    const source = fs.readFileSync(require.resolve(runnerModule), 'utf8');
+    const actual = source.match(/^function runScenario\([\s\S]*?^\}/m);
+    assert.ok(actual, 'actual private scenario boundary must exist');
+    const manifest = { status: 'failed', attempts_per_case: 1, cases: [] };
+    const execute = vm.runInNewContext(`(${actual[0]})`, {
+      fs, path, crypto: require('node:crypto'), ROOT: '/synthetic/public/product',
+      process: { pid: 431, env: { PRIVATE_TEST_SECRET: 'do-not-record-environments' } },
+      resultFiles: require(runnerModule).resultFiles,
+      spawnSync(binary, args, options) {
+        assert.equal(binary, 'python3');
+        assert.equal(options.env.PRIVATE_TEST_SECRET, 'do-not-record-environments');
+        for (let index = 0; index < resultCount; index += 1) fs.writeFileSync(path.join(runsDir, `primary-${index}.json`), '{"original":"bytes"}');
+        return { status: 29, signal: null, stdout: 'original stdout\n', stderr: 'original native failure\n' };
+      },
+    });
+    assert.throws(() => execute({ scenario: 'report_viewer_horizontal_scroll', runsDir, runId: 'owned-run', manifest }), new RegExp(`produced ${resultCount} result JSON files`));
+    const invocationPath = path.join(runsDir, 'invocations', 'owned-run.json');
+    const raw = fs.readFileSync(invocationPath, 'utf8');
+    assert.ok(!raw.includes('do-not-record-environments'));
+    const receipt = JSON.parse(raw);
+    assert.equal(receipt.status, 29); assert.equal(receipt.owner_pid, 431);
+    assert.equal(receipt.stdout, 'original stdout\n'); assert.equal(receipt.stderr, 'original native failure\n');
+    assert.deepEqual(receipt.args, ['test/e2e/run_scenario.py', 'report_viewer_horizontal_scroll', '--runs-dir', runsDir]);
+    assert.equal(receipt.artifacts.length, resultCount);
+    assert.equal(manifest.invocations[0].sha256, require('node:crypto').createHash('sha256').update(raw).digest('hex'));
+    fs.writeFileSync(path.join(runsDir, 'manifest.json'), JSON.stringify(manifest));
+    const gate = require('./storage-gate.cjs');
+    assert.doesNotThrow(() => gate.validateReportViewer(root, gate.enumerateEvidence(root), 'failed'));
+    assert.throws(() => gate.validateReportViewer(root, gate.enumerateEvidence(root), 'passed'), /EVIDENCE_CASE_MANIFEST_INVALID/);
+    if (resultCount) {
+      fs.writeFileSync(path.join(runsDir, 'primary-0.json'), 'tampered');
+      assert.throws(() => gate.validateReportViewer(root, gate.enumerateEvidence(root), 'failed'), /EVIDENCE_CASE_INVOCATION_ARTIFACT_DIGEST/);
+    }
+  });
+}
+
 function directSurfaceValidator() {
   const source = fs.readFileSync(process.env.PENTACLE_DIRECT_ADAPTER_WRAPPER_TEST_SOURCE || path.join(__dirname, 'storage-gate.cjs'), 'utf8');
   const fn = source.match(/^function validateSurfaceTriggerEvidence\([\s\S]*?^\}/m);
