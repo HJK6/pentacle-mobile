@@ -3124,7 +3124,26 @@ export default function PentacleSessionScreen() {
   if (reportViewerHarnessRoute) {
     return (
       <View style={styles.container}>
-        <ReportViewerModal visible streamId={streamId} accent={chrome.accent} e2eTableTargets onClose={() => undefined} />
+        <ReportViewerModal
+          visible
+          streamId={streamId}
+          accent={chrome.accent}
+          e2eTableTargets
+          onClose={() => undefined}
+          onShow={() => {
+            const currentRuntime = getHarnessRuntime();
+            if (
+              !currentRuntime?.isArmed() ||
+              currentRuntime.getParam('scenario_run_id') !== reportViewerHarnessRunId ||
+              !currentRuntime.hasAction('open_report_viewer')
+            ) return;
+            logTelemetry(MOBILE_TELEMETRY_EVENTS.HARNESS_REPORT_VIEWER_READY as Parameters<typeof logTelemetry>[0], {
+              stream_id: streamId,
+              scenario_run_id: reportViewerHarnessRunId,
+              block_id: `wide-matrix--${reportViewerHarnessRunId}`,
+            });
+          }}
+        />
       </View>
     );
   }

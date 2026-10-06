@@ -81,6 +81,8 @@ jest.mock('../src/services/pentacleStream', () => ({
 const runId = 'mounted-report-producer-contract';
 let SessionScreen: React.ComponentType;
 let runtime: typeof import('../src/utils/harnessRuntime');
+let fixtureTelemetry: Array<{ message: string; data: Record<string, unknown> }>;
+let fixtureTelemetryConsole: jest.SpyInstance;
 
 beforeEach(async () => {
   jest.resetModules();
@@ -96,6 +98,13 @@ beforeEach(async () => {
   };
   mockRouter.push.mockClear();
   mockParams = {};
+  fixtureTelemetry = [];
+  fixtureTelemetryConsole = jest.spyOn(console, 'log').mockImplementation((...args) => {
+    const line = args.join(' ');
+    if (line.startsWith('[TELEMETRY] ')) {
+      fixtureTelemetry.push(JSON.parse(line.slice('[TELEMETRY] '.length)));
+    }
+  });
   runtime = require('../src/utils/harnessRuntime');
   runtime.reset();
   const RootLayout = require('../app/_layout').default;
@@ -114,8 +123,39 @@ beforeEach(async () => {
 });
 
 afterEach(() => {
+  fixtureTelemetryConsole.mockRestore();
   runtime.reset();
   delete process.env.EXPO_PUBLIC_HARNESS;
+});
+
+test('native presentation gates fixture readiness from the actual producer', async () => {
+  const ready = () => fixtureTelemetry.filter(event => event.message === 'harness:report_viewer_ready');
+  expect(ready()).toEqual([]);
+  render(<SessionScreen />);
+  await screen.findByTestId('report-block-comment-target--' + runId);
+  expect(ready()).toEqual([]);
+  fireEvent(screen.UNSAFE_getByType(require('react-native').Modal), 'show');
+  expect(ready()).toEqual([
+    expect.objectContaining({ data: {
+      stream_id: 'fixture:report-viewer:' + runId,
+      scenario_run_id: runId,
+      block_id: 'wide-matrix--' + runId,
+    } }),
+  ]);
+});
+
+test.each(['unarmed', 'wrong-run', 'missing-action'] as const)('native presentation refuses a late %s fixture callback', async condition => {
+  render(<SessionScreen />);
+  await screen.findByTestId('report-block-comment-target--' + runId);
+  const nativeModal = screen.UNSAFE_getByType(require('react-native').Modal);
+  runtime.reset();
+  if (condition !== 'unarmed') {
+    runtime.applyURL('pentacle://harness?scenario=report_viewer_comments_keyboard&scenario_run_id=' +
+      (condition === 'wrong-run' ? 'changed-run' : runId) + '&actions=' +
+      (condition === 'missing-action' ? 'autoaccept_biometric' : 'autoaccept_biometric,open_report_viewer'));
+  }
+  fireEvent(nativeModal, 'show');
+  expect(fixtureTelemetry.filter(event => event.message === 'harness:report_viewer_ready')).toEqual([]);
 });
 
 test('actual report producer mounts the real report and comment target without a device token', async () => {
