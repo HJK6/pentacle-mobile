@@ -81,7 +81,7 @@ const CERTIFIED_COMPONENTS = Object.freeze({
   'scripts/gate-host-health.cjs': '58c84599dd4586270730af4c4d297e1fb62bd8823e6e8852ea9fe6abd16da740',
   'scripts/gate-process-cpu.py': '6028f1ee162a0b881fe046caa5c06960aa23384807772b7f5b7c1f89d658d1cf',
   'scripts/owned-process.cjs': '9f0a45f47395af5b6de954e9b787f339b3067be6a5ebffd634075a03690818db',
-  'scripts/prod-build.cjs': 'e39cf6c13c66edd3b8be13ebd02b2e8a45ed204b5fe866600a4b4bed17a5d349',
+  'scripts/prod-build.cjs': 'b04cae766ff2d8937092e412e33bd303d9d068e28bfcb0ebd97c74b31fe79e1c',
   'scripts/report-viewer-sim-e2e.cjs': '39173856affcd35fcadb20ac10d240456506cd11c732e88970f5f2b43efc5fdd',
   'scripts/report-viewer-sim-e2e.test.cjs': '1a64cd821062084bdc8519fe29160191de3785a440e7fed410c9a5414e05871b',
   'scripts/reset-simulator-app.cjs': '9b41a6acaba3fe27f319a89f4d7824a4e221c764efd657fa77e33bcb089284f5',
