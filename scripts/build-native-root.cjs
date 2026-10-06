@@ -82,6 +82,16 @@ function run(cwd, command, args, environment = {}) {
 }
 
 function updateSubmodulesFromLocal(repositoryRoot, sourceRoot) {
+  const { assertProvisionEntry, assertProvisionPin } = require('./check-provision-pin.cjs');
+  const verified = assertProvisionEntry(repositoryRoot);
+  if (verified.representation === 'vendored_tree') {
+    const source = assertProvisionPin(sourceRoot);
+    if (source.representation !== 'vendored_tree' || source.tree !== verified.tree) {
+      throw new Error('LOCAL_CORE_REPRESENTATION_MISMATCH');
+    }
+    assertProvisionPin(repositoryRoot);
+    return;
+  }
   const expected = git(repositoryRoot, ['rev-parse', `HEAD:${CHAT_CORE_PATH}`], { quiet: true });
   const source = fs.realpathSync(path.join(sourceRoot, CHAT_CORE_PATH));
   try { git(source, ['cat-file', '-e', `${expected}^{commit}`], { quiet: true }); }
@@ -90,6 +100,7 @@ function updateSubmodulesFromLocal(repositoryRoot, sourceRoot) {
   run(repositoryRoot, 'git', command.args, command.environment);
   const actual = git(path.join(repositoryRoot, CHAT_CORE_PATH), ['rev-parse', 'HEAD'], { quiet: true });
   if (actual !== expected) throw new Error('LOCAL_SUBMODULE_HEAD_MISMATCH');
+  assertProvisionPin(repositoryRoot);
 }
 
 function replaceExactly(source, before, after, count, label) {
@@ -99,9 +110,14 @@ function replaceExactly(source, before, after, count, label) {
 }
 
 function patchProject(source) {
+  const identities = [...source.matchAll(/PRODUCT_BUNDLE_IDENTIFIER = ([^;]+);/g)].map((match) => match[1]);
+  if (identities.length !== 2 || identities[0] !== identities[1]
+    || !['com.example.pentacle.mobile', 'quest.pentacle.mobile'].includes(identities[0])) {
+    throw new Error('expected exactly two bundle identifier entries of one approved parent identity');
+  }
   let patched = replaceExactly(
     source,
-    'PRODUCT_BUNDLE_IDENTIFIER = quest.pentacle.mobile;',
+    `PRODUCT_BUNDLE_IDENTIFIER = ${identities[0]};`,
     'PRODUCT_BUNDLE_IDENTIFIER = com.example.pentacle.harness;',
     2,
     'bundle identifier',

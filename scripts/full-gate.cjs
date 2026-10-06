@@ -315,14 +315,23 @@ function requireSemanticMinimalLaunchNativeDiff(nativeRoot, parentSha, nativeSha
     }
   }
   if (derivedPaths.includes(project)) {
+    // Independent of the builder: inspect the pinned parent and admit exactly
+    // four replacements, using one of the two explicit production identities.
+    const parent = rawGitValue(nativeRoot, ['show', `${parentSha}:${project}`]);
+    const identities = [...parent.matchAll(/PRODUCT_BUNDLE_IDENTIFIER = ([^;]+);/g)].map((match) => match[1]);
+    if (identities.length !== 2 || identities[0] !== identities[1]
+      || !['com.example.pentacle.mobile', 'quest.pentacle.mobile'].includes(identities[0])
+      || parent.split('PRODUCT_NAME = "Pentacle";').length - 1 !== 2) {
+      throw new Error('PENTACLE_GATE_NATIVE_ROOT parent project identity is not an approved exact pair');
+    }
     const changes = rawGitValue(nativeRoot, ['diff', '--unified=0', parentSha, nativeSha, '--', project])
       .split('\n')
       .filter((line) => (/^[+-]/).test(line) && !line.startsWith('+++') && !line.startsWith('---'))
       .map((line) => `${line[0]}${line.slice(1).trim()}`)
       .sort();
     const expected = [
-      '-PRODUCT_BUNDLE_IDENTIFIER = quest.pentacle.mobile;',
-      '-PRODUCT_BUNDLE_IDENTIFIER = quest.pentacle.mobile;',
+      `-PRODUCT_BUNDLE_IDENTIFIER = ${identities[0]};`,
+      `-PRODUCT_BUNDLE_IDENTIFIER = ${identities[0]};`,
       '-PRODUCT_NAME = "Pentacle";',
       '-PRODUCT_NAME = "Pentacle";',
       '+PRODUCT_BUNDLE_IDENTIFIER = com.example.pentacle.harness;',
@@ -609,11 +618,18 @@ function releaseSmoke(artifactDir, native, dependencies = {}) {
       } catch (error) { launchChecks.push({ name: 'readiness-receipt', status: 'failed', dependencies: [], error: error.message }); }
     }
   }
-  const verifyArgs = [process.execPath, require.resolve('./gate-app-ready.cjs'), JSON.stringify({ ...launchInput, verify: true })];
+  const verifyArgs = [process.execPath, require.resolve('./gate-app-ready.cjs'), JSON.stringify({
+    ...launchInput, target: targetState.value, verify: true, teardown: true,
+  })];
   requireChecks(collectChecks([
     { name: 'release-sim-settle', run: () => evidence.push(runGate('release-sim-settle', ['sleep', '2'], artifactDir, { timeoutMs: SIMULATOR_STAGE_TIMEOUT_MS['release-sim-settle'] })) },
     { name: 'release-sim-liveness', run: () => evidence.push(runGate('release-sim-liveness', verifyArgs, artifactDir, { timeoutMs: SIMULATOR_STAGE_TIMEOUT_MS['release-sim-liveness'] })) },
   ], launchChecks));
+  // Keep the historic readiness PID/nonce and persist the separate, exact-owned handoff.
+  const stopped = JSON.parse(fs.readFileSync(receiptFile, 'utf8')).smoke_teardown;
+  if (stopped?.status !== 'stopped' || stopped.pid !== targetState.value.live_pid || stopped.nonce !== nonce)
+    throw new Error('APP_SMOKE_TEARDOWN_RECEIPT_INVALID');
+  targetState.advance('ready', { smoke_teardown: stopped });
   return { evidence, target: targetState.value };
 }
 

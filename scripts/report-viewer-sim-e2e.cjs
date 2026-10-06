@@ -496,7 +496,8 @@ function validateSentinelResult(payload, { runId, sentinel, expected }) {
   }
   const marker = `runtime sentinel ${sentinel}`;
   const errors = runErrors.filter((event) =>
-    event?.data?.source === expected.source
+    event?.native_process_id === processIdentity.launch_pid
+    && event?.data?.source === expected.source
     && event?.data?.fatal === expected.fatal
     && typeof event?.data?.stack === 'string'
     && event.data.stack.includes(marker)
@@ -539,6 +540,92 @@ function awaitAdoptableSurface(command, options, udid, pause, environment, attem
   throw new Error('no exact-UDID Simulator surface appeared after launch was denied');
 }
 
+function validateDirectInputContext(context) {
+  const keys = ['schema', 'adapter', 'owner_pid', 'companion_pid', 'companion_birth', 'device_set_root', 'udid', 'socket'];
+  if (!context || Object.keys(context).sort().join(',') !== keys.sort().join(',')
+    || context.schema !== 1 || context.adapter !== 'private-idb'
+    || !Number.isSafeInteger(context.owner_pid) || context.owner_pid <= 1
+    || !Number.isSafeInteger(context.companion_pid) || context.companion_pid <= 1
+    || typeof context.companion_birth !== 'string' || !/^[1-9][0-9]*$/.test(context.companion_birth)
+    || typeof context.udid !== 'string' || !context.udid.trim() || context.udid.includes('\0')
+    || typeof context.device_set_root !== 'string' || !path.isAbsolute(context.device_set_root) || context.device_set_root.includes('\0')
+    || typeof context.socket !== 'string' || !path.isAbsolute(context.socket) || context.socket.includes('\0')) {
+    throw new Error('DIRECT_INPUT_CONTEXT_INVALID');
+  }
+  return context;
+}
+
+// The host wrapper creates the companion on the exact private set, then records
+// its kernel birth. This context supplies ownership, not a keyboard verdict.
+function createDirectInputContext(companion, deviceSet, udid, ownerPid = process.pid,
+  readBirth = (pid) => require('./gate-app-ready.cjs').processBirth(pid)) {
+  return validateDirectInputContext({ schema: 1, adapter: 'private-idb', owner_pid: ownerPid,
+    companion_pid: companion.pid, companion_birth: readBirth(companion.pid),
+    device_set_root: fs.realpathSync(deviceSet), udid, socket: companion.socket });
+}
+
+function withDirectDeviceInput(run, command, environment, report) {
+  const file = environment.PENTACLE_REPORT_VIEWER_INPUT_CONTEXT;
+  if (typeof file !== 'string' || !path.isAbsolute(file) || !fs.lstatSync(file).isFile()) throw new Error('DIRECT_INPUT_CONTEXT_REQUIRED');
+  const raw = fs.readFileSync(file, 'utf8');
+  let context;
+  try { context = validateDirectInputContext(JSON.parse(raw)); }
+  catch (error) { throw new Error(`DIRECT_INPUT_CONTEXT_INVALID:${error.message}`); }
+  const root = environment.PENTACLE_SCENARIO_DEVICE_SET_ROOT;
+  if (typeof root !== 'string' || !path.isAbsolute(root) || root.includes('\0')
+    || fs.realpathSync(root) !== context.device_set_root
+    || environment.PENTACLE_GATE_BOUND_SIMULATOR_UDID !== context.udid
+    || (environment.PENTACLE_SIMULATOR_UDID && environment.PENTACLE_SIMULATOR_UDID !== context.udid)
+    || environment.IDB_COMPANION !== context.socket
+    || environment.SIM_QUEUE_OWNER_VERIFIED_PID !== String(context.owner_pid)
+    || !fs.statSync(context.socket).isSocket()) throw new Error('DIRECT_INPUT_BINDING_MISMATCH');
+  const proof = { context, context_sha256: crypto.createHash('sha256').update(raw).digest('hex'), commands: [] };
+  const invoke = (binary, args, options) => {
+    const result = command(binary, args, { ...options, env: environment });
+    proof.commands.push({ binary, args, timeout_ms: options.timeout,
+      status: result.status ?? null, error: result.error?.code || null,
+      stdout: String(result.stdout || ''), stderr: String(result.stderr || '') });
+    return result;
+  };
+  const requireBirth = () => {
+    const birth = require('./gate-app-ready.cjs').processBirth(context.companion_pid, invoke);
+    if (birth !== context.companion_birth) throw new Error('DIRECT_INPUT_COMPANION_IDENTITY');
+  };
+  try {
+    requireBirth();
+    const target = invoke('idb', ['describe', '--udid', context.udid, '--json'], { encoding: 'utf8', timeout: 20000 });
+    let description;
+    try { description = JSON.parse(target.stdout); } catch { /* refusal below retains original bytes */ }
+    if (target.error || target.status !== 0 || description?.udid !== context.udid
+      || description.state !== 'Booted' || description.target_type !== 'simulator') {
+      throw new Error(`DIRECT_INPUT_TARGET:${target.status}:${target.stderr || target.stdout}`);
+    }
+    requireBirth();
+    const execution = run();
+    execution.inputAdapter = proof;
+    report(`mode=private-idb udid=${context.udid} companion_pid=${context.companion_pid} gui_launched=no`);
+    return execution;
+  } catch (error) {
+    error.input_adapter = proof;
+    throw error;
+  }
+}
+
+function validateDirectKeyboardResult(payload, runId) {
+  const identity = payload?.result?.extras?.runtime_monitor?.process_identity;
+  const pid = identity?.launch_pid;
+  const events = (payload?.all_events || []).filter(e => e?.native_process_id === pid && e?.data?.scenario_run_id === runId);
+  const body = String(parseInt(crypto.createHash('sha256').update(runId).digest('hex').slice(0, 12), 16));
+  if (payload?.verdict !== 'PASS' || identity?.verified !== true || typeof pid !== 'string' || !/^[1-9][0-9]*$/.test(pid)
+    || identity.armed_telemetry_pid !== pid
+    || !events.some(e => e.message === 'report:comment_keyboard' && e.data.unobscured === true
+      && Number.isFinite(e.data.input_bottom) && Number.isFinite(e.data.keyboard_top) && e.data.input_bottom <= e.data.keyboard_top)
+    || !events.some(e => e.message === 'report:comment_confirmed' && e.data.body === body)
+    || !(payload.artifacts?.screenshots || []).some(file => typeof file === 'string' && path.basename(file) === file && file.endsWith('-keyboard.png'))) {
+    throw new Error('DIRECT_INPUT_REAL_KEYBOARD_EVIDENCE_REQUIRED');
+  }
+}
+
 function withSoftwareKeyboard(
   run,
   command = spawnSync,
@@ -552,6 +639,12 @@ function withSoftwareKeyboard(
   // whether the teardown block ran, and whether a kill was attempted.
   report = (message) => process.stderr.write(`[report-viewer-sim-e2e] simulator surface: ${message}\n`),
 ) {
+  // Explicit private context never falls back to GUI/default-set input. The
+  // legacy standalone GUI path retains its existing ownership controls.
+  if (Object.prototype.hasOwnProperty.call(environment, 'PENTACLE_SCENARIO_DEVICE_SET_ROOT')
+    || Object.prototype.hasOwnProperty.call(environment, 'PENTACLE_REPORT_VIEWER_INPUT_CONTEXT')) {
+    return withDirectDeviceInput(run, command, environment, report);
+  }
   const udid = String(environment.PENTACLE_GATE_BOUND_SIMULATOR_UDID || '').trim();
   if (!udid) throw new Error('comments require the exact bound simulator UDID');
 
@@ -784,12 +877,15 @@ function withSoftwareKeyboard(
   return result;
 }
 
-function runScenario({ scenario, runsDir, runId, sentinel, extraEnvironment = {} }) {
+function runScenario({ scenario, runsDir, runId, sentinel, extraEnvironment = {}, manifest }) {
+  if (!/^[A-Za-z0-9_.-]+$/.test(runId)) throw new Error('SCENARIO_INVOCATION_IDENTITY');
   const before = resultFiles(runsDir);
+  const beforeArtifacts = new Set(fs.readdirSync(runsDir));
   const args = ['test/e2e/run_scenario.py', scenario, '--runs-dir', runsDir];
   if (process.env.PENTACLE_GATE_SIM_E2E_ENV_FILE) {
     args.push('--env-file', process.env.PENTACLE_GATE_SIM_E2E_ENV_FILE);
   }
+  const startedAt = new Date().toISOString();
   const result = spawnSync('python3', args, {
     cwd: ROOT,
     encoding: 'utf8',
@@ -800,6 +896,22 @@ function runScenario({ scenario, runsDir, runId, sentinel, extraEnvironment = {}
       ...(sentinel ? { PENTACLE_RUNTIME_SENTINEL: sentinel } : {}),
     },
   });
+  // Persist the real boundary before result discovery or parsing can throw.
+  // These are evidence only; they do not supply a successful case verdict.
+  const invocationDirectory = path.join(runsDir, 'invocations');
+  fs.mkdirSync(invocationDirectory, { recursive: true });
+  const invocationFile = `${runId}.json`;
+  const invocationPath = path.join(invocationDirectory, invocationFile);
+  const artifacts = fs.readdirSync(runsDir).filter(name => !beforeArtifacts.has(name) && fs.lstatSync(path.join(runsDir, name)).isFile())
+    .sort().map(name => ({ name, sha256: crypto.createHash('sha256').update(fs.readFileSync(path.join(runsDir, name))).digest('hex') }));
+  fs.writeFileSync(invocationPath, JSON.stringify({ schema: 1, scenario, run_id: runId,
+    binary: 'python3', args, owner_pid: process.pid, started_at: startedAt, finished_at: new Date().toISOString(),
+    status: result.status ?? null, signal: result.signal ?? null, error: result.error?.code || null,
+    stdout: String(result.stdout || ''), stderr: String(result.stderr || ''), artifacts }, null, 2) + '\n', { flag: 'wx' });
+  if (manifest) {
+    manifest.invocations ||= [];
+    manifest.invocations.push({ file: invocationFile, sha256: crypto.createHash('sha256').update(fs.readFileSync(invocationPath)).digest('hex') });
+  }
   const created = [...resultFiles(runsDir)].filter((entry) => !before.has(entry));
   if (created.length !== 1) {
     throw new Error(`${scenario}/${runId} produced ${created.length} result JSON files`);
@@ -865,7 +977,7 @@ function main() {
       const { scenario, sentinel, expected, runtimeExpected } = entry;
       const suffix = scenario === 'report_viewer_runtime_sentinel' ? `runtime-${sentinel}` : scenario;
       const runId = `${prefix}-${suffix}`;
-      const execute = (extraEnvironment = {}) => runScenario({ scenario, runsDir, runId, sentinel, extraEnvironment });
+      const execute = (extraEnvironment = {}) => runScenario({ scenario, runsDir, runId, sentinel, extraEnvironment, manifest });
       const execution = scenario === 'report_viewer_comments_keyboard'
         ? withSoftwareKeyboard(execute, spawnSync, process.env)
         : execute();
@@ -885,12 +997,14 @@ function main() {
         ...(sentinel ? { sentinel } : {}),
         run_id: runId,
         expected,
+        ...(execution.inputAdapter ? { input_adapter: execution.inputAdapter } : {}),
         ...(sentinel === 'clean' ? { runtime_errors: runtimeErrors.length } : {}),
       });
       if (expected === 'PASS') {
         if (execution.status !== 0 || execution.payload.verdict !== 'PASS' || runtimeErrors.length) {
           throw new Error(`${scenario}${sentinel ? `/${sentinel}` : ''} did not pass in its single attempt`);
         }
+        if (execution.inputAdapter) validateDirectKeyboardResult(execution.payload, runId);
         continue;
       }
       if (execution.status !== 1) throw new Error(`${sentinel} expected exit 1, received ${execution.status}`);
@@ -917,9 +1031,10 @@ if (require.main === module) {
     if (cli.run) main();
     else console.log('Usage: node scripts/report-viewer-sim-e2e.cjs');
   } catch (error) {
+    if (error.input_adapter) console.error(JSON.stringify({ input_adapter_failure: error.input_adapter }));
     console.error(error instanceof Error ? error.message : String(error));
     process.exitCode = 1;
   }
 }
 
-module.exports = { commandHasExactArgumentPair, commandIsSimulatorExecutable, POST_SCENARIO_RUNTIME_SETTLE_S, scenarioPlan, SENTINELS, parseCliArgs, readHostSimulatorSurfaceSkip, recordCaseAttempt, resultFiles, requireRecorderPreflight, runRecorderPreflight, suppressCrashReporterDialogs, validateRecorderPreflightPass, validateSentinelResult, withSoftwareKeyboard };
+module.exports = { createDirectInputContext, validateDirectInputContext, validateDirectKeyboardResult, commandHasExactArgumentPair, commandIsSimulatorExecutable, POST_SCENARIO_RUNTIME_SETTLE_S, scenarioPlan, SENTINELS, parseCliArgs, readHostSimulatorSurfaceSkip, recordCaseAttempt, resultFiles, requireRecorderPreflight, runRecorderPreflight, suppressCrashReporterDialogs, validateRecorderPreflightPass, validateSentinelResult, withSoftwareKeyboard };

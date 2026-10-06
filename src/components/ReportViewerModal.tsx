@@ -42,6 +42,7 @@ type Props = {
   visible: boolean;
   streamId: string;
   onClose: () => void;
+  onShow?: () => void;
   accent?: string;
   e2eTableTargets?: boolean;
 };
@@ -612,6 +613,7 @@ export default function ReportViewerModal({
   onClose,
   accent = Tokens.palette.green,
   e2eTableTargets = false,
+  onShow,
 }: Props) {
   const reports = useSessionReports(streamId);
   const sessionClosed = isReportSessionClosed(streamId);
@@ -812,6 +814,7 @@ export default function ReportViewerModal({
       animationType="slide"
       presentationStyle="fullScreen"
       onRequestClose={onClose}
+      onShow={onShow}
     >
       <View style={styles.overlay} testID="report-viewer">
         <Starfield />

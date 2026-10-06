@@ -825,11 +825,6 @@ if (process.env.EXPO_PUBLIC_HARNESS === '1') {
       pathname: '/pentacle/session/[streamId]',
       params: { streamId, reportHarness: '1' },
     } as never);
-    telemetry.logTelemetry('harness:report_viewer_ready' as Parameters<typeof telemetry.logTelemetry>[0], {
-      stream_id: streamId,
-      scenario_run_id: scenarioRunId,
-      block_id: tableBlockId,
-    });
   };
   const dispatchRuntimeSentinel = () => {
     if (!harnessRuntime.hasAction('runtime_error_check')) return;

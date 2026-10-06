@@ -228,6 +228,7 @@ test('release smoke polls native readiness for the built override and preserves 
   const appPath = path.join(root, 'release-sim-derived-data/Build/Products/Release-iphonesimulator/PentacleHarness.app');
   fs.mkdirSync(appPath, { recursive: true });
   const prior = { ...process.env }; const calls = []; const targets = [];
+  let smokePid = 1234;
   Object.assign(process.env, { PENTACLE_GATE_SIMULATOR_UDID: 'SIMULATOR-1', PENTACLE_BUNDLE_ID: 'quest.pentacle.mobile' });
   try {
     const release = releaseSmoke(root, { nativeRoot: root, workspace: path.join(root, 'ios/Pentacle.xcworkspace') }, {
@@ -244,7 +245,18 @@ test('release smoke polls native readiness for the built override and preserves 
           const input = JSON.parse(args.at(-1));
           assert.equal(input.target.bundleId, 'quest.pentacle.mobile');
           assert.match(input.nonce, /^[0-9a-f-]{36}$/);
-          fs.writeFileSync(input.receiptFile, JSON.stringify({ ready: true, pid: 1234, nonce: input.nonce }));
+          fs.writeFileSync(input.receiptFile, JSON.stringify({ ready: true, pid: 1234, nonce: input.nonce,
+            target: input.target, process_birth: '123456789',
+            native_receipt: { pid: 1234, nonce: input.nonce, bundle_id: input.target.bundleId } }));
+        }
+        if (name === 'release-sim-liveness') {
+          const input = JSON.parse(args.at(-1));
+          if (input.teardown) require('./gate-app-ready.cjs').stopOwnedSmoke(input, {
+            readPid: () => smokePid, readBirth: () => smokePid === null ? null : '123456789',
+            signal: (target, pid) => {
+              assert.equal(target.udid, 'SIMULATOR-1'); assert.equal(pid, 1234); smokePid = null;
+            },
+          });
         }
         return { name, status: 0, owned_process_group: 1234, readiness: options?.readiness };
       },
@@ -254,7 +266,210 @@ test('release smoke polls native readiness for the built override and preserves 
     assert.equal(release.target.phase, 'ready');
     assert.equal(targets[0].bundleId, null);
     assert.equal(targets[0].phase, 'allocated');
+    const caseState = smokePid === null ? 'cases starting' : 'SETUP_FAIL: bound harness bundle already has a running process';
+    assert.equal(caseState, 'cases starting');
+    assert.equal(release.target.smoke_teardown.status, 'stopped');
+    const receipt = JSON.parse(fs.readFileSync(path.join(root, 'release-sim-readiness.json')));
+    assert.equal(receipt.smoke_teardown.pid, 1234);
+    assert.equal(receipt.smoke_teardown.nonce, release.target.launch_nonce);
+    assert.equal(receipt.smoke_teardown.process_birth, '123456789');
   } finally { for (const key of Object.keys(process.env)) if (!(key in prior)) delete process.env[key]; Object.assign(process.env, prior); fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('owned smoke teardown refuses a foreign PID, reused PID, nonce or target before signaling', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pentacle-smoke-refusal-'));
+  const target = { deviceSetRoot: '/private/synthetic/Devices', udid: 'OWNED-UDID', bundleId: 'synthetic.harness', live_pid: 431 };
+  const input = { target, nonce: 'owned-nonce', receiptFile: path.join(root, 'readiness.json') };
+  try {
+    for (const change of ['foreign-pid', 'reused-pid', 'reuse-before-signal', 'missing-birth', 'foreign-nonce', 'foreign-target', 'native-nonce']) {
+      let signals = 0;
+      let birthReads = 0;
+      const receipt = { ready: true, pid: 431, nonce: input.nonce, target: { ...target }, process_birth: '123456789',
+        native_receipt: { pid: 431, nonce: input.nonce, bundle_id: target.bundleId } };
+      if (change === 'missing-birth') delete receipt.process_birth;
+      if (change === 'foreign-nonce') receipt.nonce = 'foreign';
+      if (change === 'foreign-target') receipt.target.deviceSetRoot = '/foreign/Devices';
+      if (change === 'native-nonce') receipt.native_receipt.nonce = 'foreign';
+      fs.writeFileSync(input.receiptFile, JSON.stringify(receipt));
+      assert.throws(() => require('./gate-app-ready.cjs').stopOwnedSmoke(input, {
+        readPid: () => change === 'foreign-pid' ? 432 : 431,
+        readBirth: () => change === 'reused-pid' || (change === 'reuse-before-signal' && birthReads++ > 0) ? '987654321' : '123456789',
+        signal: () => { signals += 1; },
+      }), /APP_(READY|SMOKE)_/);
+      assert.equal(signals, 0, change);
+      const saved = JSON.parse(fs.readFileSync(input.receiptFile));
+      assert.equal(saved.smoke_teardown.status, 'failed');
+      assert.equal(saved.smoke_teardown.signal_sent, false);
+    }
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+function withSmokeCommand(command, run) {
+  const owned = require('./owned-process.cjs');
+  const original = owned.runOwnedSync;
+  const modulePath = require.resolve('./gate-app-ready.cjs');
+  const cached = require.cache[modulePath];
+  try {
+    owned.runOwnedSync = command;
+    delete require.cache[modulePath];
+    const ready = require(modulePath);
+    owned.runOwnedSync = original;
+    return run(ready);
+  } finally {
+    owned.runOwnedSync = original;
+    if (cached) require.cache[modulePath] = cached;
+    else delete require.cache[modulePath];
+  }
+}
+
+test('smoke teardown default command terminates the verified app in the exact private simulator', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pentacle-smoke-command-'));
+  const target = { deviceSetRoot: '/private/synthetic/Devices', udid: 'OWNED-UDID', bundleId: 'synthetic.harness', live_pid: 431 };
+  const input = { target, nonce: 'owned-nonce', receiptFile: path.join(root, 'readiness.json') };
+  let livePid = 431;
+  const calls = [];
+  fs.writeFileSync(input.receiptFile, JSON.stringify({ ready: true, pid: 431, nonce: input.nonce, target,
+    process_birth: '123456789', native_receipt: { pid: 431, nonce: input.nonce, bundle_id: target.bundleId } }));
+  try {
+    const stopped = withSmokeCommand((binary, args, options) => {
+      calls.push({ binary, args, options });
+      assert.equal(binary, '/usr/bin/xcrun');
+      assert.deepEqual(args.slice(0, 3), ['simctl', '--set', target.deviceSetRoot]);
+      assert.equal(options.timeout, 10000);
+      if (args[3] === 'spawn' && args[5] === 'kill') return { status: 2, stdout: '', stderr:
+        'An error was encountered processing the command (domain=NSPOSIXErrorDomain, code=2):\nNo such file or directory\n' };
+      if (args[3] === 'spawn' && args[5] === '/bin/kill') return { status: 111, stdout: '', stderr:
+        'Process spawn via launchd failed.\nInvalid or missing Program/ProgramArguments\n' };
+      assert.deepEqual(args.slice(3), ['terminate', target.udid, target.bundleId]);
+      livePid = null;
+      return { status: 0, stdout: '', stderr: '' };
+    }, ({ stopOwnedSmoke }) => stopOwnedSmoke(input, {
+      readPid: () => livePid, readBirth: () => livePid === null ? null : '123456789',
+    }));
+    assert.equal(stopped.status, 'stopped');
+    assert.equal(stopped.signal_sent, true);
+    assert.equal(calls.length, 1);
+    assert.equal(JSON.parse(fs.readFileSync(input.receiptFile)).smoke_teardown.status, 'stopped');
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('smoke teardown retains failed subcommand stderr and stdout in its receipt', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pentacle-smoke-command-failure-'));
+  const target = { deviceSetRoot: '/private/synthetic/Devices', udid: 'OWNED-UDID', bundleId: 'synthetic.harness', live_pid: 431 };
+  const input = { target, nonce: 'owned-nonce', receiptFile: path.join(root, 'readiness.json') };
+  const stderr = 'An error was encountered processing the command (domain=NSPOSIXErrorDomain, code=2):\nNo such file or directory\n';
+  const stdout = 'partial command output\n';
+  try {
+    for (const vector of [
+      { status: 2, error: null },
+      { status: null, error: Object.assign(new Error('spawn ETIMEDOUT'), { code: 'ETIMEDOUT' }) },
+    ]) {
+      fs.writeFileSync(input.receiptFile, JSON.stringify({ ready: true, pid: 431, nonce: input.nonce, target,
+        process_birth: '123456789', native_receipt: { pid: 431, nonce: input.nonce, bundle_id: target.bundleId } }));
+      let calls = 0;
+      withSmokeCommand((binary, args, options) => {
+        calls += 1;
+        assert.equal(binary, '/usr/bin/xcrun');
+        assert.equal(options.timeout, 10000);
+        return { ...vector, signal: null, stdout, stderr };
+      }, ({ stopOwnedSmoke }) => assert.throws(() => stopOwnedSmoke(input, {
+        readPid: () => 431, readBirth: () => '123456789',
+      }), error => error.message.includes(stderr)));
+      assert.equal(calls, 1);
+      const saved = JSON.parse(fs.readFileSync(input.receiptFile)).smoke_teardown;
+      assert.equal(saved.status, 'failed');
+      assert.equal(saved.signal_sent, false);
+      assert.equal(saved.command_failure.status, vector.status);
+      assert.equal(saved.command_failure.error, vector.error?.code || null);
+      assert.equal(saved.command_failure.stdout, stdout);
+      assert.equal(saved.command_failure.stderr, stderr);
+      assert.equal(saved.command_failure.timeout_ms, 10000);
+      assert.deepEqual(saved.command_failure.args, ['simctl', '--set', target.deviceSetRoot, 'terminate', target.udid, target.bundleId]);
+    }
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('smoke birth identity uses the existing legacy collector and fails closed with temporary-input cleanup', () => {
+  const { processBirth } = require('./gate-app-ready.cjs');
+  for (const vector of [
+    { row: { pid: 431, cpuProbeErrno: 0, start: '123456789' }, value: '123456789' },
+    { row: { pid: 431, cpuProbeErrno: 3 }, value: null },
+    ...[1, 13, 99].map((cpuProbeErrno) => ({ row: { pid: 431, cpuProbeErrno }, error: /APP_SMOKE_BIRTH_UNAVAILABLE/ })),
+    { row: { pid: 432, cpuProbeErrno: 0, start: '123456789' }, error: /APP_SMOKE_BIRTH_ROW_INVALID/ },
+    { row: { pid: 431, cpuProbeErrno: 0, start: 123 }, error: /APP_SMOKE_BIRTH_UNAVAILABLE/ },
+    { row: { pid: 431, cpuProbeErrno: 0, start: '0' }, error: /APP_SMOKE_BIRTH_UNAVAILABLE/ },
+    { row: { pid: 431, cpuProbeErrno: 3, start: '123' }, error: /APP_SMOKE_BIRTH_UNAVAILABLE/ },
+    { status: 1, error: /APP_SMOKE_BIRTH_READ_FAILED/ },
+  ]) {
+    let file;
+    const command = (binary, args, options) => {
+      assert.equal(binary, 'python3'); assert.equal(args[0], require.resolve('./gate-process-cpu.py'));
+      assert.equal(options.timeout, 5000); file = args[1];
+      assert.deepEqual(JSON.parse(fs.readFileSync(file)), [{ pid: 431 }]);
+      return { status: vector.status || 0, stdout: JSON.stringify({ rows: [vector.row] }) };
+    };
+    if (vector.error) assert.throws(() => processBirth(431, command), vector.error);
+    else assert.equal(processBirth(431, command), vector.value);
+    assert.equal(fs.existsSync(file), false);
+    assert.equal(fs.existsSync(path.dirname(file)), false);
+  }
+});
+
+test('smoke birth and PID-read failures preserve the real command output before receipt sealing', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pentacle-smoke-read-failure-'));
+  const target = { deviceSetRoot: '/private/synthetic/Devices', udid: 'OWNED-UDID', bundleId: 'synthetic.harness', live_pid: 431 };
+  const input = { target, nonce: 'owned-nonce', receiptFile: path.join(root, 'readiness.json') };
+  try {
+    const ready = require('./gate-app-ready.cjs');
+    assert.throws(() => ready.processBirth(431, () => ({ status: 1, stdout: 'partial counter output', stderr: 'original collector error' })), error => {
+      assert.equal(error.command_failure.status, 1);
+      assert.equal(error.command_failure.stderr, 'original collector error');
+      assert.equal(error.command_failure.stdout, 'partial counter output');
+      assert.equal(error.command_failure.timeout_ms, 5000);
+      assert.equal(error.command_failure.owner_pid, process.pid);
+      return /APP_SMOKE_BIRTH_READ_FAILED/.test(error.message);
+    });
+    fs.writeFileSync(input.receiptFile, JSON.stringify({ ready: true, pid: 431, nonce: input.nonce, target,
+      process_birth: '123456789', native_receipt: { pid: 431, nonce: input.nonce, bundle_id: target.bundleId } }));
+    withSmokeCommand(() => ({ status: 2, stdout: 'partial launchctl output', stderr: 'original private-set lookup failure' }),
+      ({ stopOwnedSmoke }) => assert.throws(() => stopOwnedSmoke(input), /APP_READY_LIVENESS_FAILED/));
+    const saved = JSON.parse(fs.readFileSync(input.receiptFile)).smoke_teardown;
+    assert.equal(saved.signal_sent, false);
+    assert.equal(saved.command_failures.length, 1);
+    assert.equal(saved.command_failures[0].stderr, 'original private-set lookup failure');
+    assert.equal(saved.command_failures[0].stdout, 'partial launchctl output');
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('native readiness binds a kernel process birth before accepting the nonce and PID', async () => {
+  const { waitForAppReady } = require('./gate-app-ready.cjs');
+  const options = { nonce: 'owned-nonce', bundleId: 'synthetic.harness', startedAt: 100, deadlineMs: 2, pollMs: 1 };
+  for (const birth of [null, '0', 123, '123456789']) {
+    let elapsed = 0;
+    const result = waitForAppReady(options, { now: () => elapsed, sleep: async (ms) => { elapsed += ms; },
+      transport: () => ({ status: 0 }), read: async () => ({ livePid: 431, processBirth: birth,
+        receipt: { nonce: options.nonce, bundle_id: options.bundleId, pid: 431, created_at: 100 } }),
+    });
+    if (birth === '123456789') assert.equal((await result).process_birth, birth);
+    else await assert.rejects(result, /APP_READY_TIMEOUT/);
+  }
+});
+
+test('owned smoke teardown does not signal a replacement process after its one owned signal', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pentacle-smoke-replacement-'));
+  const target = { deviceSetRoot: '/private/synthetic/Devices', udid: 'OWNED-UDID', bundleId: 'synthetic.harness', live_pid: 431 };
+  const input = { target, nonce: 'owned-nonce', receiptFile: path.join(root, 'readiness.json') };
+  let signals = 0;
+  fs.writeFileSync(input.receiptFile, JSON.stringify({ ready: true, pid: 431, nonce: input.nonce, target,
+    process_birth: '123456789', native_receipt: { pid: 431, nonce: input.nonce, bundle_id: target.bundleId } }));
+  try {
+    assert.throws(() => require('./gate-app-ready.cjs').stopOwnedSmoke(input, {
+      readPid: () => 431, readBirth: () => signals ? '987654321' : '123456789',
+      signal: () => { signals += 1; },
+    }), /APP_SMOKE_PID_REUSED/);
+    assert.equal(signals, 1);
+    assert.equal(JSON.parse(fs.readFileSync(input.receiptFile)).smoke_teardown.status, 'failed');
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
 test('release target persists known and null identities before every failing assertion', () => {
@@ -365,7 +580,7 @@ test('simulator stage bounds are explicit and a hanging owned group fails closed
   const started = Date.now();
   assert.throws(() => runGate(
     'synthetic-simctl-launch',
-    [process.execPath, '-e', `const fs=require('node:fs');const child=require('node:child_process').spawn(process.execPath,['-e','setInterval(()=>{},1000)'],{stdio:'ignore'});fs.writeFileSync(${JSON.stringify(descendantPidPath)},String(child.pid));setInterval(()=>{},1000)`],
+    ['/bin/sh', '-c', '/bin/sleep 30 & child=$!; printf "%s" "$child" > "$1"; wait', 'synthetic-hanging-group', descendantPidPath],
     artifactDir,
     { timeoutMs: 100, env: { TESTTIME_BIN: path.join(tempRoot, 'missing-testtime') } },
   ), /timed out after 100ms; owned child (terminated|killed)/);
@@ -417,22 +632,47 @@ function candidateOrigin(candidateRoot) {
   return execFileSync('git', ['remote', 'get-url', 'origin'], { cwd: candidateRoot, encoding: 'utf8' }).trim();
 }
 
-function cleanCandidateClone(tempRoot) {
+function cleanCandidateClone(tempRoot, { legacySubmodule = false, parentIdentity } = {}) {
   const candidateRoot = path.join(tempRoot, 'candidate');
-  const submoduleRemote = execFileSync('git', ['config', '-f', path.join(ROOT, '.gitmodules'), '--get', 'submodule.pentacle-chat-core.url'], { encoding: 'utf8' }).trim();
-  const submoduleLocal = fs.realpathSync(path.join(ROOT, 'pentacle-chat-core'));
-  execFileSync('git', [
-    '-c', `url.${submoduleLocal}.insteadOf=${submoduleRemote}`,
-    '-c', 'protocol.file.allow=always',
-    'clone', '--quiet', '--recurse-submodules', ROOT, candidateRoot,
-  ], { stdio: 'ignore', env: { ...process.env, GIT_ALLOW_PROTOCOL: 'file' } });
+  const entry = execFileSync('git', ['ls-tree', 'HEAD', '--', 'pentacle-chat-core'], { cwd: ROOT, encoding: 'utf8' }).trim();
+  const cloneArgs = ['-c', 'protocol.file.allow=always'];
+  if (entry.startsWith('160000 commit ')) {
+    const remote = execFileSync('git', ['config', '-f', path.join(ROOT, '.gitmodules'), '--get', 'submodule.pentacle-chat-core.url'], { encoding: 'utf8' }).trim();
+    cloneArgs.push('-c', `url.${fs.realpathSync(path.join(ROOT, 'pentacle-chat-core'))}.insteadOf=${remote}`);
+  } else assert.match(entry, /^040000 tree /, 'fixture source must declare its actual core representation');
+  cloneArgs.push('clone', '--quiet', '--recurse-submodules', ROOT, candidateRoot);
+  execFileSync('git', cloneArgs, { stdio: 'ignore', env: { ...process.env, GIT_ALLOW_PROTOCOL: 'file' } });
+  fs.mkdirSync(path.join(candidateRoot, 'config'), { recursive: true });
+  fs.copyFileSync(path.join(ROOT, 'config/pentacle-chat-core-pin.json'), path.join(candidateRoot, 'config/pentacle-chat-core-pin.json'));
+  if (legacySubmodule) {
+    const coreOrigin = path.join(tempRoot, 'fixture-core');
+    execFileSync('git', ['init', '--quiet', coreOrigin]);
+    fs.writeFileSync(path.join(coreOrigin, 'source.txt'), 'public synthetic core fixture\n');
+    execFileSync('git', ['add', '.'], { cwd: coreOrigin });
+    execFileSync('git', ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.test', 'commit', '--quiet', '-m', 'core'], { cwd: coreOrigin });
+    execFileSync('git', ['rm', '-r', '--quiet', 'pentacle-chat-core'], { cwd: candidateRoot });
+    execFileSync('git', ['-c', 'protocol.file.allow=always', 'submodule', 'add', '--quiet', coreOrigin, 'pentacle-chat-core'], { cwd: candidateRoot });
+    const commit = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: coreOrigin, encoding: 'utf8' }).trim();
+    fs.writeFileSync(path.join(candidateRoot, 'config/pentacle-chat-core-pin.json'), JSON.stringify({ schema: 1, path: 'pentacle-chat-core', commit, remote: coreOrigin }));
+    assert.match(execFileSync('git', ['ls-files', '--stage', 'pentacle-chat-core'], { cwd: candidateRoot, encoding: 'utf8' }), /^160000 /);
+    assert.ok(fs.existsSync(path.join(candidateRoot, '.gitmodules')));
+  }
   fs.copyFileSync(path.join(ROOT, 'scripts', 'full-gate.cjs'), path.join(candidateRoot, 'scripts', 'full-gate.cjs'));
   fs.copyFileSync(path.join(ROOT, 'scripts', 'gate-code-provenance.cjs'), path.join(candidateRoot, 'scripts', 'gate-code-provenance.cjs'));
   fs.copyFileSync(path.join(ROOT, 'scripts', 'sim-resource-guard.cjs'), path.join(candidateRoot, 'scripts', 'sim-resource-guard.cjs'));
   fs.copyFileSync(path.join(ROOT, 'plugins', 'withHarnessLaunchUrl.js'), path.join(candidateRoot, 'plugins', 'withHarnessLaunchUrl.js'));
+  if (parentIdentity) {
+    const project = path.join(candidateRoot, 'ios/Pentacle.xcodeproj/project.pbxproj');
+    const source = fs.readFileSync(project, 'utf8');
+    let edited = source.replaceAll('PRODUCT_BUNDLE_IDENTIFIER = com.example.pentacle.mobile;', `PRODUCT_BUNDLE_IDENTIFIER = ${parentIdentity};`);
+    if (parentIdentity === 'mixed') edited = source.replace('PRODUCT_BUNDLE_IDENTIFIER = com.example.pentacle.mobile;', 'PRODUCT_BUNDLE_IDENTIFIER = quest.pentacle.mobile;');
+    if (parentIdentity === 'count-mismatch') edited = source.replace('PRODUCT_BUNDLE_IDENTIFIER = com.example.pentacle.mobile;', '');
+    fs.writeFileSync(project, edited);
+    execFileSync('git', ['add', '-f', 'ios/Pentacle.xcodeproj/project.pbxproj'], { cwd: candidateRoot });
+  }
   const helpers = ['owned-process.cjs', 'gate-host-health.cjs', 'gate-cpu-accounting.cjs', 'gate-process-cpu.py', 'gate-checks.cjs', 'gate-build-policy.cjs', 'gate-app-ready.cjs'];
   for (const name of helpers) fs.copyFileSync(path.join(ROOT, 'scripts', name), path.join(candidateRoot, 'scripts', name));
-  execFileSync('git', ['add', 'scripts/full-gate.cjs', 'scripts/gate-code-provenance.cjs', 'scripts/sim-resource-guard.cjs', 'plugins/withHarnessLaunchUrl.js', ...helpers.map((name) => `scripts/${name}`)], { cwd: candidateRoot });
+  execFileSync('git', ['add', 'config/pentacle-chat-core-pin.json', ...(legacySubmodule ? ['.gitmodules', 'pentacle-chat-core'] : []), 'scripts/full-gate.cjs', 'scripts/gate-code-provenance.cjs', 'scripts/sim-resource-guard.cjs', 'plugins/withHarnessLaunchUrl.js', ...helpers.map((name) => `scripts/${name}`)], { cwd: candidateRoot });
   if (spawnSync('git', ['diff', '--cached', '--quiet'], { cwd: candidateRoot }).status !== 0) {
     execFileSync('git', ['-c', 'user.name=Gate Test', '-c', 'user.email=gate@example.test', 'commit', '--quiet', '-m', 'gate preflight'], { cwd: candidateRoot });
   }
@@ -445,7 +685,7 @@ function cleanCandidateClone(tempRoot) {
 
 function derivedClone(tempRoot, candidateRoot, { matchingOrigin = true, nonIos = false, largeIosDiff = false, externalNodeModules = false, externalLocalConfig = false, initializeSubmodules = true, narrowLaunch = false, appDelegateMutation = false, projectMutation = false } = {}) {
   const nativeRoot = path.join(tempRoot, 'native');
-  const cloneArgs = ['clone', '--quiet'];
+  const cloneArgs = ['-c', 'protocol.file.allow=always', 'clone', '--quiet'];
   if (initializeSubmodules) cloneArgs.push('--recurse-submodules');
   cloneArgs.push(candidateRoot, nativeRoot);
   execFileSync('git', cloneArgs, { stdio: 'ignore' });
@@ -479,6 +719,7 @@ function derivedClone(tempRoot, candidateRoot, { matchingOrigin = true, nonIos =
     fs.writeFileSync(appDelegate, patchAppDelegate(fs.readFileSync(appDelegate, 'utf8')));
     const projectSource = fs.readFileSync(project, 'utf8');
     fs.writeFileSync(project, projectSource
+      .replaceAll('PRODUCT_BUNDLE_IDENTIFIER = com.example.pentacle.mobile;', 'PRODUCT_BUNDLE_IDENTIFIER = com.example.pentacle.harness;')
       .replaceAll('PRODUCT_BUNDLE_IDENTIFIER = quest.pentacle.mobile;', 'PRODUCT_BUNDLE_IDENTIFIER = com.example.pentacle.harness;')
       .replaceAll('PRODUCT_NAME = "Pentacle";', 'PRODUCT_NAME = "PentacleHarness";'));
   }
@@ -760,10 +1001,37 @@ test('preflight rejects a derived root with external local config', () => {
   fs.rmSync(tempRoot, { recursive: true, force: true });
 });
 
+test('preflight accepts a genuine initialized legacy submodule', () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'pentacle-mobile-full-gate-legacy-'));
+  try {
+    const candidateRoot = cleanCandidateClone(tempRoot, { legacySubmodule: true });
+    const nativeRoot = derivedClone(tempRoot, candidateRoot);
+    assert.match(execFileSync('git', ['submodule', 'status'], { cwd: nativeRoot, encoding: 'utf8' }), /^ [0-9a-f]{40} /);
+    const result = preflight(nativeRoot, path.join(tempRoot, 'artifacts'), candidateRoot);
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+  } finally { fs.rmSync(tempRoot, { recursive: true, force: true }); }
+});
+
+for (const identity of ['quest.pentacle.mobile', 'mixed', 'unknown.synthetic.mobile', 'count-mismatch']) {
+  test(`minimal native delta independently validates ${identity} parent identity`, () => {
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'pentacle-native-parent-'));
+    try {
+      const candidateRoot = cleanCandidateClone(tempRoot, { parentIdentity: identity });
+      const nativeRoot = derivedClone(tempRoot, candidateRoot, { narrowLaunch: true });
+      const result = preflight(nativeRoot, path.join(tempRoot, 'artifacts'), candidateRoot);
+      if (identity === 'quest.pentacle.mobile') assert.equal(result.status, 0, result.stdout + result.stderr);
+      else {
+        assert.notEqual(result.status, 0);
+        assert.match(result.stdout + result.stderr, /parent project identity is not an approved exact pair/);
+      }
+    } finally { fs.rmSync(tempRoot, { recursive: true, force: true }); }
+  });
+}
+
 test('preflight rejects a derived root with an uninitialized submodule', () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'pentacle-mobile-full-gate-submodule-'));
   const artifactDir = path.join(tempRoot, 'artifacts');
-  const candidateRoot = cleanCandidateClone(tempRoot);
+  const candidateRoot = cleanCandidateClone(tempRoot, { legacySubmodule: true });
   const nativeRoot = derivedClone(tempRoot, candidateRoot, { initializeSubmodules: false });
   const result = preflight(nativeRoot, artifactDir, candidateRoot);
   assert.notEqual(result.status, 0);

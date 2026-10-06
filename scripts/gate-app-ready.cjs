@@ -16,16 +16,19 @@ async function waitForAppReady(options, dependencies) {
     if ((transport.status != null && transport.status !== 0) || transport.signal)
       throw Object.assign(new Error('APP_LAUNCH_FAILED'), { readiness: { elapsed_ms: elapsed, transport, samples } });
     if (elapsed > options.deadlineMs) throw Object.assign(new Error('APP_READY_TIMEOUT'), { readiness: { elapsed_ms: elapsed, transport, samples } });
-    let observation = null; let error = null;
-    try { observation = await dependencies.read(Math.max(1, options.deadlineMs - elapsed)); } catch (failure) { error = failure.message; }
+    let observation = null; let error = null; let commandFailure = null;
+    try { observation = await dependencies.read(Math.max(1, options.deadlineMs - elapsed)); }
+    catch (failure) { error = failure.message; commandFailure = failure.command_failure; }
     const receipt = observation?.receipt;
     const valid = receipt?.nonce === options.nonce && receipt.bundle_id === options.bundleId
       && Number.isSafeInteger(receipt.pid) && receipt.pid > 1 && observation.livePid === receipt.pid
+      && typeof observation.processBirth === 'string' && /^[1-9][0-9]*$/.test(observation.processBirth)
       && Number.isFinite(receipt.created_at) && receipt.created_at >= options.startedAt
       && receipt.created_at <= options.startedAt + Math.min(options.deadlineMs, now() - started + 1000);
     samples.push({ elapsed_ms: now() - started, pid: receipt?.pid || null, live_pid: observation?.livePid || null,
-      bound: valid, ...(error ? { error } : {}) });
+      bound: valid, ...(error ? { error } : {}), ...(commandFailure ? { command_failure: commandFailure } : {}) });
     if (valid && now() - started <= options.deadlineMs) return { ready: true, pid: receipt.pid, nonce: options.nonce,
+      process_birth: observation.processBirth,
       elapsed_ms: now() - started, native_receipt: receipt, transport, samples };
     if (now() - started >= options.deadlineMs) throw Object.assign(new Error('APP_READY_TIMEOUT'), { readiness: { elapsed_ms: now() - started, transport, samples } });
     await sleep(Math.min(options.pollMs, options.deadlineMs - (now() - started)));
@@ -33,8 +36,17 @@ async function waitForAppReady(options, dependencies) {
 }
 
 function simctl(target, args, timeout = 10000) {
+  const startedAt = new Date().toISOString();
   const result = runOwnedSync('/usr/bin/xcrun', ['simctl', '--set', target.deviceSetRoot, ...args], { encoding: 'utf8', timeout, maxBuffer: 1024 * 1024 });
-  if (result.error || result.status !== 0) throw result.error || new Error(`simctl ${args[0]} failed: ${result.status}`);
+  if (result.error || result.status !== 0) {
+    const error = result.error || new Error(`simctl ${args[0]} failed: ${result.status}`);
+    error.command_failure = { binary: '/usr/bin/xcrun', args: ['simctl', '--set', target.deviceSetRoot, ...args], timeout_ms: timeout,
+      started_at: startedAt, finished_at: new Date().toISOString(), owner_pid: process.pid, ownership: result.ownership || null,
+      status: result.status ?? null, signal: result.signal ?? null, error: result.error?.code || null,
+      stdout: String(result.stdout || ''), stderr: String(result.stderr || '') };
+    if (error.command_failure.stderr) error.message += `\n${error.command_failure.stderr}`;
+    throw error;
+  }
   return result.stdout.trim();
 }
 
@@ -49,17 +61,47 @@ function currentPid(target, timeout) {
   return pids.length === 1 ? pids[0] : null;
 }
 
+function processBirth(pid, command = runOwnedSync) {
+  if (!Number.isSafeInteger(pid) || pid <= 1) throw new Error('APP_SMOKE_PID_INVALID');
+  const root = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'pentacle-smoke-birth-'));
+  try {
+    const file = path.join(root, 'pid.json');
+    fs.writeFileSync(file, JSON.stringify([{ pid }]));
+    // Reuse the public collector's legacy input contract and exact kernel birth value.
+    const args = [require.resolve('./gate-process-cpu.py'), file];
+    const startedAt = new Date().toISOString();
+    const result = command('python3', args,
+      { encoding: 'utf8', timeout: 5000, maxBuffer: 1024 * 1024 });
+    try {
+      if (result.error || result.status !== 0) throw result.error || new Error('APP_SMOKE_BIRTH_READ_FAILED');
+      const rows = JSON.parse(result.stdout).rows;
+      if (!Array.isArray(rows) || rows.length !== 1 || rows[0].pid !== pid) throw new Error('APP_SMOKE_BIRTH_ROW_INVALID');
+      const row = rows[0];
+      if (row.cpuProbeErrno === 3 && row.start == null) return null; // Actual ESRCH only.
+      if (row.cpuProbeErrno !== 0 || typeof row.start !== 'string' || !/^[1-9][0-9]*$/.test(row.start))
+        throw new Error('APP_SMOKE_BIRTH_UNAVAILABLE');
+      return row.start;
+    } catch (error) {
+      error.command_failure = { binary: 'python3', args, timeout_ms: 5000,
+        started_at: startedAt, finished_at: new Date().toISOString(), owner_pid: process.pid, ownership: result.ownership || null,
+        status: result.status ?? null, signal: result.signal ?? null, error: result.error?.code || null,
+        stdout: String(result.stdout || ''), stderr: String(result.stderr || '') };
+      throw error;
+    }
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+}
+
 async function launchAndWait(input) {
   const { target, receiptFile, nonce } = input;
-  const data = simctl(target, ['get_app_container', target.udid, target.bundleId, 'data']);
-  const ownedDevice = fs.realpathSync(path.join(target.deviceSetRoot, target.udid));
-  if (!fs.realpathSync(data).startsWith(`${ownedDevice}${path.sep}`)) throw new Error('APP_DATA_NOT_OWNED');
-  const marker = path.join(data, 'Documents', '.pentacle-gate-ready.json');
-  fs.rmSync(marker, { force: true });
   const startedAt = Date.now();
   const transport = { status: null, signal: null, stdout: '', stderr: '' };
   let child; let outcome;
   try {
+    const data = simctl(target, ['get_app_container', target.udid, target.bundleId, 'data']);
+    const ownedDevice = fs.realpathSync(path.join(target.deviceSetRoot, target.udid));
+    if (!fs.realpathSync(data).startsWith(`${ownedDevice}${path.sep}`)) throw new Error('APP_DATA_NOT_OWNED');
+    const marker = path.join(data, 'Documents', '.pentacle-gate-ready.json');
+    fs.rmSync(marker, { force: true });
     fs.writeFileSync(receiptFile, JSON.stringify({ nonce, target, started_at: startedAt, phase: 'launch-intent' }));
     child = spawn('/usr/bin/xcrun', ['simctl', '--set', target.deviceSetRoot, 'launch', '--terminate-running-process', target.udid, target.bundleId],
       { env: { ...process.env, SIMCTL_CHILD_PENTACLE_GATE_READY_NONCE: nonce }, stdio: ['ignore', 'pipe', 'pipe'] });
@@ -74,11 +116,13 @@ async function launchAndWait(input) {
         if (stat.size > 4096) throw new Error('APP_READY_RECEIPT_OVERSIZED');
         const receipt = JSON.parse(fs.readFileSync(marker, 'utf8'));
         if (receipt.nonce !== nonce) return { receipt, livePid: null };
-        return { receipt, livePid: currentPid(target, Math.min(2000, remaining)) };
+        const livePid = currentPid(target, Math.min(2000, remaining));
+        return { receipt, livePid, processBirth: livePid === receipt.pid ? processBirth(livePid) : null };
       },
     });
     return outcome;
-  } catch (error) { outcome = { ready: false, error: error.message, ...(error.readiness || {}) }; throw error; }
+  } catch (error) { outcome = { ready: false, error: error.message, ...(error.readiness || {}),
+    ...(error.command_failure ? { command_failure: error.command_failure } : {}) }; throw error; }
   finally {
     if (child && child.exitCode === null && child.signalCode === null) {
       child.kill('SIGTERM');
@@ -92,24 +136,87 @@ async function launchAndWait(input) {
   }
 }
 
-function verifyReady(input, readPid = currentPid) {
+function verifyReady(input, readPid = currentPid, readBirth = processBirth) {
   const { collectChecks, requireChecks } = require('./gate-checks.cjs');
+  const commandFailures = [];
+  const observe = (read, ...args) => {
+    try { return read(...args); }
+    catch (error) { if (error.command_failure) commandFailures.push(error.command_failure); throw error; }
+  };
   let receipt; let pid;
   const checks = collectChecks([
     { name: 'readiness-receipt', run: () => { receipt = JSON.parse(fs.readFileSync(input.receiptFile, 'utf8')); } },
-    { name: 'receipt-binding', dependsOn: ['readiness-receipt'], run: () => { if (!receipt.ready || receipt.nonce !== input.nonce) throw new Error('APP_READY_RECEIPT_INVALID'); } },
-    { name: 'live-pid-readback', run: () => { pid = readPid(input.target, 5000); } },
+    { name: 'receipt-binding', dependsOn: ['readiness-receipt'], run: () => {
+      if (!receipt.ready || receipt.nonce !== input.nonce || !Number.isSafeInteger(receipt.pid) || receipt.pid <= 1
+        || receipt.native_receipt?.nonce !== input.nonce || receipt.native_receipt?.pid !== receipt.pid
+        || receipt.native_receipt?.bundle_id !== input.target.bundleId
+        || ['deviceSetRoot', 'udid', 'bundleId'].some((key) => receipt.target?.[key] !== input.target[key])
+        || (input.target.live_pid != null && receipt.pid !== input.target.live_pid)) throw new Error('APP_READY_RECEIPT_INVALID');
+    } },
+    { name: 'live-pid-readback', run: () => { pid = observe(readPid, input.target, 5000); } },
     { name: 'pid-binding', dependsOn: ['readiness-receipt', 'live-pid-readback'], run: () => { if (pid !== receipt.pid) throw new Error('APP_READY_PID_MISMATCH'); } },
+    { name: 'process-birth-binding', dependsOn: ['receipt-binding', 'pid-binding'], run: () => {
+      if (typeof receipt.process_birth !== 'string' || !/^[1-9][0-9]*$/.test(receipt.process_birth)
+        || observe(readBirth, pid) !== receipt.process_birth) throw new Error('APP_READY_PROCESS_BIRTH_MISMATCH');
+    } },
   ]);
-  try { requireChecks(checks); } catch (error) { throw new Error(`APP_READY_LIVENESS_FAILED:${error.message}`); }
+  try { requireChecks(checks); }
+  catch (error) { throw Object.assign(new Error(`APP_READY_LIVENESS_FAILED:${error.message}`), { checks, command_failures: commandFailures }); }
   return checks;
+}
+
+function stopOwnedSmoke(input, dependencies = {}) {
+  const readPid = dependencies.readPid || currentPid;
+  const readBirth = dependencies.readBirth || processBirth;
+  const signal = dependencies.signal || ((target) => simctl(target, ['terminate', target.udid, target.bundleId]));
+  const now = dependencies.now || (() => performance.now());
+  const sleep = dependencies.sleep || ((ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms));
+  const started = now();
+  let receipt;
+  const teardown = { status: 'pending', pid: input.target.live_pid, nonce: input.nonce, signal_sent: false,
+    started_at: new Date().toISOString() };
+  try {
+    receipt = JSON.parse(fs.readFileSync(input.receiptFile, 'utf8'));
+    teardown.pid = receipt.pid;
+    teardown.process_birth = receipt.process_birth;
+    teardown.checks = verifyReady(input, readPid, readBirth);
+    // Check the exact bundle PID again after the birth read, before the only signal.
+    if (readPid(input.target, 5000) !== receipt.pid) throw new Error('APP_SMOKE_PID_CHANGED');
+    if (readBirth(receipt.pid) !== receipt.process_birth) throw new Error('APP_SMOKE_PID_REUSED');
+    signal(input.target, receipt.pid);
+    teardown.signal_sent = true;
+    for (;;) {
+      const pid = readPid(input.target, 5000);
+      const birth = readBirth(receipt.pid);
+      if (pid === null && birth === null) break;
+      if (pid !== null && pid !== receipt.pid) throw new Error('APP_SMOKE_FOREIGN_PID');
+      if (birth !== null && birth !== receipt.process_birth) throw new Error('APP_SMOKE_PID_REUSED');
+      if (now() - started >= 30000) throw new Error('APP_SMOKE_TEARDOWN_TIMEOUT');
+      sleep(50);
+    }
+    teardown.status = 'stopped';
+    teardown.live_pid_after = null;
+    teardown.process_birth_after = null;
+    return teardown;
+  } catch (error) {
+    teardown.status = 'failed'; teardown.error = error.message;
+    if (error.command_failure) teardown.command_failure = error.command_failure;
+    if (error.command_failures) teardown.command_failures = error.command_failures;
+    throw error;
+  }
+  finally {
+    teardown.finished_at = new Date().toISOString();
+    teardown.elapsed_ms = now() - started;
+    if (receipt) fs.writeFileSync(input.receiptFile, JSON.stringify({ ...receipt, smoke_teardown: teardown }));
+  }
 }
 
 if (require.main === module) {
   const input = JSON.parse(process.argv[2]);
   if (input.verify) {
-    verifyReady(input);
+    if (input.teardown) stopOwnedSmoke(input);
+    else verifyReady(input);
   } else launchAndWait(input).catch((error) => { console.error(error.message); process.exitCode = 1; });
 }
 
-module.exports = { verifyReady, waitForAppReady, launchAndWait, currentPid };
+module.exports = { verifyReady, waitForAppReady, launchAndWait, currentPid, processBirth, stopOwnedSmoke };

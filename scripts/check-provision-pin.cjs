@@ -24,29 +24,49 @@ function readPin(root) {
   } catch (error) {
     throw new Error(`TEST_PROVISION_PIN_INVALID:${error.message}`);
   }
-  if (pin.schema !== 1 || pin.path !== 'pentacle-chat-core' || !/^[0-9a-f]{40}$/.test(pin.commit)) {
+  const legacy = pin.schema === 1 && !Object.hasOwn(pin, 'representation') && /^[0-9a-f]{40}$/.test(pin.commit || '');
+  const vendored = pin.schema === 2 && pin.representation === 'vendored_tree' && /^[0-9a-f]{40}$/.test(pin.tree || '')
+    && !Object.hasOwn(pin, 'commit');
+  if (pin.path !== 'pentacle-chat-core' || (!legacy && !vendored)) {
     throw new Error('TEST_PROVISION_PIN_INVALID');
   }
   return pin;
 }
 
-function gitlinkSha(root, relativePath) {
+function trackedEntry(root, relativePath) {
   const entry = git(root, ['ls-tree', 'HEAD', '--', relativePath]).split(/\r?\n/).find(Boolean);
   const fields = entry ? entry.trim().split(/\s+/) : [];
-  if (fields[0] !== '160000' || fields[1] !== 'commit' || !/^[0-9a-f]{40}$/.test(fields[2] || '')) return null;
-  return fields[2];
+  return { mode: fields[0], type: fields[1], sha: fields[2] };
+}
+
+function gitlinkSha(root, relativePath) {
+  const entry = trackedEntry(root, relativePath);
+  return entry.mode === '160000' && entry.type === 'commit' ? entry.sha : null;
+}
+
+function assertProvisionEntry(root = ROOT) {
+  const pin = readPin(root);
+  const entry = trackedEntry(root, pin.path);
+  const expected = pin.schema === 2 ? pin.tree : pin.commit;
+  const matchingForm = pin.schema === 2
+    ? entry.mode === '040000' && entry.type === 'tree'
+    : entry.mode === '160000' && entry.type === 'commit';
+  if (!matchingForm || entry.sha !== expected) {
+    throw new Error(
+      `TEST_PROVISION_PIN_DRIFT: ${pin.path} ${entry.type || '<missing>'} ${entry.sha || '<missing>'} does not match `
+      + `${PIN_FILE} ${pin.schema === 2 ? 'vendored tree' : 'gitlink commit'} ${expected}; run the align-pin chore before pushing this commit.`,
+    );
+  }
+  return pin.schema === 2 ? { path: pin.path, representation: pin.representation, tree: entry.sha }
+    : { path: pin.path, commit: entry.sha };
 }
 
 function assertProvisionPin(root = ROOT) {
-  const pin = readPin(root);
-  const observed = gitlinkSha(root, pin.path);
-  if (observed !== pin.commit) {
-    throw new Error(
-      `TEST_PROVISION_PIN_DRIFT: ${pin.path} gitlink ${observed || '<missing>'} does not match `
-      + `${PIN_FILE} commit ${pin.commit}; run the align-pin chore before pushing this commit.`,
-    );
+  const verified = assertProvisionEntry(root);
+  if (git(root, ['status', '--porcelain=v1', '--untracked-files=all', '--', verified.path])) {
+    throw new Error('TEST_PROVISION_CORE_DIRTY: executed core bytes must match the pinned tracked entry');
   }
-  return { path: pin.path, commit: observed };
+  return verified;
 }
 
 if (require.main === module) {
@@ -58,4 +78,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { assertProvisionPin, gitlinkSha, readPin };
+module.exports = { assertProvisionEntry, assertProvisionPin, gitlinkSha, readPin, trackedEntry };

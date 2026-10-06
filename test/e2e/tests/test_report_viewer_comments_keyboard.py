@@ -1,6 +1,11 @@
 from __future__ import annotations
 
 import hashlib
+import json
+import subprocess
+from types import SimpleNamespace
+
+import pytest
 
 
 FRAME = {"x": 16, "y": 120, "width": 320, "height": 40}
@@ -53,3 +58,30 @@ def test_disabled_target_is_not_selected_when_enabled_is_required() -> None:
     ], "target", require_enabled=True)
     assert frame is None
     assert error == "missing accessibility target target"
+
+
+def test_actual_comment_scenario_uses_native_marker_for_coordinate_tap(monkeypatch) -> None:
+    from e2e.scenarios import report_viewer_comments_keyboard as scenario
+    run_id, udid = "selector-contract", "OWNED-UDID"
+    # Shape from the pre-tap idb receipt: the accessible, pointerless marker
+    # exposes AXUniqueId; the underlying Pressable's React testID is absent.
+    native_tree = [{"AXUniqueId": f"report-block-comment-target--{run_id}",
+                    "enabled": True, "type": "GenericElement",
+                    "frame": {"x": 16, "y": 426.00000762939453, "width": 370, "height": 43}}]
+    ready = SimpleNamespace(message="harness:report_viewer_ready", received_at=0,
+                            data={"scenario_run_id": run_id})
+    stream = SimpleNamespace(all_events=lambda: [ready])
+    calls = []
+    class FirstTap(BaseException):
+        pass
+    def boundary(argv, **_kwargs):
+        calls.append(argv)
+        if argv == ["idb", "ui", "describe-all", "--udid", udid, "--json"]:
+            return subprocess.CompletedProcess(argv, 0, json.dumps(native_tree), "")
+        assert argv == ["idb", "ui", "tap", "201", "447", "--udid", udid]
+        raise FirstTap()
+    monkeypatch.setattr(subprocess, "run", boundary)
+    with pytest.raises(FirstTap):
+        scenario.run({"scenario_run_id": run_id, "SIMULATOR_UDID": udid,
+                      "trace": lambda *_: None}, stream)
+    assert len(calls) == 2  # No input, text, Send, fake keyboard or scenario PASS.

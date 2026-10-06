@@ -241,6 +241,104 @@ function reportViewerFixture() {
   return { root, runs, cases };
 }
 
+// Result discovery and failed retention cross the reporter/wrapper boundary.
+// Keep this integration in the wrapper suite, outside the certified reporter roots.
+const runnerModule = process.env.PENTACLE_REPORT_VIEWER_RUNNER_MODULE || './report-viewer-sim-e2e.cjs';
+const vm = require('node:vm');
+
+for (const resultCount of [0, 2]) {
+  test(`scenario discovery preserves argv and original child output with ${resultCount} results`, (t) => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'scenario-invocation-'));
+    t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+    const runsDir = path.join(root, 'report-viewer-sim-e2e'); fs.mkdirSync(runsDir);
+    const source = fs.readFileSync(require.resolve(runnerModule), 'utf8');
+    const actual = source.match(/^function runScenario\([\s\S]*?^\}/m);
+    assert.ok(actual, 'actual private scenario boundary must exist');
+    const manifest = { status: 'failed', attempts_per_case: 1, cases: [] };
+    const execute = vm.runInNewContext(`(${actual[0]})`, {
+      fs, path, crypto: require('node:crypto'), ROOT: '/synthetic/public/product',
+      process: { pid: 431, env: { PRIVATE_TEST_SECRET: 'do-not-record-environments' } },
+      resultFiles: require(runnerModule).resultFiles,
+      spawnSync(binary, args, options) {
+        assert.equal(binary, 'python3');
+        assert.equal(options.env.PRIVATE_TEST_SECRET, 'do-not-record-environments');
+        for (let index = 0; index < resultCount; index += 1) fs.writeFileSync(path.join(runsDir, `primary-${index}.json`), '{"original":"bytes"}');
+        return { status: 29, signal: null, stdout: 'original stdout\n', stderr: 'original native failure\n' };
+      },
+    });
+    assert.throws(() => execute({ scenario: 'report_viewer_horizontal_scroll', runsDir, runId: 'owned-run', manifest }), new RegExp(`produced ${resultCount} result JSON files`));
+    const invocationPath = path.join(runsDir, 'invocations', 'owned-run.json');
+    const raw = fs.readFileSync(invocationPath, 'utf8');
+    assert.ok(!raw.includes('do-not-record-environments'));
+    const receipt = JSON.parse(raw);
+    assert.equal(receipt.status, 29); assert.equal(receipt.owner_pid, 431);
+    assert.equal(receipt.stdout, 'original stdout\n'); assert.equal(receipt.stderr, 'original native failure\n');
+    assert.deepEqual(receipt.args, ['test/e2e/run_scenario.py', 'report_viewer_horizontal_scroll', '--runs-dir', runsDir]);
+    assert.equal(receipt.artifacts.length, resultCount);
+    assert.equal(manifest.invocations[0].sha256, require('node:crypto').createHash('sha256').update(raw).digest('hex'));
+    fs.writeFileSync(path.join(runsDir, 'manifest.json'), JSON.stringify(manifest));
+    const gate = require('./storage-gate.cjs');
+    assert.doesNotThrow(() => gate.validateReportViewer(root, gate.enumerateEvidence(root), 'failed'));
+    assert.throws(() => gate.validateReportViewer(root, gate.enumerateEvidence(root), 'passed'), /EVIDENCE_CASE_MANIFEST_INVALID/);
+    if (resultCount) {
+      fs.writeFileSync(path.join(runsDir, 'primary-0.json'), 'tampered');
+      assert.throws(() => gate.validateReportViewer(root, gate.enumerateEvidence(root), 'failed'), /EVIDENCE_CASE_INVOCATION_ARTIFACT_DIGEST/);
+    }
+  });
+}
+
+function directSurfaceValidator() {
+  const source = fs.readFileSync(process.env.PENTACLE_DIRECT_ADAPTER_WRAPPER_TEST_SOURCE || path.join(__dirname, 'storage-gate.cjs'), 'utf8');
+  const fn = source.match(/^function validateSurfaceTriggerEvidence\([\s\S]*?^\}/m);
+  assert.ok(fn);
+  return require('node:vm').runInNewContext(`(${fn[0]})`, { fs, path, require,
+    reportViewerResultsBeforeKeyboard: () => require('./storage-gate.cjs').reportViewerResultsBeforeKeyboard() });
+}
+
+test('direct-device evidence requires the ninth real keyboard case and matching owned binding', () => {
+  const fixture = reportViewerFixture();
+  const context = { schema: 1, adapter: 'private-idb', owner_pid: 99, companion_pid: 4321,
+    companion_birth: '12345', device_set_root: path.join(fixture.root, 'Devices'), udid: 'OWNED-UDID', socket: path.join(fixture.root, 'owned.sock') };
+  const contextHash = crypto.createHash('sha256').update(JSON.stringify(context)).digest('hex');
+  const record = { schema: 2, run_id: 'owned-run', adapter: 'private-idb', status: 'verified', reason: 'case-results-complete',
+    observed_results: 8, required_results: 8, context, context_sha256: contextHash, gui_launched: false,
+    cleanup: { status: 'not-required', error: null, outcomes: [] }, completed_at: '2026-10-06T00:00:00Z' };
+  const marker = path.join(fixture.root, 'storage-surface-trigger.json');
+  fs.writeFileSync(marker, JSON.stringify(record));
+  const body = String(parseInt(crypto.createHash('sha256').update('run-8').digest('hex').slice(0, 12), 16));
+  const payload = { verdict: 'PASS', result: { extras: { runtime_monitor: { process_identity: {
+    verified: true, launch_pid: '431', armed_telemetry_pid: '431' } } } },
+    all_events: [
+      { message: 'report:comment_keyboard', native_process_id: '431', data: { scenario_run_id: 'run-8', unobscured: true, input_bottom: 478, keyboard_top: 546 } },
+      { message: 'report:comment_confirmed', native_process_id: '431', data: { scenario_run_id: 'run-8', body } },
+    ], artifacts: { screenshots: ['run-8-keyboard.png'] } };
+  const payloadPath = path.join(fixture.runs, 'case-8.json');
+  fs.writeFileSync(payloadPath, JSON.stringify(payload));
+  const manifestPath = path.join(fixture.runs, 'manifest.json');
+  const manifest = JSON.parse(fs.readFileSync(manifestPath));
+  manifest.cases[8].input_adapter = { context, context_sha256: contextHash };
+  fs.writeFileSync(manifestPath, JSON.stringify(manifest));
+  const validate = directSurfaceValidator();
+  assert.doesNotThrow(() => validate(fixture.root, 'owned-run', 0));
+  for (const altered of [
+    { ...record, gui_launched: true },
+    { ...record, observed_results: 7 },
+    { ...record, context_sha256: 'a'.repeat(64) },
+    { ...record, context: { ...context, companion_pid: 4322 } },
+  ]) { fs.writeFileSync(marker, JSON.stringify(altered)); assert.throws(() => validate(fixture.root, 'owned-run', 0)); }
+  fs.writeFileSync(marker, JSON.stringify(record));
+  manifest.cases.pop(); fs.writeFileSync(manifestPath, JSON.stringify(manifest));
+  assert.throws(() => validate(fixture.root, 'owned-run', 0), /EVIDENCE_DIRECT_INPUT_BINDING/);
+  manifest.cases.push(fixture.cases[8]); manifest.cases[8].input_adapter = { context, context_sha256: contextHash };
+  fs.writeFileSync(manifestPath, JSON.stringify(manifest));
+  for (const altered of [
+    { ...payload, verdict: 'SKIPPED' },
+    { ...payload, all_events: payload.all_events.slice(1) },
+    { ...payload, all_events: payload.all_events.map(e => ({ ...e, native_process_id: '999' })) },
+    { ...payload, artifacts: { screenshots: [] } },
+  ]) { fs.writeFileSync(payloadPath, JSON.stringify(altered)); assert.throws(() => validate(fixture.root, 'owned-run', 0), /REAL_KEYBOARD/); }
+});
+
 test('nine single-attempt report-viewer results bind status, result digest, video digest, and time', () => {
   const fixture = reportViewerFixture();
   const files = require('./storage-gate.cjs').enumerateEvidence(fixture.root);
@@ -734,6 +832,15 @@ test('macOS sandbox reads host preferences truthfully and writes only the two gu
   const domain = `com.pentacle.storagegate.test-${crypto.randomUUID()}`;
   const defaultsIn = (rendered, ...args) => spawnSync('/usr/bin/sandbox-exec', ['-p', rendered, '/usr/bin/defaults', ...args], { encoding: 'utf8' });
   const hostDefaults = (...args) => spawnSync('/usr/bin/defaults', args, { encoding: 'utf8' });
+  const assertFabricatedAbsent = (result) => {
+    assert.notEqual(result.status, 0);
+    assert.equal(String(result.stdout).trim(), '');
+    const diagnostic = String(result.stderr).trim();
+    // macOS versions report the same absent-domain result with either diagnostic. Both
+    // must identify this exact throwaway domain; a generic permission error cannot pass.
+    assert.ok(diagnostic === `Error: Domain '${domain}' not found.`
+      || (diagnostic.includes(domain) && /does not exist/.test(diagnostic)), diagnostic);
+  };
 
   try {
     assert.equal(hostDefaults('write', domain, 'probeKey', '-bool', 'true').status, 0);
@@ -748,16 +855,14 @@ test('macOS sandbox reads host preferences truthfully and writes only the two gu
     const withoutShm = profile.split('\n').filter((line) => !line.startsWith('(allow ipc-posix-shm')).join('\n');
     assert.notEqual(withoutShm, profile);
     const unmapped = defaultsIn(withoutShm, 'read', domain, 'probeKey');
-    assert.notEqual(unmapped.status, 0);
-    assert.match(String(unmapped.stderr), /does not exist/);
+    assertFabricatedAbsent(unmapped);
 
     // Control 2 - the grant must match the region EXACTLY. One altered character and the read
     // silently degrades again, so a stale hardcoded uid cannot pass this test.
     const wrongName = profile.replace(/apple\.cfprefs\.\d+v1/g, 'apple.cfprefs.0v1');
     assert.notEqual(wrongName, profile);
     const mismatched = defaultsIn(wrongName, 'read', domain, 'probeKey');
-    assert.notEqual(mismatched.status, 0);
-    assert.match(String(mismatched.stderr), /does not exist/);
+    assertFabricatedAbsent(mismatched);
 
     // Privilege cost, to the layer-11 standard: a NON-granted domain is denied, and the host value
     // it would have changed is untouched.
@@ -1144,6 +1249,65 @@ test('a failed run seals with partial report-viewer evidence while a passed run 
   assert.throws(() => require('./storage-gate.cjs').validateReportViewer(rebuilt.root, tampered), /EVIDENCE_CASE_/, 'the default must remain strict');
   fs.rmSync(fixture.root, { recursive: true, force: true });
   fs.rmSync(rebuilt.root, { recursive: true, force: true });
+});
+
+for (const [label, verdict, status, keepVideo] of [
+  ['unexpected FAIL', 'FAIL', 1, true],
+  ['SETUP_FAIL without capture', 'SETUP_FAIL', 4, false],
+]) {
+  test(`truthful ${label} seals as failed with its original evidence`, () => {
+    const fixture = reportViewerFixture();
+    for (const entry of fixture.cases.slice(1)) {
+      fs.unlinkSync(path.join(fixture.runs, entry.result));
+      fs.unlinkSync(path.join(fixture.runs, entry.result.replace('.json', '.mp4')));
+    }
+    const payload = { scenario: fixture.cases[0].scenario, verdict,
+      result: { error: 'original native adapter failure' },
+      owned_session_teardown_sidecar: 'case-0.teardown.json',
+      ...(keepVideo ? { artifacts: { video: 'case-0.mp4' }, extras: { screen_capture: {
+        video_ready: false, video_returncode: 2, video_finalized: false,
+        video_forced_kill: false, video_alive_after_teardown: false,
+      } } } : {}) };
+    if (keepVideo) fs.writeFileSync(path.join(fixture.runs, 'case-0.mp4'), '');
+    else fs.unlinkSync(path.join(fixture.runs, 'case-0.mp4'));
+    fs.writeFileSync(path.join(fixture.runs, 'case-0.teardown.json'), JSON.stringify({
+      attempted: 1, closed: [], closed_count: 0,
+      orphans: [{ stream_id: 'owned-native', error: 'original teardown failure' }], orphan_count: 1,
+    }));
+    const resultPath = path.join(fixture.runs, 'case-0.json');
+    fs.writeFileSync(resultPath, JSON.stringify(payload));
+    const item = { ...fixture.cases[0], status, sha256: digest(resultPath) };
+    const manifestPath = path.join(fixture.runs, 'manifest.json');
+    fs.writeFileSync(manifestPath, JSON.stringify({ status: 'failed', attempts_per_case: 1,
+      recorder_preflight: { setup_verdict: 'PASS', outcome: 'clear' }, cases: [item] }));
+    const gate = require('./storage-gate.cjs');
+    assert.doesNotThrow(() => gate.validateReportViewer(fixture.root, gate.enumerateEvidence(fixture.root), 'failed'));
+    assert.equal(JSON.parse(fs.readFileSync(resultPath)).result.error, 'original native adapter failure');
+    assert.throws(() => gate.validateReportViewer(fixture.root, gate.enumerateEvidence(fixture.root), 'passed'), /EVIDENCE_CASE_MANIFEST_INVALID/);
+    item.sha256 = '0'.repeat(64);
+    fs.writeFileSync(manifestPath, JSON.stringify({ status: 'failed', attempts_per_case: 1, cases: [item] }));
+    assert.throws(() => gate.validateReportViewer(fixture.root, gate.enumerateEvidence(fixture.root), 'failed'), /EVIDENCE_CASE_RESULT_DIGEST/);
+    item.sha256 = digest(resultPath);
+    payload.raw_log_sidecar = '../foreign.log';
+    fs.writeFileSync(resultPath, JSON.stringify(payload)); item.sha256 = digest(resultPath);
+    fs.writeFileSync(manifestPath, JSON.stringify({ status: 'failed', attempts_per_case: 1, cases: [item] }));
+    assert.throws(() => gate.validateReportViewer(fixture.root, gate.enumerateEvidence(fixture.root), 'failed'), /EVIDENCE_CASE_SIDECAR_NAME_INVALID/);
+  });
+}
+
+test('truthful failed retention cannot turn a failed first case into a strict nine-case PASS', () => {
+  const fixture = reportViewerFixture();
+  const resultPath = path.join(fixture.runs, 'case-0.json');
+  const payload = JSON.parse(fs.readFileSync(resultPath));
+  payload.verdict = 'FAIL';
+  fs.writeFileSync(resultPath, JSON.stringify(payload));
+  const manifestPath = path.join(fixture.runs, 'manifest.json');
+  const manifest = JSON.parse(fs.readFileSync(manifestPath));
+  manifest.cases[0].status = 1; manifest.cases[0].sha256 = digest(resultPath);
+  fs.writeFileSync(manifestPath, JSON.stringify(manifest));
+  const gate = require('./storage-gate.cjs');
+  assert.doesNotThrow(() => gate.validateReportViewer(fixture.root, gate.enumerateEvidence(fixture.root), 'failed'));
+  assert.throws(() => gate.validateReportViewer(fixture.root, gate.enumerateEvidence(fixture.root), 'passed'), /EVIDENCE_CASE_VERDICT/);
 });
 
 test('the failing child stage is lifted into the journal on every path that records a failure', () => {
@@ -1591,7 +1755,7 @@ test('the idb companion is spawned by a boot watcher, never eagerly at simulator
   const source = fs.readFileSync(path.join(__dirname, 'storage-gate.cjs'), 'utf8');
   const run = source.slice(source.indexOf('async function runFullGate'));
   // The run must start the WATCHER, and must not spawn a companion directly at any point.
-  assert.match(run, /startIdbCompanionWatcher\(environment\.simulatorUdid, environment\.deviceSet\)/);
+  assert.match(run, /startIdbCompanionWatcher\(environment\.simulatorUdid, environment\.deviceSet, environment\.inputContextFile\)/);
   assert.equal(/=\s*spawnIdbCompanion\(/.test(run), false, 'the run must never spawn a companion eagerly');
   // The child's address is derived from the udid, NOT from a spawn result, so it can be handed over
   // before the socket exists.
@@ -1645,6 +1809,37 @@ test('the child is given a derived host PYTHONPATH so sandboxed idb can import',
   assert.match(resolver, /process\.env\.PYTHONPATH/);
 });
 
+test('idb user-site lookup follows the actual launcher interpreter and rejects unknown wrappers', () => {
+  const source = fs.readFileSync(path.join(__dirname, 'storage-gate.cjs'), 'utf8');
+  const resolver = source.slice(source.indexOf('function hostUserSitePackages'), source.indexOf('function createSimulator'));
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'idb-interpreter-')));
+  try {
+    const site = path.join(root, 'consumer-site');
+    fs.mkdirSync(path.join(site, 'idb'), { recursive: true });
+    const interpreter = path.join(root, 'python3.13');
+    fs.writeFileSync(interpreter, '#!/bin/sh\n');
+    fs.chmodSync(interpreter, 0o755);
+    const launcher = path.join(root, 'idb');
+    const resolve = (line) => {
+      fs.writeFileSync(launcher, line + '\n');
+      fs.chmodSync(launcher, 0o755);
+      const calls = [];
+      const actual = require('node:vm').runInNewContext(resolver + '\nhostUserSitePackages()', {
+        fs, path, process: { env: { PATH: root, PYTHONPATH: '/inherited/site' } },
+        spawnSync(command, args) { calls.push([command, args]); return { status: 0, stdout: site + '\n', stderr: '' }; },
+      });
+      assert.equal(actual, `${site}:/inherited/site`);
+      assert.equal(calls[0][0], interpreter);
+      assert.equal(calls[0][1][1], 'import site;print(site.getusersitepackages())');
+    };
+    resolve(`#!${interpreter}`);
+    resolve('#!/usr/bin/env python3.13');
+    assert.throws(() => resolve('#!/bin/sh'), /GATE_IDB_INTERPRETER_UNSUPPORTED/);
+    fs.rmSync(path.join(site, 'idb'), { recursive: true });
+    assert.throws(() => resolve(`#!${interpreter}`), /GATE_USER_SITE_NO_IDB/);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
 // LAYER 16. `-DeviceSetPath` is the entire difference between a surface that ATTACHES to the gate's
 // device and one that merely carries the right argv while driving a default-set device it found instead
 // (measured: without the flag the named private-set device stayed Shutdown and a foreign device booted).
@@ -1691,7 +1886,11 @@ test('the wrapper launches the Simulator surface bound to the gate device set, a
   assert.match(run, /path\.join\(scratch, 'diagnostic-surface-trigger'\)/);
   assert.match(run, /PENTACLE_DIAGNOSTIC_SURFACE_TRIGGER_DIR: diagnosticSurfaceTriggerDirectory/);
   assert.match(run, /requiredResults: reportViewerResultsBeforeKeyboard\(\)/);
-  assert.match(run, /launch: \(\) => launchSimulatorSurface\(environment\.simulatorUdid, environment\.deviceSet\)/);
+  assert.match(run, /validateDirectInputContext\(JSON\.parse\(raw\)\)/);
+  assert.match(run, /context\.udid !== environment\.simulatorUdid/);
+  assert.match(run, /context\.owner_pid !== process\.pid/);
+  assert.match(run, /environment\.simulatorSurfaceTrigger\.adapter = 'private-idb'/);
+  assert.equal(/launch: \(\) => launchSimulatorSurface/.test(run), false, 'private-device input must not launch a GUI surface');
   // Teardown stops the trigger before deleting the simulator and reports action or reasoned inaction.
   const cleanup = run.slice(run.indexOf('const cleanupResources'), run.indexOf('releaseHostResources is defined'));
   assert.ok(cleanup.indexOf("step('simulator-surface'") < cleanup.indexOf("step('simulator'"));
