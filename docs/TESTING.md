@@ -62,8 +62,26 @@ exact owned identity and does not confer authority over unrelated resources.
 Lifecycle commands use the same CLI: `storage:install`, `storage:update`,
 `storage:restore`, `storage:uninstall`, `storage:register-worktree MAIN_REPO_ID
 SPEC_ID LANE_ID` and `storage:retire-worktree TICKET_ID`. The installed LaunchAgent
-runs `storage:janitor dry-run` every six hours; `storage:janitor apply` is an
-explicit action. Its nonzero last-exit status in `launchctl list` means failure.
+runs `storage:janitor dry-run` every six hours through `scripts/storage-janitor-scheduled.cjs`;
+`storage:janitor apply` is an explicit action. Its nonzero last-exit status in
+`launchctl list` means failure. The wrapper keeps the last two runs of stdout and
+stderr in `State/logs` (1 MiB per file, 4 MiB total, inside the state budget); a
+truncated file carries a marker and stderr ends with an exit marker. `storage:install`
+and `storage:update` run only from the dedicated `~/repos/pentacle-mobile-public` checkout
+(a fixed path, never caller-selected; `~/repos/pentacle-mobile` is the sealed lane
+repository and is not a scheduler root). It must be a plain, non-symlinked clone of the
+public `HJK6/pentacle-mobile` origin, clean, and contained in a fetched `origin/main`;
+other roots are refused before any change. Prepare it with `git clone`, `npm ci --ignore-scripts`
+and `git fetch` before updating. Admission is checked at install/update only; scheduled runs
+execute whatever that checkout contains, so keep it clean and on public `main`. The update
+is transactional and rolls back to the prior plist.
+Admission catches ordinary accidents: a wrong or private root, a plainly dirty tree, an
+unmerged commit, a redirected worktree or a remapped origin refspec. It does not detect every
+dirty state and does not authenticate the source against an actor running as the same user.
+Accepted residuals: edited files hidden by index flags (`assume-unchanged`, `skip-worktree`,
+`core.ignoreStat`), untracked files hidden by `.git/info/exclude` or `core.excludesFile`, a
+second remote whose fetch refspec rewrites `refs/remotes/origin/main`, and direct edits of
+`refs/remotes/origin/main` (only an online `ls-remote` would catch these).
 An authorized `launchctl kickstart` can exercise the installed job; inspect its
 bound report afterward. The regular `disabled` file in the installed state is
 the kill-switch for apply mode. Do not replace lifecycle commands with manual

@@ -12,7 +12,7 @@ const TRUSTED = new Set([
   // deliberately ABSENT: it spawns these workers and asserts on exit status and on-disk state, and
   // never needs the mutation capability itself. Naming a test file here would be a strictly larger
   // grant than the demonstrations require.
-  'storage-crash-matrix-worker.cjs', 'storage-discard-recovery-worker.cjs', 'storage-legacy-retirement-worker.cjs', 'storage-lifecycle-seams-worker.cjs', 'storage-reclaim-repeatability-worker.cjs', 'storage-unclassified-resume-worker.cjs', 'storage-absent-backing-worker.cjs',
+  'storage-crash-matrix-worker.cjs', 'storage-discard-recovery-worker.cjs', 'storage-legacy-retirement-worker.cjs', 'storage-lifecycle-seams-worker.cjs', 'storage-reclaim-repeatability-worker.cjs', 'storage-unclassified-resume-worker.cjs', 'storage-absent-backing-worker.cjs', 'storage-scheduled-janitor-worker.cjs',
 ].map((name) => path.join(__dirname, name)));
 
 function callerFile() {

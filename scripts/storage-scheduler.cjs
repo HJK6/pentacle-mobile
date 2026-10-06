@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const mutationCapability = require('./storage-capability.cjs').claim();
-const { assertToolchainSafeLayout, fixedLayout, generatedId } = require('./storage-authority.cjs');
+const { assertPublicRoot, assertToolchainSafeLayout, fixedLayout, generatedId } = require('./storage-authority.cjs');
 const state = require('./storage-state.cjs');
 const stateMutations = state.bind(mutationCapability);
 const { createRecord, replaceRecord } = stateMutations;
@@ -56,7 +56,7 @@ function xml(value) { return String(value).replaceAll('&', '&amp;').replaceAll('
 
 function renderPlist() {
   const root = path.resolve(__dirname, '..');
-  const argv = [process.execPath, path.join(__dirname, 'storage-cli.cjs'), 'storage:janitor', 'dry-run'];
+  const argv = [process.execPath, path.join(__dirname, 'storage-janitor-scheduled.cjs'), 'storage:janitor', 'dry-run'];
   return `<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0"><dict><key>Label</key><string>${LABEL}</string><key>ProgramArguments</key><array>${argv.map((item) => `<string>${xml(item)}</string>`).join('')}</array><key>WorkingDirectory</key><string>${xml(root)}</string><key>StartInterval</key><integer>21600</integer><key>RunAtLoad</key><false/><key>StandardOutPath</key><string>/dev/null</string><key>StandardErrorPath</key><string>/dev/null</string><key>ProcessType</key><string>Background</string></dict></plist>\n`;
 }
 
@@ -186,6 +186,7 @@ function installOrUpdate(action) {
   // own configuration; ordering only decides which error surfaces when both are violated.
   if (action === 'install' && (fs.existsSync(fixedLayout().launchAgent) || spawnSync('/bin/launchctl', ['print', `gui/${process.getuid()}/${LABEL}`]).status === 0)) throw new Error('SCHEDULER_EXISTING_LABEL_OR_PLIST');
   assertToolchainSafeLayout();
+  assertPublicRoot();
   let authority;
   if (action === 'install') {
     if (fs.existsSync(path.join(fixedLayout().state, 'authority.json'))) {

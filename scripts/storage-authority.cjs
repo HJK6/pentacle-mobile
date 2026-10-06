@@ -4,6 +4,7 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { execFileSync } = require('node:child_process');
 
 const CONTRACT = Object.freeze({
   endpoints: Object.freeze({
@@ -239,7 +240,7 @@ const HOST_GLOBAL_IDENTITIES = Object.freeze({
   // silently adopted. That rejection is exercised by a dedicated test, not merely asserted here.
   launchAgent: 'launchd label namespace is host-global; collision rule = first install rejects an unowned existing label/plist',
 });
-const EXTERNAL_REFERENCE_ROOTS = Object.freeze(['home', 'support', 'worktrees', 'memory', 'repositories']);
+const EXTERNAL_REFERENCE_ROOTS = Object.freeze(['home', 'support', 'worktrees', 'memory', 'repositories', 'schedulerRoot']);
 
 function isUnderRoot(root, target) {
   const normalisedRoot = root.endsWith(path.sep) ? root : `${root}${path.sep}`;
@@ -296,6 +297,9 @@ function assertSchedulerArgvDurable(layout = fixedLayout(), scriptRoot = __dirna
   // validateInstalledAuthority re-proves them (AUTHORITY_ROOT_DRIFT) on every use. Before the first
   // install there is no sealed map yet, so fall back to resolving the installer constants.
   const repositories = (sealedRepositories && sealedRepositories.length ? sealedRepositories : Object.values(layout.repositories)).map(resolveExisting);
+  // The dedicated public scheduler root is a fixed, unsealed code root, not a main repository; it is
+  // admitted only when it exists, so hosts that have not cloned it keep the sealed-repository rule.
+  try { repositories.push(resolveExisting(layout.schedulerRoot)); } catch { /* not cloned on this host */ }
   // BOTH assertions are kept deliberately. The second is not redundant: `git worktree add` can place
   // a worktree INSIDE the repository directory, so a path can satisfy (a) and still be retirable.
   // Worktrees first, so the more specific and more actionable error wins: a path under the retirable
@@ -305,6 +309,61 @@ function assertSchedulerArgvDurable(layout = fixedLayout(), scriptRoot = __dirna
   if (isResolvedAncestor(resolveExisting(layout.worktrees), resolvedScriptRoot)) throw new Error('SCHEDULER_ARGV_INSIDE_WORKTREES');
   if (!repositories.some((repository) => isResolvedAncestor(repository, resolvedScriptRoot))) throw new Error('SCHEDULER_ARGV_OUTSIDE_KNOWN_REPOSITORY');
   return layout;
+}
+
+// The scheduled janitor may only run code that was reviewed and published. The root is the one fixed
+// layout.schedulerRoot path (~/repos/pentacle-mobile-public, never the lane repository), a plain clone (not a symlink, linked worktree or lane clone) of
+// the public origin, with a clean tree whose HEAD is already on origin/main. Evaluated at install and
+// update, before any scheduler mutation; it takes no caller-supplied path.
+const PUBLIC_ORIGINS = new Set([
+  'https://github.com/HJK6/pentacle-mobile', 'https://github.com/HJK6/pentacle-mobile.git',
+  'git@github.com:HJK6/pentacle-mobile.git', 'ssh://git@github.com/HJK6/pentacle-mobile.git',
+]);
+
+function publicRootGit(repository, args, { discover = false } = {}) {
+  const pin = discover ? [] : [`--git-dir=${path.join(repository, '.git')}`, `--work-tree=${repository}`];
+  try {
+    const stdout = execFileSync('/usr/bin/git', ['-c', 'core.fsmonitor=false', ...pin, '-C', repository, ...args], {
+      encoding: 'utf8', timeout: 30000, stdio: ['ignore', 'pipe', 'pipe'],
+      env: { PATH: '/usr/bin:/bin', HOME: os.homedir(), LC_ALL: 'C', GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1', GIT_TERMINAL_PROMPT: '0' },
+    });
+    return { status: 0, stdout };
+  } catch (error) { return { status: Number.isInteger(error.status) ? error.status : -1, stdout: '' }; }
+}
+
+function assertPublicRoot(layout = fixedLayout(), scriptRoot = __dirname, git = publicRootGit) {
+  const repository = layout.schedulerRoot;
+  const requested = path.resolve(scriptRoot);
+  if (isResolvedAncestor(path.resolve(layout.worktrees), requested)) throw new Error('PUBLIC_ROOT_EPHEMERAL');
+  if (requested !== path.join(repository, 'scripts')) throw new Error(`PUBLIC_ROOT_NOT_CANONICAL:${requested}`);
+  const scripts = path.join(repository, 'scripts');
+  let stat;
+  try {
+    if (fs.lstatSync(repository).isSymbolicLink() || fs.lstatSync(scripts).isSymbolicLink() || fs.realpathSync.native(repository) !== repository) throw new Error('PUBLIC_ROOT_SYMLINK');
+    stat = fs.statSync(repository);
+  } catch (error) {
+    if (error.message === 'PUBLIC_ROOT_SYMLINK') throw error;
+    throw new Error(`PUBLIC_ROOT_NOT_CANONICAL:${requested}`);
+  }
+  if (!stat.isDirectory() || stat.uid !== process.getuid() || (stat.mode & 0o022) !== 0) throw new Error('PUBLIC_ROOT_OWNER');
+  const dotGit = fs.lstatSync(path.join(repository, '.git'), { throwIfNoEntry: false });
+  if (!dotGit || dotGit.isSymbolicLink() || !dotGit.isDirectory()) throw new Error('PUBLIC_ROOT_WORKTREE');
+  const urls = [['remote', 'get-url', '--all', 'origin'], ['remote', 'get-url', '--push', '--all', 'origin']].map((args) => git(repository, args));
+  for (const result of urls) {
+    const lines = result.stdout.split('\n').filter(Boolean);
+    if (result.status !== 0 || lines.length < 1 || !lines.every((line) => PUBLIC_ORIGINS.has(line))) throw new Error('PUBLIC_ROOT_ORIGIN');
+  }
+  if (git(repository, ['config', '--includes', '--get-regexp', '^url\\..*\\.(push)?insteadof$']).status !== 1) throw new Error('PUBLIC_ROOT_ORIGIN');
+  const refspecs = git(repository, ['config', '--includes', '--get-all', 'remote.origin.fetch']);
+  if (refspecs.status !== 0 || refspecs.stdout !== '+refs/heads/*:refs/remotes/origin/*\n') throw new Error('PUBLIC_ROOT_ORIGIN');
+  const toplevel = git(repository, ['rev-parse', '--show-toplevel'], { discover: true });
+  if (toplevel.status !== 0 || toplevel.stdout.trim() !== repository) throw new Error('PUBLIC_ROOT_WORKTREE');
+  const status = git(repository, ['status', '--porcelain=v1', '--untracked-files=all']);
+  if (status.status !== 0 || status.stdout !== '') throw new Error('PUBLIC_ROOT_DIRTY');
+  const head = git(repository, ['rev-parse', '--verify', '--quiet', 'HEAD^{commit}']);
+  const published = git(repository, ['rev-parse', '--verify', '--quiet', 'refs/remotes/origin/main^{commit}']);
+  if (head.status !== 0 || published.status !== 0 || git(repository, ['merge-base', '--is-ancestor', head.stdout.trim(), published.stdout.trim()]).status !== 0) throw new Error('PUBLIC_ROOT_UNPUBLISHED');
+  return { repository, head: head.stdout.trim() };
 }
 
 function assertIdentityOwnership(layout = fixedLayout()) {
@@ -329,6 +388,7 @@ function assertToolchainSafeLayout(layout = fixedLayout()) {
     assertToolchainSafePath(key, layout[key]);
   }
   for (const [name, repository] of Object.entries(layout.repositories)) assertToolchainSafePath(`repositories.${name}`, repository);
+  assertToolchainSafePath('schedulerRoot', layout.schedulerRoot);
   assertInstalledRootLength(layout.support);
   assertIdentityOwnership(layout);
   return layout;
@@ -350,6 +410,7 @@ function fixedLayout() {
     worktrees: path.join(home, 'agent-workspace', 'worktrees'),
     memory: path.join(home, 'agent-workspace', 'pentacle-memory'),
     repositories: Object.freeze({ 'pentacle-mobile': path.join(home, 'repos', 'pentacle-mobile') }),
+    schedulerRoot: path.join(home, 'repos', 'pentacle-mobile-public'),
     launchAgent: path.join(home, 'Library', 'LaunchAgents', 'com.pentacle.mobile.storage-janitor.plist'),
   });
 }
@@ -410,6 +471,7 @@ module.exports = {
   SCHEDULER_EDGES,
   TICKET_EDGES,
   assertIdentityOwnership,
+  assertPublicRoot,
   assertSchedulerArgvDurable,
   isResolvedAncestor,
   assertToolchainSafeLayout,
