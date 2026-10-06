@@ -52,7 +52,7 @@ writeReport = () => {
 };
 
 function seed() {
-  for (const target of [layout.support, layout.stateImage, layout.state, layout.worktrees, layout.memory, path.dirname(layout.launchAgent)]) fs.mkdirSync(target, { recursive: true, mode: 0o700 });
+  for (const target of [layout.support, layout.stateImage, layout.state, layout.worktrees, layout.memory, path.dirname(layout.launchAgent), ...Object.values(layout.repositories)]) fs.mkdirSync(target, { recursive: true, mode: 0o700 });
   fs.mkdirSync(path.join(layout.state, 'reports'), { recursive: true, mode: 0o700 });
   const authority = stateMutations.createInstalledAuthority();
   fs.writeFileSync(layout.launchAgent, priorPlist, { mode: 0o600 });
@@ -71,7 +71,7 @@ const emit = (value) => process.stdout.write(`${JSON.stringify(value)}\n`);
 const failure = (error) => String(error.message || error);
 
 if (scenario === 'normal-run') {
-  for (const target of [layout.support, layout.stateImage, layout.state, layout.worktrees, layout.memory]) fs.mkdirSync(target, { recursive: true, mode: 0o700 });
+  for (const target of [layout.support, layout.stateImage, layout.state, layout.worktrees, layout.memory, ...Object.values(layout.repositories)]) fs.mkdirSync(target, { recursive: true, mode: 0o700 });
   for (const name of ['runs', 'tickets', 'scheduler', 'reports']) fs.mkdirSync(path.join(layout.state, name), { recursive: true, mode: 0o700 });
   stateMutations.createInstalledAuthority();
   const preload = path.join(process.env.HOME, 'statfs-preload.cjs');

@@ -67,11 +67,13 @@ runs `storage:janitor dry-run` every six hours through `scripts/storage-janitor-
 `launchctl list` means failure. The wrapper keeps the last two runs of stdout and
 stderr in `State/logs` (1 MiB per file, 4 MiB total, inside the state budget); a
 truncated file carries a marker and stderr ends with an exit marker. `storage:install`
-and `storage:update` run only from the canonical `~/repos/pentacle-mobile` checkout
-when it is clean, a plain clone of the public `HJK6/pentacle-mobile` origin, and
-contained in a fetched `origin/main`; other roots are refused before any change.
-Fetch before updating. Admission is checked at install/update only; scheduled runs execute
-whatever the canonical checkout contains, so keep it clean and on public `main`. The update
+and `storage:update` run only from the dedicated `~/repos/pentacle-mobile-public` checkout
+(a fixed path, never caller-selected; `~/repos/pentacle-mobile` is the sealed lane
+repository and is not a scheduler root). It must be a plain, non-symlinked clone of the
+public `HJK6/pentacle-mobile` origin, clean, and contained in a fetched `origin/main`;
+other roots are refused before any change. Prepare it with `git clone`, `npm ci --ignore-scripts`
+and `git fetch` before updating. Admission is checked at install/update only; scheduled runs
+execute whatever that checkout contains, so keep it clean and on public `main`. The update
 is transactional and rolls back to the prior plist.
 An authorized `launchctl kickstart` can exercise the installed job; inspect its
 bound report afterward. The regular `disabled` file in the installed state is

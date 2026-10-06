@@ -22,10 +22,10 @@ function git(cwd, ...args) {
   return execFileSync('/usr/bin/git', ['-c', 'user.name=fixture', '-c', 'user.email=fixture@example.invalid', ...args], { cwd, encoding: 'utf8', env: { PATH: '/usr/bin:/bin', HOME: cwd, LC_ALL: 'C' }, timeout: FIXTURE_TIMEOUT_MS });
 }
 
-// A canonical checkout at <home>/repos/pentacle-mobile whose scripts are a copy of this checkout's, so
+// A scheduler-root checkout at <home>/repos/pentacle-mobile-public whose scripts are a copy of this checkout's, so
 // the worker that runs from it renders and admits exactly what a real installed root would.
 function checkout(home, { origin = PUBLIC_ORIGIN, published = true, location = null } = {}) {
-  const repo = location || path.join(home, 'repos', 'pentacle-mobile');
+  const repo = location || path.join(home, 'repos', 'pentacle-mobile-public');
   fs.mkdirSync(repo, { recursive: true });
   fs.cpSync(__dirname, path.join(repo, 'scripts'), { recursive: true });
   fs.copyFileSync(path.join(__dirname, '..', 'package.json'), path.join(repo, 'package.json'));
@@ -106,11 +106,11 @@ test('public-root admission refuses symlinked, ephemeral, worktree and non-canon
     const { assertPublicRoot, fixedLayout } = require('./storage-authority.cjs');
     const layout = fixedLayout();
     const real = checkout(home, { location: path.join(home, 'elsewhere', 'real') });
-    fs.mkdirSync(path.dirname(layout.repositories['pentacle-mobile']), { recursive: true });
-    fs.symlinkSync(real, layout.repositories['pentacle-mobile']);
-    assert.throws(() => assertPublicRoot(layout, path.join(layout.repositories['pentacle-mobile'], 'scripts')), /PUBLIC_ROOT_SYMLINK/);
+    fs.mkdirSync(path.dirname(layout.schedulerRoot), { recursive: true });
+    fs.symlinkSync(real, layout.schedulerRoot);
+    assert.throws(() => assertPublicRoot(layout, path.join(layout.schedulerRoot, 'scripts')), /PUBLIC_ROOT_SYMLINK/);
     assert.throws(() => assertPublicRoot(layout, path.join(real, 'scripts')), /PUBLIC_ROOT_NOT_CANONICAL/, 'a valid clone at any other path is not the canonical root');
-    fs.unlinkSync(layout.repositories['pentacle-mobile']);
+    fs.unlinkSync(layout.schedulerRoot);
 
     const lane = checkout(home, { location: path.join(layout.worktrees, 'lane') });
     assert.throws(() => assertPublicRoot(layout, path.join(lane, 'scripts')), /PUBLIC_ROOT_EPHEMERAL/);
@@ -240,11 +240,11 @@ function worker(home, repo, scenario) {
   return spawnSync(process.execPath, [path.join(repo, 'scripts', 'storage-scheduled-janitor-worker.cjs'), scenario], { cwd: repo, env: { ...process.env, HOME: home }, encoding: 'utf8', timeout: FIXTURE_TIMEOUT_MS });
 }
 
-function transactional(name, scenario, verdict) {
+function transactional(name, scenario, verdict, { laneRoot = false, origin = null } = {}) {
   test(name, () => {
     const home = temporary('jr');
-    const repo = checkout(home);
-    if (scenario === 'refuse-private') git(repo, 'remote', 'set-url', 'origin', 'git@github.com:HJK6/pentacle-mobile-private.git');
+    const repo = checkout(home, laneRoot ? { location: path.join(home, 'repos', 'pentacle-mobile') } : {});
+    if (scenario === 'refuse-private') git(repo, 'remote', 'set-url', 'origin', origin || 'git@github.com:HJK6/pentacle-mobile-private.git');
     const result = worker(home, repo, scenario);
     verdict(result, { home, repo });
   });
@@ -272,6 +272,17 @@ transactional('update from a non-public root is refused before any mutation', 'r
   assert.equal(evidence.authorityState, 'installed');
   assert.equal(evidence.launchctlMutations, 0);
 });
+
+const refusedAtLaneRoot = (result) => {
+  const evidence = ok(result);
+  assert.match(evidence.error, /PUBLIC_ROOT_NOT_CANONICAL/);
+  assert.equal(evidence.plistUnchanged, true);
+  assert.equal(evidence.recordsUnchanged, true);
+  assert.equal(evidence.authorityState, 'installed');
+  assert.equal(evidence.launchctlMutations, 0);
+};
+transactional('the actual private lane repository root is refused before any mutation', 'refuse-private', refusedAtLaneRoot, { laneRoot: true });
+transactional('even a clean public clone at the sealed lane repository path is not the scheduler root', 'refuse-private', refusedAtLaneRoot, { laneRoot: true, origin: PUBLIC_ORIGIN });
 
 transactional('failed smoke rolls the prior plist back byte for byte and leaves the authority installed', 'rollback', (result) => {
   const evidence = ok(result);

@@ -240,7 +240,7 @@ const HOST_GLOBAL_IDENTITIES = Object.freeze({
   // silently adopted. That rejection is exercised by a dedicated test, not merely asserted here.
   launchAgent: 'launchd label namespace is host-global; collision rule = first install rejects an unowned existing label/plist',
 });
-const EXTERNAL_REFERENCE_ROOTS = Object.freeze(['home', 'support', 'worktrees', 'memory', 'repositories']);
+const EXTERNAL_REFERENCE_ROOTS = Object.freeze(['home', 'support', 'worktrees', 'memory', 'repositories', 'schedulerRoot']);
 
 function isUnderRoot(root, target) {
   const normalisedRoot = root.endsWith(path.sep) ? root : `${root}${path.sep}`;
@@ -297,6 +297,9 @@ function assertSchedulerArgvDurable(layout = fixedLayout(), scriptRoot = __dirna
   // validateInstalledAuthority re-proves them (AUTHORITY_ROOT_DRIFT) on every use. Before the first
   // install there is no sealed map yet, so fall back to resolving the installer constants.
   const repositories = (sealedRepositories && sealedRepositories.length ? sealedRepositories : Object.values(layout.repositories)).map(resolveExisting);
+  // The dedicated public scheduler root is a fixed, unsealed code root, not a main repository; it is
+  // admitted only when it exists, so hosts that have not cloned it keep the sealed-repository rule.
+  try { repositories.push(resolveExisting(layout.schedulerRoot)); } catch { /* not cloned on this host */ }
   // BOTH assertions are kept deliberately. The second is not redundant: `git worktree add` can place
   // a worktree INSIDE the repository directory, so a path can satisfy (a) and still be retirable.
   // Worktrees first, so the more specific and more actionable error wins: a path under the retirable
@@ -309,7 +312,7 @@ function assertSchedulerArgvDurable(layout = fixedLayout(), scriptRoot = __dirna
 }
 
 // The scheduled janitor may only run code that was reviewed and published. The root is the one fixed
-// repositories['pentacle-mobile'] path, a plain clone (not a symlink, linked worktree or lane clone) of
+// layout.schedulerRoot path (~/repos/pentacle-mobile-public, never the lane repository), a plain clone (not a symlink, linked worktree or lane clone) of
 // the public origin, with a clean tree whose HEAD is already on origin/main. Evaluated at install and
 // update, before any scheduler mutation; it takes no caller-supplied path.
 const PUBLIC_ORIGINS = new Set([
@@ -328,7 +331,7 @@ function publicRootGit(repository, args) {
 }
 
 function assertPublicRoot(layout = fixedLayout(), scriptRoot = __dirname, git = publicRootGit) {
-  const repository = layout.repositories['pentacle-mobile'];
+  const repository = layout.schedulerRoot;
   const requested = path.resolve(scriptRoot);
   if (isResolvedAncestor(path.resolve(layout.worktrees), requested)) throw new Error('PUBLIC_ROOT_EPHEMERAL');
   if (requested !== path.join(repository, 'scripts')) throw new Error(`PUBLIC_ROOT_NOT_CANONICAL:${requested}`);
@@ -380,6 +383,7 @@ function assertToolchainSafeLayout(layout = fixedLayout()) {
     assertToolchainSafePath(key, layout[key]);
   }
   for (const [name, repository] of Object.entries(layout.repositories)) assertToolchainSafePath(`repositories.${name}`, repository);
+  assertToolchainSafePath('schedulerRoot', layout.schedulerRoot);
   assertInstalledRootLength(layout.support);
   assertIdentityOwnership(layout);
   return layout;
@@ -401,6 +405,7 @@ function fixedLayout() {
     worktrees: path.join(home, 'agent-workspace', 'worktrees'),
     memory: path.join(home, 'agent-workspace', 'pentacle-memory'),
     repositories: Object.freeze({ 'pentacle-mobile': path.join(home, 'repos', 'pentacle-mobile') }),
+    schedulerRoot: path.join(home, 'repos', 'pentacle-mobile-public'),
     launchAgent: path.join(home, 'Library', 'LaunchAgents', 'com.pentacle.mobile.storage-janitor.plist'),
   });
 }
