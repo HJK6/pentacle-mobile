@@ -411,7 +411,10 @@ function exportAndVerifyIosBundle(label, options = {}) {
     || path.join(os.tmpdir(), 'pentacle-mobile-prod-ios-export');
   fs.rmSync(exportDir, { force: true, recursive: true });
   const commandEnv = { [PRODUCTION_ENDPOINT_ENV]: resolvedEndpoint.endpoint };
-  const status = command(['expo', 'export', '--platform', 'ios', '--output-dir', exportDir], {
+  // Metro inlines EXPO_PUBLIC_* values at transform time but keys its shared
+  // transform cache on file contents only, so a prior export's endpoint can be
+  // replayed. EXPO_NO_CACHE does not cover bundler caches; --clear does.
+  const status = command(['expo', 'export', '--platform', 'ios', '--output-dir', exportDir, '--clear'], {
     label,
     cwd: projectRoot,
     processEnv: sourceEnv,
@@ -484,6 +487,13 @@ function main(argv) {
   if (command === 'run-ios-device') return runIosDevice();
   if (command === 'verify-fingerprints') {
     verifyProdBundleFingerprints(argv.slice(3));
+    return 0;
+  }
+  if (command === 'verify-endpoint') {
+    const resolved = resolveProductionEndpoint();
+    verifyProdBundleFingerprints(argv.slice(3));
+    verifyProdBundleEndpoint(argv.slice(3), resolved.endpoint);
+    console.log(`[prod-endpoint-guard] Bundle endpoint matches ${resolved.sanitizedEndpoint}`);
     return 0;
   }
   if (command === 'guard') {

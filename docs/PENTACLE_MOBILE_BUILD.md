@@ -19,6 +19,31 @@ After installing, verify the installed bundle identifier and build version match
 the signed app, launch it, open a chat, send a message, and confirm the assistant
 reply renders. A successful build or launch alone does not prove connectivity.
 
+## Production export cache and endpoint check
+
+Metro inlines `EXPO_PUBLIC_PENTACLE_WS_URL` into the bundle at transform time,
+but its shared transform cache (`$TMPDIR/metro-cache`) is keyed on file contents,
+not on that value. Two successive production exports with different endpoints
+could therefore replay the first endpoint; the second export's Hermes bytecode
+then contained only the old one. `EXPO_NO_CACHE` does not cover bundler caches.
+`npm run ios:device` and `npm run ios:release` now run `expo export ... --clear`,
+so each production export starts from an empty Metro cache, and the existing
+endpoint and fingerprint guards still fail closed before the native build.
+
+Before installing, check any built artifact (an export directory, a `.hbc` or
+`.jsbundle`, such as the `main.jsbundle` embedded in the built `.app`) against the endpoint that
+`pentacle.config.local.ts` or `EXPO_PUBLIC_PENTACLE_WS_URL` currently resolves to:
+
+```bash
+node scripts/prod-build.cjs verify-endpoint <artifact-path>...
+```
+
+It rejects test-flag fingerprints and any artifact set that does not contain the
+preflight endpoint, and prints only the sanitized endpoint. A stand-alone
+`expo export` or `expo export:embed` outside these scripts must pass `--clear`
+(or use an isolated `TMPDIR`) when the endpoint changes between runs. The certified
+full gate's `ios-export` stage has its own runner and is not changed here.
+
 ## Production host-sigil preflight
 
 `npm run ios:device`, `npm run ios:release`, and the certified full gate refuse a production build
