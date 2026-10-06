@@ -26,7 +26,7 @@ but its shared transform cache (`$TMPDIR/metro-cache`) is keyed on file contents
 not on that value. Two successive production exports with different endpoints
 could therefore replay the first endpoint; the second export's Hermes bytecode
 then contained only the old one. `EXPO_NO_CACHE` does not cover bundler caches.
-`npm run ios:device` and `npm run ios:release` now run `expo export ... --clear`,
+`node scripts/prod-build.cjs run-ios-device` and `run-ios-release` now run `expo export ... --clear`,
 so each production export starts from an empty Metro cache, and the existing
 endpoint and fingerprint guards still fail closed before the native build.
 
@@ -44,9 +44,13 @@ preflight endpoint, and prints only the sanitized endpoint. A stand-alone
 (or use an isolated `TMPDIR`) when the endpoint changes between runs. The certified
 full gate's `ios-export` stage has its own runner and is not changed here.
 
+The bundle embedded in the built `.app` is produced by the Xcode embed phase and is
+not checked automatically: run `verify-endpoint` on `<App>.app` (its `main.jsbundle`)
+before install.
+
 ## Production host-sigil preflight
 
-`npm run ios:device`, `npm run ios:release`, and the certified full gate refuse a production build
+`node scripts/prod-build.cjs run-ios-device`, `run-ios-release`, and the certified full gate refuse a production build
 when any configured host lacks an explicit `djinni | sun | mage | flower | ibis` sigil. The full gate runs
 the guard inside its existing `ios-export` stage, before Expo starts, so positional host attribution
 cannot reach a release artifact while the release receipt keeps its established stage inventory. The
