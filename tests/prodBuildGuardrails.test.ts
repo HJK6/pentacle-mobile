@@ -15,12 +15,15 @@ const prodBuild = require('../scripts/prod-build.cjs') as {
     sanitizedEndpoint: string;
     source: { kind: string; name: string };
   };
-  runIosDevice: (options?: {
-    env?: Record<string, string | undefined>;
-    exportDir?: string;
-    readConfig?: () => { backend?: { wsUrl?: string } };
-    runCommand?: (argv: string[], options: Record<string, unknown>) => number;
-  }) => number;
+  runIosDevice: (options?: ProductionRunOptions) => number;
+  runIosRelease: (options?: ProductionRunOptions) => number;
+};
+
+type ProductionRunOptions = {
+  env?: Record<string, string | undefined>;
+  exportDir?: string;
+  readConfig?: () => { backend?: { wsUrl?: string } };
+  runCommand?: (argv: string[], options: Record<string, unknown>) => number;
 };
 
 describe('production build guardrails', () => {
@@ -247,6 +250,65 @@ describe('production build guardrails', () => {
       ).toThrow(/endpoint.*match|bundle.*endpoint|diverge/i);
       expect(calls).toHaveLength(1);
       expect(calls[0].slice(0, 2)).toEqual(['expo', 'export']);
+    } finally {
+      fs.rmSync(tmp, { force: true, recursive: true });
+    }
+  });
+
+  test.each(['runIosDevice', 'runIosRelease'] as const)(
+    '%s exports with a cleared Metro cache so a prior endpoint cannot be reused',
+    (runner) => {
+      const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'prod-export-clear-'));
+      const endpoint = 'wss://control.fixture.internal:7791/ws';
+      const exportCalls: string[][] = [];
+      try {
+        const runCommand = (argv: string[]) => {
+          if (argv[1] === 'export') {
+            exportCalls.push(argv);
+            fs.mkdirSync(tmp, { recursive: true });
+            fs.writeFileSync(path.join(tmp, 'main.jsbundle'), `bundle endpoint ${endpoint}`);
+          }
+          return 0;
+        };
+
+        expect(
+          prodBuild[runner]({
+            env: {},
+            exportDir: tmp,
+            readConfig: () => ({ backend: { wsUrl: endpoint }, hosts: { fixture: { sigil: 'mage' } } }),
+            runCommand,
+          }),
+        ).toBe(0);
+
+        expect(exportCalls).toHaveLength(1);
+        expect(exportCalls[0]).toEqual(['expo', 'export', '--platform', 'ios', '--output-dir', tmp, '--clear']);
+      } finally {
+        fs.rmSync(tmp, { force: true, recursive: true });
+      }
+    },
+  );
+
+  test('verify-endpoint CLI checks a built artifact against the preflight endpoint and fingerprints', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'prod-verify-endpoint-'));
+    const current = 'wss://control.fixture.internal:7791/ws';
+    const verify = (endpoint: string) => spawnSync(process.execPath, ['scripts/prod-build.cjs', 'verify-endpoint', tmp], {
+      cwd: path.join(__dirname, '..'),
+      env: { PATH: process.env.PATH || '', NODE_ENV: 'production', EXPO_PUBLIC_PENTACLE_WS_URL: endpoint },
+      encoding: 'utf8',
+      timeout: 5000,
+    });
+    try {
+      fs.writeFileSync(path.join(tmp, 'main.jsbundle'), `bundle endpoint ${current}`);
+      expect(verify(current).status).toBe(0);
+
+      const stale = verify('wss://stale.fixture.internal:7791/ws');
+      expect(stale.status).toBe(1);
+      expect(stale.stderr).toMatch(/Baked control-plane endpoint does not match/);
+
+      fs.writeFileSync(path.join(tmp, 'main.jsbundle'), `bundle endpoint ${current} EXPO_PUBLIC_HARNESS`);
+      const fingerprinted = verify(current);
+      expect(fingerprinted.status).toBe(1);
+      expect(fingerprinted.stderr).toMatch(/test-flag fingerprints/);
     } finally {
       fs.rmSync(tmp, { force: true, recursive: true });
     }
