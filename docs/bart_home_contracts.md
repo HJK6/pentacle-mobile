@@ -1,6 +1,6 @@
 # Bart-first home: frozen shared contracts
 
-Contract version: **v1.1 (2026-10-07)** — v1.1 corrects § Answering questions and names the S1/S2 exports. Design original: `design_handoff_bart_home/README.md`
+Contract version: **v1.2 (2026-10-07)** — v1.1 corrected § Answering questions and named the S1/S2 exports; v1.2 adds § Household RPC (S4). Design original: `design_handoff_bart_home/README.md`
 (Pentacle-Mobile.zip sha256 `5ce4da05…`). Changing anything below is a contract change: the
 integration owner publishes a new version here and tells every packet lead before code relies on it.
 
@@ -134,6 +134,15 @@ A partial submit sends one submission per answered durable item; a legacy action
 only when all of its items are answered. The function throws on the first failure that is not
 recoverable from the transcript. New RPC verbs or types (e.g. P6's voice binding) are integration
 requests.
+
+## Household RPC (P5)
+
+`sendHouseholdCommand<T>(verb, fields)` in `src/services/pentacleStream.ts` (shared edit S4) sends
+`{ type: verb, ...fields }` with a `household-*` request id; `verb` must start with `household.`.
+The reply `<verb>.ok` resolves with the whole frame; `<verb>.error` rejects with an `Error` carrying
+`errorCode` (the frame's `error_code`). It is an ordinary RPC: it rejects when the stream is not
+connected or drops, and is never replayed. Verbs and payload types are owned by P5
+(`src/services/household/*`) and the household daemon spec, not by pentacle-chat-core.
 
 ## Assembled-home check
 
