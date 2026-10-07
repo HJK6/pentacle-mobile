@@ -182,9 +182,9 @@ describe('verify-hermes-runtime.cjs (fail-closed Hermes engine guard)', () => {
   });
 });
 
-// The generated Podfile policy is Ruby; run it when Ruby exists. macOS dev hosts always
+// The generated Podfile policy is Ruby; run it when Ruby exists (skip only on ENOENT). macOS dev hosts always
 // ship it, so a missing Ruby there must fail loudly rather than skip.
-const rubyTest = process.platform !== 'darwin' && spawnSync('ruby', ['-v']).error ? test.skip : test;
+const rubyTest = process.platform !== 'darwin' && (spawnSync('ruby', ['-v']).error as NodeJS.ErrnoException | undefined)?.code === 'ENOENT' ? test.skip : test;
 
 describe('withHermesBuildState plugin (Podfile hooks)', () => {
   // Exercise only the dangerous (Podfile) mod: capture the mod fn, then drive it
