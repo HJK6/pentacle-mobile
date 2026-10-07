@@ -72,15 +72,17 @@ only when a multi-item legacy action is partly answered (it cannot be sent, so i
 | State | Control |
 | --- | --- |
 | Not the first page | Back, chevron only, outline in accent `55` |
-| k ≥ 1 | Submit: "Send all answers" when every page is answered, else "Submit k of n"; filled when last page or all answered, outline otherwise |
+| Any page answered | Submit: "Send all answers" when every page is answered, else "Submit k of n"; filled when last page or all answered, outline otherwise; disabled while k = 0 (only a partly answered multi-item legacy action is answered) |
 | Not the last page | Next; filled unless all answered |
-| Last page, k = 0 | Disabled "n unanswered" |
+| Last page, nothing answered | Disabled "n unanswered" |
 
 - Partial submit: sends the sendable answers, then toast `Sent ${k} answer(s) · ${m} left` for 2200 ms
-  (k = acked items, m = pages that remain) and returns to page 1. While sending the deck is frozen
+  (k = acked items, m = pages in the live deck once the send settles, including questions that
+  arrived during it) and returns to page 1. While sending, the submitted items stay pinned on screen
   (an item leaves the live deck the moment its optimistic answer begins, which would otherwise drop
-  its draft) and Submit is disabled.
-- Send all (every page answered): closes with `router.back()` once, only if nothing failed. A throw or
+  its draft); every other page stays live, so arrivals show at once. Submit is disabled meanwhile.
+- Send all (every page answered): closes with `router.back()` once, only if nothing failed and no
+  question arrived during the send (an arrival keeps the overlay open on it, with the toast). A throw or
   a legacy send failure keeps the overlay open, on the first failed page with its draft and error.
 - A deck emptied by this screen's own send closes the overlay, unless a legacy send-failure error is
   still showing (it stays on the empty state so the error and See chat remain reachable).

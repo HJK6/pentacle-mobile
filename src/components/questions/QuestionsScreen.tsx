@@ -55,11 +55,22 @@ export default function QuestionsScreen({ notificationId }: { notificationId?: s
   const insets = useSafeAreaInsets();
   const actions = usePentacleStreamActions();
   const liveDeck = usePentacleStreamSelector(selectQuestionDeck);
-  // While a send is in flight the deck is frozen: each item leaves the live deck the moment its
-  // optimistic answer begins, and the flow would drop its draft. A failed item returns on discard
-  // with its draft intact because the frozen deck kept it.
-  const [frozen, setFrozen] = useState<QuestionDeckEntry[] | null>(null);
-  const deck = frozen ?? liveDeck;
+  // While a send is in flight its submitted items stay pinned: each leaves the live deck the moment
+  // its optimistic answer begins, and the flow would drop its draft. A failed item returns on discard
+  // with its draft intact because it stayed pinned. Everything else stays live, so a question that
+  // arrives during the send shows at once.
+  const [inFlight, setInFlight] = useState<{ snapshot: QuestionDeckEntry[]; pinned: Set<string> } | null>(null);
+  const deck = useMemo(() => {
+    if (!inFlight) return liveDeck;
+    const live = new Set(liveDeck.map((entry) => entry.key));
+    const kept = inFlight.snapshot.filter((entry) => live.has(entry.key) || inFlight.pinned.has(entry.key));
+    const keptKeys = new Set(kept.map((entry) => entry.key));
+    const liveByKey = new Map(liveDeck.map((entry) => [entry.key, entry]));
+    return [
+      ...kept.map((entry) => liveByKey.get(entry.key) ?? entry),
+      ...liveDeck.filter((entry) => !keptKeys.has(entry.key)),
+    ];
+  }, [inFlight, liveDeck]);
 
   const flowEntries = useMemo<MobileQuestionEntry<QuestionDeckEntry>[]>(() => deck.map((entry) => ({
     key: entry.key,
@@ -89,6 +100,9 @@ export default function QuestionsScreen({ notificationId }: { notificationId?: s
   }, [deck, found, current, notificationId]);
 
   const [sending, setSending] = useState(false);
+  // The send result is applied once the pins are released, against the live deck at that render, so
+  // "m left" and the send-all close see arrivals and failed items that came back.
+  const [outcome, setOutcome] = useState<{ sent: number; clean: boolean; firstFailedKey: string | null } | null>(null);
   const sendingRef = useRef(false);
   const [itemErrors, setItemErrors] = useState<Record<string, string>>({});
   const [legacyErrors, setLegacyErrors] = useState<LegacyError[]>([]);
@@ -126,6 +140,9 @@ export default function QuestionsScreen({ notificationId }: { notificationId?: s
   const sendable = useMemo(() => sendableKeys(deck, answeredKeys), [deck, answeredKeys]);
   const total = deck.length;
   const sendCount = sendable.size;
+  // T11/T13 follow "any page answered"; k counts only what can be sent now (a multi-item legacy
+  // action is sendable once all of its items are answered).
+  const anyAnswered = deck.some((entry) => !entry.locked && answeredKeys.has(entry.key));
   const allDone = flow.allAnswered;
   const isLast = index === total - 1;
 
@@ -136,22 +153,18 @@ export default function QuestionsScreen({ notificationId }: { notificationId?: s
     if (sendingRef.current || sendCount === 0) return;
     sendingRef.current = true;
     setSending(true);
-    setFrozen(deck);
+    setInFlight({ snapshot: deck, pinned: new Set(sendable) });
     setItemErrors((previous) => {
       const next = { ...previous };
       sendable.forEach((key) => { delete next[key]; });
       return next;
     });
     const snapshot = deck;
-    const wasAll = allDone;
     const answers = new Map<string, MobileQuestionAnswer>();
     flowEntries.forEach((entry) => { if (sendable.has(entry.key)) answers.set(entry.key, flow.answerFor(entry)); });
     try {
       const result = await submitDeckAnswers({ actions, deck: snapshot, answers });
       if (!mounted.current) return;
-      const gone = new Set<string>([...result.sent, ...result.legacyFailed.flatMap((failure) => failure.keys)]);
-      const sent = result.sent.length;
-      const remaining = snapshot.length - gone.size;
       if (result.failed.length > 0) {
         setItemErrors((previous) => ({
           ...previous,
@@ -170,26 +183,37 @@ export default function QuestionsScreen({ notificationId }: { notificationId?: s
             })),
         ]);
       }
-      const clean = result.failed.length === 0 && result.legacyFailed.length === 0;
-      // T15 / a deck emptied by this screen's own send closes the overlay; failures keep it open.
-      if (clean && (wasAll || remaining === 0)) {
-        close();
-        return;
-      }
-      if (sent > 0) showToast(`Sent ${sent} answer${sent === 1 ? '' : 's'} · ${remaining} left`);
-      const firstFailed = result.failed.length > 0 && wasAll
-        ? snapshot.find((entry) => result.failed.some((failure) => failure.key === entry.key))
-        : undefined;
-      const firstRemaining = firstFailed ?? snapshot.find((entry) => !gone.has(entry.key));
-      setPageKey(firstRemaining?.key ?? null);
+      const firstFailed = snapshot.find((entry) => result.failed.some((failure) => failure.key === entry.key));
+      setOutcome({
+        sent: result.sent.length,
+        clean: result.failed.length === 0 && result.legacyFailed.length === 0,
+        firstFailedKey: firstFailed?.key ?? null,
+      });
     } finally {
       sendingRef.current = false;
       if (mounted.current) {
         setSending(false);
-        setFrozen(null);
+        setInFlight(null);
       }
     }
   };
+
+  useEffect(() => {
+    if (!outcome || inFlight) return;
+    setOutcome(null);
+    const remaining = liveDeck.length;
+    // T15 / a deck emptied by this screen's own send closes the overlay; failures or questions that
+    // arrived during the send keep it open.
+    if (outcome.clean && remaining === 0) {
+      close();
+      return;
+    }
+    if (outcome.sent > 0) showToast(`Sent ${outcome.sent} answer${outcome.sent === 1 ? '' : 's'} · ${remaining} left`);
+    const failedKey = outcome.firstFailedKey && liveDeck.some((entry) => entry.key === outcome.firstFailedKey)
+      ? outcome.firstFailedKey
+      : null;
+    setPageKey(failedKey ?? liveDeck[0]?.key ?? null);
+  }, [outcome, inFlight, liveDeck]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const topPad = Math.max(insets.top, 12) + 8;
   const legacyBanner = legacyErrors.length > 0 ? (
@@ -322,18 +346,18 @@ export default function QuestionsScreen({ notificationId }: { notificationId?: s
               <Chevron color={accent} flip />
             </Pressable>
           ) : null}
-          {sendCount > 0 ? (
+          {anyAnswered ? (
             <Pressable
               testID="questions-submit"
               accessibilityRole="button"
-              accessibilityState={{ disabled: sending }}
-              disabled={sending}
+              accessibilityState={{ disabled: sending || sendCount === 0 }}
+              disabled={sending || sendCount === 0}
               onPress={() => { void submit(); }}
               style={[
                 styles.navButton,
                 (allDone || isLast) && styles.grow,
                 { borderColor: accent, backgroundColor: outlineSubmit ? 'transparent' : accent },
-                sending && styles.sending,
+                (sending || sendCount === 0) && styles.sending,
               ]}
             >
               <Text testID="questions-submit-label" style={[styles.navText, { color: outlineSubmit ? accent : Tokens.palette.ink }]}>
@@ -352,7 +376,7 @@ export default function QuestionsScreen({ notificationId }: { notificationId?: s
               <Chevron color={allDone ? accent : Tokens.palette.ink} />
             </Pressable>
           ) : null}
-          {isLast && sendCount === 0 ? (
+          {isLast && !anyAnswered ? (
             <Pressable
               testID="questions-unanswered"
               accessibilityRole="button"

@@ -518,3 +518,63 @@ describe('live data (AC8)', () => {
     expect(within(screen.getByTestId('questions-empty')).getByText(/No questions waiting/)).toBeTruthy();
   });
 });
+
+describe('final-QA regressions (cycle 1)', () => {
+  test('T11/T13: a partly answered multi-item legacy action shows a disabled "Submit 0 of n", never "n unanswered"', () => {
+    mockState = baseState({
+      sessions: [session(LEGACY_SESSION, 'Legacy chat', {
+        question: legacyQuestion({
+          multi: true,
+          questions: [
+            { index: 1, prompt: 'First legacy?', options: [{ index: 1, label: 'Yes' }, { index: 2, label: 'No' }] },
+            { index: 2, prompt: 'Second legacy?', options: [{ index: 1, label: 'Red' }, { index: 2, label: 'Blue' }] },
+          ],
+        }),
+      })],
+    });
+    render(<QuestionsScreen />);
+    answerCurrentPage();
+    goTo(1);
+    expect(counter()).toBe('QUESTION 2 / 2');
+    expect(screen.queryByTestId('questions-unanswered')).toBeNull();
+    expect(text('questions-submit-label')).toBe('Submit 0 of 2');
+    expect(screen.getByTestId('questions-submit').props.accessibilityState?.disabled).toBe(true);
+  });
+
+  async function holdFirstAnswer() {
+    let release: () => void = () => undefined;
+    mockActions.answerPrompt.mockImplementationOnce(() => new Promise<void>((resolve) => { release = resolve; }));
+    return () => release();
+  }
+  function arrive() {
+    patchState((state) => ({
+      ...state,
+      notifications: [...state.notifications, durableQuestion(SESSION_B, 'n-arrival', { created_at: '2026-10-06T13:00:00.000Z' })],
+    }));
+  }
+
+  test('AC8/T14: a question arriving during a partial send is shown at once and counted in "m left"', async () => {
+    const release = await holdFirstAnswer();
+    render(<QuestionsScreen />);
+    goTo(1); answerCurrentPage();
+    await press('questions-submit');
+    arrive();
+    expect(screen.queryByTestId('questions-dot-3')).not.toBeNull();
+    await act(async () => { release(); await flush(); });
+    expect(text('questions-toast')).toBe('Sent 1 answer · 3 left');
+    expect(counter()).toBe('QUESTION 1 / 3');
+  });
+
+  test('AC5/AC8: send-all does not close when a question arrived during the send; it stays open on it', async () => {
+    const release = await holdFirstAnswer();
+    render(<QuestionsScreen />);
+    for (let i = 0; i < 3; i += 1) { goTo(i); answerCurrentPage(); }
+    await press('questions-submit');
+    arrive();
+    await act(async () => { release(); await flush(); });
+    expect(mockActions.answerPrompt).toHaveBeenCalledTimes(3);
+    expect(mockBack).not.toHaveBeenCalled();
+    expect(counter()).toBe('QUESTION 1 / 1');
+    expect(text('questions-toast')).toBe('Sent 3 answers · 1 left');
+  });
+});
