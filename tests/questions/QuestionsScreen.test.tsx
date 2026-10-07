@@ -14,6 +14,7 @@ import {
   baseState,
   durableQuestion,
   fixtureState,
+  legacyQuestion,
   session,
 } from './fixtures';
 
@@ -110,16 +111,23 @@ function threeState() {
 }
 
 const style = (testID: string) => StyleSheet.flatten(screen.getByTestId(testID).props.style);
-const counter = () => screen.getByTestId('questions-counter').props.children.join('');
 const text = (testID: string) => {
   const children = screen.getByTestId(testID).props.children;
   return Array.isArray(children) ? children.join('') : String(children);
 };
+const counter = () => text('questions-counter');
 const answerCurrentPage = () => { fireEvent.press(screen.getByTestId('questions-option-1')); };
 const goTo = (index: number) => { fireEvent.press(screen.getByTestId(`questions-dot-${index}`)); };
 
+// Lets the serial submit chain (several awaited promises) settle inside act.
+async function flush() {
+  for (let i = 0; i < 25; i += 1) await Promise.resolve();
+}
 async function press(testID: string) {
-  await act(async () => { fireEvent.press(screen.getByTestId(testID)); });
+  await act(async () => {
+    fireEvent.press(screen.getByTestId(testID));
+    await flush();
+  });
 }
 
 beforeEach(() => {
@@ -232,22 +240,19 @@ describe('footer state machine (T10–T13)', () => {
     },
   );
 
-  test('an unanswered multi-select with a violated constraint does not count as answered', () => {
+  test('a bounded multi-select that violates its constraint does not count as answered', () => {
     mockState = baseState({
-      sessions: [session(AMA_SESSION, 'Code review')],
-      notifications: [durableQuestion(AMA_SESSION, 'n-multi', {
-        question: {
-          ...durableQuestion(AMA_SESSION, 'n-multi').question,
-          response_mode: 'multi_choice',
-          options: [{ label: 'X', value: 'x' }, { label: 'Y', value: 'y' }],
-          min_select: 2,
-        },
+      sessions: [session(LEGACY_SESSION, 'Legacy chat', {
+        question: legacyQuestion({ multiSelect: true, min_select: 2, options: [{ index: 1, label: 'X' }, { index: 2, label: 'Y' }] }),
       })],
     });
     render(<QuestionsScreen />);
     answerCurrentPage(); // one of two required selections
     expect(screen.queryByTestId('questions-submit')).toBeNull();
     expect(screen.getByTestId('questions-unanswered')).toBeTruthy();
+    expect(screen.getByTestId('questions-constraint')).toBeTruthy();
+    fireEvent.press(screen.getByTestId('questions-option-2'));
+    expect(screen.getByTestId('questions-submit')).toBeTruthy();
   });
 });
 
@@ -310,11 +315,12 @@ describe('partial submit (T14, AC4)', () => {
     mockActions.answerPrompt.mockImplementationOnce(() => new Promise<void>((resolve) => { release = resolve; }));
     render(<QuestionsScreen />);
     goTo(1); answerCurrentPage();
-    await act(async () => { fireEvent.press(screen.getByTestId('questions-submit')); });
+    await press('questions-submit');
     expect(screen.getByTestId('questions-submit').props.accessibilityState?.disabled).toBe(true);
-    await act(async () => { fireEvent.press(screen.getByTestId('questions-submit')); });
+    expect(text('questions-submit-label')).toBe('Sending');
+    await press('questions-submit');
     expect(mockActions.answerPrompt).toHaveBeenCalledTimes(1);
-    await act(async () => { release(); });
+    await act(async () => { release(); await flush(); });
     expect(mockActions.answerPrompt).toHaveBeenCalledTimes(1);
   });
 
@@ -364,9 +370,22 @@ describe('legacy send failure (C4)', () => {
     fireEvent.press(screen.getByTestId('questions-legacy-see-chat'));
     expect(mockNavigate).toHaveBeenCalledWith(LEGACY_SESSION, expoRouter.router);
 
-    // Persists past the toast, and past paging.
+    // Persists past the toast, and past paging, until dismissed.
     act(() => { jest.advanceTimersByTime(5000); });
     goTo(1);
+    expect(screen.getByTestId('questions-legacy-error')).toBeTruthy();
+    fireEvent.press(screen.getByTestId('questions-legacy-dismiss'));
+    expect(screen.queryByTestId('questions-legacy-error')).toBeNull();
+  });
+
+  test('when the legacy failure empties the deck the overlay stays open on the empty state with the error', async () => {
+    mockState = baseState({ sessions: [session(LEGACY_SESSION, 'Legacy chat', { question: legacyQuestion() })] });
+    mockActions.sendMessage.mockRejectedValueOnce(new Error('socket closed'));
+    render(<QuestionsScreen />);
+    answerCurrentPage();
+    await press('questions-submit');
+    expect(mockBack).not.toHaveBeenCalled();
+    expect(screen.getByTestId('questions-empty')).toBeTruthy();
     expect(screen.getByTestId('questions-legacy-error')).toBeTruthy();
   });
 });
@@ -420,7 +439,7 @@ describe('empty state and entry param (C5)', () => {
   test('zero pending shows "No questions waiting" with a working close', async () => {
     mockState = baseState({ sessions: [session(BART, 'Bartimaeus')] });
     render(<QuestionsScreen />);
-    expect(text('questions-empty')).toContain('No questions waiting');
+    expect(within(screen.getByTestId('questions-empty')).getByText('No questions waiting')).toBeTruthy();
     expect(screen.queryByTestId('questions-counter')).toBeNull();
     await press('questions-close');
     expect(mockBack).toHaveBeenCalledTimes(1);
@@ -449,6 +468,9 @@ describe('empty state and entry param (C5)', () => {
     render(<QuestionsRoute />);
     expect(counter()).toBe('QUESTION 3 / 3');
     expect(text('questions-subtitle')).toBe('Bartimaeus');
+    expect(expoRouter.__mock.stackScreens).toHaveBeenCalledWith(expect.objectContaining({
+      options: { presentation: 'transparentModal', animation: 'fade' },
+    }));
   });
 });
 
