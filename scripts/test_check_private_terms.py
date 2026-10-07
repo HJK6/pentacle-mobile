@@ -150,9 +150,10 @@ def test_hook_refuses_absent_or_malformed_dictionary():
     with tempfile.TemporaryDirectory() as raw:
         tmp = Path(raw)
         work, head = make_repo(tmp, {"src/a.ts": "clean\n"})
-        for terms in (None, tmp / "missing.json", write_terms(tmp, "{")):
+        for terms, error in ((None, "dictionary_unreadable"), (tmp / "missing.json", "dictionary_unreadable"),
+                             (write_terms(tmp, "{"), "dictionary_malformed")):
             done = run_hook(work, head, terms)
-            assert done.returncode != 0 and "private-terms check did not pass" in done.stderr, (terms, done.stderr)
+            assert done.returncode != 0 and f"did not pass, error: {error}" in done.stderr, (terms, done.stderr)
             assert not history_ran(work)
 
 
