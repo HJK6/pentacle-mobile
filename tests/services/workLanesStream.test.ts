@@ -119,21 +119,21 @@ test('requestLaneHistory sends the lane generation and resolves without touching
   const { stream } = loadStream();
   const { unsubscribe, socket } = connect(stream);
   socket.message({ type: 'snapshot', sessions: [], events: [] });
-  const closed = { stream_id: 'amaterasu:v2-lead0003', daemon_seq: 7, kind: 'ASSIST', text: 'closed history',
-    host: 'amaterasu', provider: 'claude', session_id: 's', session_name: 'v2-lead0003', timestamp: '2026-10-07T12:00:00Z' };
-  const promise = stream.requestLaneHistory('amaterasu:v2-lead0003', 'gen-lead-0003', { beforeDaemonSeq: 50 });
+  const closed = { stream_id: 'hosta:v2-lead0003', daemon_seq: 7, kind: 'ASSIST', text: 'closed history',
+    host: 'hosta', provider: 'claude', session_id: 's', session_name: 'v2-lead0003', timestamp: '2026-10-07T12:00:00Z' };
+  const promise = stream.requestLaneHistory('hosta:v2-lead0003', 'gen-lead-0003', { beforeDaemonSeq: 50 });
   const request = frames(socket, 'request_stream_events').at(-1)!;
   expect(request).toMatchObject({
-    stream_id: 'amaterasu:v2-lead0003', generation: 'gen-lead-0003', before_daemon_seq: 50, order: 'newest_first',
+    stream_id: 'hosta:v2-lead0003', generation: 'gen-lead-0003', before_daemon_seq: 50, order: 'newest_first',
   });
   socket.message({ type: 'request_stream_events.chunk', request_id: request.request_id,
-    stream_id: 'amaterasu:v2-lead0003', events: [closed] });
+    stream_id: 'hosta:v2-lead0003', events: [closed] });
   socket.message({ type: 'request_stream_events.ok', request_id: request.request_id,
-    stream_id: 'amaterasu:v2-lead0003', events: [] });
+    stream_id: 'hosta:v2-lead0003', events: [] });
   await expect(promise).resolves.toEqual([closed]);
   const state = stream.getPentacleStreamState();
-  expect(state.events.some((event) => event.stream_id === 'amaterasu:v2-lead0003')).toBe(false);
-  expect(state.eventBucketsByStream?.['amaterasu:v2-lead0003']).toBeUndefined();
+  expect(state.events.some((event) => event.stream_id === 'hosta:v2-lead0003')).toBe(false);
+  expect(state.eventBucketsByStream?.['hosta:v2-lead0003']).toBeUndefined();
   unsubscribe();
 });
 
@@ -141,8 +141,8 @@ test('requestLaneHistory rejects on daemon error and without a generation', asyn
   const { stream } = loadStream();
   const { unsubscribe, socket } = connect(stream);
   socket.message({ type: 'snapshot', sessions: [], events: [] });
-  await expect(stream.requestLaneHistory('amaterasu:v2-lead0003', '')).rejects.toThrow('generation');
-  const promise = stream.requestLaneHistory('amaterasu:v2-lead0003', 'gen-lead-0003');
+  await expect(stream.requestLaneHistory('hosta:v2-lead0003', '')).rejects.toThrow('generation');
+  const promise = stream.requestLaneHistory('hosta:v2-lead0003', 'gen-lead-0003');
   const request = frames(socket, 'request_stream_events').at(-1)!;
   socket.message({ type: 'request_stream_events.error', request_id: request.request_id, error: 'unknown_session' });
   await expect(promise).rejects.toThrow('unknown_session');

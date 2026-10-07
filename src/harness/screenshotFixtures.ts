@@ -1000,8 +1000,11 @@ const LANE_UPDATE_SAMPLES: Array<[WorkLaneUpdateKind, string, string]> = [
   ['lane_completed', 'Sample research lane', 'Sample findings published'],
 ];
 
+// First screen for the Release-simulator proof: the Bart thread with the lane count in its header and
+// one typed card per update kind.
 const BART_LANE_UPDATES_SNAPSHOT: HarnessSnapshot = {
   ...EMPTY_SNAPSHOT,
+  work_lanes: LANES_SNAPSHOT.work_lanes,
   sessions: [session({ stream_id: 'bart:assistant', host: 'hostc', provider: 'composite', session_name: 'assistant', title: 'Assistant' })],
   events: LANE_UPDATE_SAMPLES.map(([kind, title, summary], index): PentacleEvent => ({
     daemon_seq: 100 + index, host: 'hostc', provider: 'composite', session_id: 'bart:assistant', session_name: 'assistant',
