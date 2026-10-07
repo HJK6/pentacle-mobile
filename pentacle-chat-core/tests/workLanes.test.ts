@@ -241,3 +241,50 @@ test('sweep: lane_update parsing rejects every present-but-invalid nested shape 
   assert.equal(loose.state, null);
   assert.equal(loose.title, '');
 });
+
+// QA r2 repair (advisor ruling 6bcd63e1): bounded delta.
+test('visible_chat with a present non-string generation fails closed whatever the availability', () => {
+  for (const available of ['open', 'history', 'unavailable']) {
+    for (const generation of [7, true, [], {}, 0]) {
+      const inventory = normalizeWorkLanesInventory({
+        ...fixture.inventory_frame,
+        lanes: [{ ...lane0(), visible_chat: { stream_id: 's', kind: 'session', available, generation } }],
+      });
+      assert.ok(inventory, `${available} ${JSON.stringify(generation)}`);
+      assert.equal(inventory.lanes.length, 1);
+      assert.equal(inventory.lanes[0].visible_chat.available, 'unavailable', `${available} ${JSON.stringify(generation)}`);
+      assert.deepEqual(resolveWorkLaneTap(inventory.lanes[0]), { action: 'unavailable' });
+    }
+  }
+  // null/absent generation stays valid for an open pointer (composite and open session chats carry none).
+  for (const generation of [null, undefined]) {
+    const inventory = normalizeWorkLanesInventory({
+      ...fixture.inventory_frame,
+      lanes: [{ ...lane0(), visible_chat: { stream_id: 's', kind: 'composite', available: 'open', generation } }],
+    });
+    assert.deepEqual(resolveWorkLaneTap(inventory!.lanes[0]), { action: 'open_chat', stream_id: 's' });
+  }
+});
+
+test('frame and lanes shapes: every non-object frame and non-array lanes is rejected', () => {
+  for (const frame of [undefined, null, 7, 'x', true, []]) {
+    assert.equal(normalizeWorkLanesInventory(frame), null, `frame ${JSON.stringify(frame)}`);
+  }
+  for (const lanes of [undefined, null, 7, 'x', true, {}]) {
+    assert.equal(normalizeWorkLanesInventory({ ...fixture.inventory_frame, lanes }), null, `lanes ${JSON.stringify(lanes)}`);
+  }
+  const kept = applyWorkLanesInventory(applyWorkLanesInventory(initialPentacleStreamState, fixture.inventory_frame), 'x');
+  assert.equal(selectOpenLaneCount(kept), fixture.expected.header_count);
+});
+
+test('counts: each of open/active/paused/blocked rejects every invalid value, and a missing key rejects', () => {
+  const frame = fixture.inventory_frame;
+  for (const key of ['open', 'active', 'paused', 'blocked']) {
+    for (const bad of [-1, 1.5, '3', null, Number.NaN, Infinity, [], {}, true]) {
+      assert.equal(normalizeWorkLanesInventory({ ...frame, counts: { ...frame.counts, [key]: bad } }), null, `${key}=${String(bad)}`);
+    }
+    const { [key]: _gone, ...missing } = frame.counts;
+    assert.equal(normalizeWorkLanesInventory({ ...frame, counts: missing }), null, `missing ${key}`);
+  }
+  assert.ok(normalizeWorkLanesInventory({ ...frame, counts: { open: 0, active: 0, paused: 0, blocked: 0 } }));
+});

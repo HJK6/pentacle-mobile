@@ -176,3 +176,75 @@ test('changing target after an error shows no stale error for the new target whi
   expect(view.queryByText('Chat history unavailable')).toBeNull();
   expect(view.getByTestId('lane-history-loading')).toBeTruthy();
 });
+
+// QA r2 (advisor ruling 6bcd63e1): stale-failure and unmount races. Each case first proves the
+// read is genuinely pending (called, spinner visible, promise unsettled) so it cannot pass vacuously.
+describe('pending reads settled after the screen moved on', () => {
+  let errorSpy: jest.SpyInstance;
+  beforeEach(() => { errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined); });
+  afterEach(() => errorSpy.mockRestore());
+
+  test('unmount mid-load, then late success or late rejection, writes nothing and raises no error', async () => {
+    for (const settle of ['resolve', 'reject'] as const) {
+      const pending = deferred<PentacleEvent[]>();
+      const readHistory = jest.fn().mockReturnValue(pending.promise);
+      const { view } = await mount(readHistory);
+      expect(readHistory).toHaveBeenCalledTimes(1);
+      expect(view.getByTestId('lane-history-loading')).toBeTruthy();
+      view.unmount();
+      await act(async () => {
+        if (settle === 'resolve') pending.resolve([event(1, 'USER', 'late')]); else pending.reject(new Error('late failure'));
+      });
+      expect(errorSpy).not.toHaveBeenCalled();
+    }
+  });
+
+  test('a late rejection after disconnect shows neither an error notice nor a spinner', async () => {
+    const pending = deferred<PentacleEvent[]>();
+    const readHistory = jest.fn().mockReturnValue(pending.promise);
+    const { view } = await mount(readHistory);
+    expect(view.getByTestId('lane-history-loading')).toBeTruthy();
+    view.rerender(connectedTree(readHistory, false));
+    await act(async () => {});
+    await act(async () => { pending.reject(new Error('late failure')); });
+    expect(view.queryByText('Chat history unavailable')).toBeNull();
+    expect(view.queryByLabelText('Retry history')).toBeNull();
+    expect(view.queryByTestId('lane-history-loading')).toBeNull();
+    expect(view.getByText('Waiting for connection…')).toBeTruthy();
+  });
+
+  test('a late rejection from the previous target never shows an error on the new target', async () => {
+    const first = deferred<PentacleEvent[]>();
+    const second = deferred<PentacleEvent[]>();
+    const readHistory = jest.fn().mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+    const { view } = await mount(readHistory);
+    expect(view.getByTestId('lane-history-loading')).toBeTruthy();
+    view.rerender(connectedTree(readHistory, true, { streamId: 'other:stream', generation: 'gen-2', title: 'Other lane' }));
+    await act(async () => {});
+    expect(readHistory).toHaveBeenCalledTimes(2);
+    await act(async () => { first.reject(new Error('late failure')); });
+    expect(view.queryByText('Chat history unavailable')).toBeNull();
+    expect(view.getByTestId('lane-history-loading')).toBeTruthy();
+    await act(async () => { second.resolve([event(9, 'USER', 'second target')]); });
+    expect(view.getByText('second target')).toBeTruthy();
+    expect(view.queryByTestId('lane-history-loading')).toBeNull();
+  });
+
+  test('a late rejection of a stale Load earlier after reconnect leaves the fresh newest page intact', async () => {
+    const page = Array.from({ length: 60 }, (_, index) => event(100 + index, 'ASSIST', `row ${100 + index}`));
+    const earlier = deferred<PentacleEvent[]>();
+    const readHistory = jest.fn().mockResolvedValueOnce(page).mockReturnValueOnce(earlier.promise)
+      .mockResolvedValue([event(500, 'USER', 'fresh')]);
+    const { view } = await mount(readHistory);
+    await act(async () => { fireEvent.press(view.getByTestId('lane-history-earlier')); });
+    expect(readHistory).toHaveBeenCalledTimes(2);
+    expect(view.getByTestId('lane-history-loading')).toBeTruthy();
+    view.rerender(connectedTree(readHistory, false));
+    view.rerender(connectedTree(readHistory, true));
+    await act(async () => {});
+    await act(async () => { earlier.reject(new Error('late failure')); });
+    expect(view.getByText('fresh')).toBeTruthy();
+    expect(view.queryByText('Chat history unavailable')).toBeNull();
+    expect(view.queryByTestId('lane-history-loading')).toBeNull();
+  });
+});

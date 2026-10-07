@@ -74,7 +74,9 @@ function normalizeVisibleChat(value: unknown): WorkLaneVisibleChat {
   const streamId = str(raw?.stream_id);
   const available = AVAILABILITY.find((item) => item === raw?.available);
   const kind = raw?.kind === 'composite' || raw?.kind === 'session' ? raw.kind : null;
-  if (!raw || !streamId || !available || !kind) return { ...UNAVAILABLE_CHAT, stream_id: streamId ?? '' };
+  // A present generation must be a string (null/absent are valid for composite and open chats).
+  const badGeneration = raw?.generation !== undefined && raw.generation !== null && typeof raw.generation !== 'string';
+  if (!raw || !streamId || !available || !kind || badGeneration) return { ...UNAVAILABLE_CHAT, stream_id: streamId ?? '' };
   const generation = str(raw.generation);
   // A closed chat is readable only for an exact generation.
   return {
