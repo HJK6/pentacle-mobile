@@ -1,6 +1,6 @@
 import './mocks';
 import {
-  FakeHousehold, TODAY, calls, installServer, mutationCalls, registerOutboundGuard, rpcError, rpcTimeout,
+  FakeHousehold, TODAY, calls, callsOf, installServer, mutationCalls, registerOutboundGuard, rpcError, rpcTimeout,
   sendMock, snapshotCalls, unknownOutcomeFor,
 } from './support';
 import { NOT_SAVED_NOTICE, UNRESOLVED_NOTICE } from '../../src/services/household/householdStore';
@@ -337,5 +337,52 @@ describe('outbound payloads', () => {
     for (const c of mutationCalls()) {
       expect(Object.keys(c.fields).filter((k) => ['scope', 'priority', 'due_date', 'created_by'].includes(k))).toEqual([]);
     }
+  });
+});
+
+describe('event writes are read back in their own month', () => {
+  const NOVEMBER = { date: '2026-11-20', time: '10:00', title: 'Synthetic November event', who: 'self' as const };
+
+  it('an add dated in another month is reconciled against that month (late-lost response → saved)', async () => {
+    const { store, server } = boot();
+    await store().refresh('2026-10');
+    server.override('household.event.add', unknownOutcomeFor('household.event.add', 'now'));
+    const before = snapshotCalls().length;
+    let outcome: unknown;
+    await kick(async () => { outcome = await store().addEvent(NOVEMBER); });
+    await advance(6000);
+    await advance(0);
+    const readbacks = snapshotCalls().slice(before).map((c) => c.fields.month);
+    expect(readbacks.length).toBeGreaterThanOrEqual(2);
+    expect(readbacks.every((m) => m === '2026-11')).toBe(true);
+    expect(outcome).toBe('saved');
+    expect(store().month).toBe('2026-11');
+    expect(store().notice?.text).not.toBe(NOT_SAVED_NOTICE);
+  });
+
+  it('a confirmed add dated in another month is read back in that month', async () => {
+    const { store } = boot();
+    await store().refresh('2026-10');
+    const before = snapshotCalls().length;
+    await expect(store().addEvent(NOVEMBER)).resolves.toBe('ok');
+    expect(snapshotCalls().slice(before).map((c) => c.fields.month)).toEqual(['2026-11']);
+    expect(store().snapshot?.events.some((e) => e.title === NOVEMBER.title)).toBe(true);
+  });
+
+  it('a remove keeps reading its event month even if the shown month changes while unresolved', async () => {
+    const { store, server } = boot();
+    await store().refresh('2026-11');
+    await store().addEvent(NOVEMBER);
+    const target = store().snapshot!.events.find((e) => e.title === NOVEMBER.title)!;
+    server.override('household.event.remove', unknownOutcomeFor('household.event.remove', 'never'));
+    let outcome: unknown;
+    await kick(async () => { outcome = await store().removeEvent(target.id); });
+    await store().refresh('2026-10');
+    const before = snapshotCalls().length;
+    await advance(6000);
+    await advance(0);
+    expect(snapshotCalls().slice(before).map((c) => c.fields.month)).toEqual(['2026-11']);
+    expect(outcome).toBe('not_saved');
+    expect(callsOf('household.event.remove')).toHaveLength(1);
   });
 });

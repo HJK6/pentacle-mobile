@@ -1,5 +1,6 @@
-// README § 8 Calendar (`CalendarTab`): month grid of the selected day's month (no paging, D4),
+// README § 8 Calendar (`CalendarTab`): month grid of the selected day's month with ‹ › paging,
 // selected-day agenda, ✕ remove, new-event sheet. Days are America/Chicago (snapshot.today).
+// Paging selects today in today's month and the 1st elsewhere; it is held while a change is unresolved.
 import React, { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
@@ -7,8 +8,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Fonts } from '../../../constants/Colors';
 import { useHouseholdStore } from '../../services/household/householdStore';
 import {
-  dateIn, dayLabel, daysInMonth, eventsOn, formatTime, isBartEvent, monthName, monthOf,
-  parseRouteDate, partnerName, weekdayIndex, whoDisplay, yearOf,
+  MAX_MONTH, MIN_MONTH, dateIn, dayLabel, daysInMonth, eventsOn, formatTime, isBartEvent, monthName, monthOf,
+  parseRouteDate, partnerName, selectionForMonth, shiftMonth, weekdayIndex, whoDisplay, yearOf,
 } from '../../services/household/selectors';
 import AddEventSheet from './AddEventSheet';
 import { useAssistantIdentity } from '../../services/assistantIdentity';
@@ -19,11 +20,12 @@ const WEEKDAYS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
 export default function CalendarView({ date }: { date?: string }) {
   const assistant = useAssistantIdentity();
   const insets = useSafeAreaInsets();
-  const { snapshot, hiddenEvents, removeEvent } = useHouseholdStore();
+  const { snapshot, hiddenEvents, removeEvent, unresolved } = useHouseholdStore();
   const routeDate = parseRouteDate(date);
-  // An explicit route month, otherwise the daemon's default (today's Chicago month).
-  useHouseholdRefresh(routeDate ? monthOf(routeDate) : undefined, true);
   const [picked, setPicked] = useState<string | null>(null);
+  // The picked (or paged-to) month, else the route month, else the daemon's default (today's month).
+  const shownMonth = picked ? monthOf(picked) : routeDate ? monthOf(routeDate) : undefined;
+  useHouseholdRefresh(shownMonth, true);
   const [adding, setAdding] = useState(false);
 
   const today = snapshot?.today;
@@ -51,24 +53,57 @@ export default function CalendarView({ date }: { date?: string }) {
   while (cells.length % 7) cells.push(null);
   const weeks = Array.from({ length: cells.length / 7 }, (_, w) => cells.slice(w * 7, w * 7 + 7));
   const count = dayEvents.length;
+  // Held while a change is unresolved so its readbacks and the screen agree on the month.
+  const pagingHeld = unresolved > 0;
+  const page = (n: number) => setPicked(selectionForMonth(shiftMonth(month, n), today));
+  const offToday = month !== monthOf(today);
 
   return (
     <View style={base.screen}>
       <TabHeader
         top={insets.top}
         sub={yearOf(selected)}
+        subAction={
+          offToday && !pagingHeld
+            ? { label: 'BACK TO TODAY', onPress: () => setPicked(today), testID: 'calendar-back-to-today' }
+            : undefined
+        }
         title={monthName(selected)}
         onBack={() => router.back()}
         right={
-          <Pressable
-            testID="calendar-new-event"
-            accessibilityRole="button"
-            accessibilityLabel="New event"
-            onPress={() => setAdding(true)}
-            style={styles.newEvent}
-          >
-            <Text style={styles.newEventText}>+ Event</Text>
-          </Pressable>
+          <View style={styles.headerButtons}>
+            <Pressable
+              testID="calendar-prev-month"
+              accessibilityRole="button"
+              accessibilityLabel="Previous month"
+              disabled={pagingHeld || month === MIN_MONTH}
+              accessibilityState={{ disabled: pagingHeld || month === MIN_MONTH }}
+              onPress={() => page(-1)}
+              style={styles.pager}
+            >
+              <Text style={styles.pagerText}>‹</Text>
+            </Pressable>
+            <Pressable
+              testID="calendar-next-month"
+              accessibilityRole="button"
+              accessibilityLabel="Next month"
+              disabled={pagingHeld || month === MAX_MONTH}
+              accessibilityState={{ disabled: pagingHeld || month === MAX_MONTH }}
+              onPress={() => page(1)}
+              style={styles.pager}
+            >
+              <Text style={styles.pagerText}>›</Text>
+            </Pressable>
+            <Pressable
+              testID="calendar-new-event"
+              accessibilityRole="button"
+              accessibilityLabel="New event"
+              onPress={() => setAdding(true)}
+              style={styles.newEvent}
+            >
+              <Text style={styles.newEventText}>+ Event</Text>
+            </Pressable>
+          </View>
         }
       />
       <ScrollView contentContainerStyle={styles.body}>
@@ -170,7 +205,7 @@ export default function CalendarView({ date }: { date?: string }) {
           );
         })}
       </ScrollView>
-      {adding ? <AddEventSheet day={selected} onClose={() => setAdding(false)} /> : null}
+      {adding ? <AddEventSheet day={selected} onSubmit={setPicked} onClose={() => setAdding(false)} /> : null}
     </View>
   );
 }
@@ -178,6 +213,17 @@ export default function CalendarView({ date }: { date?: string }) {
 const styles = StyleSheet.create({
   flex: { flex: 1, minWidth: 0 },
   body: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 20 },
+  headerButtons: { flexDirection: 'row', gap: 6 },
+  pager: {
+    height: 36,
+    minWidth: 36,
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: P.line,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pagerText: { color: P.dim, fontFamily: Fonts.rajdhani.bold, fontSize: 22 },
   newEvent: {
     height: 36,
     minWidth: 36,

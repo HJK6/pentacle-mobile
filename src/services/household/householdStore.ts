@@ -5,6 +5,7 @@
 // repeated every 6 s while reads fail: only a fresh snapshot may resolve it).
 import { useSyncExternalStore } from 'react';
 import * as client from './householdClient';
+import { monthOf } from './selectors';
 import type { HouseholdSnapshot, ListId, NewEvent } from './types';
 
 export const CHECK_WINDOW_MS = 5000;
@@ -113,6 +114,8 @@ async function load(month: string | undefined): Promise<HouseholdSnapshot | null
 async function mutate(
   send: () => Promise<unknown>,
   committed: (snapshot: HouseholdSnapshot) => boolean,
+  // Event writes pin their own month so a readback never judges them against another month.
+  month: string | undefined = getState().month,
 ): Promise<MutationOutcome> {
   try {
     await send();
@@ -122,11 +125,11 @@ async function mutate(
       return 'failed';
     }
     setState({ unresolved: getState().unresolved + 1, notice: { text: UNRESOLVED_NOTICE, kind: 'unresolved' } });
-    await load(getState().month);
+    await load(month);
     let snapshot: HouseholdSnapshot | null = null;
     while (!snapshot) {
       await sleep(READBACK_DELAY_MS);
-      snapshot = await load(getState().month);
+      snapshot = await load(month);
     }
     setState({ unresolved: Math.max(0, getState().unresolved - 1) });
     if (committed(snapshot)) {
@@ -136,7 +139,7 @@ async function mutate(
     setState({ notice: { text: NOT_SAVED_NOTICE, kind: 'error' } });
     return 'not_saved';
   }
-  await load(getState().month);
+  await load(month);
   return 'ok';
 }
 
@@ -191,20 +194,26 @@ function addItem(list: ListId, text: string): Promise<MutationOutcome> {
 
 function addEvent(value: NewEvent): Promise<MutationOutcome> {
   const known = new Set((getState().snapshot?.events ?? []).map((event) => event.id));
+  // The calendar follows the event to its month (it may differ from the month on screen).
+  const month = monthOf(value.date);
+  setState({ month });
   return mutate(
     () => client.addEvent(value),
     (snapshot) =>
       snapshot.events.some(
         (event) => !known.has(event.id) && event.date === value.date && event.title === value.title,
       ),
+    month,
   );
 }
 
 async function removeEvent(eventId: number): Promise<MutationOutcome> {
+  const event = getState().snapshot?.events.find((candidate) => candidate.id === eventId);
   setState({ hiddenEvents: { ...getState().hiddenEvents, [eventId]: true } });
   const outcome = await mutate(
     () => client.removeEvent(eventId),
-    (snapshot) => !snapshot.events.some((event) => event.id === eventId),
+    (snapshot) => !snapshot.events.some((candidate) => candidate.id === eventId),
+    event ? monthOf(event.date) : getState().month,
   );
   setState({ hiddenEvents: without(getState().hiddenEvents, eventId) });
   return outcome;

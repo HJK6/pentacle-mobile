@@ -4,18 +4,28 @@ import React, { useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Fonts } from '../../../constants/Colors';
 import { useHouseholdStore } from '../../services/household/householdStore';
-import {
-  dateIn, dayOfMonth, daysInMonth, dowShort, monthOf, parseTimeInput, partnerName, whoFromToggles,
-} from '../../services/household/selectors';
+import { dateFieldLabel, parseTimeInput, partnerName, whoFromToggles } from '../../services/household/selectors';
+import MiniCalendar from './MiniCalendar';
 import { PARTNER_BLUE, P, StatusLines } from './parts';
 
 export const privateNote = (partner: string) => `PRIVATE TO YOU · ${partner.toUpperCase()} WON'T SEE THIS`;
 
-export default function AddEventSheet({ day, onClose }: { day: string; onClose: () => void }) {
-  const partner = partnerName(useHouseholdStore().snapshot);
-  const month = monthOf(day);
+export default function AddEventSheet({
+  day,
+  onClose,
+  onSubmit,
+}: {
+  day: string;
+  onClose: () => void;
+  /** Called with the event's date as it is sent, so the calendar can follow it to its month. */
+  onSubmit?: (date: string) => void;
+}) {
+  const snapshot = useHouseholdStore().snapshot;
+  const partner = partnerName(snapshot);
+  const today = snapshot?.today ?? day;
   const [title, setTitle] = useState('');
   const [date, setDate] = useState(day);
+  const [picking, setPicking] = useState(false);
   const [time, setTime] = useState('');
   const [who, setWho] = useState({ me: true, partner: false });
   const [busy, setBusy] = useState(false);
@@ -29,15 +39,10 @@ export default function AddEventSheet({ day, onClose }: { day: string; onClose: 
       const next = { ...current, [key]: !current[key] };
       return next.me || next.partner ? next : current;
     });
-  const step = (delta: number) =>
-    setDate((current) => {
-      const target = Math.min(daysInMonth(month), Math.max(1, dayOfMonth(current) + delta));
-      return dateIn(month, target);
-    });
-
   const save = async () => {
     if (disabled || !parsedTime.ok) return;
     setBusy(true);
+    onSubmit?.(date);
     const outcome = await useHouseholdStore.getState().addEvent({
       date,
       time: parsedTime.value,
@@ -86,15 +91,16 @@ export default function AddEventSheet({ day, onClose }: { day: string; onClose: 
         <View style={styles.columns}>
           <View style={styles.column}>
             <Text style={styles.label}>DATE</Text>
-            <View style={[styles.field, styles.stepper]}>
-              <Pressable onPress={() => step(-1)} hitSlop={6}>
-                <Text style={styles.stepText}>‹</Text>
-              </Pressable>
-              <Text style={styles.dateText}>{`${dowShort(date)} ${dayOfMonth(date)}`}</Text>
-              <Pressable onPress={() => step(1)} hitSlop={6}>
-                <Text style={styles.stepText}>›</Text>
-              </Pressable>
-            </View>
+            <Pressable
+              testID="event-sheet-date"
+              accessibilityRole="button"
+              accessibilityState={{ expanded: picking }}
+              onPress={() => setPicking((open) => !open)}
+              style={[styles.field, styles.dateField, picking && styles.dateFieldOpen]}
+            >
+              <Text style={styles.dateText}>{dateFieldLabel(date, today)}</Text>
+              <Text style={styles.caret}>{picking ? '▴' : '▾'}</Text>
+            </Pressable>
           </View>
           <View style={styles.column}>
             <Text style={styles.label}>TIME</Text>
@@ -109,6 +115,16 @@ export default function AddEventSheet({ day, onClose }: { day: string; onClose: 
             />
           </View>
         </View>
+        {picking ? (
+          <MiniCalendar
+            value={date}
+            today={today}
+            onPick={(next) => {
+              setDate(next);
+              setPicking(false);
+            }}
+          />
+        ) : null}
         <View>
           <Text style={styles.label}>WHO · ONE OR BOTH</Text>
           <View style={styles.whoRow}>
@@ -179,9 +195,10 @@ const styles = StyleSheet.create({
   },
   columns: { flexDirection: 'row', gap: 10 },
   column: { flex: 1 },
-  stepper: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 8, paddingHorizontal: 6 },
-  stepText: { color: P.dim, fontSize: 20, fontFamily: Fonts.rajdhani.medium, paddingHorizontal: 6 },
+  dateField: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  dateFieldOpen: { borderColor: P.green },
   dateText: { color: P.text, fontFamily: Fonts.rajdhani.bold, fontSize: 16 },
+  caret: { color: P.muted, fontSize: 14 },
   timeField: { fontFamily: Fonts.jetBrainsMono.regular, fontSize: 15 },
   whoRow: { flexDirection: 'row', gap: 8 },
   who: {

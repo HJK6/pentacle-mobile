@@ -66,6 +66,16 @@ the operator. Priority and due dates are set by the assistant, not in the app.
   failed read never decides (the kept snapshot may predate the write): the action stays
   unresolved, with Add/Save disabled or the row hidden, and is read again every 6 s until a read
   succeeds.
+- **Calendar months.** ‹ / › in the Calendar header page one month at a time (2000-01 … 2100-12).
+  Paging into today's month selects today; any other month selects the 1st. Off today's month the
+  header reads `<YEAR> · BACK TO TODAY`, which returns to today. Paging and back-to-today are held
+  while a change is unresolved, so the readbacks and the screen agree on the month. The `date`
+  route parameter still opens on a given day.
+- **New-event date.** The DATE field (`WED OCT 7`, with `, 2027` when the year is not today's)
+  opens an inline month calendar with its own ‹ / › paging; tapping a day picks it and closes the
+  picker. Paging the picker fetches nothing. An event may be saved in any month: on Save the
+  calendar moves to the event's month with its day selected, and every readback for that event
+  (and for a removal) reads the event's own month.
 - **Loading.** Until the first snapshot arrives each screen shows the shared `Spinner` atom; a
   failed first read shows `Household store unavailable` instead.
 - **Freshness.** The app refetches on screen focus, on returning to the foreground, on
@@ -74,7 +84,7 @@ the operator. Priority and due dates are set by the assistant, not in the app.
 ## Deviations from the design original
 
 D1 no "New list" (Cosmo lists are fixed); D2 `OVERDUE` tag; D3 `2:30p` times and `ALL DAY`;
-D4 no month paging (another month is reached through the `date` route parameter); D5 `HIGH`/`LOW`
+D4 retired: the calendar now pages months, as in the updated design (see Calendar months); D5 `HIGH`/`LOW`
 priority tags replace `FLAGGED`, lists sort by priority, later due dates are tagged; D6 the
 private-event note/suffix and attribution-only lamps.
 
