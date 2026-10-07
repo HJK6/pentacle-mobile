@@ -24,6 +24,7 @@ const UPDATE_KINDS: readonly WorkLaneUpdateKind[] = [
 ];
 
 export const LANE_UPDATE_PUBLISH_KIND = 'lane_update';
+const COUNT_KEYS = ['open', 'active', 'paused', 'blocked'] as const;
 
 type Obj = Record<string, unknown>;
 
@@ -64,19 +65,23 @@ function normalizeLead(value: unknown): WorkLaneLead | null {
   };
 }
 
-function normalizeVisibleChat(value: unknown): WorkLaneVisibleChat | null {
+// Any invalid or missing pointer fails closed: the lane stays visible with an honest
+// "Chat unavailable" and no navigation target (never a guessed stream).
+const UNAVAILABLE_CHAT: WorkLaneVisibleChat = { stream_id: '', generation: null, kind: 'session', available: 'unavailable' };
+
+function normalizeVisibleChat(value: unknown): WorkLaneVisibleChat {
   const raw = obj(value);
-  if (!raw || !str(raw.stream_id)) return null;
-  const available = AVAILABILITY.find((item) => item === raw.available);
-  if (!available) return null;
-  // An unsupported kind cannot be trusted as a navigation target: fail closed
-  // (the lane stays visible with an honest "Chat unavailable").
-  const kind = raw.kind === 'composite' || raw.kind === 'session' ? raw.kind : null;
+  const streamId = str(raw?.stream_id);
+  const available = AVAILABILITY.find((item) => item === raw?.available);
+  const kind = raw?.kind === 'composite' || raw?.kind === 'session' ? raw.kind : null;
+  if (!raw || !streamId || !available || !kind) return { ...UNAVAILABLE_CHAT, stream_id: streamId ?? '' };
+  const generation = str(raw.generation);
+  // A closed chat is readable only for an exact generation.
   return {
-    stream_id: String(raw.stream_id),
-    generation: str(raw.generation),
-    kind: kind ?? 'session',
-    available: kind ? available : 'unavailable',
+    stream_id: streamId,
+    generation,
+    kind,
+    available: available === 'history' && !generation ? 'unavailable' : available,
   };
 }
 
@@ -86,7 +91,7 @@ function normalizeLane(value: unknown): WorkLane | null {
   const state = LANE_STATES.find((item) => item === raw.state);
   const ownerKind = OWNER_KINDS.find((item) => item === raw.owner_kind);
   const visibleChat = normalizeVisibleChat(raw.visible_chat);
-  if (!state || !ownerKind || !visibleChat) return null;
+  if (!state || !ownerKind) return null;
   const lead = normalizeLead(raw.lead);
   const lastRaw = obj(raw.last_update);
   const lastKind = UPDATE_KINDS.find((item) => item === lastRaw?.kind);
@@ -122,25 +127,33 @@ function normalizeLane(value: unknown): WorkLane | null {
 export function normalizeWorkLanesInventory(value: unknown): WorkLanesInventory | null {
   const raw = obj(value);
   if (!raw || !Array.isArray(raw.lanes)) return null;
-  // Server order is preserved; `done` is history, never a header lane.
+  // Every present top-level field must be well formed; a malformed projection is
+  // rejected whole so the previous inventory is kept rather than showing a bad
+  // count, state or truncation flag. Absent counts/flags derive from the lanes.
+  if (raw.truncated !== undefined && typeof raw.truncated !== 'boolean') return null;
+  if (raw.generated_at !== undefined && typeof raw.generated_at !== 'string') return null;
+  const validCount = (value: unknown) => typeof value === 'number' && Number.isInteger(value) && value >= 0;
+  const counts = obj(raw.counts);
+  if (raw.counts !== undefined && (!counts || !COUNT_KEYS.every((key) => validCount(counts[key])))) return null;
+  // Server order is preserved; `done` is history, never a header lane; a repeated
+  // lane id keeps its first occurrence so list keys stay unique.
+  const seen = new Set<string>();
   const lanes = raw.lanes
     .map(normalizeLane)
-    .filter((lane): lane is WorkLane => lane !== null && lane.state !== 'done');
-  const counts = obj(raw.counts);
-  // Present counts must be non-negative integers; anything else is a malformed
-  // projection, so the previous inventory is kept rather than showing a bad count.
-  const validCount = (value: unknown) => typeof value === 'number' && Number.isInteger(value) && value >= 0;
-  if (counts && ['open', 'active', 'paused', 'blocked'].some((key) => key in counts && !validCount(counts[key]))) return null;
-  const num = (key: string, fallback: number) => (validCount(counts?.[key]) ? Number(counts![key]) : fallback);
+    .filter((lane): lane is WorkLane => {
+      if (lane === null || lane.state === 'done' || seen.has(lane.lane_id)) return false;
+      seen.add(lane.lane_id);
+      return true;
+    });
   const tally = (state: WorkLaneState) => lanes.filter((lane) => lane.state === state).length;
-  const active = num('active', tally('active'));
-  const paused = num('paused', tally('paused'));
-  const blocked = num('blocked', tally('blocked'));
+  const active = counts ? Number(counts.active) : tally('active');
+  const paused = counts ? Number(counts.paused) : tally('paused');
+  const blocked = counts ? Number(counts.blocked) : tally('blocked');
   return {
     lanes,
-    counts: { open: num('open', active + paused + blocked), active, paused, blocked },
+    counts: { open: counts ? Number(counts.open) : active + paused + blocked, active, paused, blocked },
     truncated: raw.truncated === true,
-    generated_at: str(raw.generated_at) ?? '',
+    generated_at: typeof raw.generated_at === 'string' ? raw.generated_at : '',
   };
 }
 

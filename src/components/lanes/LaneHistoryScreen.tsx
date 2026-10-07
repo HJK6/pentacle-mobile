@@ -78,11 +78,15 @@ export default function LaneHistoryScreen({ target, connected, readHistory = req
   }, [readHistory, target.streamId, target.generation]);
 
   useEffect(() => {
+    // Every state field resets whenever the target or connection changes, so a
+    // stale spinner, error, page cursor or row can never outlive its request.
     oldest.current = null;
     rawRows.current = [];
     setRows([]);
     setMore(false);
     setLoaded(false);
+    setLoading(false);
+    setError(false);
     if (connected) void load(false);
     return () => { epoch.current += 1; };
   }, [connected, load]);

@@ -87,3 +87,92 @@ test('reconnect reloads the newest page', async () => {
   await act(async () => {});
   expect(readHistory).toHaveBeenCalledTimes(1);
 });
+
+// Sweep matrix (QA r1): every state field (rows, loading, error, more, loaded, cursor) must reset
+// on disconnect and on target change, whatever state the screen was in.
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<T>((res, rej) => { resolve = res; reject = rej; });
+  return { promise, resolve, reject };
+}
+const connectedTree = (readHistory: jest.Mock, connected: boolean, t = target) => (
+  <LaneHistoryScreen target={t} connected={connected} readHistory={readHistory} onClose={jest.fn()} top={0} bottom={0} />
+);
+
+test('disconnect mid-load clears the spinner and shows Waiting for connection', async () => {
+  const pending = deferred<PentacleEvent[]>();
+  const readHistory = jest.fn().mockReturnValue(pending.promise);
+  const { view } = await mount(readHistory);
+  expect(view.getByTestId('lane-history-loading')).toBeTruthy();
+  view.rerender(connectedTree(readHistory, false));
+  await act(async () => {});
+  expect(view.queryByTestId('lane-history-loading')).toBeNull();
+  expect(view.getByText('Waiting for connection…')).toBeTruthy();
+  await act(async () => { pending.resolve([event(1, 'USER', 'late')]); });
+  expect(view.queryByText('late')).toBeNull();
+  expect(view.getByText('Waiting for connection…')).toBeTruthy();
+});
+
+test('disconnect after an error clears the unavailable/retry notice', async () => {
+  const readHistory = jest.fn().mockRejectedValue(new Error('unknown_session'));
+  const { view } = await mount(readHistory);
+  expect(view.getByText('Chat history unavailable')).toBeTruthy();
+  view.rerender(connectedTree(readHistory, false));
+  await act(async () => {});
+  expect(view.queryByText('Chat history unavailable')).toBeNull();
+  expect(view.queryByLabelText('Retry history')).toBeNull();
+  expect(view.getByText('Waiting for connection…')).toBeTruthy();
+});
+
+test('disconnect with rows and Load earlier shown clears both', async () => {
+  const page = Array.from({ length: 60 }, (_, index) => event(100 + index, 'ASSIST', `row ${100 + index}`));
+  const readHistory = jest.fn().mockResolvedValue(page);
+  const { view } = await mount(readHistory);
+  expect(view.getByTestId('lane-history-earlier')).toBeTruthy();
+  view.rerender(connectedTree(readHistory, false));
+  await act(async () => {});
+  expect(view.queryAllByTestId(/^lane-history-row-/)).toHaveLength(0);
+  expect(view.queryByTestId('lane-history-earlier')).toBeNull();
+  expect(view.getByText('Waiting for connection…')).toBeTruthy();
+});
+
+test('disconnect during Load earlier drops the stale page and a reconnect starts from the newest page', async () => {
+  const page = Array.from({ length: 60 }, (_, index) => event(100 + index, 'ASSIST', `row ${100 + index}`));
+  const earlier = deferred<PentacleEvent[]>();
+  const readHistory = jest.fn().mockResolvedValueOnce(page).mockReturnValueOnce(earlier.promise).mockResolvedValue([event(500, 'USER', 'fresh')]);
+  const { view } = await mount(readHistory);
+  await act(async () => { fireEvent.press(view.getByTestId('lane-history-earlier')); });
+  view.rerender(connectedTree(readHistory, false));
+  await act(async () => { earlier.resolve([event(1, 'ASSIST', 'stale earlier')]); });
+  expect(view.queryByText('stale earlier')).toBeNull();
+  expect(view.queryByTestId('lane-history-loading')).toBeNull();
+  view.rerender(connectedTree(readHistory, true));
+  await act(async () => {});
+  expect(readHistory).toHaveBeenLastCalledWith(target.streamId, target.generation, expect.not.objectContaining({ beforeDaemonSeq: expect.anything() }));
+  expect(view.getByText('fresh')).toBeTruthy();
+  expect(view.queryByText('row 100')).toBeNull();
+});
+
+test('changing target mid-load shows only the new target, with no stale spinner, rows or error', async () => {
+  const first = deferred<PentacleEvent[]>();
+  const readHistory = jest.fn().mockReturnValueOnce(first.promise).mockResolvedValue([event(9, 'USER', 'second target')]);
+  const { view } = await mount(readHistory);
+  view.rerender(connectedTree(readHistory, true, { streamId: 'other:stream', generation: 'gen-2', title: 'Other lane' }));
+  await act(async () => {});
+  await act(async () => { first.resolve([event(1, 'USER', 'first target')]); });
+  expect(view.getByText('second target')).toBeTruthy();
+  expect(view.queryByText('first target')).toBeNull();
+  expect(view.getByText('Other lane')).toBeTruthy();
+});
+
+test('changing target after an error shows no stale error for the new target while it loads', async () => {
+  const slow = deferred<PentacleEvent[]>();
+  const readHistory = jest.fn().mockRejectedValueOnce(new Error('unknown_session')).mockReturnValueOnce(slow.promise);
+  const { view } = await mount(readHistory);
+  expect(view.getByText('Chat history unavailable')).toBeTruthy();
+  view.rerender(connectedTree(readHistory, true, { streamId: 'other:stream', generation: 'gen-2', title: 'Other lane' }));
+  await act(async () => {});
+  expect(view.queryByText('Chat history unavailable')).toBeNull();
+  expect(view.getByTestId('lane-history-loading')).toBeTruthy();
+});

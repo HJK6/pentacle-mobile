@@ -139,3 +139,105 @@ test('counts must be non-negative integers; a malformed inventory keeps the prev
   assert.equal(selectOpenLaneCount(bad), fixture.expected.header_count);
   assert.ok(normalizeWorkLanesInventory({ ...fixture.inventory_frame, counts: undefined }));
 });
+
+// Sweep matrix (QA r1): every present-but-invalid shape of every top-level and nested field.
+const lane0 = () => fixture.inventory_frame.lanes[0];
+const lane1 = () => fixture.inventory_frame.lanes[1];
+const INVALID_SHAPES: unknown[] = [null, 7, 'x', true, [], {}];
+
+test('sweep: present counts of any non-object shape, or missing any of the four counts, reject the inventory', () => {
+  for (const counts of [null, 7, 'x', true, [], {}, { open: 4 }, { open: 4, active: 1, paused: 2 }]) {
+    assert.equal(normalizeWorkLanesInventory({ ...fixture.inventory_frame, counts }), null, JSON.stringify(counts));
+  }
+  const good = applyWorkLanesInventory(initialPentacleStreamState, fixture.inventory_frame);
+  const truncated = { ...fixture.inventory_frame, lanes: fixture.inventory_frame.lanes.slice(0, 2), truncated: true,
+    counts: { open: 9, active: 1, paused: 2, blocked: 6 } };
+  const withBadCounts = applyWorkLanesInventory(applyWorkLanesInventory(good, truncated), { ...truncated, counts: null });
+  assert.equal(selectOpenLaneCount(withBadCounts), 9);
+  const { counts: _omitted, ...withoutCounts } = fixture.inventory_frame;
+  assert.equal(normalizeWorkLanesInventory(withoutCounts)?.counts.open, 4);
+});
+
+test('sweep: present non-boolean truncated and non-string generated_at reject the inventory', () => {
+  for (const bad of [null, 1, 'yes', [], {}]) {
+    assert.equal(normalizeWorkLanesInventory({ ...fixture.inventory_frame, truncated: bad }), null, `truncated ${JSON.stringify(bad)}`);
+  }
+  for (const bad of [null, 7, [], {}]) {
+    assert.equal(normalizeWorkLanesInventory({ ...fixture.inventory_frame, generated_at: bad }), null, `generated_at ${JSON.stringify(bad)}`);
+  }
+});
+
+test('sweep: a present-but-invalid visible_chat keeps the lane and fails the tap closed', () => {
+  const chats: unknown[] = [
+    ...INVALID_SHAPES, { available: 'open' }, { stream_id: 's' }, { stream_id: 's', available: 'bogus' },
+    { stream_id: 's', available: 'open', kind: 'nope' }, { stream_id: 7, available: 'open', kind: 'session' },
+    { stream_id: 's', available: 'history', kind: 'session', generation: 7 },
+  ];
+  for (const visible_chat of chats) {
+    const inventory = normalizeWorkLanesInventory({ ...fixture.inventory_frame, lanes: [{ ...lane0(), visible_chat }] });
+    assert.ok(inventory, JSON.stringify(visible_chat));
+    assert.equal(inventory.lanes.length, 1, JSON.stringify(visible_chat));
+    assert.deepEqual(resolveWorkLaneTap(inventory.lanes[0]), { action: 'unavailable' }, JSON.stringify(visible_chat));
+  }
+});
+
+test('sweep: a present-but-invalid lead never leaves a lane ACTIVE; blocked stays blocked', () => {
+  for (const lead of [...INVALID_SHAPES, { stream_id: 7 }, { stream_id: '' }]) {
+    const inventory = normalizeWorkLanesInventory({
+      ...fixture.inventory_frame,
+      lanes: [{ ...lane1(), lead }, { ...lane0(), lane_id: 'wl-b', lead }],
+    });
+    assert.ok(inventory, JSON.stringify(lead));
+    const [active, blocked] = inventory.lanes;
+    assert.equal(active.state, 'paused', JSON.stringify(lead));
+    assert.equal(active.lead, null);
+    assert.equal(blocked.state, 'blocked');
+  }
+  for (const nested of INVALID_SHAPES) {
+    const inventory = normalizeWorkLanesInventory({
+      ...fixture.inventory_frame,
+      lanes: [{ ...lane1(), lead: { ...lane1().lead, presence: nested, status_card: nested } }],
+    });
+    const lead = inventory!.lanes[0].lead!;
+    assert.equal(lead.presence.online, false, JSON.stringify(nested));
+    assert.equal(lead.status_card.eta_at, null);
+  }
+});
+
+test('sweep: invalid scalar lane fields take safe defaults without throwing or dropping the lane', () => {
+  const bad = { ...lane0(), version: 'x', title: 5, summary: null, blocker: 7, updated_at: [], last_update: 'x' };
+  const inventory = normalizeWorkLanesInventory({ ...fixture.inventory_frame, lanes: [bad] });
+  assert.ok(inventory);
+  const [lane] = inventory.lanes;
+  assert.equal(lane.version, 0);
+  assert.equal(lane.title, '');
+  assert.equal(lane.blocker, null);
+  assert.equal(lane.last_update, null);
+});
+
+test('sweep: a lane with an invalid identity, state or owner is dropped; duplicate lane ids keep the first', () => {
+  const lanes = [
+    { ...lane0(), lane_id: 7 }, { ...lane0(), lane_id: '' }, { ...lane0(), state: null }, { ...lane0(), owner_kind: 'x' },
+    lane1(), { ...lane1(), title: 'duplicate must be ignored' }, 'x', null, [],
+  ];
+  const inventory = normalizeWorkLanesInventory({ ...fixture.inventory_frame, lanes });
+  assert.ok(inventory);
+  assert.deepEqual(inventory.lanes.map((lane) => lane.lane_id), ['wl-active-0002']);
+  assert.equal(inventory.lanes[0].title, lane1().title);
+});
+
+test('sweep: lane_update parsing rejects every present-but-invalid nested shape without throwing', () => {
+  const base = fixture.lane_update_events[0].event;
+  const withUpdate = (patch: Record<string, unknown>) => ({ ...base, raw: { lane_update: { ...base.raw.lane_update, ...patch } } });
+  for (const field of ['kind', 'update_id', 'lane_id', 'summary']) {
+    for (const bad of [null, 7, [], {}]) {
+      assert.equal(parseLaneUpdateEvent(withUpdate({ [field]: bad })), null, `${field} ${JSON.stringify(bad)}`);
+    }
+  }
+  for (const raw of INVALID_SHAPES) assert.equal(parseLaneUpdateEvent({ ...base, raw }), null);
+  for (const lane_update of INVALID_SHAPES) assert.equal(parseLaneUpdateEvent({ ...base, raw: { lane_update } }), null);
+  const loose = parseLaneUpdateEvent(withUpdate({ source: 'x', state: 'bogus', prior_state: 7, owner_kind: [], title: 5, ts: null }));
+  assert.ok(loose);
+  assert.equal(loose.state, null);
+  assert.equal(loose.title, '');
+});
