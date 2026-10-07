@@ -31,7 +31,8 @@ import Bevel from '../../src/components/Bevel';
 import Starfield from '../../src/components/Starfield';
 import StatusTag from '../../src/components/StatusTag';
 import { CardStatusMini, hasSessionStatusCardContent, type SessionStatusCardSource } from '../../src/components/SessionStatusCard';
-import SummonModal, { type SummonMachine } from '../../src/components/SummonModal';
+import { type SummonMachine } from '../../src/components/SummonModal';
+import { useNewSessionFlow } from '../../src/components/useNewSessionFlow';
 import RenameChatModal from '../../src/components/RenameChatModal';
 import { Brackets, Spark, Spinner } from '../../src/components/ArcaneAtoms';
 import {
@@ -47,10 +48,7 @@ import {
   usePentacleStreamActions,
   usePentacleStreamSelectorWhen,
   type PendingSessionClose,
-  type SpawnCatalog,
 } from '../../src/services/pentacleStream';
-import { validateSpawnCatalog } from '../../src/services/spawnCatalog';
-import { createSpawnIntentKeeper, executeSpawnIntent } from '../../src/services/spawnIntent';
 import {
   isDefaultVisibleSession,
 } from '../../src/services/sessionVisibility';
@@ -164,7 +162,6 @@ export function allChatsHarnessRowDigest(rows: SmartChatListItem[]) {
   }
   return (hash >>> 0).toString(16).padStart(8, '0');
 }
-type ProviderId = 'codex' | 'claude';
 
 function testIdForStream(streamId: string) {
   return `chat-row-${streamId.replace(/[^a-zA-Z0-9_-]/g, '-')}`;
@@ -615,20 +612,6 @@ export default function ChatsScreen() {
   const { token, isReady } = usePentacleToken();
   const actions = usePentacleStreamActions();
   const [filter, setFilter] = useState<'all' | string>('all');
-  const [spawning, setSpawning] = useState<{ host: string; provider: ProviderId } | null>(null);
-  const [summonVisible, setSummonVisible] = useState(false);
-  const [spawnCatalog, setSpawnCatalog] = useState<SpawnCatalog | null>(null);
-  const [spawnCatalogLoading, setSpawnCatalogLoading] = useState(false);
-  const [spawnCatalogError, setSpawnCatalogError] = useState<string | null>(null);
-  const [spawnSubmitError, setSpawnSubmitError] = useState<string | null>(null);
-  const spawnCatalogRequestRef = useRef(0);
-  const spawnCatalogConflictRefreshedRef = useRef(false);
-  // `spawning` is React state, so it is stale for every tap that lands before its commit — which
-  // is exactly the window the slow chats re-render opens. The synchronous ref is the guard that
-  // actually holds; the state stays for rendering.
-  // spec_example_2026_01.
-  const spawnInFlightRef = useRef(false);
-  const spawnIntentKeeperRef = useRef(createSpawnIntentKeeper());
   const [refreshing, setRefreshing] = useState(false);
   const [renameTarget, setRenameTarget] = useState<PentacleChatListItem | null>(null);
   const [expandedStreamId, setExpandedStreamId] = useState<string | null>(null);
@@ -712,8 +695,6 @@ export default function ChatsScreen() {
       a.hasHydrated === b.hasHydrated &&
       a.lastError === b.lastError,
   );
-  const activeMachines = machines.filter((machine) => machine.online);
-  const canStartNewChat = Boolean(activeMachines.length && spawning === null);
 
   // Back at the list = every chat-open intent from the previous visit is stale.
   // This is the coordinator's release point and it runs in EVERY environment:
@@ -931,94 +912,6 @@ export default function ChatsScreen() {
     [actions, renameTarget],
   );
 
-  const loadSpawnCatalog = useCallback(async () => {
-    const request = ++spawnCatalogRequestRef.current;
-    setSpawnCatalogLoading(true);
-    setSpawnCatalogError(null);
-    try {
-      const catalog = validateSpawnCatalog(await actions.getSpawnCatalog());
-      if (request !== spawnCatalogRequestRef.current) return;
-      setSpawnCatalog(catalog);
-    } catch (error) {
-      if (request !== spawnCatalogRequestRef.current) return;
-      setSpawnCatalog(null);
-      setSpawnCatalogError(error instanceof Error ? error.message : 'Spawn catalog unavailable.');
-    } finally {
-      if (request === spawnCatalogRequestRef.current) setSpawnCatalogLoading(false);
-    }
-  }, [actions]);
-
-  const handleSpawn = async (host: string, selection: {
-    provider: ProviderId;
-    model: string;
-    effort: string;
-    resolutionSource: 'profile_default' | 'explicit_override';
-    objective?: string;
-  }) => {
-    if (!spawnCatalog || spawnInFlightRef.current) return;
-    spawnInFlightRef.current = true;
-    const intentSelection = {
-      host,
-      provider: selection.provider,
-      model: selection.model,
-      effort: selection.effort,
-      catalogVersion: spawnCatalog.catalog_version,
-    };
-    try {
-      const result = await executeSpawnIntent(
-        spawnIntentKeeperRef.current,
-        intentSelection,
-        (idempotencyKey) => {
-          setSpawnSubmitError(null);
-          setSpawning({ host, provider: selection.provider });
-          return actions.spawnSessionV2({
-            host,
-            provider: selection.provider,
-            model: selection.model,
-            effort: selection.effort,
-            spawnProfile: 'desktop_manual',
-            catalogVersion: spawnCatalog.catalog_version,
-            resolutionSource: selection.resolutionSource,
-            // Top-level operator spawn: no objective; the daemon derives it. Serializer
-            // omits the key when this is undefined.
-            objective: selection.objective,
-            idempotencyKey,
-          });
-        },
-      );
-      setSummonVisible(false);
-      openChat(result.session.stream_id);
-    } catch (error) {
-      // A daemon-answered rejection is safe to retry under a fresh id; a transport or
-      // indeterminate failure is not, because the chat may already exist.
-      const message = error instanceof Error ? error.message : 'Failed to start session';
-      setSpawnSubmitError(message);
-      if ((error as { errorCode?: string })?.errorCode === 'spawn_catalog_version_conflict') {
-        setSpawnCatalog(null);
-        if (!spawnCatalogConflictRefreshedRef.current) {
-          spawnCatalogConflictRefreshedRef.current = true;
-          void loadSpawnCatalog();
-        }
-      }
-    } finally {
-      spawnInFlightRef.current = false;
-      setSpawning(null);
-    }
-  };
-
-  const handleStartNewChat = () => {
-    if (spawnInFlightRef.current) return;
-    spawnIntentKeeperRef.current.reset();
-    if (!activeMachines.length) {
-      Alert.alert('Pentacle', 'No live machines are available.');
-      return;
-    }
-    spawnCatalogConflictRefreshedRef.current = false;
-    setSpawnSubmitError(null);
-    setSummonVisible(true);
-    void loadSpawnCatalog();
-  };
-
   const handleQuestionSubmit = useCallback(async (chat: SmartChatListItem, submissions: QuestionSubmission[]) => {
     if (questionSubmittingStreamIdsRef.current.has(chat.streamId)) return;
     questionSubmittingStreamIdsRef.current.add(chat.streamId);
@@ -1149,6 +1042,7 @@ export default function ChatsScreen() {
     () => machines.map((machine) => ({ host: machine.host, title: machine.title, online: machine.online })),
     [machines],
   );
+  const newSession = useNewSessionFlow({ machines: summonMachines, onOpened: openChat });
   const unresolvedActionCount = chats.reduce((count, chat) => count + chat.openQuestions.length, 0);
 
   const toggleChatRow = useCallback((streamId: string) => {
@@ -1337,38 +1231,19 @@ export default function ChatsScreen() {
           style={[
             styles.fab,
             { bottom: Math.max(insets.bottom, 12) + 72 },
-            !canStartNewChat && styles.fabDisabled,
+            !newSession.canStart && styles.fabDisabled,
           ]}
-          disabled={!canStartNewChat}
-          onPress={handleStartNewChat}
+          disabled={!newSession.canStart}
+          onPress={newSession.start}
           accessibilityLabel="Start agent"
           accessibilityRole="button"
           testID="new-chat-button"
         >
-          {spawning ? <Spinner size={20} /> : <PlusIcon />}
+          {newSession.spawning ? <Spinner size={20} /> : <PlusIcon />}
         </Pressable>
       ) : null}
 
-      <SummonModal
-        visible={summonVisible}
-        machines={summonMachines}
-        catalog={spawnCatalog}
-        catalogLoading={spawnCatalogLoading}
-        catalogError={spawnCatalogError}
-        submitting={spawning !== null}
-        submitError={spawnSubmitError}
-        onRetryCatalog={() => {
-          spawnCatalogConflictRefreshedRef.current = false;
-          void loadSpawnCatalog();
-        }}
-        onClose={() => {
-          if (spawning) return;
-          spawnCatalogRequestRef.current += 1;
-          spawnIntentKeeperRef.current.reset();
-          setSummonVisible(false);
-        }}
-        onPick={handleSpawn}
-      />
+      {newSession.modal}
 
       <RenameChatModal
         visible={renameTarget !== null}

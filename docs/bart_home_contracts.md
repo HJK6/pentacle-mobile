@@ -1,6 +1,6 @@
 # Bart-first home: frozen shared contracts
 
-Contract version: **v1.4 (2026-10-07)** — v1.1 corrected § Answering questions and named the S1/S2 exports; v1.2 added § Household RPC (S4); v1.3 drops partially answered durable items from the pending count; v1.4 also drops items the notification itself marks answered.
+Contract version: **v1.5 (2026-10-07)** — v1.1 corrected § Answering questions and named the S1/S2 exports; v1.2 added § Household RPC (S4); v1.3 drops partially answered durable items from the pending count; v1.4 also drops items the notification itself marks answered; v1.5 lands the initial pending-count selector, the shared new-session flow and the new tab telemetry names (S6).
 Design original: `design_handoff_bart_home/README.md`
 (Pentacle-Mobile.zip sha256 `5ce4da05…`). Changing anything below is a contract change: the
 integration owner publishes a new version here and tells every packet lead before code relies on it.
@@ -49,7 +49,8 @@ question or the existing optimistic-answer identity covers it.
 
 ### `selectPendingQuestionCount(state): number` — owned by P4
 
-File: `src/components/questions/questionSelectors.ts`. Consumed by P3's `?` badge (hidden at 0).
+File: `src/components/questions/questionSelectors.ts` (initial export landed by shared edit S6 from
+Lead A's tested commit; P4 owns the file afterwards). Consumed by P3's `?` badge (hidden at 0).
 
 Value = the number of pages `n` in the Questions overlay deck ("QUESTION i / n"). One page is one
 question item, i.e. `mobileQuestionItems(question).length` per open question — the same rule as a
@@ -90,6 +91,20 @@ This is the Chats screen's needs-you rule (`smartChatAttention`: at least one op
 minus Bart's own thread. The drawer's NEEDS YOU group is exactly this list, in the same order;
 WORKING is `status === 'working'` without attention; IDLE is the rest. Bart's thread is not listed
 in the drawer.
+
+## New session (drawer + button)
+
+`useNewSessionFlow({ machines, onOpened })` in `src/components/useNewSessionFlow.tsx` (shared edit
+S6) is the one new-session flow: summon sheet, spawn catalog and idempotent spawn intent. It returns
+`{ start, spawning, canStart, modal }`; the caller renders `modal` once, disables its button on
+`!canStart`, calls `start()` on press, and opens the spawned session in `onOpened(streamId)` through
+`performChatOpenNavigation`. `machines` is `SummonMachine[]` (`host`, `title`, `online`). The Chats +
+button uses the same hook. Do not copy the spawn logic.
+
+## Tab telemetry
+
+`logFocusedTab` / `logTabPressed` (`src/services/mobileTabsTelemetry.ts`) accept the exported
+`MobileTabName`, which includes `'bart'` and `'personal'` (shared edit S6).
 
 ## Status surface (locked, PR #8)
 
