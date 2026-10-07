@@ -1005,13 +1005,27 @@ export function assembleSessionTranscriptRows(
   return orderSessionTranscriptRows(retainedDetailItems, [...authoritativeItems, ...optimisticItems], normalizedDetailItems, eventTimestamps);
 }
 
+export type SessionScreenProps = {
+  streamId: string;
+  // Replaces the combined header (back button, status trigger, options menu) when the
+  // screen is embedded outside the session route, e.g. the Bart home tab
+  // (docs/bart_home_contracts.md). Embedded screens never redirect away on a missing session.
+  header?: React.ReactNode;
+};
+
 export default function PentacleSessionScreen() {
+  const params = useLocalSearchParams<{ streamId?: string }>();
+  return <SessionScreen streamId={decodeURIComponent(params.streamId || '')} />;
+}
+
+export function SessionScreen(props: SessionScreenProps) {
+  const { streamId, header } = props;
+  const embedded = header !== undefined;
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const windowDimensions = useWindowDimensions();
   const isFocused = useIsFocused();
-  const params = useLocalSearchParams<{ streamId?: string; reports?: string; reportHarness?: string; openStatus?: string; agentHistory?: string; agentHistoryGeneration?: string }>();
-  const streamId = decodeURIComponent(params.streamId || '');
+  const params = useLocalSearchParams<{ reports?: string; reportHarness?: string; openStatus?: string; agentHistory?: string; agentHistoryGeneration?: string }>();
   const routeAgentHistoryId = decodeURIComponent(params.agentHistory || '');
   const activeHarnessRuntime = getHarnessRuntime();
   const reportViewerHarnessRunId = activeHarnessRuntime?.getParam('scenario_run_id') || '';
@@ -2936,14 +2950,14 @@ export default function PentacleSessionScreen() {
       hasHydrated: Boolean(hasHydrated),
       connecting,
     };
-    if (!shouldArmRedirectTimer(inputs)) return;
+    if (embedded || !shouldArmRedirectTimer(inputs)) return;
     const timer = setTimeout(() => {
       if (shouldArmRedirectTimer(inputs)) {
         router.replace('/chats' as any);
       }
     }, MISSING_SESSION_REDIRECT_MS);
     return () => clearTimeout(timer);
-  }, [connecting, hasHydrated, isFocused, isReady, router, session, token]);
+  }, [connecting, embedded, hasHydrated, isFocused, isReady, router, session, token]);
 
   const handleComposerSend = useCallback(async (
     text: string,
@@ -3294,13 +3308,13 @@ export default function PentacleSessionScreen() {
   };
   return (
     <View style={styles.container} testID="session-shell" onLayout={recordChatOpenShellLayout}>
-      <Stack.Screen
+      {embedded ? null : <Stack.Screen
         options={{
           headerShown: false,
         }}
-      />
+      />}
       <Starfield />
-      <View
+      {embedded ? header : <View
         style={[
           styles.combinedHeader,
           {
@@ -3354,7 +3368,7 @@ export default function PentacleSessionScreen() {
             </View>
           ) : null}
         </Pressable>
-      </View>
+      </View>}
       <ChatActionSheet
         visible={menuVisible}
         title={currentTitle}

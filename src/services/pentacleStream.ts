@@ -3901,6 +3901,16 @@ function handleMessageInner(raw: string) {
     return;
   }
 
+  if (String(message.type).startsWith('household.') && typeof message.request_id === 'string') {
+    const pending = settlePendingRequest(message.request_id);
+    if (String(message.type).endsWith('.ok')) pending?.resolve(message);
+    else {
+      const errorCode = String(message.error_code || 'household_request_failed');
+      pending?.reject(Object.assign(new Error(String(message.error || errorCode)), { errorCode }));
+    }
+    return;
+  }
+
   if (message.type === 'notification.resolve.ok' && typeof message.request_id === 'string') {
     if (message.notification) {
       const record = message.notification as PentacleNotification;
@@ -4783,6 +4793,14 @@ export function sendConsentCommand<T = Record<string, unknown>>(verb: string, fi
   if (!verb.startsWith('consent.') && !verb.startsWith('consent_key.')) throw new Error('Invalid consent verb');
   // Ordinary RPCs fail on disconnect. No notification survivor or replay queue.
   return sendCommand<T>({type: verb, ...fields}, 'consent');
+}
+
+// Personal household store RPCs (docs/bart_home_contracts.md). Ordinary RPCs: they
+// fail on disconnect and are never replayed.
+export function sendHouseholdCommand<T = Record<string, unknown>>(verb: string, fields: Record<string, unknown>): Promise<T> {
+  if (!verb.startsWith('household.')) throw new Error('Invalid household verb');
+  // type is set last so a caller field can never escape the household namespace.
+  return sendCommand<T>({...fields, type: verb}, 'household');
 }
 
 export function sendPentacleAssetCommand<T extends Record<string, unknown>>(
