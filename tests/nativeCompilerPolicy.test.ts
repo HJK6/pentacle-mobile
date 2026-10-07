@@ -5,7 +5,10 @@ const { patchPodfile } = require('../plugins/withNativeCompilerPolicy');
 
 const template = "target 'Pentacle' do\n  post_install do |installer|\n    react_native_post_install(\n      installer\n    )\n  end\nend\n";
 
-test('runs the generated policy after React Native and changes only fmt configurations', () => {
+// Same rule as hermesRuntimeGuard.test.ts: skip without Ruby only off macOS.
+const rubyTest = process.platform !== 'darwin' && spawnSync('ruby', ['-v']).error?.code === 'ENOENT' ? test.skip : test;
+
+rubyTest('runs the generated policy after React Native and changes only fmt configurations', () => {
   const patched = patchPodfile(template);
   const ruby = `
     require 'json'
