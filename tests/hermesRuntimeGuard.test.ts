@@ -41,6 +41,10 @@ function writeSlice(rootDir: string, slice: string, bytes: Buffer): string {
   return dest;
 }
 
+function isGnuTar(): boolean {
+  return /GNU tar/.test(spawnSync('tar', ['--version'], { encoding: 'utf8' }).stdout ?? '');
+}
+
 /** Build a hermes artifact tarball whose ios-arm64 slice contains `bytes`. */
 function makeArtifactTarball(
   artifactsDir: string,
@@ -53,8 +57,11 @@ function makeArtifactTarball(
   writeSlice(staging, SIMULATOR_SLICE, simulatorBytes);
   fs.mkdirSync(artifactsDir, { recursive: true });
   const tarPath = path.join(artifactsDir, `hermes-ios-0.81.5-${config}.tar.gz`);
-  // Member path is stored with a leading "./", matching the real artifacts.
-  execFileSync('tar', ['-czf', tarPath, '-C', staging, `./${DEVICE_SLICE}`, `./${SIMULATOR_SLICE}`]);
+  // Real artifacts store members with a leading "./", which bsdtar (macOS, where the
+  // verifier runs) matches without the prefix. GNU tar matches names literally, so
+  // on GNU hosts store the unprefixed names the verifier asks for.
+  const prefix = isGnuTar() ? '' : './';
+  execFileSync('tar', ['-czf', tarPath, '-C', staging, `${prefix}${DEVICE_SLICE}`, `${prefix}${SIMULATOR_SLICE}`]);
   fs.rmSync(staging, { recursive: true, force: true });
 }
 
@@ -175,6 +182,10 @@ describe('verify-hermes-runtime.cjs (fail-closed Hermes engine guard)', () => {
   });
 });
 
+// The generated Podfile policy is Ruby; run it when Ruby exists (skip only on ENOENT). macOS dev hosts always
+// ship it, so a missing Ruby there must fail loudly rather than skip.
+const rubyTest = process.platform !== 'darwin' && (spawnSync('ruby', ['-v']).error as NodeJS.ErrnoException | undefined)?.code === 'ENOENT' ? test.skip : test;
+
 describe('withHermesBuildState plugin (Podfile hooks)', () => {
   // Exercise only the dangerous (Podfile) mod: capture the mod fn, then drive it
   // against a temp Podfile. withXcodeProject is a no-op passthrough here.
@@ -248,7 +259,7 @@ describe('withHermesBuildState plugin (Podfile hooks)', () => {
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }
   });
 
-  test('generated Ruby policy raises older targets but never lowers newer ones', async () => {
+  rubyTest('generated Ruby policy raises older targets but never lowers newer ones', async () => {
     const dir = makeTempDir();
     try {
       fs.writeFileSync(path.join(dir, 'Podfile'), PODFILE);
