@@ -13,7 +13,18 @@ git config core.hooksPath "$(git rev-parse --show-toplevel)/scripts/hooks"
 ```
 
 The hook requires a clean checked-out candidate matching the pushed tip. It runs
-`scripts/check-public-boundary.sh`, then the reviewed foreign-history guard.
+`scripts/check-public-boundary.sh`, then the private-terms check, then the
+reviewed foreign-history guard. The private-terms check
+(`scripts/check_private_terms.py`) scans the exact outgoing commit's tree and
+paths for any term in the host-local dictionary
+(`$PENTACLE_PRIVATE_TERMS_FILE`, default `~/.config/pentacle/private-terms.json`;
+a nonempty, unique JSON string array outside the checkout). It applies only the
+public web checker's private-term matching, not its portable rules. A missing,
+unreadable or malformed dictionary, a scan error or any hit refuses the push. The
+receipt, written to `<git-dir>/private-terms-receipts/<sha>.json`, binds the
+commit, tree, checker digest and dictionary digest/status/count and never
+contains dictionary values or matched text. The dictionary never enters the
+repository or CI; CI runs the check's tests with synthetic dictionaries only.
 Never bypass it. The boundary reuses public Pentacle's residue checker; the source
 hash is recorded in `scripts/public_guard_source.json`. Its fixed mobile profile
 supports existing synthetic identifiers while still checking original text for
