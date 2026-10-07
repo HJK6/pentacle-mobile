@@ -79,8 +79,18 @@ async function refresh(month?: string): Promise<void> {
   await load(getState().month);
 }
 
-/** Readback with the month last asked for; never throws. Returns the fresh snapshot, or null. */
+let loadsStarted = 0;
+let newestApplied = 0;
+/** Latest-request-wins: only the newest read of the month the store currently wants is applied. */
+const isCurrent = (seq: number, month: string | undefined) =>
+  seq > newestApplied && (getState().month === undefined || month === getState().month);
+
+/**
+ * Read a snapshot; never throws. Returns the fresh snapshot (for readback decisions) or null, and
+ * applies it to the store only if no newer read has been applied and it is for the wanted month.
+ */
 async function load(month: string | undefined): Promise<HouseholdSnapshot | null> {
+  const seq = (loadsStarted += 1);
   try {
     const frame = await client.snapshot(month);
     const notice = getState().notice;
@@ -92,6 +102,8 @@ async function load(month: string | undefined): Promise<HouseholdSnapshot | null
       server_now: frame.server_now,
       people: frame.people,
     };
+    if (!isCurrent(seq, frame.month)) return snapshot;
+    newestApplied = seq;
     setState({
       status: 'ready',
       snapshot,
@@ -100,7 +112,7 @@ async function load(month: string | undefined): Promise<HouseholdSnapshot | null
     });
     return snapshot;
   } catch {
-    setState({ status: 'unavailable' });
+    if (isCurrent(seq, month)) setState({ status: 'unavailable' });
     return null;
   }
 }

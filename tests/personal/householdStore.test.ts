@@ -386,3 +386,59 @@ describe('event writes are read back in their own month', () => {
     expect(callsOf('household.event.remove')).toHaveLength(1);
   });
 });
+
+describe('a superseded snapshot never overwrites a newer one (QA a0dd198b)', () => {
+  const NOVEMBER = { date: '2026-11-20', time: '10:00', title: 'Synthetic November event', who: 'self' as const };
+
+  it('an October refresh that resolves after a November save leaves the November snapshot in place', async () => {
+    const { store, server } = boot();
+    await store().refresh('2026-10');
+    let release: () => void = () => undefined;
+    server.override('household.snapshot', (fields, srv) => {
+      if (fields.month !== '2026-10') return srv.apply('household.snapshot', fields);
+      srv.clearOverride('household.snapshot');
+      return new Promise((resolve) => { release = () => resolve(srv.apply('household.snapshot', fields)); });
+    });
+    await kick(() => store().refresh('2026-10')); // held in flight
+    await expect(store().addEvent(NOVEMBER)).resolves.toBe('ok');
+    expect(store().snapshot?.month).toBe('2026-11');
+    release();
+    await advance(0);
+    expect(store().month).toBe('2026-11');
+    expect(store().snapshot?.month).toBe('2026-11');
+    expect(store().snapshot?.events.some((e) => e.title === NOVEMBER.title)).toBe(true);
+  });
+
+  it('of two reads of the same month, a late older response does not replace the newer one', async () => {
+    const { store, server } = boot();
+    await store().refresh('2026-10');
+    let release: () => void = () => undefined;
+    server.override('household.snapshot', (fields, srv) => {
+      srv.clearOverride('household.snapshot');
+      const stale = srv.apply('household.snapshot', fields);
+      return new Promise((resolve) => { release = () => resolve(stale); });
+    });
+    await kick(() => store().refresh('2026-10')); // older read, held with the pre-add rows
+    await store().addEvent({ ...NOVEMBER, date: '2026-10-20', title: 'Synthetic October add' });
+    expect(store().snapshot?.events.some((e) => e.title === 'Synthetic October add')).toBe(true);
+    release();
+    await advance(0);
+    expect(store().snapshot?.events.some((e) => e.title === 'Synthetic October add')).toBe(true);
+  });
+
+  it('a superseded read that fails does not mark the store unavailable', async () => {
+    const { store, server } = boot();
+    await store().refresh('2026-10');
+    let fail: () => void = () => undefined;
+    server.override('household.snapshot', (_fields, srv) => {
+      srv.clearOverride('household.snapshot');
+      return new Promise((_resolve, reject) => { fail = () => reject(rpcError('unavailable')); });
+    });
+    await kick(() => store().refresh('2026-10'));
+    await store().refresh('2026-11');
+    fail();
+    await advance(0);
+    expect(store().status).toBe('ready');
+    expect(store().snapshot?.month).toBe('2026-11');
+  });
+});
