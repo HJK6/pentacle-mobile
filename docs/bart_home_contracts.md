@@ -1,0 +1,127 @@
+# Bart-first home: frozen shared contracts
+
+Contract version: **v1 (2026-10-07)**. Design original: `design_handoff_bart_home/README.md`
+(Pentacle-Mobile.zip sha256 `5ce4da05…`). Changing anything below is a contract change: the
+integration owner publishes a new version here and tells every packet lead before code relies on it.
+
+## Packets and file ownership
+
+| Packet | Owns | Must not touch |
+| --- | --- | --- |
+| P3 Bart shell | `app/(tabs)/_layout.tsx`, `app/(tabs)/bart.tsx`, `src/components/bart/*` | everything below |
+| P4 Questions overlay | `app/pentacle/questions.tsx`, `src/components/questions/*` | P3, P5, shared files |
+| P5 Personal | `app/(tabs)/personal.tsx`, `app/pentacle/personal/*`, `src/components/personal/*`, `src/services/household/*` | P3, P4, shared files |
+| Integration owner | every other file, in particular `pentacle-chat-core/src/types/*`, `src/services/pentacleStream.ts`, `app/_layout.tsx`, `app/pentacle/session/*`, `src/components/Session*`, `src/components/voice/*` | packet files |
+
+`src/components/status/*` (PR #8) is locked; it is not edited by any packet. A packet that needs a
+change outside its files asks the integration owner, who lands it on `feat/integration-shared`
+(smallest change, with a test) and merges it to `main` before the packet rebases onto it.
+
+## Shared constants
+
+- `BART_STREAM_ID = 'bart:assistant'`, exported from `src/components/status/statusSelectors.ts`
+  (PR #8). Import it; never re-declare the literal.
+
+## Routes
+
+Root stack entries for these routes are registered in `app/_layout.tsx` by the integration owner
+(`headerShown: false`). Packets only create the route files.
+
+| Route | File (owner) | Params | Behaviour |
+| --- | --- | --- | --- |
+| `/(tabs)/bart` | `app/(tabs)/bart.tsx` (P3) | none | Home tab; initial route of the tab navigator. |
+| `/(tabs)/personal` | `app/(tabs)/personal.tsx` (P5; P3 may ship a placeholder only if P5 has not landed) | none | Personal tab. |
+| `/pentacle/questions` | `app/pentacle/questions.tsx` (P4) | `notificationId?: string` | Full-screen overlay over the current screen. Opens on the first page of that notification when it is still pending, otherwise on page 1. Closing returns with `router.back()`. |
+| `/pentacle/personal/lists` | `app/pentacle/personal/lists.tsx` (P5) | none | Lists index; back chevron returns to Personal. |
+| `/pentacle/personal/list/[id]` | `app/pentacle/personal/list/[id].tsx` (P5) | `id: string` — the list's id in its authoritative store (URL-encoded) | List detail. |
+| `/pentacle/personal/calendar` | `app/pentacle/personal/calendar.tsx` (P5) | `date?: string` (`YYYY-MM-DD`, local day; default today) | Month grid with that day selected. |
+| `/pentacle/session/[streamId]` | existing | unchanged | Opening a session from any new surface goes through `performChatOpenNavigation(streamId, router)` (`src/services/chatOpenNavigation.ts`); never push the href directly. |
+
+## Selectors
+
+Both are pure functions of `PentacleStreamState` and derive only from daemon-authoritative data
+(notifications, sessions and the existing optimistic-answer projection). Opening, closing or
+paging through a surface never changes either value; a count drops only when the daemon closes the
+question or the existing optimistic-answer identity covers it.
+
+### `selectPendingQuestionCount(state): number` — owned by P4
+
+File: `src/components/questions/questionSelectors.ts`. Consumed by P3's `?` badge (hidden at 0).
+
+Value = the number of pages `n` in the Questions overlay deck ("QUESTION i / n"). One page is one
+question item, i.e. `mobileQuestionItems(question).length` per open question — the same rule as a
+Chats row's question badge (`openQuestionItemCount` in `app/(tabs)/chats.tsx`):
+
+```ts
+selectSmartChatList(state).reduce((sum, chat) => sum + chat.openQuestions.reduce(
+  (n, action) => n + mobileQuestionItems(questionForAction(action)).length, 0), 0)
+```
+
+`questionForAction` is exported from `app/(tabs)/chats.tsx` by the integration owner (shared edit
+S1); `mobileQuestionItems` comes from `src/components/MobileQuestions.tsx`.
+
+Sources: every chat in `selectSmartChatList(state)` including `BART_STREAM_ID` (Bart's own
+questions are part of the deck). P4 exports the deck selector it renders from; the count selector
+must equal that deck's length for every state (a unit test asserts this).
+
+### `selectOthersNeedingYou(state): SmartChatListItem[]` — owned by P3
+
+File: `src/components/bart/bartSelectors.ts`. The ☰ badge shows `.length` (hidden at 0).
+
+```ts
+selectSmartChatList(state).filter((chat) => chat.streamId !== BART_STREAM_ID && smartChatAttention(chat))
+```
+
+This is the Chats screen's needs-you rule (`smartChatAttention`: at least one open question action)
+minus Bart's own thread. The drawer's NEEDS YOU group is exactly this list, in the same order;
+WORKING is `status === 'working'` without attention; IDLE is the rest. Bart's thread is not listed
+in the drawer.
+
+## Status surface (locked, PR #8)
+
+`src/components/status/StatusSurface.tsx` default export, props exactly:
+
+```ts
+{ updates: PentacleEvent[]; lanes: StatusLane[]; working: boolean; now: number; top: number;
+  bottom: number; loading: boolean; error: boolean; showLog: boolean;
+  onShowLog(visible: boolean): void; onOpen(streamId: string): void; onLoadEarlier(): void }
+```
+
+with `updates = selectStatusUpdates(state)` and `lanes = selectOpenLanes(state)` from
+`statusSelectors.ts`. P3 opens it from the Bart header as a full-screen overlay that reuses the
+existing data wiring in `app/(tabs)/updates.tsx` (`UpdatesScreen`) unchanged, with the route hidden
+from the tab bar (`href: null`) and the overlay's ✕ drawn by P3 outside the component. Any API
+change is an integration request, not a packet edit.
+
+## Bart home mounts the session screen
+
+The Bart tab renders the same session screen as every other chat for `BART_STREAM_ID`. The
+integration owner exports a named component from `app/pentacle/session/[streamId].tsx`:
+
+```ts
+export function SessionScreen(props: {
+  streamId: string;
+  // Replaces the default combined header (back button + status trigger). The session's own
+  // transcript, composer, questions and overlays are unchanged.
+  header?: React.ReactNode;
+}): JSX.Element
+```
+
+The route's default export becomes `SessionScreen` fed by `useLocalSearchParams`; behaviour of the
+session route is unchanged when `header` is absent. `app/(tabs)/bart.tsx` renders
+`<SessionScreen streamId={BART_STREAM_ID} header={<BartHeader … />} />`. P3 does not fork or copy
+the session screen.
+
+## Answering questions
+
+P4 answers through the existing services only: durable questions via `resolveNotification` and
+legacy session questions via `answerDaemonPrompt` (`src/services/pentacleStream.ts`), so the
+optimistic-answer projection and reconnect replay keep working. A partial submit sends only the
+answered items. New RPC verbs or types (e.g. P6's voice binding) are integration requests.
+
+## Assembled-home check
+
+Run by the integration owner on each merged `main` head after a packet lands: `npm run typecheck`,
+`npm run test:unit`, then the certified harness journey — open app → Bart home → drawer → open a
+session → back → ? → answer one question partially → status surface → Personal → list detail →
+calendar — reported PASS/FAIL per step. Steps whose packet has not landed are reported `N/A`.
