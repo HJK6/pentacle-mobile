@@ -1,9 +1,12 @@
 import React from 'react';
 import { act, render } from '@testing-library/react-native';
 import TabLayout from '../../../app/(tabs)/_layout';
-import { markRead } from '../../../src/hooks/useUnreadNotifications';
 
 jest.mock('expo-router', () => require('../../helpers/mocks/expoRouter').makeMock());
+jest.mock('../../../src/hooks/useUnreadNotifications', () => ({
+  markRead: jest.fn(),
+  useHasUnreadNotification: jest.fn(() => true),
+}));
 jest.mock('@expo/vector-icons/FontAwesome', () => 'FontAwesome');
 
 let mockReceivedListener: ((notification: any) => void) | undefined;
@@ -18,10 +21,12 @@ jest.mock('expo-notifications', () => ({
 
 const routerMock = require('expo-router').__mock;
 
+const { markRead } = require('../../../src/hooks/useUnreadNotifications');
+
 beforeEach(() => {
   routerMock.tabScreens.mockClear();
+  (markRead as jest.Mock).mockClear();
   mockReceivedListener = undefined;
-  markRead('system');
 });
 
 test('cold renders tab labels', () => {
@@ -41,15 +46,18 @@ test('cold renders tab labels', () => {
   ]);
 });
 
-test('tab options render icons and read action', () => {
+test('the updates slot is the Bart status tab: label, icon, no read action', () => {
   render(<TabLayout />);
   const updates = routerMock.tabScreens.mock.calls.map((call: any[]) => call[0]).find((screen: any) => screen.name === 'updates');
 
+  expect(updates.options.title).toBe('Bart');
+  expect(updates.options.tabBarLabel).toBe('BART');
   expect(updates.options.tabBarIcon({ color: 'red' })).toBeTruthy();
   updates.listeners.tabPress();
+  expect(markRead).not.toHaveBeenCalled();
 });
 
-test('foreground unread changes do not re-render the Tabs navigator', () => {
+test('the Bart status tab carries no notifications unread dot, even with unread system notifications', () => {
   render(<TabLayout />);
   const updates = routerMock.tabScreens.mock.calls.map((call: any[]) => call[0]).find((screen: any) => screen.name === 'updates');
   const initialScreenConfigRenders = routerMock.tabScreens.mock.calls.length;
@@ -59,13 +67,6 @@ test('foreground unread changes do not re-render the Tabs navigator', () => {
 
   act(() => {
     mockReceivedListener?.({ request: { content: { data: { agent_id: 'system' } } } });
-  });
-
-  expect(icon.getByTestId('updates-unread-dot')).toBeTruthy();
-  expect(routerMock.tabScreens.mock.calls.length).toBe(initialScreenConfigRenders);
-
-  act(() => {
-    updates.listeners.tabPress();
   });
 
   expect(icon.queryByTestId('updates-unread-dot')).toBeNull();
