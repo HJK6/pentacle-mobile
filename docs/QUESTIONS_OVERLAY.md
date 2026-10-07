@@ -99,7 +99,7 @@ only when a multi-item legacy action is partly answered (it cannot be sent, so i
 
 - Header: source ring (djinni sigil in lamp green for Bart, the host's machine sigil in its accent
   ring otherwise), `QUESTION i / n` in the page's accent, subtitle `Machine · session title`
-  (for the assistant's own questions: the assistant identity name, default `Assistant` — operator requirement R-ident forbids a literal name; `src/components/questions/assistantIdentity.ts` is the single stand-in until shared edit S7's `selectAssistantIdentity(state)`, contracts v1.6, replaces it; the source mark uses the same identity's `sigilKind`), **See chat ›** (hidden for Bart; `performChatOpenNavigation(streamId,
+  (for the assistant's own questions: the shared assistant identity name from `useAssistantIdentity()` — the assistant session's display name, then title, then `Assistant`; operator requirement R-ident forbids a literal name, contracts § Assistant identity; the source mark uses the same identity's `sigilKind`), **See chat ›** (hidden for Bart; `performChatOpenNavigation(streamId,
   router)`, never a direct href), an empty accessory slot, ✕. No mic or voice: P6 owns that slot.
 - Body: `MobileQuestionOne` for the page's item (options with descriptions, custom, free-text note),
   scrollable and keyboard-avoiding. A `qc-rise` entrance (250 ms opacity + 4 px) plays on mount and on

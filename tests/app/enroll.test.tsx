@@ -52,7 +52,7 @@ test('does not call enrollment service while token store is not ready', async ()
   expect(enrollPentacleDevice).not.toHaveBeenCalled();
 });
 
-test('valid code and ws enrolls, stores token, and routes to chats', async () => {
+test('valid code and ws enrolls, stores token, and routes to the assistant home tab', async () => {
   mockParams.code = 'abc';
   mockParams.ws = 'ws://control.example/ws';
 
@@ -61,7 +61,7 @@ test('valid code and ws enrolls, stores token, and routes to chats', async () =>
   await waitFor(() => expect(tokenApi.setWsUrl).toHaveBeenCalledWith('ws://control.example/ws'));
   expect(enrollPentacleDevice).toHaveBeenCalledWith('ABC', 'ws://control.example/ws');
   await waitFor(() => expect(tokenApi.setToken).toHaveBeenCalledWith('token-123'));
-  expect(routerMock.replace).toHaveBeenCalledWith('/chats');
+  expect(routerMock.replace).toHaveBeenCalledWith('/(tabs)/bart');
 });
 
 test('renders enrollment service errors', async () => {

@@ -294,7 +294,7 @@ test('tmux timeout labels the open session without discarding its retained trans
   expect(screen.getByText('last good reply')).toBeTruthy();
 });
 
-test('Back to chats falls back to the chats tab when no navigation history exists', async () => {
+test('Back to chats falls back to the assistant home tab when no navigation history exists', async () => {
   mockRouterCanGoBack.mockReturnValue(false);
   const unsubscribe = stream.subscribePentacleStream(jest.fn());
   cleanupFns.push(unsubscribe);
@@ -319,7 +319,7 @@ test('Back to chats falls back to the chats tab when no navigation history exist
 
   expect(mockKeyboardDismiss).toHaveBeenCalled();
   expect(mockRouterBack).not.toHaveBeenCalled();
-  expect(mockRouterReplace).toHaveBeenCalledWith('/(tabs)/chats');
+  expect(mockRouterReplace).toHaveBeenCalledWith('/(tabs)/bart');
 });
 
 test('session detail header renders status card fields and indicators', async () => {

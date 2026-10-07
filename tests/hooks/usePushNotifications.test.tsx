@@ -165,7 +165,7 @@ test('routes notification taps by payload branch', async () => {
 
   expect(router.push).toHaveBeenCalledWith('/pentacle/session/hostb%3Aclaude%3Aasker');
   expect(router.push).toHaveBeenCalledWith('/pentacle/session/alpha%2Fsession%201');
-  expect(router.push).toHaveBeenCalledWith('/(tabs)/chats');
+  expect(router.push).toHaveBeenCalledWith('/(tabs)/bart');
   expect(router.push).toHaveBeenCalledWith('/updates');
   expect(mockPrefetchStreamEvents).toHaveBeenCalledWith('hostb:claude:asker', 'notification');
   expect(mockPrefetchStreamEvents).toHaveBeenCalledWith('alpha/session 1', 'notification');
@@ -191,7 +191,7 @@ test('defers a locked stream notification route until unlock while prefetching o
   rerender({ locked: false });
 
   await waitFor(() => expect(router.push).toHaveBeenCalledWith('/pentacle/session/locked-stream'));
-  expect(router.push).toHaveBeenNthCalledWith(1, '/(tabs)/chats');
+  expect(router.push).toHaveBeenNthCalledWith(1, '/(tabs)/bart');
   expect(router.push).toHaveBeenNthCalledWith(2, '/pentacle/session/locked-stream');
   expect(seen.filter((payload) => payload.message === TELEMETRY_EVENTS.PUSH_TAP_ROUTED)).toHaveLength(1);
   telemetry.setTelemetrySink(null);
@@ -230,7 +230,7 @@ test('routes the last stream notification response after the startup delay and r
   });
 
   expect(router.push).toHaveBeenCalledWith('/pentacle/session/beta');
-  expect(router.push).toHaveBeenCalledWith('/(tabs)/chats');
+  expect(router.push).toHaveBeenCalledWith('/(tabs)/bart');
   expect(mockPrefetchStreamEvents).toHaveBeenCalledWith('beta', 'notification');
   unmount();
   expect(mockResponseRemove).toHaveBeenCalled();

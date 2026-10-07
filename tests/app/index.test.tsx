@@ -6,9 +6,9 @@ jest.mock('expo-router', () => require('../helpers/mocks/expoRouter').makeMock()
 
 const routerMock = require('expo-router').__mock;
 
-test('redirects cold renders to the chats tab', () => {
+test('redirects cold renders to the assistant home tab', () => {
   render(<IndexScreen />);
 
-  expect(routerMock.redirect).toHaveBeenCalledWith('/chats');
+  expect(routerMock.redirect).toHaveBeenCalledWith('/(tabs)/bart');
 });
 

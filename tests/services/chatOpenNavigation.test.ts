@@ -548,6 +548,9 @@ const NAV_ALLOWLIST: { file: string; argExpression: string; count: number; reaso
   { file: "app/(tabs)/unified.tsx", argExpression: "streamPath(streamId)", count: 1, reason: "product: unified-tab open" },
   { file: "src/services/harnessActions.ts", argExpression: "ROUTE", count: 1, reason: "harness tab nav (updates); non-session" },
   { file: "src/services/harnessActions.ts", argExpression: "route", count: 1, reason: "harness tab nav smoke; non-session" },
+  { file: "src/hooks/usePushNotifications.ts", argExpression: "HOME_ROUTE as any", count: 1, reason: "product: push-tap seeds the home tab under a session route (non-session; src/services/homeRoute.ts)" },
+  { file: "app/enroll.tsx", argExpression: "HOME_ROUTE as any", count: 1, reason: "product: enrollment lands on the home tab (non-session)" },
+  { file: "app/pentacle/session/[streamId].tsx", argExpression: "HOME_ROUTE as any", count: 2, reason: "product: session back and missing-session redirect return to the home tab (non-session)" },
   { file: "src/components/personal/ListsIndex.tsx", argExpression: "{ pathname: '/pentacle/personal/list/[id]', params: { id } }", count: 1, reason: "product: Personal list detail (non-session route; id is a fixed Cosmo list name); granted by integration owner (S5)" },
 ];
 
@@ -745,7 +748,7 @@ test('drift guard 1 (insertion regression): imports and blank lines do not chang
     .map((call) => ({ rel, call }));
   const original = entries(source);
   const shifted = entries("import 'navigation-census-insertion-probe';\n\n// unrelated insertion\n" + source);
-  expect(original).toHaveLength(2);
+  expect(original).toHaveLength(4); // 2 harness session opens + 2 home-route returns
   expect(shifted.map(({ call }) => call.line)).toEqual(original.map(({ call }) => call.line + 3));
   expect(censusNavCalls(original, grants)).toEqual({ offenders: [], stale: [] });
   expect(censusNavCalls(shifted, grants)).toEqual({ offenders: [], stale: [] });

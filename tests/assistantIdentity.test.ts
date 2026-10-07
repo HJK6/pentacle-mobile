@@ -34,9 +34,7 @@ const ROOT = join(__dirname, '..');
 const LONG = 'Bart' + 'imaeus';
 const VISIBLE_NAME = new RegExp(`\\b(Bart|BART|${LONG}|${LONG.toUpperCase()})\\b`);
 const SCANNED = ['app', 'src/components/bart', 'src/components/status', 'src/components/questions', 'src/components/personal'];
-// P3 (Dot) owns the tab layout rewrite; the integration owner swaps its tab title/label to
-// useAssistantIdentity right after P3 merges and then removes this entry.
-const PENDING_P3 = new Set(['app/(tabs)/_layout.tsx']);
+
 
 function sources(dir: string): string[] {
   let entries: string[];
@@ -86,8 +84,7 @@ test('the literal scan sees through comments and covers string props', () => {
 
 test('no user-visible assistant product-name literal remains in the home surfaces', () => {
   const offenders: string[] = [];
-  for (const file of SCANNED.flatMap((dir) => sources(join(ROOT, dir)))
-    .filter((path) => !PENDING_P3.has(relative(ROOT, path)))) {
+  for (const file of SCANNED.flatMap((dir) => sources(join(ROOT, dir)))) {
     for (const text of visibleLiterals(file, readFileSync(file, 'utf8'))) {
       if (VISIBLE_NAME.test(text)) offenders.push(`${relative(ROOT, file)}: ${text.trim()}`);
     }
