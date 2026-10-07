@@ -38,8 +38,7 @@ safe store selector. Opening, closing or paging never changes the count.
 
 `QuestionDeckEntry` carries `key`, `streamId`, `isBart` (`streamId === BART_STREAM_ID`),
 `machineLabel`, `machineName`, `sessionTitle`, `accent` (Bart = `#3dff66`, else the machine accent),
-`action`, `itemIndex`, `question`, `questionId` (durable resolver id; `null` for legacy: P6 binds a
-recording to `key` + `streamId` + `questionId`) and `locked` (scan-incomplete legacy item, counted
+`action`, `itemIndex`, `question`, `questionId` (durable resolver id; `null` for legacy; the voice binding is built from `key` + `streamId` + `questionId` + the notification's producer, see Voice answers) and `locked` (scan-incomplete legacy item, counted
 answered exactly as on Chats).
 
 ## Answering (C4)
@@ -100,7 +99,7 @@ only when a multi-item legacy action is partly answered (it cannot be sent, so i
 - Header: source ring (djinni sigil in lamp green for Bart, the host's machine sigil in its accent
   ring otherwise), `QUESTION i / n` in the page's accent, subtitle `Machine · session title`
   (for the assistant's own questions: the shared assistant identity name from `useAssistantIdentity()` — the assistant session's display name, then title, then `Assistant`; operator requirement R-ident forbids a literal name, contracts § Assistant identity; the source mark uses the same identity's `sigilKind`), **See chat ›** (hidden for Bart; `performChatOpenNavigation(streamId,
-  router)`, never a direct href), an empty accessory slot, ✕. No mic or voice: P6 owns that slot.
+  router)`, never a direct href), the accessory slot (the voice mic when voice answers are available, otherwise empty), ✕.
 - Body: `MobileQuestionOne` for the page's item (options with descriptions, custom, free-text note),
   scrollable and keyboard-avoiding. A `qc-rise` entrance (250 ms opacity + 4 px) plays on mount and on
   every page change.
@@ -109,6 +108,61 @@ only when a multi-item legacy action is partly answered (it cannot be sent, so i
 - The current page is tracked by key: a question answered elsewhere disappears, a new one is appended
   in deck order, and neither moves the current page (clamped if its key vanishes).
 - Zero pending: "No questions waiting" with ✕ (`questions-empty`).
+
+## Voice answers (P6)
+
+Contract: `spec_pentacle_mobile__voice_answers_2026_10` (`voice_answers.v1`). Code: `src/components/questions/voice/`.
+The mic answers many durable questions with **one take** and never answers anything itself.
+
+- **Mic** (`questions-voice-mic`, in `questions-header-accessory`): shown only when at least one durable page can
+  be bound (it has a resolver id and an asker) **and** the voice send leg declares that it carries
+  `meta.voice_answers` (`installVoiceAnswersCarrier`, see Shared dependencies). A deck with no durable page, or a build
+  without that leg, shows no mic. Tapping it while recording is Done.
+- **Recording** is the app's ordinary voice recording (`voiceRecorder.start(BART_STREAM_ID)`): the take belongs to the
+  assistant thread, and upload, transcription and send are the existing voice unit. A busy recorder or a
+  denied microphone shows a toast and starts nothing. There is no live transcription.
+- **Segments** (`SegmentTracker`): the interval spent on a page while recording. A page whose single visit reaches
+  1.5 s is covered (the longest qualifying visit is its segment; visits never add up). The current page reads
+  `RECORDING YOUR ANSWER…` until covered, then `ANSWER RECORDED`. Only durable pages that existed at recording start are
+  tracked; legacy pages, durable pages without a resolver id and **arrivals during the take** read `ANSWER BY TAP` and
+  are never covered.
+- **Bar** (`questions-voice-bar`, above the dots): red dot, elapsed, wave, `k of n answered by voice`, green Done.
+  k = covered pages the daemon still lists, n = bindable durable pages at recording start (legacy never counts: 3 durable +
+  1 legacy covering 2 reads `2 of 3 answered by voice`). At most 20 pages are bound (the daemon limit); the earliest by segment win.
+- **Done** freezes the selected set (covered ∩ still listed), registers the binding for the recording id, stops the take and
+  leaves the overlay (back to the assistant tab). With nothing covered Done discards the take and stays. The recorder's own
+  stops (5-minute cap, interruption, backgrounding) freeze and leave the same way; with nothing covered the delivered take is discarded.
+- **Discard**: ✕ (or Android back) while recording asks `Discard this recording?` (`questions-voice-confirm`, keep/discard);
+  discarding drops the take, uploads nothing and leaves. Unmounting the overlay by any other route discards a live take.
+- **No false answers**: Done, discard, upload and transcription call no answer verb, add no optimistic answer and do not change
+  `selectPendingQuestionCount`; a question leaves the deck and the counts only when the daemon closes it.
+
+### Wire shape
+
+`meta.voice_answers` on the voice turn (alongside `meta.voice`), built by `buildVoiceAnswersMeta(recordingId, { blobSha, durationS })`:
+
+```
+{ version: 1, recording_id, blob_sha, duration_s,
+  items: [{ key, question_id, notification_id,
+            producer_stream_id,   // notification.question.producer_stream_id (the asker)
+            surface_stream_id,    // agentQuestionSurfaceStreamId (display only)
+            prompt, segment: { start_s, end_s } }] }          // ordered by segment start
+```
+
+The registry is frozen per recording id and a pure read, so a pre-send re-run (same `recording_id`, same transcribe request id)
+and a post-send resend (same transcript, same optimistic row and meta) carry the identical binding; the daemon dedups on `recording_id`.
+
+### Shared dependencies
+
+The overlay compiles and behaves as before on a tree without them (no mic). Each shared edit is routed by the planner:
+
+1. `voiceDelivery` attaches `meta.voice_answers` (`buildVoiceAnswersMeta`) on the send leg, releases it once the send lands, and calls
+   `installVoiceAnswersCarrier()`; `PentacleSendMeta` types it.
+2. The echoed USER event meta (`voice_answers_status`) reaches the transcript row, and the session renders
+   `VoiceAnswersStatusNote` (`Couldn't attach questions` when `dropped`).
+3. `VoiceBubble` shows `ANSWERS n QUESTIONS` (`voiceAnswersItemCount`) while the take is transcribing.
+
+Tests: `tests/questions/voice*.test.*`, `VoiceAnswersStatusNote.test.tsx`, `noVoice.test.ts` (no second audio path, no streaming transcription).
 
 ## Route (C5)
 
@@ -122,7 +176,7 @@ Table elements: `questions-counter`, `questions-see-chat`, `questions-close`, `q
 `questions-back`, `questions-submit`, `questions-next`, `questions-unanswered`, `questions-toast`,
 `questions-empty`. Supporting: `questions-overlay`, `questions-subtitle`, `questions-submit-label`,
 `questions-unanswered-label`, `questions-header-accessory`, `questions-source-mark`,
-`questions-scroll`, `questions-item-error`, `questions-legacy-error` / `-see-chat` / `-dismiss`
+`questions-scroll`, `questions-item-error`, voice: `questions-voice-mic`, `-bar`, `-elapsed`, `-wave`, `-progress`, `-done`, `-page-label`, `-confirm`, `-keep`, `-discard`, `questions-legacy-error` / `-see-chat` / `-dismiss`
 (suffix `-1`, `-2`, … for further errors). The question body uses `MobileQuestionOne` with
 `testPrefix="questions"` (`questions-prompt`, `questions-option-<n>`, `questions-note`, …).
 
