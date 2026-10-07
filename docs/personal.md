@@ -12,11 +12,14 @@ household store (Cosmo), which the operator shares with a second household membe
 | --- | --- |
 | Lists › To-do, Grocery, Meals, Chores, Study plan | Cosmo lists `tasks`, `grocery`, `meals`, `chores`, `study` |
 | Personal TO-DO | open items from those lists that are priority `hi` or due today, tomorrow or earlier |
-| Calendar, Personal TODAY / UPCOMING | Cosmo events |
+| Personal TODAY | Cosmo events dated today (all-day first, then by time) |
+| Personal UPCOMING | the next four events after today up to today + 7, by date then time |
+| Calendar | Cosmo events of the shown month |
 
 The app talks only to the Pentacle daemon, through `sendHouseholdCommand` in
-`src/services/pentacleStream.ts` and six verbs (`household.snapshot`, `item.add`, `item.done`,
-`item.remove`, `event.add`, `event.remove`; daemon side: Pentacle `docs/chat_protocol.md`
+`src/services/pentacleStream.ts` and six verbs (`household.snapshot`, `household.item.add`,
+`household.item.done`, `household.item.remove`, `household.event.add`, `household.event.remove`;
+daemon side: Pentacle `docs/chat_protocol.md`
 § Household). The daemon accepts only the operator's own connection and calls Cosmo with a
 credential that acts for the operator. Cosmo decides visibility on the server: the operator sees
 their own private rows and shared rows, never the other person's private rows. The app never
@@ -47,8 +50,12 @@ the operator. Priority and due dates are set by the assistant, not in the app.
   with the partner shows ` · PRIVATE`, and the new-event sheet says `PRIVATE TO YOU · <NAME> WON'T
   SEE THIS` while the partner toggle is on. Sharing is done by the assistant, never by the `who`
   tag. No household member's name is in this source.
-- **The assistant's lamp** (its machine sigil, `useAssistantIdentity().sigilKind`) appears only on rows the daemon reports as `created_by: assistant` (the operator's assistant). A due date or priority
-  alone never shows a lamp (the partner's assistant can set those on shared rows).
+- **Assistant attribution** follows `created_by: assistant` (the operator's assistant) only. Those
+  rows show the assistant's lamp, its machine sigil from `useAssistantIdentity().sigilKind`, on
+  Personal to-do and event rows, list rows and calendar agenda rows. Calendar agenda rows also read
+  `ADDED BY <assistant name>` (the name from `useAssistantIdentity().name`, in capitals), and the
+  month grid draws their day dots green instead of dim. A due date or priority alone never counts
+  as attribution (the partner's assistant can set those on shared rows).
 - **Checks.** Ticking an item starts a client-side 5 s window (`UNDO · Ns`, shrinking green bar);
   undo inside it sends nothing; at 5 s exactly one `household.item.done` is sent. ✕ removes now;
   removing a recurring chore's open occurrence records it as skipped in Cosmo.
