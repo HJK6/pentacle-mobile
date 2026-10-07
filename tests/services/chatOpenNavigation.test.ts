@@ -548,6 +548,7 @@ const NAV_ALLOWLIST: { file: string; argExpression: string; count: number; reaso
   { file: "app/(tabs)/unified.tsx", argExpression: "streamPath(streamId)", count: 1, reason: "product: unified-tab open" },
   { file: "src/services/harnessActions.ts", argExpression: "ROUTE", count: 1, reason: "harness tab nav (updates); non-session" },
   { file: "src/services/harnessActions.ts", argExpression: "route", count: 1, reason: "harness tab nav smoke; non-session" },
+  { file: "src/components/personal/ListsIndex.tsx", argExpression: "{ pathname: '/pentacle/personal/list/[id]', params: { id } }", count: 1, reason: "product: Personal list detail (non-session route; id is a fixed Cosmo list name); granted by integration owner (S5)" },
 ];
 
 function allowlistIndex(
