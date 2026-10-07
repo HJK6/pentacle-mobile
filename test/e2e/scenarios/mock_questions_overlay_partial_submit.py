@@ -172,7 +172,7 @@ def run(config: dict, stream, cap=None) -> Verdict:
         if marker is None:
             failures.append(f"page {index + 1} prompt did not name a known question: {prompt!r}")
         elif QUESTIONS[marker][1]:
-            if subtitle != "Bart":
+            if subtitle != "Assistant":
                 failures.append(f"Bart page subtitle was {subtitle!r}")
             if see_chat:
                 failures.append("See chat is visible on the Bart page")

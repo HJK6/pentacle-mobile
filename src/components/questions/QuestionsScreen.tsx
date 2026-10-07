@@ -25,6 +25,7 @@ import {
 import Starfield from '../Starfield';
 import DeckDots from './DeckDots';
 import { selectQuestionDeck, type QuestionDeckEntry } from './questionSelectors';
+import { ASSISTANT_IDENTITY } from './assistantIdentity';
 import SourceMark from './SourceMark';
 import { sendableKeys, submitDeckAnswers } from './submitDeckAnswers';
 
@@ -284,11 +285,11 @@ export default function QuestionsScreen({ notificationId }: { notificationId?: s
     <Animated.View testID="questions-overlay" accessibilityViewIsModal style={styles.root}>
       <Starfield />
       <View style={[styles.header, { paddingTop: topPad, borderBottomColor: `${accent}33` }]}>
-        <SourceMark isBart={current.isBart} machineName={current.machineName} accent={accent} size={32} />
+        <SourceMark isBart={current.isBart} assistantSigil={ASSISTANT_IDENTITY.sigilKind} machineName={current.machineName} accent={accent} size={32} />
         <View style={styles.headerCopy}>
           <Text testID="questions-counter" style={[styles.counter, { color: accent }]}>{`QUESTION ${index + 1} / ${total}`}</Text>
           <Text testID="questions-subtitle" numberOfLines={1} style={styles.subtitle}>
-            {current.isBart ? 'Bart' : `${current.machineLabel} · ${current.sessionTitle}`}
+            {current.isBart ? ASSISTANT_IDENTITY.name : `${current.machineLabel} · ${current.sessionTitle}`}
           </Text>
         </View>
         {current.isBart ? null : (

@@ -154,11 +154,11 @@ describe('header (T2–T7)', () => {
     expect(style('questions-counter').color).toBe(ACCENT_C);
   });
 
-  test('T3/T4: a Bart page reads "Bart", uses the lamp green and hides See chat', () => {
+  test('T3/T4: the assistant page reads the assistant identity name (default "Assistant", R-ident), uses the lamp green and hides See chat', () => {
     render(<QuestionsScreen />);
     goTo(2);
     expect(counter()).toBe('QUESTION 3 / 3');
-    expect(text('questions-subtitle')).toBe('Bart');
+    expect(text('questions-subtitle')).toBe('Assistant');
     expect(style('questions-counter').color).toBe(GREEN);
     expect(screen.queryByTestId('questions-see-chat')).toBeNull();
   });
@@ -467,7 +467,7 @@ describe('empty state and entry param (C5)', () => {
     mockParams = { notificationId: 'n-bart' };
     render(<QuestionsRoute />);
     expect(counter()).toBe('QUESTION 3 / 3');
-    expect(text('questions-subtitle')).toBe('Bart');
+    expect(text('questions-subtitle')).toBe('Assistant');
     expect(expoRouter.__mock.stackScreens).toHaveBeenCalledWith(expect.objectContaining({
       options: { presentation: 'transparentModal', animation: 'fade' },
     }));
@@ -484,7 +484,7 @@ describe('live data (AC8)', () => {
       notifications: state.notifications.filter((n: any) => n.notification_id !== 'n-deploy'),
     }));
     expect(counter()).toBe('QUESTION 2 / 2');
-    expect(text('questions-subtitle')).toBe('Bart');
+    expect(text('questions-subtitle')).toBe('Assistant');
   });
 
   test('a new question arriving appends without moving the current page', () => {
