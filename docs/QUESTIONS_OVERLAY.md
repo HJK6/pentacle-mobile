@@ -9,7 +9,7 @@ live in [bart_home_contracts.md](bart_home_contracts.md); this page records what
 
 | Path | Role |
 | --- | --- |
-| `app/pentacle/questions.tsx` | Route. Reads `notificationId?`, sets `presentation: 'transparentModal'`, renders `QuestionsScreen`. |
+| `app/pentacle/questions.tsx` | Route. Reads `notificationId?`, sets `presentation: 'transparentModal'`, renders `QuestionsScreen` with the route's navigation (the live-take removal guard). |
 | `src/components/questions/questionSelectors.ts` | `selectQuestionDeck`, `selectPendingQuestionCount`, `QuestionDeckEntry`. |
 | `src/components/questions/submitDeckAnswers.ts` | `submitDeckAnswers`, `sendableKeys`: serial send orchestration over `submitQuestionSubmission`. |
 | `src/components/questions/QuestionsScreen.tsx` | The overlay (header, page body, dots, footer, toast). |
@@ -127,13 +127,20 @@ The mic answers many durable questions with **one take** and never answers anyth
   tracked; legacy pages, durable pages without a resolver id and **arrivals during the take** read `ANSWER BY TAP` and
   are never covered.
 - **Bar** (`questions-voice-bar`, above the dots): red dot, elapsed, wave, `k of n answered by voice`, green Done.
-  k = covered pages the daemon still lists, n = bindable durable pages at recording start (legacy never counts: 3 durable +
-  1 legacy covering 2 reads `2 of 3 answered by voice`). At most 20 pages are bound (the daemon limit); the earliest by segment win.
+  k = covered pages the daemon still lists, n = the full durable deck length at recording start. Only legacy pages are
+  excluded: 3 durable + 1 legacy covering 2 reads `2 of 3 answered by voice`, and 2 durable (one without a resolver id or
+  asker) + 1 legacy covering the bindable one reads `1 of 2 answered by voice`. An unbindable durable page counts in n, is
+  never covered or bound and keeps its `ANSWER BY TAP` label. At most 20 pages are bound (the daemon limit); the earliest by segment win.
 - **Done** freezes the selected set (covered ∩ still listed), registers the binding for the recording id, stops the take and
   leaves the overlay (back to the assistant tab). With nothing covered Done discards the take and stays. The recorder's own
   stops (5-minute cap, interruption, backgrounding) freeze and leave the same way; with nothing covered the delivered take is discarded.
 - **Discard**: ✕ (or Android back) while recording asks `Discard this recording?` (`questions-voice-confirm`, keep/discard);
-  discarding drops the take, uploads nothing and leaves. Unmounting the overlay by any other route discards a live take.
+  discarding drops the take, uploads nothing and leaves. A removal the navigator starts while a take is live (iOS swipe-dismiss
+  of the `transparentModal`, any pop that is not ours) is held by a `beforeRemove` listener on the route's navigation
+  (`useVoiceAnswers({ navigation })`): it is prevented and shows the same confirmation. Keep drops the held removal and
+  keeps recording; Discard drops the take and dispatches the held action, so the overlay leaves the way it was asked to.
+  Done, the recorder's own stops and a confirmed ✕ discard end the session before they leave, so they are not held; with
+  no live take a removal is never held. Unmounting the overlay by a route that bypasses `beforeRemove` still discards a live take.
 - **No false answers**: Done, discard, upload and transcription call no answer verb, add no optimistic answer and do not change
   `selectPendingQuestionCount`; a question leaves the deck and the counts only when the daemon closes it.
 

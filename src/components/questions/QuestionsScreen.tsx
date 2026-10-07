@@ -29,7 +29,7 @@ import { useAssistantIdentity } from '../../services/assistantIdentity';
 import SourceMark from './SourceMark';
 import { sendableKeys, submitDeckAnswers } from './submitDeckAnswers';
 import VoiceAnswerBar, { VoiceMicButton, VoicePageLabel } from './voice/VoiceAnswerBar';
-import { useVoiceAnswers } from './voice/useVoiceAnswers';
+import { useVoiceAnswers, type RemovalGuardNavigation } from './voice/useVoiceAnswers';
 
 const TOAST_MS = 2200;
 const FALLBACK_ERROR = 'Question answer could not be submitted.';
@@ -53,7 +53,7 @@ function initialPageKey(deck: readonly QuestionDeckEntry[], notificationId?: str
 
 // P4 Questions overlay (README §5 / BartQuestionsOverlay): one pending question per page over
 // every open durable question (Bart and sessions), with partial submit.
-export default function QuestionsScreen({ notificationId }: { notificationId?: string }) {
+export default function QuestionsScreen({ notificationId, navigation }: { notificationId?: string; navigation?: RemovalGuardNavigation }) {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const actions = usePentacleStreamActions();
@@ -160,6 +160,7 @@ export default function QuestionsScreen({ notificationId }: { notificationId?: s
     onFinished: close,
     onDiscarded: close,
     notify: showToast,
+    navigation,
   });
 
   const submit = async () => {

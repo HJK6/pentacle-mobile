@@ -1,6 +1,7 @@
 import React from 'react';
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 
+import QuestionsRoute from '../../app/pentacle/questions';
 import { QuestionsScreen, selectPendingQuestionCount, selectQuestionDeck } from '../../src/components/questions';
 import {
   buildVoiceAnswersMeta,
@@ -28,8 +29,33 @@ const mockActions: Record<string, jest.Mock> = {};
 let mockHarness: ReturnType<typeof makeRecorderHarness>;
 const mockDeliveryDiscard = jest.fn();
 
+// A navigation object that emits `beforeRemove` the way react-navigation does for a swipe-dismiss:
+// the removal proceeds (the listener's `defaultPrevented` stays false) unless a listener prevents it.
+const mockNavigation = (() => {
+  const listeners = new Set<(event: any) => void>();
+  return {
+    dispatch: jest.fn(),
+    addListener: jest.fn((type: string, listener: (event: any) => void) => {
+      if (type === 'beforeRemove') listeners.add(listener);
+      return () => { listeners.delete(listener); };
+    }),
+    listenerCount: () => listeners.size,
+    // Returns whether a listener prevented the removal.
+    emitBeforeRemove(action: unknown = { type: 'POP', source: 'swipe' }) {
+      let prevented = false;
+      const event = { data: { action }, preventDefault: () => { prevented = true; } };
+      listeners.forEach((listener) => listener(event));
+      return prevented;
+    },
+    reset() { listeners.clear(); this.dispatch.mockClear(); this.addListener.mockClear(); },
+  };
+})();
+
 jest.mock('expo-constants', () => require('../helpers/stubs/expoConstants.cjs'));
-jest.mock('expo-router', () => require('../helpers/mocks/expoRouter').makeMock({ getParams: () => ({}) }));
+jest.mock('expo-router', () => ({
+  ...require('../helpers/mocks/expoRouter').makeMock({ getParams: () => ({}) }),
+  useNavigation: () => mockNavigation,
+}));
 jest.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ bottom: 0, left: 0, right: 0, top: 0 }) }));
 jest.mock('@expo/vector-icons/FontAwesome', () => 'FontAwesome');
 jest.mock('@react-navigation/native', () => ({ useIsFocused: () => true }));
@@ -115,6 +141,7 @@ beforeEach(() => {
   installActions();
   mockBack.mockClear();
   mockDeliveryDiscard.mockClear();
+  mockNavigation.reset();
   mockHarness = makeRecorderHarness();
   resetVoiceAnswersForTests();
   installVoiceAnswersCarrier();
@@ -399,5 +426,122 @@ describe('discard (V1)', () => {
     await act(async () => { await flush(); });
     expect(mockHarness.engine.discarded).toBe(true);
     expect(mockHarness.stopped).toHaveLength(0);
+  });
+});
+
+describe('route-level dismissal (V1: leaving a live take asks first)', () => {
+  const SWIPE = { type: 'POP', source: 'swipe-dismiss' };
+
+  test('a live take: the dismissal is prevented and the Keep/Discard confirmation shows', async () => {
+    render(<QuestionsRoute />);
+    await startVoice(); dwell(2000);
+    let prevented = false;
+    act(() => { prevented = mockNavigation.emitBeforeRemove(SWIPE); });
+    expect(prevented).toBe(true);
+    expect(screen.getByTestId('questions-voice-confirm')).toBeTruthy();
+    expect(mockHarness.engine.discarded).toBe(false);
+    expect(mockHarness.recorder.isActive()).toBe(true);
+    expect(mockNavigation.dispatch).not.toHaveBeenCalled();
+  });
+
+  test('Keep keeps recording and the dismissal stays cancelled', async () => {
+    render(<QuestionsRoute />);
+    await startVoice(); dwell(2000);
+    act(() => { mockNavigation.emitBeforeRemove(SWIPE); });
+    await press('questions-voice-keep');
+    expect(screen.queryByTestId('questions-voice-confirm')).toBeNull();
+    expect(mockHarness.recorder.isActive()).toBe(true);
+    expect(text('questions-voice-progress')).toBe('1 of 3 answered by voice');
+    expect(mockNavigation.dispatch).not.toHaveBeenCalled();
+    expect(mockBack).not.toHaveBeenCalled();
+    // The kept take is still guarded.
+    let prevented = false;
+    act(() => { prevented = mockNavigation.emitBeforeRemove(SWIPE); });
+    expect(prevented).toBe(true);
+  });
+
+  test('Discard drops the take and leaves by dispatching the original removal action', async () => {
+    render(<QuestionsRoute />);
+    await startVoice(); dwell(2000);
+    act(() => { mockNavigation.emitBeforeRemove(SWIPE); });
+    await press('questions-voice-discard');
+    expect(mockHarness.engine.discarded).toBe(true);
+    expect(mockHarness.stopped).toHaveLength(0);
+    expect(mockNavigation.dispatch).toHaveBeenCalledTimes(1);
+    expect(mockNavigation.dispatch).toHaveBeenCalledWith(SWIPE);
+    expect(mockActions.answerPrompt).not.toHaveBeenCalled();
+    // The dispatched action is no longer blocked.
+    let prevented = true;
+    act(() => { prevented = mockNavigation.emitBeforeRemove(SWIPE); });
+    expect(prevented).toBe(false);
+  });
+
+  test('a dismissal while the ✕ confirmation is already open stays prevented and Discard still leaves by the dismissal', async () => {
+    render(<QuestionsRoute />);
+    await startVoice(); dwell(2000);
+    await press('questions-close');
+    let prevented = false;
+    act(() => { prevented = mockNavigation.emitBeforeRemove(SWIPE); });
+    expect(prevented).toBe(true);
+    await press('questions-voice-discard');
+    expect(mockNavigation.dispatch).toHaveBeenCalledWith(SWIPE);
+    expect(mockBack).not.toHaveBeenCalled();
+  });
+
+  test('no live take: the dismissal leaves normally and nothing is asked or discarded', async () => {
+    render(<QuestionsRoute />);
+    let prevented = true;
+    act(() => { prevented = mockNavigation.emitBeforeRemove(SWIPE); });
+    expect(prevented).toBe(false);
+    expect(screen.queryByTestId('questions-voice-confirm')).toBeNull();
+    await startVoice(); dwell(2000);
+    await press('questions-voice-done');
+    // After Done the take belongs to the voice send leg: leaving is not blocked.
+    act(() => { prevented = mockNavigation.emitBeforeRemove(SWIPE); });
+    expect(prevented).toBe(false);
+    expect(mockHarness.engine.discarded).toBe(false);
+  });
+});
+
+describe('n is the full durable deck at recording start (V1, legacy excluded only)', () => {
+  // 2 durable (one without a resolver id: it cannot be bound) + 1 legacy.
+  function unbindableFixture() {
+    const unbindable = durableQuestion(SESSION_B, 'n-unbindable');
+    (unbindable.question as any).question_id = undefined;
+    return baseState({
+      sessions: [
+        session(SESSION_C, 'Deploy lane', { last_event_at: '2026-10-06T12:05:00.000Z' }),
+        session(SESSION_B, 'Code review', { last_event_at: '2026-10-06T12:04:00.000Z' }),
+        session(LEGACY_SESSION, 'Legacy chat', { last_event_at: '2026-10-06T12:03:00.000Z', question: legacyQuestion() }),
+        session(BART, 'Bart', { last_event_at: '2026-10-06T12:00:00.000Z' }),
+      ],
+      notifications: [durableQuestion(SESSION_C, 'n-deploy'), unbindable],
+    });
+  }
+  const unbindableKey = () => selectQuestionDeck(mockState).find((entry) => entry.action.kind === 'durable' && !entry.questionId)!.key;
+
+  test('2 durable incl. 1 unbindable + 1 legacy, covering the bindable one, reads "1 of 2 answered by voice"', async () => {
+    mockState = unbindableFixture();
+    render(<QuestionsScreen />);
+    const bindable = durableKeys().find((key) => key !== unbindableKey())!;
+    expect(durableKeys()).toHaveLength(2);
+    await startVoice();
+    expect(text('questions-voice-progress')).toBe('0 of 2 answered by voice');
+    goToKey(bindable); dwell(2000);
+    expect(text('questions-voice-progress')).toBe('1 of 2 answered by voice');
+  });
+
+  test('the unbindable durable page keeps ANSWER BY TAP, is never covered and is never bound', async () => {
+    mockState = unbindableFixture();
+    render(<QuestionsScreen />);
+    const bindable = durableKeys().find((key) => key !== unbindableKey())!;
+    await startVoice();
+    goToKey(unbindableKey()); dwell(5000);
+    expect(text('questions-voice-page-label')).toBe('ANSWER BY TAP');
+    expect(text('questions-voice-progress')).toBe('0 of 2 answered by voice');
+    goToKey(bindable); dwell(2000);
+    await press('questions-voice-done');
+    const meta = buildVoiceAnswersMeta(mockHarness.stopped[0].recordingId, { blobSha: 's', durationS: 7 })!;
+    expect(meta.items.map((item) => item.key)).toEqual([bindable]);
   });
 });

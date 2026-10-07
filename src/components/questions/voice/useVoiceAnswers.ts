@@ -15,6 +15,15 @@ import {
   type VoiceAnswersItem,
 } from './voiceAnswersBinding';
 
+// The slice of a react-navigation navigation object the overlay needs to guard its own removal.
+export type RemovalGuardNavigation = {
+  addListener: (type: 'beforeRemove', listener: (event: {
+    data: { action: unknown };
+    preventDefault: () => void;
+  }) => void) => () => void;
+  dispatch: (action: never) => void;
+};
+
 export type VoicePhase = 'idle' | 'starting' | 'recording' | 'confirming' | 'finishing';
 export type VoicePageState = 'recording' | 'recorded' | 'tap' | null;
 
@@ -47,6 +56,8 @@ type Session = {
   t0: number;
   tracker: SegmentTracker;
   startKeys: ReadonlySet<string>;
+  // Every durable page at recording start, bindable or not (legacy excluded): the n of "k of n".
+  durableTotal: number;
   finishing: boolean;
 };
 
@@ -60,7 +71,7 @@ const START_FAILURE: Record<string, string> = {
 // voice recording, bound to the assistant thread; this hook only decides which pages it covers
 // and freezes that set as the `voice_answers.v1` binding when the take ends. It never answers a
 // question: counts move only when the daemon closes one.
-export function useVoiceAnswers({ deck, currentKey, onFinished, onDiscarded, notify, now = Date.now }: {
+export function useVoiceAnswers({ deck, currentKey, onFinished, onDiscarded, notify, navigation, now = Date.now }: {
   // The live deck (pages the daemon still lists as open).
   deck: readonly QuestionDeckEntry[];
   currentKey: string | null;
@@ -69,6 +80,9 @@ export function useVoiceAnswers({ deck, currentKey, onFinished, onDiscarded, not
   // The take was dropped on the operator's confirmation: close the overlay.
   onDiscarded: () => void;
   notify: (message: string) => void;
+  // The route's navigation: a removal that is not ours (iOS swipe-dismiss, a navigator pop) while a
+  // take is live is held until the operator chooses Keep or Discard.
+  navigation?: RemovalGuardNavigation;
   now?: () => number;
 }) {
   const recorder = voiceRecorder;
@@ -80,6 +94,10 @@ export function useVoiceAnswers({ deck, currentKey, onFinished, onDiscarded, not
   const currentKeyRef = useRef(currentKey);
   const callbacks = useRef({ onFinished, onDiscarded, notify, now });
   const mounted = useRef(true);
+  // The removal action a live take held back; Discard dispatches it, Keep drops it.
+  const pendingRemoval = useRef<{ action: unknown } | null>(null);
+  const navigationRef = useRef(navigation);
+  navigationRef.current = navigation;
   deckRef.current = deck;
   currentKeyRef.current = currentKey;
   callbacks.current = { onFinished, onDiscarded, notify, now };
@@ -140,6 +158,7 @@ export function useVoiceAnswers({ deck, currentKey, onFinished, onDiscarded, not
       return;
     }
     const startKeys = deckRef.current.filter(isVoiceEligible).map((entry) => entry.key);
+    const durableTotal = deckRef.current.filter((entry) => entry.action.kind === 'durable').length;
     if (startKeys.length === 0) {
       void recorder.discard().catch(() => undefined);
       setPhase('idle');
@@ -148,7 +167,7 @@ export function useVoiceAnswers({ deck, currentKey, onFinished, onDiscarded, not
     const tracker = new SegmentTracker(startKeys);
     const t0 = callbacks.current.now();
     tracker.enter(currentKeyRef.current, 0);
-    sessionRef.current = { recordingId, t0, tracker, startKeys: new Set(startKeys), finishing: false };
+    sessionRef.current = { recordingId, t0, tracker, startKeys: new Set(startKeys), durableTotal, finishing: false };
     setPhase('recording');
   }, [recorder, setPhase]);
 
@@ -219,13 +238,19 @@ export function useVoiceAnswers({ deck, currentKey, onFinished, onDiscarded, not
     if (phaseRef.current === 'recording') setPhase('confirming');
   }, [setPhase]);
   const keepRecording = useCallback(() => {
-    if (phaseRef.current === 'confirming') setPhase('recording');
+    if (phaseRef.current !== 'confirming') return;
+    pendingRemoval.current = null;
+    setPhase('recording');
   }, [setPhase]);
   const confirmDiscard = useCallback(async () => {
     const session = sessionRef.current;
     if (!session || phaseRef.current !== 'confirming') return;
+    const removal = pendingRemoval.current;
+    pendingRemoval.current = null;
     await discardTake(session.recordingId);
-    callbacks.current.onDiscarded();
+    // A held removal leaves by the action that was cancelled; otherwise the overlay closes itself.
+    if (removal && navigationRef.current) navigationRef.current.dispatch(removal.action as never);
+    else callbacks.current.onDiscarded();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [recorder]);
 
@@ -238,6 +263,24 @@ export function useVoiceAnswers({ deck, currentKey, onFinished, onDiscarded, not
     });
     return () => subscription.remove();
   }, [recording, requestDiscard]);
+
+  // The screen's removal by the navigator (iOS swipe-dismiss of the transparentModal, a pop that
+  // is not Done or our own discard) must not drop a live take silently: hold it behind the same
+  // Keep/Discard confirmation as ✕. Done, auto-stops and a confirmed discard end the session first,
+  // so their own `router.back()` is not held.
+  const hasNavigation = !!navigation;
+  useEffect(() => {
+    const nav = navigationRef.current;
+    if (!nav) return undefined;
+    return nav.addListener('beforeRemove', (event) => {
+      const live = phaseRef.current;
+      if (live !== 'recording' && live !== 'confirming' && live !== 'finishing') return;
+      event.preventDefault();
+      if (live === 'finishing') return;
+      pendingRemoval.current = { action: event.data.action };
+      if (live === 'recording') setPhase('confirming');
+    });
+  }, [hasNavigation, setPhase]);
 
   // Leaving the overlay by any route other than Done discards a live take.
   useEffect(() => {
@@ -267,8 +310,9 @@ export function useVoiceAnswers({ deck, currentKey, onFinished, onDiscarded, not
     recording,
     confirming: phase === 'confirming',
     finishing: phase === 'finishing',
-    // k of n answered by voice: covered pages vs the durable pages at recording start.
-    progress: { k: covered?.size ?? 0, n: session?.startKeys.size ?? 0 },
+    // k of n answered by voice: covered pages vs the full durable deck at recording start
+    // (unbindable durable pages count in n; legacy pages do not).
+    progress: { k: covered?.size ?? 0, n: session?.durableTotal ?? 0 },
     pageState,
     start,
     done,

@@ -26,7 +26,10 @@ let mockOptimisticCounter = 0;
 const mockActions: Record<string, jest.Mock> = {};
 
 jest.mock('expo-constants', () => require('../helpers/stubs/expoConstants.cjs'));
-jest.mock('expo-router', () => require('../helpers/mocks/expoRouter').makeMock({ getParams: () => mockParams }));
+jest.mock('expo-router', () => ({
+  ...require('../helpers/mocks/expoRouter').makeMock({ getParams: () => mockParams }),
+  useNavigation: () => ({ addListener: () => () => undefined, dispatch: () => undefined }),
+}));
 jest.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ bottom: 0, left: 0, right: 0, top: 0 }) }));
 jest.mock('@expo/vector-icons/FontAwesome', () => 'FontAwesome');
 jest.mock('@react-navigation/native', () => ({ useIsFocused: () => true }));
