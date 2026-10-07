@@ -20,6 +20,7 @@ export type PentacleAssistantPublishKind =
   | 'result'
   | 'status'
   | 'decision'
+  | 'lane_update'
   | string;
 
 /**
@@ -643,4 +644,93 @@ export interface PentacleStreamState {
   // the events array identity matches. Entry is removed when the stream is
   // closed or no longer present in the latest session inventory.
   eventContentVersionByStream?: Record<string, number>;
+  // Work-lanes projection v1: the daemon-owned, already-ordered lane list for
+  // the header and lanes surface. Null/absent until a daemon that advertises
+  // lanes sends one. Never derived from sessions.
+  workLanes?: WorkLanesInventory | null;
 }
+
+export type WorkLaneState = 'active' | 'paused' | 'blocked' | 'done';
+export type WorkLaneOwnerKind = 'operator' | 'fd';
+export type WorkLaneChatAvailability = 'open' | 'history' | 'unavailable';
+export type WorkLaneUpdateKind =
+  | 'major_decision'
+  | 'lane_started'
+  | 'lane_completed'
+  | 'lane_blocked'
+  | 'lane_unblocked'
+  | 'milestone';
+
+export interface WorkLaneLead {
+  stream_id: string;
+  generation: string;
+  qualifies: boolean;
+  status: string;
+  visibility: string;
+  presence: {
+    online: boolean;
+    working: boolean;
+    capture_liveness: string;
+    last_activity: string | null;
+  };
+  status_card: {
+    goal: string | null;
+    active_step: string | null;
+    update: string | null;
+    eta_at: string | null;
+    eta_set_at: string | null;
+    updated_at: string | null;
+  };
+  /** Daemon-computed: render "ETA stale" instead of "late Xm" when true. */
+  eta_stale: boolean;
+}
+
+export interface WorkLaneVisibleChat {
+  stream_id: string;
+  generation: string | null;
+  kind: 'composite' | 'session';
+  available: WorkLaneChatAvailability;
+}
+
+export interface WorkLane {
+  lane_id: string;
+  title: string;
+  summary: string;
+  /** Presented state; `done` never appears in the header list. */
+  state: WorkLaneState;
+  state_reason: string;
+  blocker: string | null;
+  owner_kind: WorkLaneOwnerKind;
+  version: number;
+  updated_at: string;
+  first_admitted_at: string | null;
+  done_at: string | null;
+  lead: WorkLaneLead | null;
+  visible_chat: WorkLaneVisibleChat;
+  last_update: { update_id: string; kind: WorkLaneUpdateKind; event_id: number; ts: string } | null;
+}
+
+export interface WorkLanesInventory {
+  lanes: WorkLane[];
+  counts: { open: number; active: number; paused: number; blocked: number };
+  truncated: boolean;
+  generated_at: string;
+}
+
+export interface WorkLaneUpdate {
+  update_id: string;
+  lane_id: string;
+  kind: WorkLaneUpdateKind;
+  summary: string;
+  source: { type: string; id: string; grouped_ids?: string[] };
+  state: WorkLaneState | null;
+  prior_state: WorkLaneState | null;
+  owner_kind: WorkLaneOwnerKind | null;
+  title: string;
+  ts: string;
+}
+
+export type WorkLaneTap =
+  | { action: 'open_chat'; stream_id: string }
+  | { action: 'history'; stream_id: string; generation: string }
+  | { action: 'unavailable' };

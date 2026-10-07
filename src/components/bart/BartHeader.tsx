@@ -8,7 +8,7 @@ import type { AssistantIdentity } from '../../services/assistantIdentity';
 import StatusTag from '../StatusTag';
 
 type Props = {
-  identity: AssistantIdentity; others: number; pending: number; lanes: number; working: boolean; top: number;
+  identity: AssistantIdentity; others: number; pending: number; lanes: number; blocked?: number; working: boolean; top: number;
   onDrawer(): void; onStatus(): void; onQuestions(): void;
 };
 
@@ -24,10 +24,10 @@ function HeaderButton({ kind, count, onPress }: { kind: 'sessions' | 'questions'
   </Pressable>;
 }
 
-export default function BartHeader({ identity, others, pending, lanes, working, top, onDrawer, onStatus, onQuestions }: Props) {
+export default function BartHeader({ identity, others, pending, lanes, blocked = 0, working, top, onDrawer, onStatus, onQuestions }: Props) {
   return <View testID="bart-header" style={[styles.header, { paddingTop: Math.max(top, 52) }]}>
     <HeaderButton kind="sessions" count={others} onPress={onDrawer} />
-    <Pressable accessibilityRole="button" accessibilityLabel={`${identity.name} status, ${lanes} open lanes`}
+    <Pressable accessibilityRole="button" accessibilityLabel={`${identity.name} status, ${lanes} open lanes${blocked > 0 ? `, ${blocked} blocked` : ''}`}
       onPress={onStatus} style={styles.identity}>
       <ArcaneRingFrame size={38} color={assistantAccent(identity)} identity>
         <AssistantIcon identity={identity} size={38 * 0.64} />
@@ -37,6 +37,7 @@ export default function BartHeader({ identity, others, pending, lanes, working, 
         <View style={styles.meta}>
           <StatusTag status={working ? 'working' : 'idle'} />
           <Text style={styles.lanes}>{lanes} LANES</Text>
+          {blocked > 0 ? <Text testID="bart-lanes-blocked" style={styles.blocked}>{blocked} BLOCKED</Text> : null}
         </View>
       </View>
     </Pressable>
@@ -57,4 +58,5 @@ const styles = StyleSheet.create({
   name: { color: Tokens.palette.text, fontFamily: Fonts.rajdhani.bold, fontSize: 17, lineHeight: 19 },
   meta: { flexDirection: 'row', alignItems: 'center', gap: 9, marginTop: 3 },
   lanes: { color: Tokens.palette.muted, fontFamily: Fonts.jetBrainsMono.regular, fontSize: 9.5, letterSpacing: 0.5 },
+  blocked: { color: Tokens.palette.amber, fontFamily: Fonts.jetBrainsMono.bold, fontSize: 9.5, letterSpacing: 0.5 },
 });

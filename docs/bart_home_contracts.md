@@ -1,6 +1,6 @@
 # Bart-first home: frozen shared contracts
 
-Contract version: **v1.7 (2026-10-07)** — v1.1 corrected § Answering questions and named the S1/S2 exports; v1.2 added § Household RPC (S4); v1.3 drops partially answered durable items from the pending count; v1.4 also drops items the notification itself marks answered; v1.5 lands the initial pending-count selector, the shared new-session flow and the new tab telemetry names (S6); v1.6 makes the assistant's name and icon follow the operator's customization (S7); v1.7 lands P3 with the home destination (S3) and the shared identity in the home tab and header.
+Contract version: **v1.8 (2026-10-07)** — v1.8 adds § Work lanes (daemon-owned lane projection in the header and `/pentacle/lanes`, typed `lane_update` cards); v1.1 corrected § Answering questions and named the S1/S2 exports; v1.2 added § Household RPC (S4); v1.3 drops partially answered durable items from the pending count; v1.4 also drops items the notification itself marks answered; v1.5 lands the initial pending-count selector, the shared new-session flow and the new tab telemetry names (S6); v1.6 makes the assistant's name and icon follow the operator's customization (S7); v1.7 lands P3 with the home destination (S3) and the shared identity in the home tab and header.
 Design original: `design_handoff_bart_home/README.md`
 (Pentacle-Mobile.zip sha256 `5ce4da05…`). Changing anything below is a contract change: the
 integration owner publishes a new version here and tells every packet lead before code relies on it.
@@ -64,6 +64,7 @@ no shared edit to register. A route sets its own presentation (e.g. the Question
 | `/pentacle/personal/lists` | `app/pentacle/personal/lists.tsx` (P5) | none | Lists index; back chevron returns to Personal. |
 | `/pentacle/personal/list/[id]` | `app/pentacle/personal/list/[id].tsx` (P5) | `id: string` — the list's id in its authoritative store (URL-encoded) | List detail. |
 | `/pentacle/personal/calendar` | `app/pentacle/personal/calendar.tsx` (P5) | `date?: string` (`YYYY-MM-DD`, local day; default today) | Month grid with that day selected. |
+| `/pentacle/lanes` | `app/pentacle/lanes.tsx` (integration owner) | none | The daemon's open work lanes (§ Work lanes). Closing returns with `router.back()`. |
 | `/pentacle/session/[streamId]` | existing | unchanged | Opening a session from any new surface goes through `performChatOpenNavigation(streamId, router)` (`src/services/chatOpenNavigation.ts`); never push the href directly. |
 
 ## Selectors
@@ -144,10 +145,40 @@ button uses the same hook. Do not copy the spawn logic.
 ```
 
 with `updates = selectStatusUpdates(state)` and `lanes = selectOpenLanes(state)` from
-`statusSelectors.ts`. P3 opens it from the Bart header as a full-screen overlay that reuses the
-existing data wiring in `app/(tabs)/updates.tsx` (`UpdatesScreen`) unchanged, with the route hidden
-from the tab bar (`href: null`) and the overlay's ✕ drawn by P3 outside the component. Any API
-change is an integration request, not a packet edit.
+`statusSelectors.ts`. Since v1.8 the Bart header no longer opens it (its lanes tap goes to
+`/pentacle/lanes`, § Work lanes); it stays reachable from the Updates route
+(`app/(tabs)/updates.tsx`, `UpdatesScreen`) unchanged. `src/components/bart/BartStatusOverlay.tsx`
+is kept, unmounted from the header. Any API change is an integration request, not a packet edit.
+
+## Work lanes
+
+The daemon owns lane identity, state, count, order and tap target; the client never derives them from
+sessions. Wire contract: `pentacle-chat-core/tests/fixtures/work-lanes-inventory.json` (schema
+`work_lanes_inventory_v1`, asserted by the chat-core suites of both clients and the daemon projection
+test) and the daemon's `services/chat-stream-v2/docs/work-lanes.md`.
+
+- **Capability.** `hello` sends `capabilities.work_lanes_v1: true`. Lanes arrive as `snapshot.work_lanes`
+  and as live `work_lanes.inventory` frames (complete replacement; an identical projection keeps state
+  identity). A snapshot without `work_lanes` keeps the last inventory.
+- **chat-core slice ("work_lanes projection v1").** `types/pentacle.ts` (`WorkLane`, `WorkLanesInventory`,
+  `WorkLaneUpdate`, `WorkLaneTap`, `PentacleStreamState.workLanes`); `services/workLanes.ts`
+  (`normalizeWorkLanesInventory`, `applyWorkLanesInventory`, `selectWorkLanes`, `selectOpenLaneCount`,
+  `selectWorkLaneCounts`, `resolveWorkLaneTap`, `parseLaneUpdateEvent`); `PentacleTranscriptItem.laneUpdate`.
+  `done` lanes are dropped from the list; an `active` lane whose lead does not qualify is presented
+  `paused` (`lead_lost_unreconciled`), so the header only ever shows ACTIVE / PAUSED / BLOCKED.
+- **Header.** `lanes` = `selectOpenLaneCount(state)` (`counts.open`), `blocked` = `counts.blocked`
+  (`BartHeader` `blocked?: number`). The identity tap pushes `/pentacle/lanes` (once per focus visit).
+- **`/pentacle/lanes`.** `LanesSurface`/`LaneRow` (title, state badge, owner kind, lead presence, ETA,
+  blocker; the expand control reuses `CardStatusMini` with the lead's card). ETA: `Blocked` for a blocked
+  lane, `ETA stale` when the daemon says `eta_stale`, otherwise `formatLaneEta`.
+- **Tap.** `visible_chat.available`: `open` → `performChatOpenNavigation(stream_id)` (the assistant
+  composite returns to `HOME_ROUTE`); `history` → read-only `LaneHistoryScreen` fed by
+  `requestLaneHistory(stream_id, generation)` (`request_stream_events` with `generation`, bypassing the
+  session store so the stream never joins the Chats list and the missing-session redirect cannot fire);
+  `unavailable` → inline "Chat unavailable", no navigation. Never Bart as a silent fallback.
+- **Updates.** A `publish_kind: 'lane_update'` event in Bart's timeline renders as `LaneUpdateCard`
+  (kinds `major_decision`, `lane_started`, `lane_completed`, `lane_blocked`, `lane_unblocked`,
+  `milestone`); a client without the branch shows `text` as assistant prose. Dedupe is by `message_id`.
 
 ## Bart home mounts the session screen
 

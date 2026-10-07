@@ -42,6 +42,7 @@ import {
 } from '../../../constants/Colors';
 import ArcaneRingFrame from '../../../src/components/ArcaneRingFrame';
 import Bevel from '../../../src/components/Bevel';
+import LaneUpdateCard from '../../../src/components/lanes/LaneUpdateCard';
 import ProviderTag from '../../../src/components/ProviderTag';
 import Starfield from '../../../src/components/Starfield';
 import StatusTag from '../../../src/components/StatusTag';
@@ -4139,6 +4140,14 @@ export const TranscriptRow = memo(function TranscriptRow({
             <Text {...NON_SELECTABLE_TEXT} style={styles.queuedSentText}>Sent</Text>
           </View>
         ) : null}
+      </Animated.View>
+    );
+  }
+
+  if (item.laneUpdate) {
+    return (
+      <Animated.View testID={`lane-update-row-${item.id}`} style={[styles.agentRow, animatedStyle]}>
+        <LaneUpdateCard update={item.laneUpdate} />
       </Animated.View>
     );
   }

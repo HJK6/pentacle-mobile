@@ -46,3 +46,12 @@ test('header and badges retain approved geometry, safe top, and typography', () 
     fontFamily: Fonts.jetBrainsMono.bold, fontSize: 10, height: 17, backgroundColor: '#ffb53d', color: '#080b0a',
   });
 });
+
+test('blocked lanes are called out next to the lane count; none shows nothing extra', () => {
+  const blocked = render(<BartHeader {...props} blocked={2} />);
+  expect(blocked.getByTestId('bart-lanes-blocked').props.children).toEqual([2, ' BLOCKED']);
+  expect(blocked.getByLabelText('Lews status, 3 open lanes, 2 blocked')).toBeTruthy();
+  blocked.unmount();
+  const none = render(<BartHeader {...props} />);
+  expect(none.queryByTestId('bart-lanes-blocked')).toBeNull();
+});

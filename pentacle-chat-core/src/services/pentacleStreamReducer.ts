@@ -1,4 +1,5 @@
 import { decodeChildAgents } from "./daemonUpdates";
+import { applyWorkLanesInventory } from './workLanes';
 import { dedupeRecentEventsByStream, mergeProgressiveUpdate } from './pentacleEventUtils';
 import {
   appendLiveEventProjection,
@@ -1448,6 +1449,7 @@ export function applySnapshotWithOptimisticReconciliation(
     updates?: PentacleUpdateMessage[];
     notifications?: PentacleNotification[];
     working_states?: Record<string, WorkingStateData>;
+    work_lanes?: unknown;
   },
   now = Date.now(),
   limit = PENTACLE_RECENT_EVENT_LIMIT,
@@ -2708,6 +2710,7 @@ export function applyPentacleSnapshotMessage(
     updates?: PentacleUpdateMessage[];
     notifications?: PentacleNotification[];
     working_states?: Record<string, WorkingStateData>;
+    work_lanes?: unknown;
   },
   limit = PENTACLE_RECENT_EVENT_LIMIT,
   now: number = Date.now(),
@@ -2816,9 +2819,14 @@ export function applyPentacleSnapshotMessage(
     optimisticSends,
     optimisticByRequestId: rebuildOptimisticByRequestId(optimisticSends),
   }, events, hasIncomingEvents ? undefined : [...survivingStreamIds]);
-  return Array.isArray(message.notifications)
-    ? applyNotificationList(nextState, message.notifications)
+  // Lane projection rides the hello snapshot; a snapshot without it (older
+  // daemon, or a client the daemon did not scope in) keeps the prior inventory.
+  const withLanes = message.work_lanes !== undefined
+    ? applyWorkLanesInventory(nextState, message.work_lanes)
     : nextState;
+  return Array.isArray(message.notifications)
+    ? applyNotificationList(withLanes, message.notifications)
+    : withLanes;
 }
 
 // Cheap per-stream content fingerprint for snapshot/inventory comparison.
