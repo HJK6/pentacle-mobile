@@ -1,6 +1,6 @@
 # Bart-first home: frozen shared contracts
 
-Contract version: **v1.2 (2026-10-07)** — v1.1 corrected § Answering questions and named the S1/S2 exports; v1.2 adds § Household RPC (S4). Design original: `design_handoff_bart_home/README.md`
+Contract version: **v1.3 (2026-10-07)** — v1.1 corrected § Answering questions and named the S1/S2 exports; v1.2 added § Household RPC (S4); v1.3 drops partially answered durable items from the pending count. Design original: `design_handoff_bart_home/README.md`
 (Pentacle-Mobile.zip sha256 `5ce4da05…`). Changing anything below is a contract change: the
 integration owner publishes a new version here and tells every packet lead before code relies on it.
 
@@ -61,6 +61,12 @@ selectSmartChatList(state).reduce((sum, chat) => sum + chat.openQuestions.reduce
 `questionForAction` and the `SmartQuestionAction` / `QuestionSubmission` types live in
 `src/services/questionSubmit.ts` (shared edit S2); `mobileQuestionItems` comes from
 `src/components/MobileQuestions.tsx`.
+
+Then subtract each durable item whose `{ notificationId, questionId }` is in
+`selectOptimisticQuestionAnswerIdentities(state)` (`src/services/pentacleStream.ts`): the Chats index
+hides a notification only once all of its items are covered, so without this a partial submit would
+re-show the sent item. Single-item and legacy questions count as before. In short: value = deck
+length = the reduce above minus durable items covered by an optimistic answer.
 
 Sources: every chat in `selectSmartChatList(state)` including `BART_STREAM_ID` (Bart's own
 questions are part of the deck). P4 exports the deck selector it renders from; the count selector
