@@ -50,6 +50,7 @@ import {
   applyPentacleHostStatus,
   applyPentacleSessionSummary,
   applyPentacleSessionInventory,
+  applyWorkLanesInventory,
   applySnapshotWithOptimisticReconciliation,
   applyPentacleWorkingState,
   clearPentacleStreamDraft,
@@ -1344,7 +1345,8 @@ function shallowEqualState(a: PentacleStreamState, b: PentacleStreamState) {
     a.workingStates === b.workingStates &&
     a.workingByStream === b.workingByStream &&
     a.optimisticSends === b.optimisticSends &&
-    a.optimisticByRequestId === b.optimisticByRequestId
+    a.optimisticByRequestId === b.optimisticByRequestId &&
+    a.workLanes === b.workLanes
   );
 }
 
@@ -3602,6 +3604,7 @@ function handleMessageInner(raw: string) {
       updates: message.updates as PentacleUpdateMessage[] | undefined,
       notifications: message.notifications as PentacleNotification[] | undefined,
       working_states: message.working_states as Record<string, WorkingStateData> | undefined,
+      work_lanes: message.work_lanes,
     });
     const reconciledSnapshot = reconcileAcceptedUserEchoes(
       snapshotState,
@@ -3742,6 +3745,12 @@ function handleMessageInner(raw: string) {
       sessions,
     ));
     void reconcilePendingSessionCloses(sessions, currentSocketGeneration);
+    return;
+  }
+
+  // Work-lanes projection v1: a complete replacement of the daemon's lane list.
+  if (message.type === 'work_lanes.inventory') {
+    setState(applyWorkLanesInventory(state, message));
     return;
   }
 
@@ -4230,6 +4239,11 @@ function handleMessageInner(raw: string) {
     const events = Array.isArray(message.events) ? (message.events as PentacleEvent[]) : [];
     const pending = pendingRequests.get(message.request_id);
     if (!pending) return;
+    if (pending.requestPrefix === LANE_HISTORY_REQUEST_PREFIX) {
+      pending.streamEvents = [...(pending.streamEvents || []), ...events];
+      refreshPendingRequestTimeout(message.request_id);
+      return;
+    }
     const token = pendingStreamEventsToken(message.request_id, pending);
     const result = finalizeStreamEventsResponse({
       kind: 'chunk',
@@ -4263,6 +4277,11 @@ function handleMessageInner(raw: string) {
     const events = Array.isArray(message.events) ? (message.events as PentacleEvent[]) : [];
     const pending = pendingRequests.get(message.request_id);
     if (!pending) return;
+    if (pending.requestPrefix === LANE_HISTORY_REQUEST_PREFIX) {
+      settlePendingRequest(message.request_id);
+      pending.resolve([...(pending.streamEvents || []), ...events]);
+      return;
+    }
     const token = pendingStreamEventsToken(message.request_id, pending);
     const accumulated = [...(pending.streamEvents || []), ...events];
     const currentTailOptions = token?.window === 'current-tail'
@@ -4326,6 +4345,11 @@ function handleMessageInner(raw: string) {
 
   if (message.type === 'request_stream_events.error' && typeof message.request_id === 'string') {
     const pending = pendingRequests.get(message.request_id);
+    if (pending?.requestPrefix === LANE_HISTORY_REQUEST_PREFIX) {
+      settlePendingRequest(message.request_id);
+      pending.reject(new Error(String(message.error || 'request_stream_events failed')));
+      return;
+    }
     if (pending) {
       const token = pendingStreamEventsToken(message.request_id, pending);
       const result = finalizeStreamEventsResponse({
@@ -4454,6 +4478,7 @@ function connect() {
       ...authentication,
       capabilities: {
         assistant_composite_v1: true,
+        work_lanes_v1: true,
         consent_enrollment_offer_v1: true,
         consent_open_v1: true,
       },
@@ -5102,6 +5127,34 @@ export async function requestStreamEvents(
     entrySource: options.entrySource,
   });
   return promise;
+}
+
+const LANE_HISTORY_REQUEST_PREFIX = 'lane_history';
+export const LANE_HISTORY_PAGE_LIMIT = 60;
+
+// Read-only transcript of a closed visible chat that a first-class lane points
+// at. The daemon serves it only for the lane's exact (stream_id, generation) to
+// a non-scoped client. The result bypasses the live store on purpose: the
+// stream is not in the session inventory, so it must never join the Chats list
+// or trigger the session-screen redirect.
+export function requestLaneHistory(
+  streamId: string,
+  generation: string,
+  options: { limit?: number; beforeDaemonSeq?: number | null } = {},
+): Promise<PentacleEvent[]> {
+  const trimmed = String(streamId || '').trim();
+  const gen = String(generation || '').trim();
+  if (!trimmed || !gen) return Promise.reject(new Error('Lane history needs a stream and generation'));
+  const payload: Record<string, unknown> = {
+    type: 'request_stream_events',
+    stream_id: trimmed,
+    generation: gen,
+    chunk_limit: STREAM_EVENTS_CHUNK_LIMIT,
+    order: 'newest_first',
+    limit: options.limit ?? LANE_HISTORY_PAGE_LIMIT,
+  };
+  if (typeof options.beforeDaemonSeq === 'number') payload.before_daemon_seq = options.beforeDaemonSeq;
+  return sendCommand<PentacleEvent[]>(payload, LANE_HISTORY_REQUEST_PREFIX);
 }
 
 type OptimisticReplyMetadata = {
