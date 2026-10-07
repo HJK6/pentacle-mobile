@@ -120,7 +120,7 @@ export function useVoiceAnswers({ deck, currentKey, onFinished, onDiscarded, not
   const eligibleCount = useMemo(() => deck.filter(isVoiceEligible).length, [deck]);
   const recording = phase === 'recording' || phase === 'confirming' || phase === 'finishing';
   // Hidden until the voice send leg carries the binding, and when no durable page can be bound.
-  const available = recording || (isVoiceAnswersCarrierInstalled() && phase === 'idle' && eligibleCount > 0);
+  const available = recording || phase === 'starting' || (isVoiceAnswersCarrierInstalled() && eligibleCount > 0);
 
   const start = useCallback(async () => {
     if (phaseRef.current !== 'idle' || !isVoiceAnswersCarrierInstalled()) return;
