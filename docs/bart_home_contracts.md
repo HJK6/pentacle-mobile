@@ -39,7 +39,8 @@ merges it also exempts `app/(tabs)/_layout.tsx` (see Consumers below).
   the consumers.
 
 Consumers: the status surface header (`StatusSurface.tsx`, the one sanctioned edit; props
-unchanged) and, from P3, the home tab and its header. P3 owns the `app/(tabs)/_layout.tsx` rewrite
+unchanged), the Questions overlay's assistant page (`QuestionsScreen`: name and sigil; P4's local
+stand-in is removed), the Personal calendar's "ADDED BY" tag and, from P3, the home tab and its header. P3 owns the `app/(tabs)/_layout.tsx` rewrite
 and uses this hook for the home header (name, sigil). Right after P3 merges, the integration owner
 sets the home tab's title to `name` and its label to `name` upper-cased, and removes the
 `_layout.tsx` exemption from the literal scan. Labels such as "Questions" stay generic.
