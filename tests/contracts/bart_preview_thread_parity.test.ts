@@ -1,5 +1,5 @@
 /**
- * Chats-list preview must equal the thread's last row for the Bartimaeus
+ * Chats-list preview must equal the thread's last row for the assistant
  * assistant composite (spec_pentacle_mobile__bart_chat_preview_thread_parity_2026_10).
  *
  * Fixture: the 2026-10-06 receipt tail of the composite (working session, last
@@ -26,7 +26,7 @@ const iso = (minute: number, second: number) => (
 function baseEvent(seq: number, at: string, over: Record<string, unknown>): any {
   return {
     daemon_seq: seq,
-    host: 'thoth',
+    host: 'hosta',
     provider: 'composite',
     session_id: COMPOSITE,
     session_name: 'assistant',
@@ -76,11 +76,11 @@ function receiptRows(earlierTurns = 0) {
 function compositeSession(over: Record<string, unknown> = {}): any {
   return {
     stream_id: COMPOSITE,
-    host: 'thoth',
+    host: 'hosta',
     provider: 'composite',
     session_name: 'assistant',
     session_kind: 'assistant_composite',
-    title: 'Bartimaeus',
+    title: 'Assistant Fixture',
     last_event_at: iso(42, 18),
     draft: '',
     pending: false,
@@ -214,7 +214,7 @@ describe('turn-final projection row renders as an assistant bubble', () => {
       reply_to_message_id: INPUT_IDENTITY,
       reply_to_question_id: null,
       mirrored_from: {
-        stream_id: 'thoth:front-desk',
+        stream_id: 'hosta:front-desk',
         generation: 'gen-fixture-1',
         event_id: '455775533',
         event_ts: '2026-10-06T23:42:32.872Z',
