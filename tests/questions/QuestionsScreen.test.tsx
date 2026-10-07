@@ -4,6 +4,7 @@ import { act, fireEvent, render, screen, within } from '@testing-library/react-n
 
 import QuestionsRoute from '../../app/pentacle/questions';
 import { QuestionsScreen } from '../../src/components/questions';
+import { resetVoiceAnswersForTests } from '../../src/components/questions/voice/voiceAnswersBinding';
 import { performChatOpenNavigation } from '../../src/services/chatOpenNavigation';
 import {
   SESSION_B,
@@ -194,7 +195,8 @@ describe('header (T2–T7)', () => {
     expect(mockNavigate.mock.calls[1][0]).toBe(SESSION_B);
   });
 
-  test('T6/C7: no mic; the header exposes an empty accessory slot before the close button', () => {
+  test('T6/C7: without the voice send leg there is no mic; the accessory slot is empty before the close button (voice: voiceAnswers.test.tsx)', () => {
+    resetVoiceAnswersForTests();
     render(<QuestionsScreen />);
     expect(screen.queryByLabelText(/voice|mic/i)).toBeNull();
     expect(screen.getByTestId('questions-header-accessory').children).toHaveLength(0);
