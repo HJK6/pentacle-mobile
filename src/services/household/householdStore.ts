@@ -1,7 +1,8 @@
 // Client state for Personal / Lists / Calendar over the household verbs (spec Target State 6).
 // Cosmo is the only store: this holds the last snapshot plus short-lived UI state (5 s pending
 // checks, rows hidden while their mutation is in flight, one notice line). Mutations are never
-// resubmitted by the client; an unknown outcome is reconciled by readback (now and 6 s later).
+// resubmitted by the client; an unknown outcome is reconciled by readback (now and 6 s later,
+// repeated every 6 s while reads fail: only a fresh snapshot may resolve it).
 import { useSyncExternalStore } from 'react';
 import * as client from './householdClient';
 import type { HouseholdSnapshot, ListId, NewEvent } from './types';
@@ -77,32 +78,37 @@ async function refresh(month?: string): Promise<void> {
   await load(getState().month);
 }
 
-/** Readback with the month last asked for; never throws. */
-async function load(month: string | undefined): Promise<void> {
+/** Readback with the month last asked for; never throws. Returns the fresh snapshot, or null. */
+async function load(month: string | undefined): Promise<HouseholdSnapshot | null> {
   try {
     const frame = await client.snapshot(month);
     const notice = getState().notice;
+    const snapshot: HouseholdSnapshot = {
+      today: frame.today,
+      month: frame.month,
+      lists: frame.lists,
+      events: frame.events,
+      server_now: frame.server_now,
+      people: frame.people,
+    };
     setState({
       status: 'ready',
-      snapshot: {
-        today: frame.today,
-        month: frame.month,
-        lists: frame.lists,
-        events: frame.events,
-        server_now: frame.server_now,
-        people: frame.people,
-      },
+      snapshot,
       // An error line lasts until the next successful refresh; "checking again" lasts until resolved.
       notice: notice?.kind === 'error' ? null : notice,
     });
+    return snapshot;
   } catch {
     setState({ status: 'unavailable' });
+    return null;
   }
 }
 
 /**
  * Send one mutation. Definite refusal → `failed` (no readback). Unknown outcome → readback now and
- * once more 6 s later, then `saved` if `committed(snapshot)` holds, otherwise `not_saved`.
+ * once more 6 s after that read finishes, then `saved` if `committed(snapshot)` holds, otherwise
+ * `not_saved`. A failed read never decides: the kept snapshot may predate the write, so the
+ * action stays unresolved and is read again every 6 s until a read succeeds.
  */
 async function mutate(
   send: () => Promise<unknown>,
@@ -116,13 +122,14 @@ async function mutate(
       return 'failed';
     }
     setState({ unresolved: getState().unresolved + 1, notice: { text: UNRESOLVED_NOTICE, kind: 'unresolved' } });
-    const delayed = sleep(READBACK_DELAY_MS);
     await load(getState().month);
-    await delayed;
-    await load(getState().month);
+    let snapshot: HouseholdSnapshot | null = null;
+    while (!snapshot) {
+      await sleep(READBACK_DELAY_MS);
+      snapshot = await load(getState().month);
+    }
     setState({ unresolved: Math.max(0, getState().unresolved - 1) });
-    const snapshot = getState().snapshot;
-    if (snapshot && committed(snapshot)) {
+    if (committed(snapshot)) {
       if (getState().unresolved === 0 && getState().notice?.kind === 'unresolved') setState({ notice: null });
       return 'saved';
     }

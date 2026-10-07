@@ -4,6 +4,7 @@ import React, { useCallback, useEffect } from 'react';
 import { AppState, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useFocusEffect } from 'expo-router';
 import { Fonts, Tokens } from '../../../constants/Colors';
+import { Spinner } from '../ArcaneAtoms';
 import MachineSigil from '../MachineSigil';
 import { useHouseholdStore } from '../../services/household/householdStore';
 import type { ItemTag, Tone, WhoBar as WhoBarKind } from '../../services/household/selectors';
@@ -93,11 +94,16 @@ export function CheckBox({ checked, onPress, testID }: { checked: boolean; onPre
   );
 }
 
-/** One notice line (unresolved / not saved) and the unavailable line. */
+/** The first-load spinner, one notice line (unresolved / not saved) and the unavailable line. */
 export function StatusLines() {
-  const { notice, status } = useHouseholdStore();
+  const { notice, status, snapshot } = useHouseholdStore();
   return (
     <>
+      {!snapshot && status !== 'unavailable' ? (
+        <View testID="household-loading" style={styles.loading}>
+          <Spinner size={24} strokeWidth={2.5} />
+        </View>
+      ) : null}
       {status === 'unavailable' ? <Text style={styles.unavailable}>{UNAVAILABLE_TEXT}</Text> : null}
       {notice ? (
         <Text style={[styles.notice, notice.kind === 'error' && { color: P.red }]}>{notice.text}</Text>
@@ -151,6 +157,7 @@ export const styles = StyleSheet.create({
   },
   checkOn: { borderColor: P.green, backgroundColor: P.green },
   checkMark: { color: P.ink, fontSize: 14, fontFamily: Fonts.rajdhani.bold, lineHeight: 16 },
+  loading: { alignItems: 'center', paddingVertical: 24 },
   unavailable: { fontFamily: Fonts.rajdhani.medium, fontSize: 15, color: P.muted, paddingVertical: 8 },
   notice: { fontFamily: Fonts.jetBrainsMono.regular, fontSize: 9.5, letterSpacing: 1, color: P.amber, paddingVertical: 6 },
   sectionLabel: { fontFamily: Fonts.jetBrainsMono.bold, fontSize: 10.5, letterSpacing: 1.4, color: P.green },

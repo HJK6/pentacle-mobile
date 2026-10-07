@@ -3,6 +3,7 @@ import {
   FakeHousehold, TODAY, calls, installServer, mutationCalls, registerOutboundGuard, rpcError, rpcTimeout,
   sendMock, snapshotCalls, unknownOutcomeFor,
 } from './support';
+import { NOT_SAVED_NOTICE, UNRESOLVED_NOTICE } from '../../src/services/household/householdStore';
 
 registerOutboundGuard();
 
@@ -240,6 +241,85 @@ describe('unknown outcomes: never resubmitted, immediate readback + one readback
       expect(mutationCalls().map((c) => c.verb)).toEqual([verb]);
       expect(snapshotCalls().length - snapshotsBefore).toBeLessThanOrEqual(1);
     });
+  });
+});
+
+describe('unknown outcomes: readbacks must be fresh (client QA e1f9084e)', () => {
+  /** Snapshot override: the first `failures` reads reject; later reads answer normally. */
+  function failingReads(server: FakeHousehold, failures: number): void {
+    let left = failures;
+    server.override('household.snapshot', (fields, fake) => {
+      if (left > 0) {
+        left -= 1;
+        return Promise.reject(rpcError('unavailable'));
+      }
+      return fake.apply('household.snapshot', fields);
+    });
+  }
+
+  it('waits the 6 s from the end of a slow immediate readback, not from its start', async () => {
+    const { store, server } = boot();
+    await store().refresh();
+    server.override('household.item.add', unknownOutcomeFor('household.item.add', 'never'));
+    let slow = true;
+    server.override('household.snapshot', (fields, fake) => {
+      if (!slow) return fake.apply('household.snapshot', fields);
+      slow = false;
+      return new Promise((resolve) => setTimeout(() => resolve(fake.apply('household.snapshot', fields)), 4000));
+    });
+    const before = snapshotCalls().length;
+    await kick(() => store().addItem('grocery', 'Mint'));
+    expect(snapshotCalls().length - before).toBe(1);
+    await advance(4000 + 5999);
+    expect(snapshotCalls().length - before).toBe(1);
+    await advance(1);
+    expect(snapshotCalls().length - before).toBe(2);
+  });
+
+  it('a committed add whose readbacks both fail is never reported Not saved from the stale snapshot', async () => {
+    const { store, server } = boot();
+    await store().refresh();
+    server.override('household.item.add', unknownOutcomeFor('household.item.add', 'now'));
+    failingReads(server, 2);
+    let outcome: string | undefined;
+    await kick(() => store().addItem('grocery', 'Mint').then((o) => (outcome = o)));
+    await advance(6000);
+    expect(outcome).toBeUndefined(); // still unresolved: the add stays busy/disabled
+    expect(store().unresolved).toBe(1);
+    expect(store().notice?.text).toBe(UNRESOLVED_NOTICE);
+    await advance(6000); // the next successful read resolves it
+    expect(outcome).toBe('saved');
+    expect(store().unresolved).toBe(0);
+    expect(store().notice).toBeNull();
+    expect(mutationCalls().map((c) => c.verb)).toEqual(['household.item.add']);
+  });
+
+  it('an uncommitted add with failing readbacks resolves Not saved only from a successful read', async () => {
+    const { store, server } = boot();
+    await store().refresh();
+    server.override('household.item.add', unknownOutcomeFor('household.item.add', 'never'));
+    failingReads(server, 3);
+    let outcome: string | undefined;
+    await kick(() => store().addItem('grocery', 'Mint').then((o) => (outcome = o)));
+    await advance(12000);
+    expect(outcome).toBeUndefined();
+    await advance(6000);
+    expect(outcome).toBe('not_saved');
+    expect(store().notice?.text).toBe(NOT_SAVED_NOTICE);
+    expect(mutationCalls().map((c) => c.verb)).toEqual(['household.item.add']);
+  });
+
+  it('a removed row stays hidden while readbacks fail', async () => {
+    const { store, server } = boot();
+    await store().refresh();
+    server.override('household.item.remove', unknownOutcomeFor('household.item.remove', 'never'));
+    failingReads(server, 2);
+    await kick(() => store().removeItem(11));
+    await advance(6000);
+    expect(store().hiddenItems[11]).toBe(true);
+    await advance(6000);
+    expect(store().hiddenItems[11]).toBeUndefined();
+    expect(store().notice?.text).toBe(NOT_SAVED_NOTICE);
   });
 });
 

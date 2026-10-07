@@ -53,9 +53,14 @@ the operator. Priority and due dates are set by the assistant, not in the app.
   undo inside it sends nothing; at 5 s exactly one `household.item.done` is sent. ✕ removes now;
   removing a recurring chore's open occurrence records it as skipped in Cosmo.
 - **Unknown outcomes are never resubmitted.** If a change times out or the daemon answers
-  `unknown_outcome`, the app reads back immediately and again 6 s later (`Couldn't confirm —
-  checking again`). If the row then appears (or is gone, for a removal) nothing more happens;
-  otherwise it shows `Not saved` and leaves the next action to the user.
+  `unknown_outcome`, the app reads back immediately and again 6 s after that read finishes
+  (`Couldn't confirm — checking again`). If the row then appears (or is gone, for a removal)
+  nothing more happens; otherwise it shows `Not saved` and leaves the next action to the user. A
+  failed read never decides (the kept snapshot may predate the write): the action stays
+  unresolved, with Add/Save disabled or the row hidden, and is read again every 6 s until a read
+  succeeds.
+- **Loading.** Until the first snapshot arrives each screen shows the shared `Spinner` atom; a
+  failed first read shows `Household store unavailable` instead.
 - **Freshness.** The app refetches on screen focus, on returning to the foreground, on
   pull-to-refresh (Personal) and after each change; there is no live push yet.
 
