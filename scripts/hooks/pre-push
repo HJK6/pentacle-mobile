@@ -19,6 +19,20 @@ printf '%s\n' "$records" | while read -r local_ref tip remote_ref prior; do
 done
 git fetch --quiet --no-tags "${1}" main
 scripts/check-public-boundary.sh FETCH_HEAD
+# Private terms: the host-local dictionary never enters the repo or CI, so this
+# runs only here, against the exact outgoing commit. Any failure refuses.
+terms_file=${PENTACLE_PRIVATE_TERMS_FILE:-${HOME:-}/.config/pentacle/private-terms.json}
+receipt_dir="$(git rev-parse --absolute-git-dir)/private-terms-receipts"
+mkdir -p "$receipt_dir"
+receipt="$receipt_dir/$head.json"
+if python3 scripts/check_private_terms.py --commit "$head" --private-terms-file "$terms_file" > "$receipt"; then
+  echo "public mobile guard: private terms checked, zero hits (receipt $receipt)" >&2
+else
+  # Count only; the receipt never holds dictionary values or matched text.
+  outcome=$(python3 -c 'import json, sys; r = json.load(open(sys.argv[1])); print("error: " + r["error"] if "error" in r else "hits: %d" % r["hit_count"])' "$receipt" 2>/dev/null || echo 'error: no receipt')
+  echo "public mobile guard: refused; private-terms check did not pass, $outcome (receipt $receipt)" >&2
+  exit 1
+fi
 [ -z "$(git status --porcelain)" ] || { echo 'public mobile guard: check mutated the candidate' >&2; exit 1; }
 [ "$(git rev-parse HEAD)" = "$head" ] || { echo 'public mobile guard: candidate moved during check' >&2; exit 1; }
 # exec preserves the original git-push parent PID used by the history guard.

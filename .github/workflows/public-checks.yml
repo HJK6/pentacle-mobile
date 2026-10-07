@@ -24,6 +24,8 @@ jobs:
       - run: git fetch origin main
       - name: Public content boundary
         run: scripts/check-public-boundary.sh origin/main
+      - name: Private-terms pre-push check (synthetic dictionaries)
+        run: python3 scripts/test_check_private_terms.py
       - run: npm ci
       - run: cp pentacle.config.example.ts pentacle.config.local.ts
       - name: Portable synthetic harness
