@@ -130,6 +130,16 @@ export interface PentacleEvent {
 /** Additive, durable per-message send metadata (voice-input lane). */
 export interface PentacleSendMeta {
   voice?: { duration_s: number };
+  // P6 `voice_answers.v1`: the questions one overlay recording is bound to (client -> daemon).
+  voice_answers?: {
+    version: number;
+    recording_id: string;
+    blob_sha: string;
+    duration_s: number;
+    items: Array<Record<string, unknown>>;
+  };
+  // The daemon's binding verdict, written onto the stored USER event of the turn (daemon -> client).
+  voice_answers_status?: { state: 'bound' | 'dropped'; reason?: string; stale_keys?: string[] };
 }
 
 export interface PentacleHostStatus {

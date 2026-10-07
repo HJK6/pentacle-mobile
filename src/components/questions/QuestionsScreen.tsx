@@ -28,6 +28,8 @@ import { selectQuestionDeck, type QuestionDeckEntry } from './questionSelectors'
 import { useAssistantIdentity } from '../../services/assistantIdentity';
 import SourceMark from './SourceMark';
 import { sendableKeys, submitDeckAnswers } from './submitDeckAnswers';
+import VoiceAnswerBar, { VoiceMicButton, VoicePageLabel } from './voice/VoiceAnswerBar';
+import { useVoiceAnswers, type RemovalGuardNavigation } from './voice/useVoiceAnswers';
 
 const TOAST_MS = 2200;
 const FALLBACK_ERROR = 'Question answer could not be submitted.';
@@ -51,7 +53,7 @@ function initialPageKey(deck: readonly QuestionDeckEntry[], notificationId?: str
 
 // P4 Questions overlay (README §5 / BartQuestionsOverlay): one pending question per page over
 // every open durable question (Bart and sessions), with partial submit.
-export default function QuestionsScreen({ notificationId }: { notificationId?: string }) {
+export default function QuestionsScreen({ notificationId, navigation }: { notificationId?: string; navigation?: RemovalGuardNavigation }) {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const actions = usePentacleStreamActions();
@@ -150,6 +152,16 @@ export default function QuestionsScreen({ notificationId }: { notificationId?: s
 
   const close = () => router.back();
   const seeChat = (streamId: string) => performChatOpenNavigation(streamId, router);
+  // P6 voice answers (docs/QUESTIONS_OVERLAY.md § Voice answers): one take across the durable
+  // pages. Done and a confirmed discard both leave the overlay; neither answers anything.
+  const voice = useVoiceAnswers({
+    deck: liveDeck,
+    currentKey: current?.key ?? null,
+    onFinished: close,
+    onDiscarded: close,
+    notify: showToast,
+    navigation,
+  });
 
   const submit = async () => {
     if (sendingRef.current || sendCount === 0) return;
@@ -249,12 +261,27 @@ export default function QuestionsScreen({ notificationId }: { notificationId?: s
     </View>
   ) : null;
 
+  const voiceBar = voice.recording ? (
+    <VoiceAnswerBar
+      k={voice.progress.k}
+      n={voice.progress.n}
+      confirming={voice.confirming}
+      finishing={voice.finishing}
+      onDone={() => { void voice.done(); }}
+      onKeep={voice.keepRecording}
+      onDiscard={() => { void voice.confirmDiscard(); }}
+    />
+  ) : null;
+  const voiceAccessory = voice.available ? (
+    <VoiceMicButton recording={voice.recording} onPress={() => { void (voice.recording ? voice.done() : voice.start()); }} />
+  ) : null;
+
   const closeButton = (
     <Pressable
       testID="questions-close"
       accessibilityRole="button"
       accessibilityLabel="Close questions"
-      onPress={close}
+      onPress={voice.recording ? voice.requestDiscard : close}
       style={styles.closeButton}
     >
       <Text style={styles.closeText}>×</Text>
@@ -267,13 +294,14 @@ export default function QuestionsScreen({ notificationId }: { notificationId?: s
         <Starfield />
         <View style={[styles.header, { paddingTop: topPad, borderBottomColor: Tokens.palette.line }]}>
           <View style={styles.headerCopy} />
-          <View testID="questions-header-accessory" style={styles.accessory} />
+          <View testID="questions-header-accessory" style={styles.accessory}>{voiceAccessory}</View>
           {closeButton}
         </View>
         <View testID="questions-empty" style={styles.empty}>
           <Text style={styles.emptyText}>No questions waiting</Text>
         </View>
         {legacyBanner}
+        {voiceBar ? <View style={styles.voiceDock}>{voiceBar}</View> : null}
       </View>
     );
   }
@@ -282,6 +310,7 @@ export default function QuestionsScreen({ notificationId }: { notificationId?: s
   const entry = flowEntries[index];
   const error = itemErrors[current.key];
   const outlineSubmit = !(allDone || isLast);
+  const voicePageState = voice.pageState(current.key);
   return (
     <Animated.View testID="questions-overlay" accessibilityViewIsModal style={styles.root}>
       <Starfield />
@@ -303,7 +332,7 @@ export default function QuestionsScreen({ notificationId }: { notificationId?: s
             <Text style={styles.seeChatText}>See chat ›</Text>
           </Pressable>
         )}
-        <View testID="questions-header-accessory" style={styles.accessory} />
+        <View testID="questions-header-accessory" style={styles.accessory}>{voiceAccessory}</View>
         {closeButton}
       </View>
       <Animated.View style={[styles.bodyWrap, riseStyle]}>
@@ -325,16 +354,18 @@ export default function QuestionsScreen({ notificationId }: { notificationId?: s
               testPrefix="questions"
             />
             {error ? <Text testID="questions-item-error" style={styles.warning}>{error}</Text> : null}
+            {voicePageState ? <VoicePageLabel state={voicePageState} /> : null}
           </ScrollView>
         </KeyboardAvoidingView>
       </Animated.View>
       {legacyBanner}
       {toast ? (
-        <View pointerEvents="none" style={styles.toastDock}>
+        <View pointerEvents="none" style={[styles.toastDock, voice.recording && styles.toastDockVoice]}>
           <Text testID="questions-toast" style={styles.toast}>{toast}</Text>
         </View>
       ) : null}
       <View style={[styles.footer, { borderTopColor: `${accent}22`, paddingBottom: 26 + insets.bottom }]}>
+        {voiceBar}
         <DeckDots entries={deck} activeIndex={index} answered={answeredKeys} onChange={(next) => setPageKey(deck[next]?.key ?? null)} />
         <View style={styles.actions}>
           {index > 0 ? (
@@ -419,6 +450,8 @@ const styles = StyleSheet.create({
   legacyDismiss: { width: 26, height: 26, alignItems: 'center', justifyContent: 'center' },
   legacyDismissText: { color: Tokens.palette.dim, fontSize: 20 },
   toastDock: { position: 'absolute', left: 16, right: 16, bottom: 150, zIndex: 3 },
+  toastDockVoice: { bottom: 196 },
+  voiceDock: { paddingHorizontal: 16, paddingBottom: 26, zIndex: 1 },
   toast: { textAlign: 'center', fontFamily: Fonts.rajdhani.bold, fontSize: 14, color: Tokens.palette.ink, backgroundColor: Tokens.palette.green, borderRadius: 4, paddingVertical: 9, paddingHorizontal: 12, overflow: 'hidden' },
   footer: { borderTopWidth: 1, paddingTop: 12, paddingHorizontal: 16, gap: 13, backgroundColor: Tokens.palette.ink, zIndex: 1 },
   actions: { flexDirection: 'row', alignItems: 'center', gap: 8 },

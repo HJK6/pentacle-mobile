@@ -49,6 +49,7 @@ import { StatusOverlay } from '../../../src/components/SessionStatusCard';
 import SendingIndicator from '../../../src/components/SendingIndicator';
 import RecordingStrip from '../../../src/components/voice/RecordingStrip';
 import VoiceBubble from '../../../src/components/voice/VoiceBubble';
+import { VoiceAnswersStatusNote, voiceAnswersItemCount } from '../../../src/components/questions/voice';
 import { DiscardGlyph, MicGlyph, VoiceRecordFace, VoiceSpinner, recordButtonStyle } from '../../../src/components/voice/VoiceGlyphs';
 import { voiceRecorder } from '../../../src/services/voiceRecordingEngine';
 import { formatDuration, PermissionDeniedError, type RecordingSnapshot } from '../../../src/services/voiceRecording';
@@ -4061,6 +4062,7 @@ export const TranscriptRow = memo(function TranscriptRow({
             <View style={styles.voiceCaptionRow} testID="voice-transcription-status">
               {voiceTake.status === 'transcribing' ? <VoiceSpinner testID="voice-transcribing-spinner" /> : null}
               <Text style={[styles.voiceCaptionText, voiceTake.error ? styles.voiceCaptionError : null]}>{voiceTake.error || 'TRANSCRIBING'}</Text>
+              {voiceAnswersItemCount(voiceTake.recordingId) > 0 ? <><Text style={styles.voiceCaptionText}>·</Text><Text testID="voice-answers-label" style={styles.voiceCaptionText}>{`ANSWERS ${voiceAnswersItemCount(voiceTake.recordingId)} QUESTION${voiceAnswersItemCount(voiceTake.recordingId) === 1 ? '' : 'S'}`}</Text></> : null}
               {voiceTake.interrupted ? <><Text style={styles.voiceCaptionText}>·</Text><Text style={styles.voiceCaptionText}>INTERRUPTED AT {formatDuration(voiceTake.durationS)}</Text></> : null}
               {voiceTake.status === 'failed' ? <Pressable accessibilityLabel="Retry transcription" testID="voice-transcription-retry" hitSlop={8} onPress={() => { void voiceDelivery.retry(voiceTake.recordingId); }}><Text style={[styles.voiceCaptionText, styles.voiceCaptionAction]}>RETRY</Text></Pressable> : null}
               <Pressable accessibilityLabel="Discard voice message" testID="voice-transcription-discard" hitSlop={10} onPress={() => voiceDelivery.discard(voiceTake.recordingId)}><DiscardGlyph size={10} /></Pressable>
@@ -4087,6 +4089,7 @@ export const TranscriptRow = memo(function TranscriptRow({
             </Bevel>
           </Pressable>
         ) : null}
+        {item.voiceAnswersStatus ? <VoiceAnswersStatusNote status={item.voiceAnswersStatus} /> : null}
         {canceled ? (
           <View style={styles.userSendStatusRow} testID="user-send-canceled">
             <FontAwesome name="ban" size={10} color={P.warning} />
