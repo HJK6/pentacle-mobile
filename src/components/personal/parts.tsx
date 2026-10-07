@@ -6,6 +6,7 @@ import { useFocusEffect } from 'expo-router';
 import { Fonts, Tokens } from '../../../constants/Colors';
 import { Spinner } from '../ArcaneAtoms';
 import MachineSigil from '../MachineSigil';
+import { useAssistantIdentity } from '../../services/assistantIdentity';
 import { useHouseholdStore } from '../../services/household/householdStore';
 import type { ItemTag, Tone, WhoBar as WhoBarKind } from '../../services/household/selectors';
 
@@ -16,9 +17,10 @@ export const TONE: Record<Tone, string> = { red: P.red, amber: P.amber, muted: P
 export const WHO_COLOR: Record<WhoBarKind, string> = { me: P.text, partner: PARTNER_BLUE };
 export const UNAVAILABLE_TEXT = 'Household store unavailable';
 
-/** Bart's genie lamp (the djinni sigil belongs to Bart alone). */
+/** The assistant's lamp: its machine sigil (contracts § Assistant identity). */
 export function Lamp({ size = 16, color = P.green }: { size?: number; color?: string }) {
-  return <MachineSigil kind="djinni" size={size} color={color} />;
+  const { sigilKind } = useAssistantIdentity();
+  return <MachineSigil kind={sigilKind} size={size} color={color} />;
 }
 
 /** `PcTabHeader`: optional back chevron, mono sub-label over a Rajdhani 26/700 title, right slot. */
@@ -62,7 +64,7 @@ export function WhoBar({ bars, height }: { bars: WhoBarKind[]; height: number })
   );
 }
 
-/** Due/priority tags (mono 9, letter-spacing 1, 700), with the muted lamp only for Bart's items. */
+/** Due/priority tags (mono 9, letter-spacing 1, 700), with the muted lamp only for the assistant's items. */
 export function ItemTags({ tags, lamp, testID }: { tags: ItemTag[]; lamp: boolean; testID?: string }) {
   if (!tags.length && !lamp) return null;
   return (
