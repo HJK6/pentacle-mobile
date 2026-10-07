@@ -112,7 +112,7 @@ export function selectQuestionDeck(state: PentacleStreamState): QuestionDeckEntr
   return cachedDeck;
 }
 
-// The home `?` badge: exactly the number of pages the overlay shows (docs/bart_home_contracts.md v1.4).
+// The home `?` badge: exactly the number of pages the overlay shows (docs/bart_home_contracts.md v1.5).
 export function selectPendingQuestionCount(state: PentacleStreamState): number {
   return selectQuestionDeck(state).length;
 }
