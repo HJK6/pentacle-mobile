@@ -164,23 +164,39 @@ test('Bart renders its synthetic transcript and composer through the real embedd
   expect(mockActions.sendTurn).toHaveBeenCalledWith(STREAM_ID, 'Synthetic request');
 });
 
-test('status opens and closes repeatedly without losing the real Bart focused-stream pin', async () => {
+test('the header lanes tap opens the lanes route once per focus visit without losing the Bart focus pin', async () => {
   const stream = jest.requireActual('../../../src/services/pentacleStream');
   const registration = require('../../../src/services/pentacleStream').registerFocusedPentacleStream;
   const view = render(<BartScreen />);
   await act(async () => {});
+  const router = expoRouter.useRouter();
   expect(stream.__getFocusedPentacleStreamForTests()).toBe(STREAM_ID);
-  for (let cycle = 0; cycle < 2; cycle += 1) {
-    fireEvent.press(screen.getByLabelText('Lews status, 0 open lanes'));
-    await act(async () => {});
-    expect(screen.getByTestId('bart-status-overlay')).toBeTruthy();
-    fireEvent.press(screen.getByLabelText('Close status'));
-    expect(screen.queryByTestId('bart-status-overlay')).toBeNull();
-    expect(stream.__getFocusedPentacleStreamForTests()).toBe(STREAM_ID);
-  }
+  const lanes = screen.getByLabelText('Lews status, 0 open lanes');
+  fireEvent.press(lanes);
+  fireEvent.press(lanes);
+  expect(router.push).toHaveBeenCalledTimes(1);
+  expect(router.push).toHaveBeenCalledWith('/pentacle/lanes');
+  expect(screen.queryByTestId('bart-status-overlay')).toBeNull();
   expect(registration).toHaveBeenCalledTimes(1);
+  mockIsFocused = false;
+  view.rerender(<BartScreen />);
+  mockIsFocused = true;
+  view.rerender(<BartScreen />);
+  fireEvent.press(screen.getByLabelText('Lews status, 0 open lanes'));
+  expect(router.push).toHaveBeenCalledTimes(2);
+  expect(stream.__getFocusedPentacleStreamForTests()).toBe(STREAM_ID);
   view.unmount();
   expect(stream.__getFocusedPentacleStreamForTests()).toBeNull();
+});
+
+test('a failed lanes router dispatch can be retried', async () => {
+  render(<BartScreen />);
+  await act(async () => {});
+  const router = expoRouter.useRouter();
+  router.push.mockImplementationOnce(() => { throw new Error('Synthetic router unavailable'); });
+  fireEvent.press(screen.getByLabelText('Lews status, 0 open lanes'));
+  fireEvent.press(screen.getByLabelText('Lews status, 0 open lanes'));
+  expect(router.push).toHaveBeenCalledTimes(2);
 });
 
 test('Questions dispatches once per focus visit and is available again after returning', async () => {
@@ -209,10 +225,14 @@ test('both badges derive from real fixture state, include Bart deck pages, and r
   await act(async () => {});
   expect(screen.getByLabelText('Sessions, 1 need you')).toBeTruthy();
   expect(screen.getByLabelText('Questions, 3 pending')).toBeTruthy();
-  expect(screen.getByLabelText('Lews status, 2 open lanes')).toBeTruthy();
-  fireEvent.press(screen.getByLabelText('Lews status, 2 open lanes'));
-  await act(async () => {});
-  fireEvent.press(screen.getByLabelText('Close status'));
+  // Busy sessions are not lanes: the header count is the daemon's open-lane count.
+  expect(screen.getByLabelText('Lews status, 0 open lanes')).toBeTruthy();
+  mockState = { ...mockState, workLanes: { lanes: [], truncated: false, generated_at: '',
+    counts: { open: 3, active: 1, paused: 1, blocked: 1 } } };
+  view.rerender(<BartScreen />);
+  expect(screen.getByLabelText('Lews status, 3 open lanes, 1 blocked')).toBeTruthy();
+  expect(screen.getByText('3 LANES')).toBeTruthy();
+  expect(screen.getByTestId('bart-lanes-blocked').props.children).toEqual([1, ' BLOCKED']);
   expect(screen.getByLabelText('Questions, 3 pending')).toBeTruthy();
   mockOptimistic = [{ notificationId: `question-${STREAM_ID}`, questionId: `q-${STREAM_ID}-0` }];
   mockState = { ...mockState };
