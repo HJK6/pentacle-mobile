@@ -1,74 +1,77 @@
 import React from 'react';
-import { act, render } from '@testing-library/react-native';
+import { render } from '@testing-library/react-native';
 import TabLayout from '../../../app/(tabs)/_layout';
+import MachineSigil from '../../../src/components/MachineSigil';
 
-jest.mock('expo-router', () => require('../../helpers/mocks/expoRouter').makeMock());
-jest.mock('../../../src/hooks/useUnreadNotifications', () => ({
-  markRead: jest.fn(),
-  useHasUnreadNotification: jest.fn(() => true),
+let mockInsets = { top: 0, bottom: 0, left: 0, right: 0 };
+jest.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => mockInsets }));
+let mockIdentityState = { sessions: [] as any[] };
+jest.mock('../../../src/services/pentacleStream', () => ({
+  usePentacleStreamSelectorWhen: (_enabled: boolean, selector: any) => selector(mockIdentityState),
+  selectOptimisticQuestionAnswerIdentities: () => [],
 }));
+jest.mock('expo-constants', () => require('../../helpers/stubs/expoConstants.cjs'));
 jest.mock('@expo/vector-icons/FontAwesome', () => 'FontAwesome');
-
-let mockReceivedListener: ((notification: any) => void) | undefined;
-const mockRemove = jest.fn();
-
-jest.mock('expo-notifications', () => ({
-  addNotificationReceivedListener: jest.fn((listener) => {
-    mockReceivedListener = listener;
-    return { remove: mockRemove };
-  }),
+const mockTabs = jest.fn();
+jest.mock('expo-router', () => {
+  const mock = require('../../helpers/mocks/expoRouter').makeMock();
+  return { ...mock, Tabs: Object.assign((props: any) => {
+    mockTabs(props);
+    return props.children;
+  }, { Screen: mock.Tabs.Screen }) };
+});
+jest.mock('../../../src/services/mobileTabsTelemetry', () => ({ logTabPressed: jest.fn() }));
+jest.mock('../../../src/hooks/useUnreadNotifications', () => ({
+  markRead: jest.fn(), useHasUnreadNotification: jest.fn(() => true),
 }));
 
-const routerMock = require('expo-router').__mock;
+const config = () => require('expo-router').__mock.tabScreens.mock.calls.map((call: any[]) => call[0]);
+const visible = () => config().filter((screen: any) => screen.options.href !== null);
 
-const { markRead } = require('../../../src/hooks/useUnreadNotifications');
+beforeEach(() => { mockIdentityState = { sessions: [] }; require('expo-router').__mock.tabScreens.mockClear(); });
 
-beforeEach(() => {
-  routerMock.tabScreens.mockClear();
-  (markRead as jest.Mock).mockClear();
-  mockReceivedListener = undefined;
-});
-
-test('cold renders tab labels', () => {
+test('Bart is the initial tab and the four visible tabs have the contract order and labels', () => {
   render(<TabLayout />);
-
-  expect(routerMock.tabScreens).toHaveBeenCalledWith(expect.objectContaining({ name: 'unified' }));
-  expect(routerMock.tabScreens).toHaveBeenCalledWith(expect.objectContaining({ name: 'chats' }));
-  expect(routerMock.tabScreens).toHaveBeenCalledWith(expect.objectContaining({ name: 'dashboards' }));
-  expect(routerMock.tabScreens).toHaveBeenCalledWith(expect.objectContaining({ name: 'updates' }));
-  expect(routerMock.tabScreens).toHaveBeenCalledWith(expect.objectContaining({ name: 'settings' }));
-  expect(routerMock.tabScreens.mock.calls.map((call: any[]) => call[0].name)).toEqual([
-    'unified',
-    'chats',
-    'dashboards',
-    'updates',
-    'settings',
+  expect(mockTabs).toHaveBeenCalledWith(expect.objectContaining({ initialRouteName: 'bart' }));
+  expect(visible().map((screen: any) => [screen.name, screen.options.title, screen.options.tabBarLabel])).toEqual([
+    ['bart', 'Assistant', 'ASSISTANT'], ['personal', 'Personal', 'PERSONAL'],
+    ['dashboards', 'Dashboards', 'DASHBOARDS'], ['settings', 'Settings', 'SETTINGS'],
   ]);
 });
 
-test('the updates slot is the Bart status tab: label, icon, no read action', () => {
+test('old surfaces stay registered as hidden route destinations', () => {
   render(<TabLayout />);
-  const updates = routerMock.tabScreens.mock.calls.map((call: any[]) => call[0]).find((screen: any) => screen.name === 'updates');
-
-  expect(updates.options.title).toBe('Bart');
-  expect(updates.options.tabBarLabel).toBe('BART');
-  expect(updates.options.tabBarIcon({ color: 'red' })).toBeTruthy();
-  updates.listeners.tabPress();
-  expect(markRead).not.toHaveBeenCalled();
+  expect(config().filter((screen: any) => screen.options.href === null).map((screen: any) => screen.name).sort())
+    .toEqual(['chats', 'unified', 'updates']);
 });
 
-test('the Bart status tab carries no notifications unread dot, even with unread system notifications', () => {
+test('tab icons reuse the lamp and render outlined person, four tiles, and settings glyph', () => {
   render(<TabLayout />);
-  const updates = routerMock.tabScreens.mock.calls.map((call: any[]) => call[0]).find((screen: any) => screen.name === 'updates');
-  const initialScreenConfigRenders = routerMock.tabScreens.mock.calls.length;
-  const icon = render(updates.options.tabBarIcon({ color: 'red' }));
+  const [bart, personal, dashboards, settings] = visible();
+  const lamp = render(bart.options.tabBarIcon({ color: '#3dff66' }));
+  expect(lamp.UNSAFE_getByType(MachineSigil).props).toMatchObject({ kind: 'djinni', size: 22, color: '#3dff66' });
+  expect(lamp.queryByTestId('updates-unread-dot')).toBeNull();
+  expect(render(personal.options.tabBarIcon({ color: '#7fa896' })).getByTestId('bart-tab-person')).toBeTruthy();
+  expect(render(dashboards.options.tabBarIcon({ color: '#7fa896' })).getByTestId('bart-tab-grid')).toBeTruthy();
+  expect(render(settings.options.tabBarIcon({ color: '#7fa896' })).getByText('⊹')).toBeTruthy();
+});
 
-  expect(icon.queryByTestId('updates-unread-dot')).toBeNull();
+test('every visible tab logs its route name without marking notifications read', () => {
+  render(<TabLayout />);
+  visible().forEach((screen: any) => screen.listeners.tabPress());
+  expect(require('../../../src/services/mobileTabsTelemetry').logTabPressed.mock.calls)
+    .toEqual([['bart'], ['personal'], ['dashboards'], ['settings']]);
+  expect(require('../../../src/hooks/useUnreadNotifications').markRead).not.toHaveBeenCalled();
+});
 
-  act(() => {
-    mockReceivedListener?.({ request: { content: { data: { agent_id: 'system' } } } });
-  });
-
-  expect(icon.queryByTestId('updates-unread-dot')).toBeNull();
-  expect(routerMock.tabScreens.mock.calls.length).toBe(initialScreenConfigRenders);
+test('a renamed assistant updates the home title and uppercase label without changing tab tint', () => {
+  const view = render(<TabLayout />);
+  expect(visible()[0].options.title).toBe('Assistant');
+  mockIdentityState = { sessions: [{ stream_id: 'bart:assistant', display_name: 'Lews', title: 'Older name', host: 'hostc' }] };
+  require('expo-router').__mock.tabScreens.mockClear();
+  view.rerender(<TabLayout />);
+  const home = visible()[0];
+  expect(home.options).toMatchObject({ title: 'Lews', tabBarLabel: 'LEWS' });
+  expect(render(home.options.tabBarIcon({ color: '#7fa896' })).UNSAFE_getByType(MachineSigil).props)
+    .toMatchObject({ kind: 'djinni', color: '#7fa896', size: 22 });
 });
