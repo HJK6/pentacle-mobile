@@ -43,11 +43,16 @@ jest.mock('../../src/services/pentacleStream', () => {
       }, []);
       return selector(mockState);
     },
+    // The assistant identity hook reads the same test state.
+    usePentacleStreamSelectorWhen: (_enabled: boolean, selector: (state: unknown) => unknown) => selector(mockState),
     usePentacleStreamActions: () => mockActions,
   };
 });
 
 const expoRouter = jest.requireMock('expo-router');
+// The fixture's assistant session title; the overlay shows the shared assistant identity
+// (display_name, then title, then 'Assistant'; docs/bart_home_contracts.md § Assistant identity).
+const FIXTURE_ASSISTANT_TITLE = 'Bart';
 const { back: mockBack } = expoRouter.__mock;
 const mockNavigate = performChatOpenNavigation as jest.Mock;
 
@@ -158,9 +163,23 @@ describe('header (T2–T7)', () => {
     render(<QuestionsScreen />);
     goTo(2);
     expect(counter()).toBe('QUESTION 3 / 3');
-    expect(text('questions-subtitle')).toBe('Assistant');
+    expect(text('questions-subtitle')).toBe(FIXTURE_ASSISTANT_TITLE);
     expect(style('questions-counter').color).toBe(GREEN);
     expect(screen.queryByTestId('questions-see-chat')).toBeNull();
+  });
+
+  test('the assistant page follows a renamed assistant session and defaults to Assistant', () => {
+    const renamed = (patch: Record<string, unknown>) => ({ ...mockState,
+      sessions: mockState.sessions.map((item: any) => (item.stream_id === 'bart:assistant' ? { ...item, ...patch } : item)) });
+    mockState = renamed({ display_name: 'Lews' });
+    const view = render(<QuestionsScreen />);
+    goTo(2);
+    expect(text('questions-subtitle')).toBe('Lews');
+    view.unmount();
+    mockState = renamed({ display_name: '', title: '' });
+    render(<QuestionsScreen />);
+    goTo(2);
+    expect(text('questions-subtitle')).toBe('Assistant');
   });
 
   test('T5: See chat navigates through performChatOpenNavigation to the entry stream and never pushes an href', () => {
@@ -467,7 +486,7 @@ describe('empty state and entry param (C5)', () => {
     mockParams = { notificationId: 'n-bart' };
     render(<QuestionsRoute />);
     expect(counter()).toBe('QUESTION 3 / 3');
-    expect(text('questions-subtitle')).toBe('Assistant');
+    expect(text('questions-subtitle')).toBe(FIXTURE_ASSISTANT_TITLE);
     expect(expoRouter.__mock.stackScreens).toHaveBeenCalledWith(expect.objectContaining({
       options: { presentation: 'transparentModal', animation: 'fade' },
     }));
@@ -484,7 +503,7 @@ describe('live data (AC8)', () => {
       notifications: state.notifications.filter((n: any) => n.notification_id !== 'n-deploy'),
     }));
     expect(counter()).toBe('QUESTION 2 / 2');
-    expect(text('questions-subtitle')).toBe('Assistant');
+    expect(text('questions-subtitle')).toBe(FIXTURE_ASSISTANT_TITLE);
   });
 
   test('a new question arriving appends without moving the current page', () => {

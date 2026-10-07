@@ -4,6 +4,8 @@
 // The only transport the household modules may use is sendHouseholdCommand.
 jest.mock('../../src/services/pentacleStream', () => ({
   sendHouseholdCommand: jest.fn(),
+  // Assistant identity (contracts § Assistant identity): no assistant session -> 'Assistant'.
+  usePentacleStreamSelectorWhen: (_enabled: boolean, selector: (state: unknown) => unknown) => selector({ sessions: [] }),
 }));
 
 jest.mock('expo-router', () => {
