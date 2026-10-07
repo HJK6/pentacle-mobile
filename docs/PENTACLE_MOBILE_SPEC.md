@@ -74,7 +74,7 @@ pattern. A request id is a client correlation key, not a secret.
 
 ### Notifications
 
-The Updates tab may use list and resolve RPCs:
+Notification-driven surfaces use the existing list and resolve RPCs:
 
 ```json
 {
@@ -85,8 +85,9 @@ The Updates tab may use list and resolve RPCs:
 ```
 
 Actionable records are resolved by notification id and action id. Durable
-question records stay with the chat that asked them; the Updates feed can
-filter them out. Terminal records remain visible with an in-place outcome.
+question records stay in the Unified question drawer and their originating
+chat. The Updates tab does not consume the notifications feed. The notification
+store and push-notification behavior are unchanged.
 
 ## Mobile UX
 
@@ -108,9 +109,39 @@ filter them out. Terminal records remain visible with an in-place outcome.
 
 ### Updates
 
-Message-only notifications render as plain cards. Declared actions get one
-button each, with immediate pending feedback and in-place terminal status.
-Refresh performs a backfill; a push/deep link may open the Updates tab.
+The Updates tab is the Bart status surface. Its header shows a 38 px lamp ring,
+`Bart`, the existing status tag plus WORKING or IDLE from the `bart:assistant`
+session's `working` field, and the open-lane count. It has no close button.
+
+- Latest update and All updates · N use only events in `bart:assistant` whose
+  `publish_kind` is `status`. N is the count in loaded, retained history. Prose,
+  questions, results, and events from other streams are excluded.
+- Tapping the latest card or the link opens the update log, newest first. The
+  latest row is green and pulsing; older rows are dim. Back returns to the card.
+- The shared event bucket and existing `requestStreamEvents` mount-fetch and
+  older-page paths own history, cursor exhaustion, and live updates. Scrolling
+  the log requests older history with no pagination controls. One end-of-list
+  demand crosses status-empty pages until a status, exhaustion, no progress,
+  interruption, or error. This avoids stranding a short filtered log. The
+  source stream remains the only history request target; there is no per-lane
+  polling or second notification/history store.
+- Open lanes reuse the Chats working/needs-you selectors and visibility rules,
+  excluding `bart:assistant`. Each row shows its machine mark, title, and active
+  plan step, falling back to card update, then working label. Needs-you rows
+  use amber and show Blocked. The caret expands the existing CardStatusMini;
+  the row body uses the existing duplicate-safe session navigation path.
+- ETA comes only from the session row's optional nullable `eta_at` and
+  `eta_set_at`. A local clock refreshes its display every 15 seconds while the
+  tab is focused; this does not fetch data. Future and late durations round
+  to the nearest minute, with a one-minute minimum and hours above 59 minutes.
+  Missing/invalid timestamps or a non-positive interval show —. Needs-you
+  wins over every estimate. No overrun percentage is displayed.
+
+Empty status history uses plain text. A history failure recovers on refocus or
+reconnect; no retry polling, settings, filters, search, or new controls were
+added. Question cards remain in Unified. The other screens are unchanged.
+See [status surface validation](status_surface_validation.md) for synthetic
+coverage, collection proof, and the patch-series handoff boundary.
 
 ## State and rendering rules
 
