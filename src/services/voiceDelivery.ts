@@ -4,6 +4,15 @@ import { logTelemetry, TELEMETRY_EVENTS, type PentacleTranscriptItem } from 'pen
 import { runVoiceUploadTranscribe, voiceTranscribeFailureMessage, NOTHING_RECOGNIZED_MESSAGE } from './voiceSendUnit';
 import type { FinishedRecording } from './voiceRecording';
 import * as stream from './pentacleStream';
+import {
+  buildVoiceAnswersMeta,
+  installVoiceAnswersCarrier,
+  releaseVoiceAnswersBinding,
+} from '../components/questions/voice/voiceAnswersBinding';
+
+// This send leg attaches `meta.voice_answers` for recordings the Questions overlay bound, so the
+// overlay may offer its mic (spec_pentacle_mobile__voice_answers_2026_10 § V3).
+installVoiceAnswersCarrier();
 
 export type VoiceTake = FinishedRecording & {
   status: 'transcribing' | 'failed';
@@ -11,7 +20,7 @@ export type VoiceTake = FinishedRecording & {
   createdAt: number;
   error?: string;
 };
-type DeliveryInput = { streamId: string; text: string; durationS: number; recordingId: string };
+type DeliveryInput = { streamId: string; text: string; durationS: number; recordingId: string; blobSha?: string };
 type DeliveryResult = { landed: boolean; optimisticId?: string; requestId?: string };
 const voiceOrigins = new Map<string, Omit<DeliveryInput, 'text'>>();
 interface VoiceDeliveryIO {
@@ -58,6 +67,7 @@ export class VoiceDelivery {
   discard = (id: string) => {
     const take = this.state.takes.find(t => t.recordingId === id);
     if (!take) return;
+    releaseVoiceAnswersBinding(id);
     this.update(this.state.takes.filter(t => t !== take), this.state.last?.recordingId === id ? null : this.state.last);
     logTelemetry(TELEMETRY_EVENTS.CHAT_VOICE_TRANSCRIBE_CANCELLED, { stream_id: take.streamId, recording_id: id, duration_s: take.durationS, request_id: take.transcribeRequestId });
     void this.io.removeFile(take.uri).catch(() => undefined);
@@ -73,8 +83,10 @@ export class VoiceDelivery {
       if (!text) throw new Error(NOTHING_RECOGNIZED_MESSAGE);
       // No async gap between the cancellation guard and text dispatch. deliver
       // synchronously inserts the text optimistic row before yielding.
-      const delivery = this.io.deliver({ streamId: take.streamId, text, durationS: take.durationS, recordingId: id });
+      const delivery = this.io.deliver({ streamId: take.streamId, text, durationS: take.durationS, recordingId: id, blobSha: result.blobSha });
       dispatched = true;
+      // The binding now lives in the optimistic event's meta, which every resend reuses.
+      releaseVoiceAnswersBinding(id);
       this.update(this.state.takes.filter(t => t.recordingId !== id), { ...take, label: 'Sending' });
       void this.io.removeFile(take.uri).catch(() => undefined);
       const { landed, optimisticId, requestId } = await delivery;
@@ -96,14 +108,17 @@ export class VoiceDelivery {
 export const voiceDelivery = new VoiceDelivery({
   transcribe: runVoiceUploadTranscribe,
   removeFile: uri => FileSystem.deleteAsync(uri, { idempotent: true }),
-  deliver: ({ streamId, text, durationS, recordingId }) => {
+  deliver: ({ streamId, text, durationS, recordingId, blobSha }) => {
     const session = stream.getPentacleStreamState().sessions.find(s => s.stream_id === streamId);
     if (!session) throw new Error('Originating chat is unavailable');
     const optimisticId = stream.appendOptimisticUserMessage(streamId, text);
     if (!optimisticId) throw new Error('Could not prepare voice message');
     voiceOrigins.set(optimisticId, { streamId, durationS, recordingId });
     const requestId = stream.getPentacleStreamState().optimisticSends?.[optimisticId]?.request_id;
-    return stream.sendPentacleMessage({ host: session.host, sessionName: session.session_name, text, optimisticId, meta: { voice: { duration_s: durationS } } }).then(landed => ({ landed, optimisticId, requestId })).catch(error => {
+    // Same recording -> same binding: a pre-send re-run builds the identical meta (daemon dedups on recording_id).
+    const voiceAnswers = blobSha ? buildVoiceAnswersMeta(recordingId, { blobSha, durationS }) : null;
+    const meta = { voice: { duration_s: durationS }, ...(voiceAnswers ? { voice_answers: voiceAnswers } : {}) };
+    return stream.sendPentacleMessage({ host: session.host, sessionName: session.session_name, text, optimisticId, meta }).then(landed => ({ landed, optimisticId, requestId })).catch(error => {
       // Existing reconnect/receipt reconciliation owns ambiguous sends. Never
       // run transcription again after any text frame may have left the phone.
       if (error instanceof Error && /Pentacle stream (?:disconnected|is not connected)|Pentacle command timed out/.test(error.message)) return { landed: false, optimisticId, requestId };
