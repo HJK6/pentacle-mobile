@@ -9,11 +9,13 @@ import type {
   PentacleSessionSummary,
   PentacleStreamState,
   OptimisticSendStatus,
+  WorkLaneUpdate,
 } from '../types/pentacle';
 import { getHostOrder, getHostTheme } from './hostConfig';
 import { logTelemetry } from '../utils/telemetry';
 import { TELEMETRY_EVENTS } from '../utils/telemetryEvents';
 import { normalizePentacleHost } from './pentacleHosts';
+import { parseLaneUpdateEvent } from './workLanes';
 import {
   coalesceInterpretedEvents,
   collapseCodeBlocks,
@@ -147,6 +149,9 @@ export type PentacleTranscriptItem = {
   replyToQuestionId?: string;
   laneId?: string;
   publishKind?: PentacleAssistantPublishKind;
+  // Typed work-lane update carried by a `publish_kind: 'lane_update'` composite event;
+  // clients that do not branch on it render `text` as ordinary assistant prose.
+  laneUpdate?: WorkLaneUpdate;
   // Present on `agent-question-answer` rows: the durable notification this row echoes, so a
   // client holding the same answer as a resolved-notification projection can render one of them
   // rather than both.
@@ -747,6 +752,8 @@ function sameTranscriptItem(a: PentacleTranscriptItem, b: PentacleTranscriptItem
     a.replyToQuestionId === b.replyToQuestionId &&
     a.laneId === b.laneId &&
     a.publishKind === b.publishKind &&
+    a.laneUpdate?.update_id === b.laneUpdate?.update_id &&
+    a.laneUpdate?.summary === b.laneUpdate?.summary &&
     a.eventCase === b.eventCase &&
     a.displayRule === b.displayRule &&
     a.disclosure?.previewText === b.disclosure?.previewText &&
@@ -1768,6 +1775,7 @@ function buildSessionTranscriptRows(
     }
 
     const authoritativeSeq = authoritativeEventSeq(event);
+    const laneUpdate = parseLaneUpdateEvent(event);
     const nextItem: PentacleTranscriptItem = {
       id: event.optimistic_id || (Number.isFinite(authoritativeSeq) ? String(authoritativeSeq) : String(event.daemon_seq)),
       timestampLabel,
@@ -1795,6 +1803,7 @@ function buildSessionTranscriptRows(
         : {}),
       ...(event.lane_id ? { laneId: event.lane_id } : {}),
       ...(event.publish_kind ? { publishKind: event.publish_kind } : {}),
+      ...(laneUpdate ? { laneUpdate } : {}),
       ...(item.notificationId ? { notificationId: item.notificationId } : {}),
     };
     if (event.attachments && event.attachments.length > 0) {
