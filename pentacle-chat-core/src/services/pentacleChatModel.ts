@@ -159,6 +159,9 @@ export type PentacleTranscriptItem = {
   // the mic-glyph + duration caption, and while pending, the transcribing voice
   // bubble. Duration in whole/fractional seconds.
   voice?: { duration_s: number };
+  // The daemon's `voice_answers.v1` binding verdict from event.meta.voice_answers_status
+  // (the session renders "Couldn't attach questions" for `dropped`).
+  voiceAnswersStatus?: { state: 'bound' | 'dropped'; reason?: string; staleKeys: string[] };
 };
 
 /** A summary-only row that is safe to paint before transcript derivation. */
@@ -755,7 +758,8 @@ function sameTranscriptItem(a: PentacleTranscriptItem, b: PentacleTranscriptItem
     a.sendState === b.sendState &&
     a.queuedWhileWorking === b.queuedWhileWorking &&
     a.attachments === b.attachments &&
-    (a.voice?.duration_s) === (b.voice?.duration_s)
+    (a.voice?.duration_s) === (b.voice?.duration_s) &&
+    a.voiceAnswersStatus?.state === b.voiceAnswersStatus?.state
   );
 }
 
@@ -1798,6 +1802,14 @@ function buildSessionTranscriptRows(
     }
     if (event.meta?.voice && typeof event.meta.voice.duration_s === 'number') {
       nextItem.voice = { duration_s: event.meta.voice.duration_s };
+    }
+    const answersStatus = event.meta?.voice_answers_status;
+    if (answersStatus && (answersStatus.state === 'bound' || answersStatus.state === 'dropped')) {
+      nextItem.voiceAnswersStatus = {
+        state: answersStatus.state,
+        ...(typeof answersStatus.reason === 'string' ? { reason: answersStatus.reason } : {}),
+        staleKeys: Array.isArray(answersStatus.stale_keys) ? answersStatus.stale_keys.filter((key) => typeof key === 'string') : [],
+      };
     }
     if (send?.queued_at !== undefined || event.queued_at !== undefined) {
       nextItem.queuedWhileWorking = true;

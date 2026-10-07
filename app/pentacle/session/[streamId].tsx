@@ -49,6 +49,7 @@ import { StatusOverlay } from '../../../src/components/SessionStatusCard';
 import SendingIndicator from '../../../src/components/SendingIndicator';
 import RecordingStrip from '../../../src/components/voice/RecordingStrip';
 import VoiceBubble from '../../../src/components/voice/VoiceBubble';
+import { VoiceAnswersStatusNote } from '../../../src/components/questions/voice';
 import { DiscardGlyph, MicGlyph, VoiceRecordFace, VoiceSpinner, recordButtonStyle } from '../../../src/components/voice/VoiceGlyphs';
 import { voiceRecorder } from '../../../src/services/voiceRecordingEngine';
 import { formatDuration, PermissionDeniedError, type RecordingSnapshot } from '../../../src/services/voiceRecording';
@@ -4087,6 +4088,7 @@ export const TranscriptRow = memo(function TranscriptRow({
             </Bevel>
           </Pressable>
         ) : null}
+        {item.voiceAnswersStatus ? <VoiceAnswersStatusNote status={item.voiceAnswersStatus} /> : null}
         {canceled ? (
           <View style={styles.userSendStatusRow} testID="user-send-canceled">
             <FontAwesome name="ban" size={10} color={P.warning} />
