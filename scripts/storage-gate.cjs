@@ -225,6 +225,9 @@ async function prepareNativeRoot(candidateRef, gateBootstrap) {
   const now = new Date().toISOString();
   let run;
   try {
+    const quiet = require('./certified-start-receipt.cjs');
+    const startInput = quiet.inspectNativeStart(repository, candidateSha, process.env,
+      authority, state.listRecords('runs'), Date.parse(now));
     run = createRecord('runs', {
     schema: 1,
     id,
@@ -238,10 +241,12 @@ async function prepareNativeRoot(candidateRef, gateBootstrap) {
     evidence_image: `${id}.sparsebundle`,
     lock_token_digest: crypto.createHash('sha256').update(lock.token).digest('hex'),
     reserved_at: now,
+    quiet_start: { ...startInput.claim, run_id: id },
     first_dead_at: null,
     });
     const scratch = createImage('scratch', id);
     const evidence = createImage('evidence', id);
+    quiet.copyClaimInputs(startInput, resolveMounted('evidence', id).mount);
     const scratchMount = resolveMounted('scratch', id).mount;
     for (const directory of ['home', 'tmp', 'cache', 'config', 'derived-data', 'native']) fs.mkdirSync(path.join(scratchMount, directory), { recursive: true, mode: 0o700 });
     fs.mkdirSync(scratchDeviceSetRoot(scratchMount), { recursive: true, mode: 0o700 });
@@ -319,7 +324,7 @@ function reportViewerResultsBeforeKeyboard() {
   if (matches.length !== 1 || matches[0] !== REPORT_VIEWER_CASE_PLAN.length - 1) throw new Error('GATE_SURFACE_TRIGGER_CASE_PLAN');
   return matches[0];
 }
-const EVIDENCE_DIRECTORIES = new Set(['report-viewer-sim-e2e', 'ios-export', 'launch-diagnosis']);
+const EVIDENCE_DIRECTORIES = new Set(['report-viewer-sim-e2e', 'ios-export', 'launch-diagnosis', 'quiet-start']);
 const MACOS_VOLUME_METADATA = new Set([
   '.fseventsd', '.Trashes', '.Spotlight-V100', '.DS_Store', '.TemporaryItems', '.DocumentRevisions-V100',
 ]);
@@ -409,6 +414,7 @@ function validateEvidence(root, runId, phase, gateStatus) {
   const { collectChecks, requireChecks } = require('./gate-checks.cjs');
   let checks = [];
   const check = (name, run, dependsOn = []) => { checks = collectChecks([{ name, run, dependsOn }], checks); return checks.at(-1).value; };
+  check('quiet-start-binding', () => require('./certified-start-receipt.cjs').validateClaimEvidence(root, readRecord('runs', runId)));
   const top = new Set(files.filter((entry) => !entry.relative.includes('/')).map((entry) => entry.relative));
   check('required-files', () => { const missing = [];
   for (const required of ['.pentacle-container.json', 'run.json', 'native-root.json', 'storage-surface-trigger.json']) if (!top.has(required)) missing.push(`EVIDENCE_REQUIRED_MISSING:${required}`);
@@ -1579,6 +1585,8 @@ async function runFullGate(runId, lockToken, dependencies = {}) {
     const evidenceResolved = resolveMounted('evidence', runId);
     containers.requireSeal(evidenceResolved.seal, run.evidence_seal);
     evidence = evidenceResolved.mount;
+    const quiet = require('./certified-start-receipt.cjs');
+    quiet.requireAllocatedStart(runId, gateCodeRoot);
     const nativeParent = path.join(scratch, 'native');
     const nativeEntries = fs.readdirSync(nativeParent);
     if (nativeEntries.length !== 1) throw new Error('NATIVE_ROOT_CARDINALITY');

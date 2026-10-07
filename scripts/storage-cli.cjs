@@ -10,6 +10,15 @@ const mutationCapability = require('./storage-capability.cjs').claim();
 
 async function bootstrapAndDispatch(endpoint, values) {
   if (['gate:native-root', 'gate:full'].includes(endpoint)) {
+    if (endpoint === 'gate:native-root') {
+      const quiet = require('./certified-start-receipt.cjs');
+      quiet.requireReceiptInput(process.env);
+      const journal = require('./storage-state.cjs');
+      quiet.inspectNativeStart(path.resolve(__dirname, '..'), values[0], process.env,
+        journal.validateInstalledAuthority(), journal.listRecords('runs'));
+    }
+    if (endpoint === 'gate:full') require('./certified-start-receipt.cjs')
+      .requireAllocatedStart(values[0], path.resolve(__dirname, '..'));
     const repoRoot = path.resolve(__dirname, '..');
     const ownership = require('./owned-process.cjs');
     if (!ownership.isOwnedInvocation()) {

@@ -11,13 +11,13 @@ const SCHEMA = 1;
 const STATE_LIMIT = 64 * 1024 * 1024;
 const RECORD_LIMIT = 120;
 const RECORD_FIELDS = Object.freeze({
-  runs: new Set(['schema', 'id', 'revision', 'state', 'generation', 'owner', 'candidate_ref', 'gate_code_sha', 'gate_code_tree_clean', 'scratch_image', 'evidence_image', 'lock_token_digest', 'reserved_at', 'first_dead_at', 'scratch_seal', 'evidence_seal', 'device_set_identity', 'allocated_at', 'recovered', 'failure', 'handoff_from_pid', 'running_at', 'gate_status', 'sealing_at', 'classification_error', 'preliminary_audit_at', 'preliminary_evidence_digest', 'published_at', 'scratch_discard_started_at', 'scratch_discarded_at', 'evidence_digest', 'evidence_discard_started_at', 'evidence_discarded_at', 'deleted_at', 'unclassified_disposed_at', 'disposition_reason', 'backing_absent_at', 'backing_absent_reason']),
+  runs: new Set(['schema', 'id', 'revision', 'state', 'generation', 'owner', 'candidate_ref', 'gate_code_sha', 'gate_code_tree_clean', 'quiet_start', 'scratch_image', 'evidence_image', 'lock_token_digest', 'reserved_at', 'first_dead_at', 'scratch_seal', 'evidence_seal', 'device_set_identity', 'allocated_at', 'recovered', 'failure', 'handoff_from_pid', 'running_at', 'gate_status', 'sealing_at', 'classification_error', 'preliminary_audit_at', 'preliminary_evidence_digest', 'published_at', 'scratch_discard_started_at', 'scratch_discarded_at', 'evidence_digest', 'evidence_discard_started_at', 'evidence_discarded_at', 'deleted_at', 'unclassified_disposed_at', 'disposition_reason', 'backing_absent_at', 'backing_absent_reason']),
   tickets: new Set(['schema', 'id', 'revision', 'state', 'generation', 'main_repo_id', 'spec_id', 'lane_id', 'branch', 'upstream', 'head', 'source_digest', 'basename', 'device', 'inode', 'registered_at', 'creator', 'eligible_at', 'removing_at', 'blocked_reason', 'deleted_at']),
   scheduler: new Set(['schema', 'id', 'revision', 'state', 'action', 'generation', 'prior_owned', 'prior_content', 'prior_loaded', 'created_at', 'candidate_digest', 'smoke_report_id', 'smoke_report_digest', 'failure', 'committed_at', 'recovered_at', 'restored_at']),
 });
 const CORE_FIELDS = ['schema', 'id', 'revision', 'state', 'generation'];
 const RUN_BASE = [...CORE_FIELDS, 'owner', 'candidate_ref', 'scratch_image', 'evidence_image', 'lock_token_digest', 'reserved_at', 'first_dead_at'];
-const RUN_PROVENANCE_FIELDS = new Set(['gate_code_sha', 'gate_code_tree_clean']);
+const RUN_PROVENANCE_FIELDS = new Set(['gate_code_sha', 'gate_code_tree_clean', 'quiet_start']);
 const RUN_ALLOCATED = [...RUN_BASE, 'scratch_seal', 'evidence_seal', 'device_set_identity', 'allocated_at'];
 const RUN_RUNNING = [...RUN_ALLOCATED, 'handoff_from_pid', 'running_at'];
 const RUN_SEALING = [...RUN_RUNNING, 'gate_status', 'sealing_at'];
@@ -103,7 +103,7 @@ const STATE_FIELDS = Object.freeze({
   }),
 });
 const IMMUTABLE_FIELDS = Object.freeze({
-  runs: ['schema', 'id', 'generation', 'candidate_ref', 'gate_code_sha', 'gate_code_tree_clean', 'scratch_image', 'evidence_image', 'lock_token_digest', 'reserved_at', 'first_dead_at', 'scratch_seal', 'evidence_seal', 'device_set_identity', 'allocated_at', 'handoff_from_pid', 'running_at', 'gate_status', 'sealing_at', 'preliminary_audit_at', 'published_at', 'preliminary_evidence_digest', 'scratch_discard_started_at', 'scratch_discarded_at', 'evidence_digest', 'evidence_discard_started_at', 'evidence_discarded_at', 'deleted_at', 'unclassified_disposed_at', 'disposition_reason', 'backing_absent_at', 'backing_absent_reason'],
+  runs: ['schema', 'id', 'generation', 'candidate_ref', 'gate_code_sha', 'gate_code_tree_clean', 'quiet_start', 'scratch_image', 'evidence_image', 'lock_token_digest', 'reserved_at', 'first_dead_at', 'scratch_seal', 'evidence_seal', 'device_set_identity', 'allocated_at', 'handoff_from_pid', 'running_at', 'gate_status', 'sealing_at', 'preliminary_audit_at', 'published_at', 'preliminary_evidence_digest', 'scratch_discard_started_at', 'scratch_discarded_at', 'evidence_digest', 'evidence_discard_started_at', 'evidence_discarded_at', 'deleted_at', 'unclassified_disposed_at', 'disposition_reason', 'backing_absent_at', 'backing_absent_reason'],
   tickets: ['schema', 'id', 'generation', 'main_repo_id', 'spec_id', 'lane_id', 'branch', 'upstream', 'head', 'source_digest', 'basename', 'device', 'inode', 'registered_at', 'creator', 'eligible_at', 'removing_at', 'deleted_at'],
   scheduler: ['schema', 'id', 'generation', 'action', 'prior_owned', 'prior_content', 'prior_loaded', 'created_at', 'candidate_digest', 'smoke_report_id', 'smoke_report_digest'],
 });
@@ -433,6 +433,12 @@ function validateRecord(kind, record) {
   requireExactStateFields(kind, record);
   if (kind === 'runs') {
     requireFields(record, ['owner', 'candidate_ref', 'scratch_image', 'evidence_image', 'lock_token_digest', 'reserved_at', 'first_dead_at']);
+    if (record.quiet_start !== undefined) {
+      require('./certified-start-receipt.cjs').validateClaimShape(record.quiet_start);
+      if (record.quiet_start.run_id !== record.id || record.quiet_start.candidate_sha !== record.candidate_ref
+        || record.quiet_start.gate_code_sha !== record.gate_code_sha || record.quiet_start.host !== record.owner.host
+        || record.quiet_start.uid !== record.owner.uid || record.quiet_start.claimed_at !== record.reserved_at) throw new Error('AUTHORITY_QUIET_CLAIM_BINDING');
+    }
     const carriesGateProvenance = record.gate_code_sha !== undefined || record.gate_code_tree_clean !== undefined;
     if (!exactOwner(record.owner) || !GIT_SHA.test(record.candidate_ref) || (carriesGateProvenance && (!GIT_SHA.test(record.gate_code_sha) || record.gate_code_tree_clean !== true)) || record.scratch_image !== `${record.id}.sparsebundle` || record.evidence_image !== `${record.id}.sparsebundle` || !SHA256.test(record.lock_token_digest) || !exactIso(record.reserved_at) || (record.first_dead_at !== null && !exactIso(record.first_dead_at))) throw new Error('AUTHORITY_RECORD_RUN');
     if (record.state !== 'reserved') {
@@ -797,6 +803,7 @@ function withRecordMutation(kind, id, action) {
 
 function replaceRecordHeld(kind, id, expectedRevision, next) {
   const current = readRecord(kind, id);
+  if (kind === 'runs' && current.quiet_start === undefined && next.quiet_start !== undefined) throw new Error('AUTHORITY_QUIET_CLAIM_LATE');
   if (current.revision !== expectedRevision || next.id !== id || next.revision !== expectedRevision + 1) throw new Error('AUTHORITY_REVISION_RACE');
   for (const field of IMMUTABLE_FIELDS[kind]) if (current[field] !== undefined && current[field] !== null && JSON.stringify(current[field]) !== JSON.stringify(next[field])) throw new Error(`AUTHORITY_IMMUTABLE_FIELD:${field}`);
   validateRecord(kind, next);
