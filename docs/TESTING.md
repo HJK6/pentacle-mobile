@@ -11,7 +11,8 @@ The test host configuration uses hosta, hostb, and hostc.
 
 tests/contracts/bart_preview_thread_parity.test.ts guards that the Chats-list
 preview for the assistant composite equals the thread's last rendered row, and
-that a turn-final prose row renders as an assistant bubble. It runs under
+that a turn-final projection row (an assistant status row, not a published
+prose reply) renders as an assistant bubble. It runs under
 test:unit with synthetic fixtures; it does not replace a native replay.
 
 Run npm run test:prod-build-guardrails to check the public production-build
