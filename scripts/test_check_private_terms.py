@@ -140,7 +140,7 @@ def test_hook_refuses_a_private_hit_without_printing_it():
         tmp = Path(raw)
         work, head = make_repo(tmp, {"src/a.ts": f"{TERM}\n"})
         done = run_hook(work, head, write_terms(tmp, [TERM]))
-        assert done.returncode != 0 and "private-terms check did not pass" in done.stderr
+        assert done.returncode != 0 and "private-terms check did not pass, hits: 1" in done.stderr
         assert TERM not in (done.stdout + done.stderr).casefold()
         assert not history_ran(work)
         assert receipt(work, head)["hit_count"] == 1
