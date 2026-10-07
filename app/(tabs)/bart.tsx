@@ -63,7 +63,7 @@ export default function BartScreen() {
 // Unrelated session prose may update the drawer but must not force transcript
 // renders. The real SessionScreen keeps its own narrow live subscriptions.
 const BartThread = React.memo(function BartThread(props: React.ComponentProps<typeof BartHeader>) {
-  return <SessionScreen streamId={BART_STREAM_ID} header={<BartHeader {...props} />} />;
+  return <SessionScreen streamId={BART_STREAM_ID} header={<BartHeader {...props} />} questionsInHeader />;
 });
 
 // Scope the modal flow to this focus visit so a newer route cancels queued

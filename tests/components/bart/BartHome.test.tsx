@@ -226,6 +226,19 @@ test('both badges derive from real fixture state, include Bart deck pages, and r
 });
 
 
+test('Bart home shows only the header Questions button for its own open question and still opens the overlay', async () => {
+  mockState = { ...mockState, notifications: [bartQuestion(STREAM_ID, 2)] };
+  render(<BartScreen />);
+  await act(async () => {});
+  expect(screen.getByLabelText('Questions, 2 pending')).toBeTruthy();
+  expect(screen.queryByTestId('question-fab')).toBeNull();
+  expect(screen.queryByTestId('question-fab-dock')).toBeNull();
+  expect(screen.queryByLabelText('2 unanswered questions')).toBeNull();
+  fireEvent.press(screen.getByLabelText('Questions, 2 pending'));
+  expect(expoRouter.useRouter().push).toHaveBeenCalledWith('/pentacle/questions');
+});
+
+
 test('drawer rows open once and immediate return permits opening the same row again', async () => {
   const other = 'hostc:claude:sample';
   mockState = { ...mockState, sessions: [session(), bartSession(other)], notifications: [bartQuestion(other)] };
