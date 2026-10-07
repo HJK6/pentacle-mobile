@@ -47,7 +47,7 @@ the operator. Priority and due dates are set by the assistant, not in the app.
   with the partner shows ` · PRIVATE`, and the new-event sheet says `PRIVATE TO YOU · <NAME> WON'T
   SEE THIS` while the partner toggle is on. Sharing is done by the assistant, never by the `who`
   tag. No household member's name is in this source.
-- **Bart's lamp** appears only on rows the daemon reports as `created_by: assistant` (the operator's assistant). A due date or priority
+- **The assistant's lamp** (its machine sigil, `useAssistantIdentity().sigilKind`) appears only on rows the daemon reports as `created_by: assistant` (the operator's assistant). A due date or priority
   alone never shows a lamp (the partner's assistant can set those on shared rows).
 - **Checks.** Ticking an item starts a client-side 5 s window (`UNDO · Ns`, shrinking green bar);
   undo inside it sends nothing; at 5 s exactly one `household.item.done` is sent. ✕ removes now;
