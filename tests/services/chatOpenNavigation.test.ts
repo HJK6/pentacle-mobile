@@ -789,6 +789,7 @@ test('drift guard 1 (falsifiability): removing a granted site exposes a stale gr
 test('drift guard 3: no NODE_ENV branch on the chat-open path', () => {
   const CHAT_OPEN_SURFACE = [
     'app/(tabs)/chats.tsx',
+    'app/(tabs)/updates.tsx',
     'src/services/chatOpenNavigation.ts',
     'src/services/chatOpenNavigationIntent.ts',
   ];
@@ -801,6 +802,7 @@ test('drift guard 3: no NODE_ENV branch on the chat-open path', () => {
 describe('drift guard 2: harness + interactive open paths route through the shared unit', () => {
   const paths = {
     interactive: 'app/(tabs)/chats.tsx',
+    'interactive:status': 'app/(tabs)/updates.tsx',
     'harness:openExisting': 'src/services/harnessOpenExistingChat.ts',
     'harness:actions': 'src/services/harnessActions.ts',
     'harness:awaitNewStream': 'src/services/harnessAwaitNewStream.ts',
