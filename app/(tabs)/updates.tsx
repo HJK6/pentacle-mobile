@@ -94,10 +94,7 @@ export default function UpdatesScreen() {
   }, [showLog, loading, error, updates.length, loadEarlier]);
 
   const openSession = useCallback((streamId: string) => {
-    performChatOpenNavigation(streamId, {
-      push: (href) => router.push(href as any),
-      replace: (href) => router.replace(href as any),
-    });
+    performChatOpenNavigation(streamId, router);
   }, [router]);
 
   return <View style={styles.container}>
