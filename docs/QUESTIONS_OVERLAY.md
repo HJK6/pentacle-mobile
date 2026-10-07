@@ -65,8 +65,9 @@ It never throws. Its result is `{ sent, failed, legacyFailed }`:
 
 ### Footer (T10–T15)
 
-The footer follows `BartQuestionsOverlay`. "Answered" is `useMobileQuestionFlow.answered`
-(answered and constraint-free); k in "Submit k of n" counts the sendable subset of it, which differs
+The footer follows `BartQuestionsOverlay`. "Answered" is `useMobileQuestionFlow.answered`: entries
+that are answered and constraint-free, plus locked (scan-incomplete legacy) entries, as on Chats.
+Submit and "n unanswered" look only at non-locked answered pages; k in "Submit k of n" counts the sendable subset of it, which differs
 only when a multi-item legacy action is partly answered (it cannot be sent, so it is not counted).
 
 | State | Control |
@@ -76,16 +77,22 @@ only when a multi-item legacy action is partly answered (it cannot be sent, so i
 | Not the last page | Next; filled unless all answered |
 | Last page, nothing answered | Disabled "n unanswered" |
 
-- Partial submit: sends the sendable answers, then toast `Sent ${k} answer(s) · ${m} left` for 2200 ms
-  (k = acked items, m = pages in the live deck once the send settles, including questions that
-  arrived during it) and returns to page 1. While sending, the submitted items stay pinned on screen
-  (an item leaves the live deck the moment its optimistic answer begins, which would otherwise drop
-  its draft); every other page stays live, so arrivals show at once. Submit is disabled meanwhile.
-- Send all (every page answered): closes with `router.back()` once, only if nothing failed and no
-  question arrived during the send (an arrival keeps the overlay open on it, with the toast). A throw or
-  a legacy send failure keeps the overlay open, on the first failed page with its draft and error.
-- A deck emptied by this screen's own send closes the overlay, unless a legacy send-failure error is
-  still showing (it stays on the empty state so the error and See chat remain reachable).
+- While sending, the submitted items stay pinned on screen (an item leaves the live deck the moment
+  its optimistic answer begins, which would otherwise drop its draft); every other page stays live, so
+  questions arriving during the send show at once. Submit is disabled meanwhile.
+- When the send settles, the outcome is applied against the live deck at that moment (m = its length):
+  - **Close:** if nothing failed and no pending question remains, the overlay closes with
+    `router.back()` once (Send all normally ends here; so does a partial submit that empties the deck).
+    The condition is the settled deck, not an arrival log: a question that arrived and was answered
+    elsewhere before settlement does not keep it open.
+  - **Toast:** otherwise, if at least one item was sent, toast `Sent ${k} answer(s) · ${m} left` for
+    2200 ms (k = items whose call resolved). No toast when nothing was sent.
+  - **Landing page:** the first item whose submission threw (durable or legacy dismiss failure), which
+    keeps its draft and shows its error on its page; if none threw, page 1.
+  - **Legacy send failure** (`onLegacySendFailed`: dismissed by key, answer message failed): the item
+    has left the deck and is not counted in k; a persistent banner "Answer to <session title>
+    couldn't be sent — retry it from that chat" with See chat › stays until dismissed. If that empties
+    the deck the overlay stays on the empty state with the banner instead of closing.
 - Close (✕) is `router.back()` and sends nothing; drafts are discarded.
 
 ## Screen
@@ -121,9 +128,21 @@ Table elements: `questions-counter`, `questions-see-chat`, `questions-close`, `q
 
 ## Tests
 
-`npx jest tests/questions --runInBand`. The count test implements the v1.4 formula independently of
+`npx jest tests/questions --runInBand`. The count test implements the v1.4/v1.5 formula independently of
 the selector and checks it on single-item, two-item partial-optimistic and two-item post-ack states.
 The simulator scenario is `mock_questions_overlay_partial_submit`; it opens the overlay with
 `xcrun simctl openurl pentacle://pentacle/questions`, drives it through the accessibility tree by
-testID, and reads the single `prompt.answer` from the existing `harness:ui_trace`
-`prompt_answer_dispatched` event.
+testID (falling back to visible text for `Text` nodes, which iOS does not expose by testID), and
+reads the single `prompt.answer` from the existing `harness:ui_trace` `prompt_answer_dispatched`
+event.
+
+Running it: `test/e2e/run_scenario.py` accepts only its report scenarios, and this repo ships no
+runner for `mock_*` scenarios. The scenario is driven by composing the public harness pieces: start
+`test/e2e/tools/mock_v2_daemon.py --port <port>`, load the fixture
+`test/e2e/fixtures/scripted_daemon/questions_overlay_partial_submit.json` through the scenario's
+`params`/`preflight`, boot a dedicated simulator with a Release embedded-bundle harness build
+(`EXPO_PUBLIC_HARNESS=1`, `EXPO_PUBLIC_PENTACLE_WS_URL` pointing at the mock daemon; a Debug build
+needs Metro), start a `test/e2e/harness/log_capture.LogStream`, and call the scenario's
+`run(config, stream, cap)` with `SIMULATOR_UDID`/`PENTACLE_TARGET_UDID`, `scenario_run_id`, `ws_url`.
+The recorded PASS (run `p4-003416`) used such a composed driver on a macOS host. Wiring `mock_*`
+scenarios into a checked-in runner is outside this packet.
