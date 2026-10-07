@@ -72,6 +72,28 @@ export function parseRouteDate(value: string | undefined | null): string | null 
   return value;
 }
 
+// ---- month paging -----------------------------------------------------------------------------
+
+export const MIN_MONTH = '2000-01';
+export const MAX_MONTH = '2100-12';
+
+/** `2026-10` + 1 → `2026-11`; clamped to MIN_MONTH … MAX_MONTH. */
+export function shiftMonth(month: string, n: number): string {
+  const [y, m] = month.split('-').map(Number);
+  const next = new Date(Date.UTC(y, m - 1 + n, 1)).toISOString().slice(0, 7);
+  return next < MIN_MONTH ? MIN_MONTH : next > MAX_MONTH ? MAX_MONTH : next;
+}
+
+/** The day selected after paging to `month`: today in today's month, otherwise the 1st. */
+export const selectionForMonth = (month: string, today: string): string =>
+  month === monthOf(today) ? today : dateIn(month, 1);
+
+/** New-event date field: `WED OCT 7`, with `, 2027` when the year is not today's. */
+export function dateFieldLabel(date: string, today: string): string {
+  const label = `${dowShort(date).toUpperCase()} ${monthName(date).slice(0, 3).toUpperCase()} ${dayOfMonth(date)}`;
+  return yearOf(date) === yearOf(today) ? label : `${label}, ${yearOf(date)}`;
+}
+
 // ---- items ------------------------------------------------------------------------------------
 
 const PRIORITY_RANK = { hi: 0, med: 1, lo: 2 } as const;

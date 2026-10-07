@@ -27,12 +27,15 @@ export function Lamp({ size = 16, color = P.green }: { size?: number; color?: st
 export function TabHeader({
   title,
   sub,
+  subAction,
   right,
   onBack,
   top,
 }: {
   title: string;
   sub?: string;
+  /** A green tappable suffix on the sub-label (`2026 · BACK TO TODAY`). */
+  subAction?: { label: string; onPress: () => void; testID?: string };
   right?: React.ReactNode;
   onBack?: () => void;
   top: number;
@@ -45,7 +48,16 @@ export function TabHeader({
         </Pressable>
       ) : null}
       <View style={styles.headerText}>
-        {sub ? <Text style={styles.sub}>{sub}</Text> : null}
+        {sub && subAction ? (
+          <Pressable testID={subAction.testID} accessibilityRole="button" onPress={subAction.onPress} hitSlop={6}>
+            <Text style={styles.sub}>
+              {`${sub} · `}
+              <Text style={{ color: P.green }}>{subAction.label}</Text>
+            </Text>
+          </Pressable>
+        ) : sub ? (
+          <Text style={styles.sub}>{sub}</Text>
+        ) : null}
         <Text style={styles.title}>{title}</Text>
       </View>
       {right}

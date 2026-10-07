@@ -343,3 +343,25 @@ describe('device timezone independence (Chicago days come from the snapshot, nev
     expect(baseline.header).toBe('TUE · OCTOBER 6');
   });
 });
+
+describe('month paging helpers', () => {
+  it('shiftMonth crosses year boundaries and clamps to 2000-01 … 2100-12', () => {
+    expect(sel().shiftMonth('2026-10', 1)).toBe('2026-11');
+    expect(sel().shiftMonth('2026-12', 1)).toBe('2027-01');
+    expect(sel().shiftMonth('2026-01', -1)).toBe('2025-12');
+    expect(sel().shiftMonth('2000-01', -1)).toBe('2000-01');
+    expect(sel().shiftMonth('2100-12', 1)).toBe('2100-12');
+  });
+
+  it('selectionForMonth picks today in today’s month and the 1st elsewhere', () => {
+    expect(sel().selectionForMonth('2026-10', '2026-10-06')).toBe('2026-10-06');
+    expect(sel().selectionForMonth('2026-11', '2026-10-06')).toBe('2026-11-01');
+    expect(sel().selectionForMonth('2025-10', '2026-10-06')).toBe('2025-10-01');
+  });
+
+  it('dateFieldLabel reads DOW MON D and appends the year only when it differs from today’s', () => {
+    expect(sel().dateFieldLabel('2026-10-06', '2026-10-06')).toBe('TUE OCT 6');
+    expect(sel().dateFieldLabel('2026-11-20', '2026-10-06')).toBe('FRI NOV 20');
+    expect(sel().dateFieldLabel('2027-01-05', '2026-10-06')).toBe('TUE JAN 5, 2027');
+  });
+});

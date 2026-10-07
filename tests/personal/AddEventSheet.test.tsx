@@ -27,8 +27,6 @@ const save = () => screen.getByTestId('event-sheet-save');
 const type = (el: ReturnType<typeof title>, text: string) => fireEvent.changeText(el, text);
 const togglePartner = () => fireEvent.press(screen.getByTestId('event-sheet-who-partner'));
 const toggleMe = () => fireEvent.press(screen.getByTestId('event-sheet-who-me'));
-const stepForward = () => fireEvent.press(screen.getByText('›'));
-const stepBack = () => fireEvent.press(screen.getAllByText('‹').slice(-1)[0]); // the sheet's, after the header chevron
 
 describe('AddEventSheet layout and defaults', () => {
   it('has Cancel / New event / Save, a full-width title with the spec placeholder, blank time and Me selected', async () => {
@@ -41,7 +39,7 @@ describe('AddEventSheet layout and defaults', () => {
     expect(screen.getByText('TITLE')).toBeTruthy();
     expect(screen.getByText('DATE')).toBeTruthy();
     expect(screen.getByText('TIME')).toBeTruthy();
-    expect(screen.getByText('Tue 6')).toBeTruthy(); // defaults to the selected day
+    expect(textOf(screen.getByTestId('event-sheet-date'))).toContain('TUE OCT 6'); // defaults to the selected day
     expect(screen.queryByTestId('event-sheet-private-note')).toBeNull();
   });
 
@@ -162,37 +160,65 @@ describe('AddEventSheet WHO toggles and the private note', () => {
   });
 });
 
-describe('AddEventSheet date stepper (clamped to the shown month)', () => {
-  it('steps forward and the saved date follows', async () => {
+describe('AddEventSheet date picker (mini month calendar)', () => {
+  const dateField = () => screen.getByTestId('event-sheet-date');
+  const openPicker = () => fireEvent.press(dateField());
+  const day = (date: string) => screen.getByTestId(`mini-calendar-day-${date}`);
+
+  it('shows DOW MON D and opens an inline month calendar on the selected day, with today and the pick marked', async () => {
     await openSheet();
-    stepForward();
-    expect(screen.getByText('Wed 7')).toBeTruthy();
+    expect(textOf(dateField())).toContain('TUE OCT 6');
+    expect(screen.queryByTestId('mini-calendar')).toBeNull();
+    openPicker();
+    expect(screen.getByTestId('mini-calendar-title').props.children).toBe('October 2026');
+    expect(day('2026-10-06').props.accessibilityState).toEqual({ selected: true });
+    expect(screen.queryByTestId('mini-calendar-day-2026-11-01')).toBeNull();
+  });
+
+  it('tapping a day sets the date and closes the picker; the saved date follows', async () => {
+    await openSheet();
+    openPicker();
+    fireEvent.press(day('2026-10-09'));
+    expect(screen.queryByTestId('mini-calendar')).toBeNull();
+    expect(textOf(dateField())).toContain('FRI OCT 9');
     type(title(), 'Probe');
     fireEvent.press(save());
     await flush();
-    expect(callsOf('household.event.add')[0].fields.date).toBe('2026-10-07');
+    expect(callsOf('household.event.add')[0].fields.date).toBe('2026-10-09');
   });
 
-  it('clamps at the last day of the month', async () => {
-    await mount('CalendarView', { date: '2026-10-30' });
-    fireEvent.press(screen.getByTestId('calendar-new-event'));
+  it('pages to another month without fetching, and a pick there is saved in that month', async () => {
+    await openSheet();
+    openPicker();
+    const fetched = callsOf('household.snapshot').length;
+    fireEvent.press(screen.getByTestId('mini-calendar-next'));
+    fireEvent.press(screen.getByTestId('mini-calendar-next'));
+    expect(screen.getByTestId('mini-calendar-title').props.children).toBe('December 2026');
+    fireEvent.press(screen.getByTestId('mini-calendar-prev'));
+    expect(screen.getByTestId('mini-calendar-title').props.children).toBe('November 2026');
+    expect(callsOf('household.snapshot')).toHaveLength(fetched);
+    fireEvent.press(day('2026-11-20'));
+    expect(textOf(dateField())).toContain('FRI NOV 20');
+    type(title(), 'Probe');
+    fireEvent.press(save());
     await flush();
-    expect(screen.getByText('Fri 30')).toBeTruthy();
-    stepForward();
-    expect(screen.getByText('Sat 31')).toBeTruthy();
-    stepForward();
-    expect(screen.getByText('Sat 31')).toBeTruthy();
+    expect(callsOf('household.event.add')[0].fields.date).toBe('2026-11-20');
   });
 
-  it('clamps at the first day of the month', async () => {
-    await mount('CalendarView', { date: '2026-10-02' });
-    fireEvent.press(screen.getByTestId('calendar-new-event'));
-    await flush();
-    expect(screen.getByText('Fri 2')).toBeTruthy();
-    stepBack();
-    expect(screen.getByText('Thu 1')).toBeTruthy();
-    stepBack();
-    expect(screen.getByText('Thu 1')).toBeTruthy();
+  it('appends the year when it is not the current year', async () => {
+    await openSheet();
+    openPicker();
+    for (let i = 0; i < 3; i += 1) fireEvent.press(screen.getByTestId('mini-calendar-next'));
+    fireEvent.press(day('2027-01-05'));
+    expect(textOf(dateField())).toContain('TUE JAN 5, 2027');
+  });
+
+  it('pressing the field again closes the picker without changing the date', async () => {
+    await openSheet();
+    openPicker();
+    openPicker();
+    expect(screen.queryByTestId('mini-calendar')).toBeNull();
+    expect(textOf(dateField())).toContain('TUE OCT 6');
   });
 
   it('opens on the day selected in the calendar', async () => {
@@ -201,7 +227,7 @@ describe('AddEventSheet date stepper (clamped to the shown month)', () => {
     await flush();
     fireEvent.press(screen.getByTestId('calendar-new-event'));
     await flush();
-    expect(screen.getByText('Thu 8')).toBeTruthy();
+    expect(textOf(dateField())).toContain('THU OCT 8');
   });
 });
 
