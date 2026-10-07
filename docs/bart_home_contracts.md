@@ -1,6 +1,6 @@
 # Bart-first home: frozen shared contracts
 
-Contract version: **v1.3 (2026-10-07)** — v1.1 corrected § Answering questions and named the S1/S2 exports; v1.2 added § Household RPC (S4); v1.3 drops partially answered durable items from the pending count. Design original: `design_handoff_bart_home/README.md`
+Contract version: **v1.4 (2026-10-07)** — v1.1 corrected § Answering questions and named the S1/S2 exports; v1.2 added § Household RPC (S4); v1.3 drops partially answered durable items from the pending count. Design original: `design_handoff_bart_home/README.md`; v1.4 also drops items the notification itself marks answered.
 (Pentacle-Mobile.zip sha256 `5ce4da05…`). Changing anything below is a contract change: the
 integration owner publishes a new version here and tells every packet lead before code relies on it.
 
@@ -66,8 +66,12 @@ selectSmartChatList(state).reduce((sum, chat) => sum + chat.openQuestions.reduce
 Then subtract each durable item whose `{ notificationId, questionId }` is in
 `selectOptimisticQuestionAnswerIdentities(state)` (`src/services/pentacleStream.ts`): the Chats index
 hides a notification only once all of its items are covered, so without this a partial submit would
-re-show the sent item. Single-item and legacy questions count as before. In short: value = deck
-length = the reduce above minus durable items covered by an optimistic answer.
+re-show the sent item. Also subtract each durable item the notification itself marks answered:
+its raw entry in `notification.question.questions[i]` has a `state` present and not `'open'`, or a
+non-null `answer`. That covers the window after the daemon acknowledges a partial answer and the
+optimistic identity clears while the notification is still open. Single-item and legacy questions
+count as before. In short: value = deck length = the reduce above − durable items covered by
+`selectOptimisticQuestionAnswerIdentities` − durable items the notification marks answered.
 
 Sources: every chat in `selectSmartChatList(state)` including `BART_STREAM_ID` (Bart's own
 questions are part of the deck). P4 exports the deck selector it renders from; the count selector
