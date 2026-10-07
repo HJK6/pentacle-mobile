@@ -31,7 +31,7 @@ A durable item is dropped when
   and not `open`, or a non-null `answer` (the window after a partial answer is acknowledged and the
   optimistic identity clears while the notification stays open).
 
-`selectPendingQuestionCount(state)` is `selectQuestionDeck(state).length`, which is the v1.4 count
+`selectPendingQuestionCount(state)` is `selectQuestionDeck(state).length`, which is the contracts v1.5 count (rule unchanged since v1.4)
 formula in the contracts. Both are pure functions of state. The deck keeps its array reference while
 its content is unchanged (the Chats list rebuilds rows, and legacy actions, on every call), so it is a
 safe store selector. Opening, closing or paging never changes the count.
