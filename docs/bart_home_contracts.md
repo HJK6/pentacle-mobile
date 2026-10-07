@@ -1,6 +1,6 @@
 # Bart-first home: frozen shared contracts
 
-Contract version: **v1.5 (2026-10-07)** — v1.1 corrected § Answering questions and named the S1/S2 exports; v1.2 added § Household RPC (S4); v1.3 drops partially answered durable items from the pending count; v1.4 also drops items the notification itself marks answered; v1.5 lands the initial pending-count selector, the shared new-session flow and the new tab telemetry names (S6).
+Contract version: **v1.6 (2026-10-07)** — v1.1 corrected § Answering questions and named the S1/S2 exports; v1.2 added § Household RPC (S4); v1.3 drops partially answered durable items from the pending count; v1.4 also drops items the notification itself marks answered; v1.5 lands the initial pending-count selector, the shared new-session flow and the new tab telemetry names (S6); v1.6 makes the assistant's name and icon follow the operator's customization (S7).
 Design original: `design_handoff_bart_home/README.md`
 (Pentacle-Mobile.zip sha256 `5ce4da05…`). Changing anything below is a contract change: the
 integration owner publishes a new version here and tells every packet lead before code relies on it.
@@ -17,6 +17,32 @@ integration owner publishes a new version here and tells every packet lead befor
 `src/components/status/*` (PR #8) is locked; it is not edited by any packet. A packet that needs a
 change outside its files asks the integration owner, who lands it on `feat/integration-shared`
 (smallest change, with a test) and merges it to `main` before the packet rebases onto it.
+
+## Assistant identity (operator requirement)
+
+The home tab, its header and the status surface show the operator's own assistant, as Pentacle
+web does (`renderer/app.js` `syncSlotAssistantIcon`). Never hard-code a product name in a visible
+string; `tests/assistantIdentity.test.ts` parses `app/` and
+`src/components/{bart,status,questions,personal}` and fails on any visible assistant product-name literal
+(`Bart`, `BART` or the long form, in string, template or JSX text; lowercase route, telemetry and module
+ids such as `'bart'`, the protocol id `bart:assistant` and `testID` values are not visible text). Until P3
+merges it also exempts `app/(tabs)/_layout.tsx` (see Consumers below).
+
+`src/services/assistantIdentity.ts` (shared edit S7):
+
+- `selectAssistantIdentity(state): { streamId, name, hostId, sigilKind }` — `streamId` is
+  `ASSISTANT_STREAM_ID` (`'bart:assistant'`, equal to `BART_STREAM_ID`); `name` is the assistant
+  session's `display_name`, else its `title`, else `'Assistant'` (blank values skipped); `hostId` is
+  the session's host (`null` before the session arrives); `sigilKind` is `'djinni'`. Draw the icon as
+  that host's machine sigil with kind `djinni` (`ArcaneRingFrame` with the host's machine name).
+- `useAssistantIdentity()` subscribes with field equality, so a renamed session re-renders only
+  the consumers.
+
+Consumers: the status surface header (`StatusSurface.tsx`, the one sanctioned edit; props
+unchanged) and, from P3, the home tab and its header. P3 owns the `app/(tabs)/_layout.tsx` rewrite
+and uses this hook for the home header (name, sigil). Right after P3 merges, the integration owner
+sets the home tab's title to `name` and its label to `name` upper-cased, and removes the
+`_layout.tsx` exemption from the literal scan. Labels such as "Questions" stay generic.
 
 ## Shared constants
 

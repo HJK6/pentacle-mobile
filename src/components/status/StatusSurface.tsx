@@ -8,6 +8,8 @@ import StatusTag from '../StatusTag';
 import { CardStatusMini } from '../SessionStatusCard';
 import { formatLaneEta } from '../../services/laneEta';
 import type { StatusLane } from './statusSelectors';
+import { useAssistantIdentity } from '../../services/assistantIdentity';
+import { getHostMachineName } from '../../config/local';
 
 function PulseDot() {
   const opacity = useRef(new Animated.Value(1)).current;
@@ -72,12 +74,14 @@ type Props = {
 };
 
 export default function StatusSurface({ updates, lanes, working, now, top, bottom, loading, error, showLog, onShowLog, onOpen, onLoadEarlier }: Props) {
+  const assistant = useAssistantIdentity();
   const latest = updates[0];
   const empty = <Text style={styles.empty}>{error ? 'Updates unavailable' : loading ? 'Loading updates…' : 'No status updates yet'}</Text>;
   return <>
     <View style={[styles.header, { paddingTop: top }]}>
-      <ArcaneRingFrame identity kind="djinni" size={38} sigilSize={26} />
-      <View style={styles.copy}><Text style={styles.name}>Bart</Text>
+      <ArcaneRingFrame identity kind={assistant.sigilKind} size={38} sigilSize={26}
+        machine={assistant.hostId ? getHostMachineName(assistant.hostId) : undefined} />
+      <View style={styles.copy}><Text testID="status-assistant-name" style={styles.name}>{assistant.name}</Text>
         <View style={styles.inline}><View testID="bart-status-tag" style={styles.inline}>
           <StatusTag status={working ? 'working' : 'idle'} />
           <Text style={[styles.status, { color: working ? Tokens.palette.green : Tokens.palette.amber }]}>{working ? 'WORKING' : 'IDLE'}</Text>

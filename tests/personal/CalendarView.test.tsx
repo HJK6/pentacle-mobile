@@ -92,12 +92,12 @@ describe('CalendarView agenda', () => {
     expectRow(1, 'Standup with design review', '9:30a', 'ME');
     expectRow(2, 'Vet — Pine St clinic', '2:30p', 'ME + SAM · PRIVATE');
     expectRow(3, 'TestFlight cutoff', '6:00p', 'ME');
-    // 'ADDED BY BART' only where created_by === 'bart'
-    expect(screen.getAllByText(/ADDED BY BART/)).toHaveLength(2);
-    expect(within(agendaRow('Vet')).getByText(/ADDED BY BART/)).toBeTruthy();
-    expect(within(agendaRow('TestFlight')).getByText(/ADDED BY BART/)).toBeTruthy();
-    expect(within(agendaRow('Trash day')).queryByText(/ADDED BY BART/)).toBeNull();
-    expect(within(agendaRow('Standup')).queryByText(/ADDED BY BART/)).toBeNull();
+    // 'ADDED BY <assistant name>' only where created_by === 'bart'
+    expect(screen.getAllByText(/ADDED BY ASSISTANT/)).toHaveLength(2);
+    expect(within(agendaRow('Vet')).getByText(/ADDED BY ASSISTANT/)).toBeTruthy();
+    expect(within(agendaRow('TestFlight')).getByText(/ADDED BY ASSISTANT/)).toBeTruthy();
+    expect(within(agendaRow('Trash day')).queryByText(/ADDED BY ASSISTANT/)).toBeNull();
+    expect(within(agendaRow('Standup')).queryByText(/ADDED BY ASSISTANT/)).toBeNull();
   });
 
   it("tapping another day shows that day without ' · TODAY' and a singular/plural event count", async () => {

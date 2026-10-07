@@ -98,6 +98,27 @@ beforeEach(() => {
 
 afterEach(() => resetChatOpenNavigationIntents());
 
+test('the status surface header follows the assistant session name', async () => {
+  mockState.sessions = [session(BART, { display_name: 'Lews' })];
+  render(<UpdatesScreen />);
+  await act(async () => {});
+  expect(screen.getByTestId('status-assistant-name').props.children).toBe('Lews');
+});
+
+test('the status surface lamp takes the assistant host machine and follows a host change', async () => {
+  const { getHostMachineName } = require('../../../src/config/local');
+  // The header lamp is the identity ring (ArcaneRingFrame is memo-wrapped, so match its props).
+  const ring = (view: ReturnType<typeof render>) =>
+    view.UNSAFE_root.findAll((node) => node.props.identity === true && node.props.kind === 'djinni')[0];
+  mockState.sessions = [session(BART, { host: 'hostc' })];
+  const view = render(<UpdatesScreen />);
+  await act(async () => {});
+  expect(ring(view).props).toMatchObject({ identity: true, kind: 'djinni', machine: getHostMachineName('hostc') });
+  mockState = { ...mockState, sessions: [session(BART, { host: 'hostb' })] };
+  view.rerender(<UpdatesScreen />);
+  expect(ring(view).props.machine).toBe(getHostMachineName('hostb'));
+});
+
 test('selects only assistant-stream status publications and renders the latest loaded count', async () => {
   mockState.events = [
     event(30, 'Latest synthetic status'), event(10, 'First synthetic status'),
@@ -109,7 +130,7 @@ test('selects only assistant-stream status publications and renders the latest l
   expect(selectStatusUpdates(mockState).map((row) => row.daemon_seq)).toEqual([30, 20, 10]);
   render(<UpdatesScreen />);
   await act(async () => {});
-  expect(screen.getByText('Bart')).toBeTruthy();
+  expect(screen.getByTestId('status-assistant-name').props.children).toBe('Assistant');
   expect(screen.getByText('All updates · 3 ›')).toBeTruthy();
   expect(within(screen.getByTestId('latest-update')).getByText('Latest synthetic status')).toBeTruthy();
   expect(screen.queryByText('Middle synthetic status')).toBeNull();

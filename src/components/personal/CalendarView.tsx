@@ -11,11 +11,13 @@ import {
   parseRouteDate, partnerName, weekdayIndex, whoDisplay, yearOf,
 } from '../../services/household/selectors';
 import AddEventSheet from './AddEventSheet';
+import { useAssistantIdentity } from '../../services/assistantIdentity';
 import { Lamp, P, ROW_LINE, StatusLines, TabHeader, WhoBar, styles as base, useHouseholdRefresh } from './parts';
 
 const WEEKDAYS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
 
 export default function CalendarView({ date }: { date?: string }) {
+  const assistant = useAssistantIdentity();
   const insets = useSafeAreaInsets();
   const { snapshot, hiddenEvents, removeEvent } = useHouseholdStore();
   const routeDate = parseRouteDate(date);
@@ -150,7 +152,7 @@ export default function CalendarView({ date }: { date?: string }) {
                     <View style={styles.bart}>
                       <Text style={[styles.metaText, styles.bartText]}>·</Text>
                       <Lamp size={12} />
-                      <Text style={[styles.metaText, styles.bartText]}>ADDED BY BART</Text>
+                      <Text style={[styles.metaText, styles.bartText]}>ADDED BY {assistant.name.toUpperCase()}</Text>
                     </View>
                   ) : null}
                 </View>
