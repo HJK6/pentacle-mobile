@@ -25,3 +25,17 @@ test('empty state and Bart-only questions have zero other sessions needing atten
   expect(selectOthersNeedingYou(bartState())).toEqual([]);
   expect(selectOthersNeedingYou({ ...bartState(), sessions: [bartSession(BART_STREAM_ID)], notifications: [bartQuestion(BART_STREAM_ID, 2)] })).toEqual([]);
 });
+
+test('drawer groups preserve Chats ordering, attention wins, and Bart is never listed', () => {
+  const { selectDrawerGroups } = require('../../../src/components/bart/bartSelectors');
+  const state = { ...bartState(), sessions: [bartSession(BART_STREAM_ID, { working: true }),
+    bartSession('hostc:claude:working', { working: true }), bartSession('hostc:claude:idle'),
+    bartSession('hostc:claude:working-needs', { working: true }), bartSession('hostc:claude:needs')],
+    notifications: [bartQuestion(BART_STREAM_ID), bartQuestion('hostc:claude:working-needs'), bartQuestion('hostc:claude:needs')] };
+  const chats = selectSmartChatList(state).filter((chat) => chat.streamId !== BART_STREAM_ID);
+  const groups = selectDrawerGroups(state);
+  expect(groups.map((group: any) => [group.title, group.chats.length])).toEqual([['NEEDS YOU', 2], ['WORKING', 1], ['IDLE', 1]]);
+  expect(groups[0].chats).toEqual(selectOthersNeedingYou(state));
+  expect(groups[1].chats).toEqual(chats.filter((chat) => !smartChatAttention(chat) && chat.status === 'working'));
+  expect(groups[2].chats).toEqual(chats.filter((chat) => !smartChatAttention(chat) && chat.status !== 'working'));
+});

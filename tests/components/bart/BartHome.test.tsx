@@ -1,5 +1,8 @@
 // Bart home mount contract (docs/bart_home_contracts.md): the session screen embeds with a caller header.
 import React from 'react';
+import { Modal } from 'react-native';
+import ChatsDrawer from '../../../src/components/bart/ChatsDrawer';
+import SummonModal from '../../../src/components/SummonModal';
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import BartScreen from '../../../app/(tabs)/bart';
 import { BART_STREAM_ID } from '../../../src/components/status/statusSelectors';
@@ -18,6 +21,7 @@ let mockParams: Record<string, unknown> = { streamId: encodeURIComponent(STREAM_
 let mockState: PentacleStreamState;
 
 const mockActions = {
+  getSpawnCatalog: jest.fn(), spawnSessionV2: jest.fn(),
   sendMessage: jest.fn(),
   sendTurn: jest.fn(),
   enqueueTurn: jest.fn(() => 'optimistic_queued_1'),
@@ -129,6 +133,10 @@ beforeEach(() => {
   (usePentacleStreamActions as jest.Mock).mockReturnValue(mockActions);
   (usePentacleStreamSelectorWhen as jest.Mock).mockImplementation((_enabled, selector) => selector(mockState));
   (useUserPreference as jest.Mock).mockImplementation(() => [false, jest.fn()]);
+  mockActions.getSpawnCatalog.mockResolvedValue({ schema_version: 'CatalogV1', catalog_version: 'synthetic-catalog',
+    profiles: { desktop_manual: { claude: ['sample-claude', 'high'], codex: ['sample-codex', 'high'] } },
+    models: { claude: { 'sample-claude': { aliases: [], efforts: ['high'] } }, codex: { 'sample-codex': { aliases: [], efforts: ['high'] } } } });
+  mockActions.spawnSessionV2.mockResolvedValue({ session: { stream_id: 'hostc:claude:created' } });
   mockActions.sendMessage.mockResolvedValue(true);
   mockActions.sendTurn.mockReturnValue('optimistic_test_1');
 });
@@ -216,6 +224,84 @@ test('both badges derive from real fixture state, include Bart deck pages, and r
   expect(screen.queryByTestId('bart-questions-badge')).toBeNull();
 });
 
+
+test('drawer rows open once and immediate return permits opening the same row again', async () => {
+  const other = 'hostc:claude:sample';
+  mockState = { ...mockState, sessions: [session(), bartSession(other)], notifications: [bartQuestion(other)] };
+  const view = render(<BartScreen />);
+  await act(async () => {});
+  for (let cycle = 0; cycle < 2; cycle += 1) {
+    fireEvent.press(screen.getByLabelText('Sessions, 1 need you'));
+    const row = screen.getByTestId(`bart-drawer-row-${other}`);
+    fireEvent.press(row);
+    fireEvent.press(row);
+    expect(expoRouter.useRouter().push).toHaveBeenCalledTimes(cycle + 1);
+    mockIsFocused = false;
+    view.rerender(<BartScreen />);
+    mockIsFocused = true;
+    view.rerender(<BartScreen />);
+    expect(screen.getByLabelText('Sessions, 1 need you')).toBeTruthy();
+  }
+});
+
+test('drawer + uses the real shared flow once after dismissal, filters identity hosts, and routes the spawn', async () => {
+  mockState = { ...mockState, hosts: {
+    hostc: { host: 'hostc', online: true, checked_at: '', session_count: 0 },
+    hostb: { host: 'hostb', online: false, checked_at: '', session_count: 0 },
+    bart: { host: 'bart', online: true, checked_at: '', session_count: 0 },
+  } };
+  const view = render(<BartScreen />);
+  await act(async () => {});
+  expect(view.UNSAFE_getAllByType(SummonModal)).toHaveLength(1);
+  fireEvent.press(screen.getByLabelText('Sessions, 0 need you'));
+  fireEvent.press(screen.getByLabelText('New session'));
+  fireEvent.press(screen.getByLabelText('New session'));
+  expect(mockActions.getSpawnCatalog).not.toHaveBeenCalled();
+  expect(view.UNSAFE_getByType(ChatsDrawer).props.open).toBe(false);
+  act(() => jest.advanceTimersByTime(400));
+  const drawerModal = view.UNSAFE_getAllByType(Modal).find((modal) => modal.props.onDismiss)!;
+  await act(async () => drawerModal.props.onDismiss());
+  expect(mockActions.getSpawnCatalog).toHaveBeenCalledTimes(1);
+  expect(screen.queryByTestId('summon-machine-bart')).toBeNull();
+  expect(screen.getByTestId('summon-machine-hostb')).toBeDisabled();
+  fireEvent.press(screen.getByTestId('summon-machine-hostc'));
+  await act(async () => {});
+  expect(screen.getByTestId('summon-submit')).not.toBeDisabled();
+  await act(async () => {
+    fireEvent.press(screen.getByTestId('summon-submit'));
+    fireEvent.press(screen.getByTestId('summon-submit'));
+  });
+  expect(mockActions.spawnSessionV2).toHaveBeenCalledTimes(1);
+  expect(expoRouter.useRouter().push).toHaveBeenCalledTimes(1);
+  expect(expoRouter.useRouter().push).toHaveBeenCalledWith('/pentacle/session/hostc%3Aclaude%3Acreated');
+});
+
+test('failed Questions router dispatch can be retried', async () => {
+  render(<BartScreen />);
+  await act(async () => {});
+  const router = expoRouter.useRouter();
+  router.push.mockImplementationOnce(() => { throw new Error('Synthetic router unavailable'); });
+  fireEvent.press(screen.getByLabelText('Questions, 0 pending'));
+  fireEvent.press(screen.getByLabelText('Questions, 0 pending'));
+  expect(router.push).toHaveBeenCalledTimes(2);
+});
+
+test('newer navigation cancels a queued drawer-to-summon transition', async () => {
+  mockState = { ...mockState, hosts: { hostc: { host: 'hostc', online: true, checked_at: '', session_count: 0 } } };
+  const view = render(<BartScreen />);
+  await act(async () => {});
+  fireEvent.press(screen.getByLabelText('Sessions, 0 need you'));
+  fireEvent.press(screen.getByLabelText('New session'));
+  const dismiss = view.UNSAFE_getAllByType(Modal).find((modal) => modal.props.onDismiss)!.props.onDismiss;
+  mockIsFocused = false;
+  view.rerender(<BartScreen />);
+  await act(async () => { jest.advanceTimersByTime(400); dismiss(); });
+  expect(mockActions.getSpawnCatalog).not.toHaveBeenCalled();
+  expect(screen.queryByTestId('summon-machine-hostc')).toBeNull();
+  mockIsFocused = true;
+  view.rerender(<BartScreen />);
+  expect(screen.queryByTestId('summon-machine-hostc')).toBeNull();
+});
 
 test('live assistant name and host changes update the header through the single identity adapter', async () => {
   const view = render(<BartScreen />);
