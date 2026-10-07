@@ -1,6 +1,6 @@
 # Bart-first home: frozen shared contracts
 
-Contract version: **v1 (2026-10-07)**. Design original: `design_handoff_bart_home/README.md`
+Contract version: **v1.1 (2026-10-07)** — v1.1 corrects § Answering questions and names the S1/S2 exports. Design original: `design_handoff_bart_home/README.md`
 (Pentacle-Mobile.zip sha256 `5ce4da05…`). Changing anything below is a contract change: the
 integration owner publishes a new version here and tells every packet lead before code relies on it.
 
@@ -24,8 +24,9 @@ change outside its files asks the integration owner, who lands it on `feat/integ
 
 ## Routes
 
-Root stack entries for these routes are registered in `app/_layout.tsx` by the integration owner
-(`headerShown: false`). Packets only create the route files.
+The root stack already defaults to `headerShown: false` (`app/_layout.tsx`), so new route files need
+no shared edit to register. A route sets its own presentation (e.g. the Questions overlay's
+`<Stack.Screen options={{ presentation: 'transparentModal', animation: 'fade' }} />`) inside its file.
 
 | Route | File (owner) | Params | Behaviour |
 | --- | --- | --- | --- |
@@ -57,8 +58,9 @@ selectSmartChatList(state).reduce((sum, chat) => sum + chat.openQuestions.reduce
   (n, action) => n + mobileQuestionItems(questionForAction(action)).length, 0), 0)
 ```
 
-`questionForAction` is exported from `app/(tabs)/chats.tsx` by the integration owner (shared edit
-S1); `mobileQuestionItems` comes from `src/components/MobileQuestions.tsx`.
+`questionForAction` and the `SmartQuestionAction` / `QuestionSubmission` types live in
+`src/services/questionSubmit.ts` (shared edit S2); `mobileQuestionItems` comes from
+`src/components/MobileQuestions.tsx`.
 
 Sources: every chat in `selectSmartChatList(state)` including `BART_STREAM_ID` (Bart's own
 questions are part of the deck). P4 exports the deck selector it renders from; the count selector
@@ -96,7 +98,8 @@ change is an integration request, not a packet edit.
 ## Bart home mounts the session screen
 
 The Bart tab renders the same session screen as every other chat for `BART_STREAM_ID`. The
-integration owner exports a named component from `app/pentacle/session/[streamId].tsx`:
+integration owner exports a named component from `app/pentacle/session/[streamId].tsx` (shared
+edit S1):
 
 ```ts
 export function SessionScreen(props: {
@@ -107,17 +110,30 @@ export function SessionScreen(props: {
 }): JSX.Element
 ```
 
-The route's default export becomes `SessionScreen` fed by `useLocalSearchParams`; behaviour of the
-session route is unchanged when `header` is absent. `app/(tabs)/bart.tsx` renders
+The route's default export renders `SessionScreen` fed by `useLocalSearchParams`; behaviour of the
+session route is unchanged when `header` is absent. With a `header` the screen is embedded: no stack
+options, no back/menu header, and no redirect away when the session is missing. The session's own
+back button still returns to the Chats route until P3 lands; moving the app's home destination
+(`app/index.tsx`, the session back/redirect target, the push-tap target) to the Bart tab is shared
+edit S3, merged together with P3. `app/(tabs)/bart.tsx` renders
 `<SessionScreen streamId={BART_STREAM_ID} header={<BartHeader … />} />`. P3 does not fork or copy
 the session screen.
 
 ## Answering questions
 
-P4 answers through the existing services only: durable questions via `resolveNotification` and
-legacy session questions via `answerDaemonPrompt` (`src/services/pentacleStream.ts`), so the
-optimistic-answer projection and reconnect replay keep working. A partial submit sends only the
-answered items. New RPC verbs or types (e.g. P6's voice binding) are integration requests.
+P4 answers each action exactly as the Chats row does, by calling
+`submitQuestionSubmission(actions, streamId, submission, hooks?)` from `src/services/questionSubmit.ts`
+(shared edit S2; `actions` = `usePentacleStreamActions()`):
+
+- a durable item is one `prompt.answer` frame (`actions.answerPrompt`) behind an optimistic answer
+  (`beginOptimisticQuestionAnswer` → `queueOptimisticQuestionAnswer`, discarded on failure);
+- a legacy keyed question is one unit: `dismissQuestion` by key, then one `sendMessage` with the
+  formatted answer text.
+
+A partial submit sends one submission per answered durable item; a legacy action is submittable
+only when all of its items are answered. The function throws on the first failure that is not
+recoverable from the transcript. New RPC verbs or types (e.g. P6's voice binding) are integration
+requests.
 
 ## Assembled-home check
 

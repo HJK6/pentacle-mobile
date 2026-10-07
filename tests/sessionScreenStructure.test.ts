@@ -60,9 +60,9 @@ function findFunctionBody(source: string, functionSignature: string): string {
   throw new Error(`unterminated function body: ${functionSignature}`);
 }
 
-test('PentacleSessionScreen parent body does not call useTicker', () => {
+test('SessionScreen parent body does not call useTicker', () => {
   const source = readFileSync(resolve('app/pentacle/session/[streamId].tsx'), 'utf8');
-  const body = findFunctionBody(source, 'export default function PentacleSessionScreen()');
+  const body = findFunctionBody(source, 'export function SessionScreen(props: SessionScreenProps)');
 
   expect(body.includes('useTicker(')).toBe(false);
 });
