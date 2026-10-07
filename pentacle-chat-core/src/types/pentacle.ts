@@ -185,6 +185,8 @@ export interface PentacleSpecStatusCapability {
 // (public-session-status-card). The daemon stamps updated_at
 // on every successful write; all other fields are optional partial state.
 export interface SessionStatusCard {
+  eta_at?: string | null;
+  eta_set_at?: string | null;
   goal?: string;
   plan?: SessionStatusCardStep[];
   update?: string;
@@ -236,6 +238,8 @@ export interface PentacleSessionSummary {
   pending: boolean;
   working: boolean;
   working_label?: string;
+  eta_at?: string | null;
+  eta_set_at?: string | null;
   // Canonical daemon lifecycle for newly admitted sessions. Older daemons and
   // legacy rows may omit it or project a non-modern compatibility value.
   bootstrap_state?: 'queued' | 'starting' | 'ready' | 'failed' | string | null;

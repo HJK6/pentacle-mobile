@@ -38,7 +38,6 @@ import {
   mobileQuestionItems,
   QuestionCardSurface,
   useMobileQuestionFlow,
-  type MobileQuestionAnswer,
   type MobileQuestionEntry,
 } from '../../src/components/MobileQuestions';
 import usePentacleToken from '../../src/hooks/usePentacleToken';
@@ -56,7 +55,6 @@ import {
   isDefaultVisibleSession,
 } from '../../src/services/sessionVisibility';
 import {
-  buildPentacleQuestionAnswerText,
   createChatListSelector,
   getPentacleSessionStatusLabel,
   logTelemetry,
@@ -69,7 +67,6 @@ import {
   type PentacleEvent,
   type PentacleMachineCard,
   type PentacleNotification,
-  type PentacleQuestion,
   type PentacleQuestionItem,
   type PentacleQuestionAnswerValue,
   type PentacleSessionSummary,
@@ -82,20 +79,21 @@ import { reportUnreadCount, useSessionReports } from '../../src/services/pentacl
 import { MOBILE_TELEMETRY_EVENTS } from '../../src/services/mobileTelemetryEvents';
 import { CHAT_ROW_SWIPE_OPEN_THRESHOLD } from '../../src/services/chatRowSwipeSettle';
 import { performChatOpenNavigation } from '../../src/services/chatOpenNavigation';
+import {
+  questionForAction,
+  submitQuestionSubmission,
+  type QuestionSubmission,
+  type SmartQuestionAction,
+} from '../../src/services/questionSubmit';
 import { resetChatOpenNavigationIntents } from '../../src/services/chatOpenNavigationIntent';
 import {
   agentQuestionSurfaceStreamId,
   agentQuestionMatchesSessionQuestion,
-  buildDurableQuestionResolution,
-  buildDurableQuestionAnswerText,
   durableQuestionCardModel,
-  durableQuestionDisplaySelections,
   fullyCoveredOptimisticQuestionNotificationIds,
   isAgentQuestionNotification,
   isOpenAgentQuestionNotification,
   terminalAgentQuestionMatchesSessionQuestion,
-  type DurableQuestionCardModel,
-  type DurableQuestionItemModel,
 } from '../../src/services/agentQuestionNotifications';
 
 export { isDefaultVisibleSession };
@@ -260,10 +258,6 @@ export function selectVisibleChatList(
   return synthesized.length ? [...rows, ...synthesized] : rows;
 }
 
-type SmartQuestionAction =
-  | { kind: 'durable'; id: string; model: DurableQuestionCardModel }
-  | { kind: 'legacy'; id: string; question: PentacleQuestion; host: string; sessionName: string };
-
 type StatusCardChatListItem = PentacleChatListItem & SessionStatusCardSource;
 type DeletableChatListItem = PentacleChatListItem & { pendingClose?: PendingSessionClose };
 
@@ -283,12 +277,6 @@ export type SmartChatListItem = StatusCardChatListItem & {
 const isAssistantRole = (session: Partial<SmartChatListItem>): boolean => session.isAssistantRole === true;
 
 const smartChatListCache = new Map<string, SmartChatListItem[]>();
-
-type QuestionSubmission = {
-  action: SmartQuestionAction;
-  answers: MobileQuestionAnswer[];
-  items?: DurableQuestionItemModel[];
-};
 
 function latestMessageOrder(left: PentacleEvent, right: PentacleEvent) {
   const rightTime = Date.parse(right.timestamp || '');
@@ -1038,90 +1026,18 @@ export default function ChatsScreen() {
     setQuestionSubmittingStreamIds((current) => new Set(current).add(chat.streamId));
     try {
       for (const submission of submissions) {
-        if (submission.action.kind === 'durable') {
-          const action = submission.action;
-          for (const [index, answer] of submission.answers.entries()) {
-            const item = submission.items?.[index] || action.model.items[index];
-            if (!item) throw new Error('Question is missing its durable resolver identity.');
-            const resolution = buildDurableQuestionResolution(action.model, item, answer);
-            const optimisticId = actions.beginOptimisticQuestionAnswer({
-              streamId: chat.streamId,
-              text: buildDurableQuestionAnswerText({
-                notificationId: resolution.notification_id,
-                actionKind: resolution.action_kind,
-                ...(item.questionId ? { questionId: item.questionId } : {}),
-                ...(resolution.text ? { text: resolution.text } : {}),
-                ...(resolution.selections ? { selections: durableQuestionDisplaySelections(item, answer) } : {}),
-                ...(resolution.custom_text ? { customText: resolution.custom_text } : {}),
-                ...(resolution.note ? { note: resolution.note } : {}),
-              }),
-              notificationId: resolution.notification_id,
-              ...(item.questionId ? { questionId: item.questionId } : {}),
-            });
-            if (!optimisticId) throw new Error('Question answer could not be queued. Try again.');
-            setQuestionRetryChats((prev) => ({ ...prev, [chat.streamId]: chat }));
-            try {
-              if (!item.questionId) throw new Error('Question is missing its durable prompt identity.');
-              await actions.answerPrompt({
-                questionId: item.questionId,
-                ...(resolution.selections ? { selections: resolution.selections } : {}),
-                ...(resolution.text || resolution.custom_text || resolution.note
-                  ? { text: resolution.text || resolution.custom_text || resolution.note }
-                  : {}),
-              });
-              actions.queueOptimisticQuestionAnswer(optimisticId);
-            } catch (error) {
-              actions.discardOptimisticQuestionAnswer(optimisticId);
-              if (String((error as { errorCode?: string })?.errorCode || '')) {
-                setQuestionRetryChats((prev) => {
-                  const next = { ...prev };
-                  delete next[chat.streamId];
-                  return next;
-                });
-              }
-              throw error;
-            }
-          }
-        } else {
-          const keyedQuestion = submission.action.question as PentacleQuestion & { question_key?: string; questionKey?: string };
-          const questionKey = String(keyedQuestion.question_key ?? keyedQuestion.questionKey ?? '');
-          if (!questionKey) throw new Error('Question is missing its server key.');
-          const answerText = buildPentacleQuestionAnswerText({
-            question: submission.action.question,
-            answers: submission.answers.map((answer) => (
-              answer.customText && answer.selectedOptionIndex === undefined && !answer.selectedOptionIndices?.length
-                ? { text: answer.customText }
-                : answer
-            )),
-          });
-          const optimisticId = actions.beginOptimisticQuestionAnswer({ streamId: chat.streamId, text: answerText });
-          if (!optimisticId) throw new Error('Question answer could not be queued. Try again.');
-          try {
-            await actions.dismissQuestion({
-              host: submission.action.host,
-              sessionName: submission.action.sessionName,
-              questionKey,
-            });
-          } catch (error) {
-            if (String((error as { errorCode?: string })?.errorCode || '') !== 'stale_question') {
-              actions.discardOptimisticQuestionAnswer(optimisticId);
-              throw error;
-            }
-          }
-          try {
-            await actions.sendMessage({
-              host: submission.action.host,
-              sessionName: submission.action.sessionName,
-              text: answerText,
-              optimisticId,
-            });
-          } catch {
-            setQuestionErrors((prev) => ({
-              ...prev,
-              [chat.streamId]: 'Answer could not be sent. Retry it from the chat transcript.',
-            }));
-          }
-        }
+        await submitQuestionSubmission(actions, chat.streamId, submission, {
+          onDurableAnswerQueued: () => setQuestionRetryChats((prev) => ({ ...prev, [chat.streamId]: chat })),
+          onDurableAnswerRejected: () => setQuestionRetryChats((prev) => {
+            const next = { ...prev };
+            delete next[chat.streamId];
+            return next;
+          }),
+          onLegacySendFailed: () => setQuestionErrors((prev) => ({
+            ...prev,
+            [chat.streamId]: 'Answer could not be sent. Retry it from the chat transcript.',
+          })),
+        });
       }
       setQuestionRetryChats((prev) => {
         if (!(chat.streamId in prev)) return prev;
@@ -1868,10 +1784,6 @@ const MutedProviderLabel = memo(function MutedProviderLabel({ provider }: { prov
     </View>
   );
 });
-
-function questionForAction(action: SmartQuestionAction) {
-  return action.kind === 'durable' ? action.model.question : action.question;
-}
 
 function QuestionPanel({
   chat,
