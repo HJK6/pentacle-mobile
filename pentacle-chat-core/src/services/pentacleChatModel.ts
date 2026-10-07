@@ -1738,6 +1738,7 @@ function buildSessionTranscriptRows(
   }
   const transcriptItems: PentacleTranscriptItem[] = [];
   let lastTimestampMinute = '';
+  const seenLaneUpdateKeys = new Set<string>();
 
   for (const item of visibleEvents) {
     const event = item.event;
@@ -1776,6 +1777,13 @@ function buildSessionTranscriptRows(
 
     const authoritativeSeq = authoritativeEventSeq(event);
     const laneUpdate = parseLaneUpdateEvent(event);
+    if (laneUpdate) {
+      // A re-published update keeps its message id across daemon sequences; the
+      // timeline shows each typed update once.
+      const laneUpdateKey = event.message_id || laneUpdate.update_id;
+      if (seenLaneUpdateKeys.has(laneUpdateKey)) continue;
+      seenLaneUpdateKeys.add(laneUpdateKey);
+    }
     const nextItem: PentacleTranscriptItem = {
       id: event.optimistic_id || (Number.isFinite(authoritativeSeq) ? String(authoritativeSeq) : String(event.daemon_seq)),
       timestampLabel,

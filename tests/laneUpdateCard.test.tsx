@@ -83,3 +83,12 @@ test('a card with a handler is a pressable button; without one it is not', () =>
   pressable.unmount();
   expect(render(<LaneUpdateCard update={update} />).queryByRole('button')).toBeNull();
 });
+
+test('a repeated lane_update with the same message_id on a different daemon_seq renders once', () => {
+  const original = events.find((event) => event.publish_kind === 'lane_update')!;
+  const repeat = { ...original, daemon_seq: 9000 } as PentacleEvent;
+  const detail = bartDetail([repeat]);
+  const cards = detail!.transcriptItems.filter((item) => item.laneUpdate?.update_id === (original.raw as any).lane_update.update_id);
+  expect(cards).toHaveLength(1);
+  expect(detail!.transcriptItems.filter((item) => item.laneUpdate)).toHaveLength(6);
+});

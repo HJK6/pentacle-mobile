@@ -81,6 +81,8 @@ test('reconnect reloads the newest page', async () => {
   const readHistory = jest.fn().mockResolvedValue([event(1, 'USER', 'x')]);
   const { view } = await mount(readHistory, { connected: false });
   expect(readHistory).not.toHaveBeenCalled();
+  expect(view.queryByText('No retained messages')).toBeNull();
+  expect(view.getByText('Waiting for connection…')).toBeTruthy();
   view.rerender(<LaneHistoryScreen target={target} connected readHistory={readHistory} onClose={jest.fn()} top={0} bottom={0} />);
   await act(async () => {});
   expect(readHistory).toHaveBeenCalledTimes(1);

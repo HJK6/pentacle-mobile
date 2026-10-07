@@ -49,6 +49,7 @@ export default function LaneHistoryScreen({ target, connected, readHistory = req
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
   const [more, setMore] = useState(false);
+  const [loaded, setLoaded] = useState(false);
   const epoch = useRef(0);
   const oldest = useRef<number | null>(null);
   const rawRows = useRef<PentacleEvent[]>([]);
@@ -68,6 +69,7 @@ export default function LaneHistoryScreen({ target, connected, readHistory = req
       rawRows.current = older ? [...page, ...rawRows.current] : page;
       setRows(mergeRows([], rawRows.current));
       setMore(page.length >= LANE_HISTORY_PAGE_LIMIT);
+      setLoaded(true);
     } catch {
       if (mine === epoch.current) setError(true);
     } finally {
@@ -80,6 +82,7 @@ export default function LaneHistoryScreen({ target, connected, readHistory = req
     rawRows.current = [];
     setRows([]);
     setMore(false);
+    setLoaded(false);
     if (connected) void load(false);
     return () => { epoch.current += 1; };
   }, [connected, load]);
@@ -103,7 +106,8 @@ export default function LaneHistoryScreen({ target, connected, readHistory = req
         <Pressable accessibilityRole="button" accessibilityLabel="Retry history" onPress={() => void load(false)}>
           <Text style={styles.earlierText}>RETRY</Text></Pressable>
       </View> : null}
-      {!loading && !error && rows.length === 0 ? <Text style={styles.noticeText}>No retained messages</Text> : null}
+      {!loaded && !loading && !error ? <Text style={styles.noticeText}>Waiting for connection…</Text> : null}
+      {loaded && !loading && !error && rows.length === 0 ? <Text style={styles.noticeText}>No retained messages</Text> : null}
       {rows.map((event) => {
         const update = parseLaneUpdateEvent(event);
         if (update) return <LaneUpdateCard key={rowKey(event)} update={update} />;

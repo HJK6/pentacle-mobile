@@ -116,3 +116,26 @@ test('lane_update events parse; unrelated events do not', () => {
   assert.equal(parseLaneUpdateEvent({ ...events[0], raw: {} }), null);
   assert.equal(parseLaneUpdateEvent({ ...events[0], raw: { lane_update: { kind: 'worker_start' } } }), null);
 });
+
+test('an unsupported visible_chat.kind fails closed as unavailable, never a tap target', () => {
+  const base = fixture.inventory_frame.lanes[0];
+  for (const kind of [undefined, 'hidden', 7]) {
+    const inventory = normalizeWorkLanesInventory({
+      ...fixture.inventory_frame,
+      lanes: [{ ...base, visible_chat: { ...base.visible_chat, kind, available: 'open' } }],
+    });
+    assert.ok(inventory);
+    assert.equal(inventory.lanes.length, 1);
+    assert.deepEqual(resolveWorkLaneTap(inventory.lanes[0]), { action: 'unavailable' });
+  }
+});
+
+test('counts must be non-negative integers; a malformed inventory keeps the previous projection', () => {
+  for (const open of [-1, 1.5, '4', Number.NaN]) {
+    assert.equal(normalizeWorkLanesInventory({ ...fixture.inventory_frame, counts: { ...fixture.inventory_frame.counts, open } }), null);
+  }
+  const good = applyWorkLanesInventory(initialPentacleStreamState, fixture.inventory_frame);
+  const bad = applyWorkLanesInventory(good, { ...fixture.inventory_frame, counts: { open: -1, active: 0, paused: 0, blocked: 0 } });
+  assert.equal(selectOpenLaneCount(bad), fixture.expected.header_count);
+  assert.ok(normalizeWorkLanesInventory({ ...fixture.inventory_frame, counts: undefined }));
+});

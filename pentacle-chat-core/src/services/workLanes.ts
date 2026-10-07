@@ -69,11 +69,14 @@ function normalizeVisibleChat(value: unknown): WorkLaneVisibleChat | null {
   if (!raw || !str(raw.stream_id)) return null;
   const available = AVAILABILITY.find((item) => item === raw.available);
   if (!available) return null;
+  // An unsupported kind cannot be trusted as a navigation target: fail closed
+  // (the lane stays visible with an honest "Chat unavailable").
+  const kind = raw.kind === 'composite' || raw.kind === 'session' ? raw.kind : null;
   return {
     stream_id: String(raw.stream_id),
     generation: str(raw.generation),
-    kind: raw.kind === 'composite' ? 'composite' : 'session',
-    available,
+    kind: kind ?? 'session',
+    available: kind ? available : 'unavailable',
   };
 }
 
@@ -124,8 +127,11 @@ export function normalizeWorkLanesInventory(value: unknown): WorkLanesInventory 
     .map(normalizeLane)
     .filter((lane): lane is WorkLane => lane !== null && lane.state !== 'done');
   const counts = obj(raw.counts);
-  const num = (key: string, fallback: number) =>
-    typeof counts?.[key] === 'number' && Number.isFinite(counts[key]) ? Number(counts[key]) : fallback;
+  // Present counts must be non-negative integers; anything else is a malformed
+  // projection, so the previous inventory is kept rather than showing a bad count.
+  const validCount = (value: unknown) => typeof value === 'number' && Number.isInteger(value) && value >= 0;
+  if (counts && ['open', 'active', 'paused', 'blocked'].some((key) => key in counts && !validCount(counts[key]))) return null;
+  const num = (key: string, fallback: number) => (validCount(counts?.[key]) ? Number(counts![key]) : fallback);
   const tally = (state: WorkLaneState) => lanes.filter((lane) => lane.state === state).length;
   const active = num('active', tally('active'));
   const paused = num('paused', tally('paused'));
