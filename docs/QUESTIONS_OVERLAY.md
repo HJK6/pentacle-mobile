@@ -131,14 +131,14 @@ Table elements: `questions-counter`, `questions-see-chat`, `questions-close`, `q
 `npx jest tests/questions --runInBand`. The count test implements the v1.4/v1.5 formula independently of
 the selector and checks it on single-item, two-item partial-optimistic and two-item post-ack states.
 The simulator scenario is `mock_questions_overlay_partial_submit`; it opens the overlay with
-`xcrun simctl openurl pentacle://pentacle/questions`, drives it through the accessibility tree by
+`xcrun simctl openurl <SIMULATOR_UDID> pentacle://pentacle/questions`, drives it through the accessibility tree by
 testID (falling back to visible text for `Text` nodes, which iOS does not expose by testID), and
 reads the single `prompt.answer` from the existing `harness:ui_trace` `prompt_answer_dispatched`
 event.
 
 Running it: `test/e2e/run_scenario.py` accepts only its report scenarios, and this repo ships no
 runner for `mock_*` scenarios. The scenario is driven by composing the public harness pieces: start
-`test/e2e/tools/mock_v2_daemon.py --port <port>`, load the fixture
+`python3 test/e2e/tools/mock_v2_daemon.py --port <port>`, load the fixture
 `test/e2e/fixtures/scripted_daemon/questions_overlay_partial_submit.json` through the scenario's
 `params`/`preflight`, boot a dedicated simulator with a Release embedded-bundle harness build
 (`EXPO_PUBLIC_HARNESS=1`, `EXPO_PUBLIC_PENTACLE_WS_URL` pointing at the mock daemon; a Debug build
