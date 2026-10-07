@@ -23,9 +23,9 @@ import LaneUpdateCard from '../src/components/lanes/LaneUpdateCard';
 const fixture = JSON.parse(readFileSync(
   join(__dirname, '../pentacle-chat-core/tests/fixtures/work-lanes-inventory.json'), 'utf8',
 ));
-const events: PentacleEvent[] = fixture.lane_update_events.map((frame: { event: PentacleEvent }) => ({
-  host: 'hostc', provider: 'composite', session_id: 'bart:assistant', session_name: 'assistant', ...frame.event,
-}));
+const events: PentacleEvent[] = fixture.lane_update_events.map((frame: { event: PentacleEvent }) => Object.assign(
+  { host: 'hostc', session_id: 'bart:assistant', session_name: 'assistant' }, frame.event,
+) as PentacleEvent);
 const KIND_LABELS: Record<string, string> = {
   lane_started: 'LANE STARTED', lane_blocked: 'LANE BLOCKED', lane_unblocked: 'LANE UNBLOCKED',
   lane_completed: 'LANE COMPLETED', major_decision: 'DECISION', milestone: 'MILESTONE',

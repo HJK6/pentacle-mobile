@@ -6930,6 +6930,7 @@ export function harnessSeedSnapshot(
     limits?: PentacleLimit[];
     updates?: PentacleUpdateMessage[];
     notifications?: PentacleNotification[];
+    work_lanes?: unknown;
   },
   opts?: {
     connected?: boolean;
