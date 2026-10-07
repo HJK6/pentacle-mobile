@@ -2,10 +2,11 @@ import React from 'react';
 import { fireEvent, render } from '@testing-library/react-native';
 import { StyleSheet } from 'react-native';
 import BartHeader from '../../../src/components/bart/BartHeader';
+import { assistantAccent } from '../../../src/components/bart/assistantIdentity';
 import MachineSigil from '../../../src/components/MachineSigil';
 import { Fonts } from '../../../constants/Colors';
 
-const props = { identity: { assistantName: 'Lews', icon: { host: 'hostc', kind: 'djinni' as const, color: '#1f5bff' } }, others: 2, pending: 4, lanes: 3, working: true, top: 52,
+const props = { identity: { streamId: 'bart:assistant', name: 'Lews', hostId: 'hostc', sigilKind: 'djinni' as const }, others: 2, pending: 4, lanes: 3, working: true, top: 52,
   onDrawer: jest.fn(), onStatus: jest.fn(), onQuestions: jest.fn() };
 
 test('renders Bart identity, lamp, lanes, authoritative counts and existing status tag', () => {
@@ -15,7 +16,7 @@ test('renders Bart identity, lamp, lanes, authoritative counts and existing stat
   expect(view.getByTestId('status-tag-working')).toBeTruthy();
   expect(view.getByTestId('bart-sessions-badge').props.children).toBe(2);
   expect(view.getByTestId('bart-questions-badge').props.children).toBe(4);
-  expect(view.UNSAFE_getByType(MachineSigil).props).toMatchObject({ kind: 'djinni', color: '#1f5bff' });
+  expect(view.UNSAFE_getByType(MachineSigil).props).toMatchObject({ kind: 'djinni', color: assistantAccent(props.identity) });
   fireEvent.press(view.getByLabelText('Sessions, 2 need you'));
   fireEvent.press(view.getByLabelText('Lews status, 3 open lanes'));
   fireEvent.press(view.getByLabelText('Questions, 4 pending'));

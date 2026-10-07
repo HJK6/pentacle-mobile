@@ -5,7 +5,8 @@ import { Tabs } from 'expo-router';
 import { PlatformPressable } from '@react-navigation/elements';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Fonts, Tokens } from '@/constants/Colors';
-import { AssistantIcon, useAssistantIdentity } from '../../src/components/bart/assistantIdentity';
+import { AssistantIcon } from '../../src/components/bart/assistantIdentity';
+import { useAssistantIdentity } from '../../src/services/assistantIdentity';
 import { logTabPressed } from '../../src/services/mobileTabsTelemetry';
 
 function PersonIcon({ color }: { color: string }) {
@@ -39,7 +40,7 @@ export default function TabLayout() {
     tabBarButton: (props) => <PlatformPressable {...props} style={[props.style, styles.button]} />,
   }}>
     <Tabs.Screen name="bart" listeners={{ tabPress: () => logTabPressed('bart') }} options={{
-      title: identity.assistantName, tabBarLabel: identity.assistantName.toUpperCase(), tabBarButtonTestID: 'bart-tab-button',
+      title: identity.name, tabBarLabel: identity.name.toUpperCase(), tabBarButtonTestID: 'bart-tab-button',
       tabBarIcon: ({ color }) => <AssistantIcon identity={identity} size={22} color={color} />,
     }} />
     <Tabs.Screen name="personal" listeners={{ tabPress: () => logTabPressed('personal') }} options={{

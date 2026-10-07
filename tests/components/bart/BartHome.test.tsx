@@ -1,5 +1,6 @@
 // Bart home mount contract (docs/bart_home_contracts.md): the session screen embeds with a caller header.
 import React from 'react';
+import { assistantAccent } from '../../../src/components/bart/assistantIdentity';
 import { Modal } from 'react-native';
 import ChatsDrawer from '../../../src/components/bart/ChatsDrawer';
 import SummonModal from '../../../src/components/SummonModal';
@@ -308,11 +309,13 @@ test('live assistant name and host changes update the header through the single 
   await act(async () => {});
   expect(screen.getByLabelText('Lews status, 0 open lanes')).toBeTruthy();
   const Header = require('../../../src/components/bart/BartHeader').default;
-  expect(view.UNSAFE_getByType(Header).props.identity.icon).toMatchObject({ host: 'hostc', kind: 'djinni', color: '#1f5bff' });
+  expect(view.UNSAFE_getByType(Header).props.identity).toMatchObject({ hostId: 'hostc', sigilKind: 'djinni' });
+  expect(assistantAccent(view.UNSAFE_getByType(Header).props.identity)).toBe('#1f5bff');
   mockState = { ...mockState, sessions: [{ ...session(), display_name: 'Example guide', host: 'hostb' }] };
   view.rerender(<BartScreen />);
   expect(screen.getByLabelText('Example guide status, 0 open lanes')).toBeTruthy();
-  expect(view.UNSAFE_getByType(Header).props.identity.icon).toMatchObject({ host: 'hostb', kind: 'djinni', color: '#ff2e3e' });
+  expect(view.UNSAFE_getByType(Header).props.identity).toMatchObject({ hostId: 'hostb', sigilKind: 'djinni' });
+  expect(assistantAccent(view.UNSAFE_getByType(Header).props.identity)).toBe('#ff2e3e');
   mockState = { ...mockState, sessions: [{ ...session(), display_name: '', title: '' }] };
   view.rerender(<BartScreen />);
   expect(screen.getByLabelText('Assistant status, 0 open lanes')).toBeTruthy();

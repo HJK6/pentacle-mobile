@@ -3,7 +3,8 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 import { Fonts, Tokens } from '@/constants/Colors';
 import ArcaneRingFrame from '../ArcaneRingFrame';
-import { AssistantIcon, type AssistantIdentity } from './assistantIdentity';
+import { AssistantIcon, assistantAccent } from './assistantIdentity';
+import type { AssistantIdentity } from '../../services/assistantIdentity';
 import StatusTag from '../StatusTag';
 
 type Props = {
@@ -26,13 +27,13 @@ function HeaderButton({ kind, count, onPress }: { kind: 'sessions' | 'questions'
 export default function BartHeader({ identity, others, pending, lanes, working, top, onDrawer, onStatus, onQuestions }: Props) {
   return <View testID="bart-header" style={[styles.header, { paddingTop: Math.max(top, 52) }]}>
     <HeaderButton kind="sessions" count={others} onPress={onDrawer} />
-    <Pressable accessibilityRole="button" accessibilityLabel={`${identity.assistantName} status, ${lanes} open lanes`}
+    <Pressable accessibilityRole="button" accessibilityLabel={`${identity.name} status, ${lanes} open lanes`}
       onPress={onStatus} style={styles.identity}>
-      <ArcaneRingFrame size={38} color={identity.icon.color} identity>
+      <ArcaneRingFrame size={38} color={assistantAccent(identity)} identity>
         <AssistantIcon identity={identity} size={38 * 0.64} />
       </ArcaneRingFrame>
       <View style={styles.nameBlock}>
-        <Text style={styles.name} numberOfLines={1}>{identity.assistantName}</Text>
+        <Text style={styles.name} numberOfLines={1}>{identity.name}</Text>
         <View style={styles.meta}>
           <StatusTag status={working ? 'working' : 'idle'} />
           <Text style={styles.lanes}>{lanes} LANES</Text>

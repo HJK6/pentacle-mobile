@@ -158,7 +158,7 @@ test('cold renders with streamId param', () => {
   expect(screen.queryByText('Idle')).toBeNull();
 });
 
-test('status overlay Back replaces to chats while X returns to the session', () => {
+test('status overlay Back replaces to the home tab while X returns to the session', () => {
   mockState.sessions[0].status_card = {
     goal: 'Verify status navigation',
     plan: [{ text: 'navigate', status: 'active' }],
@@ -177,7 +177,7 @@ test('status overlay Back replaces to chats while X returns to the session', () 
   expect(screen.queryByTestId('status-overlay')).toBeNull();
   fireEvent.press(screen.getByTestId('session-status-overlay-trigger'));
   fireEvent.press(screen.getByTestId('status-overlay-back'));
-  expect(require('expo-router').router.replace).toHaveBeenCalledWith('/(tabs)/chats');
+  expect(require('expo-router').router.replace).toHaveBeenCalledWith('/(tabs)/bart');
   expect(require('expo-router').router.back).not.toHaveBeenCalled();
 });
 

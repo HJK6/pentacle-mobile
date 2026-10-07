@@ -1,6 +1,6 @@
 # Bart-first home: frozen shared contracts
 
-Contract version: **v1.6 (2026-10-07)** — v1.1 corrected § Answering questions and named the S1/S2 exports; v1.2 added § Household RPC (S4); v1.3 drops partially answered durable items from the pending count; v1.4 also drops items the notification itself marks answered; v1.5 lands the initial pending-count selector, the shared new-session flow and the new tab telemetry names (S6); v1.6 makes the assistant's name and icon follow the operator's customization (S7).
+Contract version: **v1.7 (2026-10-07)** — v1.1 corrected § Answering questions and named the S1/S2 exports; v1.2 added § Household RPC (S4); v1.3 drops partially answered durable items from the pending count; v1.4 also drops items the notification itself marks answered; v1.5 lands the initial pending-count selector, the shared new-session flow and the new tab telemetry names (S6); v1.6 makes the assistant's name and icon follow the operator's customization (S7); v1.7 lands P3 with the home destination (S3) and the shared identity in the home tab and header.
 Design original: `design_handoff_bart_home/README.md`
 (Pentacle-Mobile.zip sha256 `5ce4da05…`). Changing anything below is a contract change: the
 integration owner publishes a new version here and tells every packet lead before code relies on it.
@@ -25,8 +25,7 @@ web does (`renderer/app.js` `syncSlotAssistantIcon`). Never hard-code a product 
 string; `tests/assistantIdentity.test.ts` parses `app/` and
 `src/components/{bart,status,questions,personal}` and fails on any visible assistant product-name literal
 (`Bart`, `BART` or the long form, in string, template or JSX text; lowercase route, telemetry and module
-ids such as `'bart'`, the protocol id `bart:assistant` and `testID` values are not visible text). Until P3
-merges it also exempts `app/(tabs)/_layout.tsx` (see Consumers below).
+ids such as `'bart'`, the protocol id `bart:assistant` and `testID` values are not visible text).
 
 `src/services/assistantIdentity.ts` (shared edit S7):
 
@@ -34,16 +33,17 @@ merges it also exempts `app/(tabs)/_layout.tsx` (see Consumers below).
   `ASSISTANT_STREAM_ID` (`'bart:assistant'`, equal to `BART_STREAM_ID`); `name` is the assistant
   session's `display_name`, else its `title`, else `'Assistant'` (blank values skipped); `hostId` is
   the session's host (`null` before the session arrives); `sigilKind` is `'djinni'`. Draw the icon as
-  that host's machine sigil with kind `djinni` (`ArcaneRingFrame` with the host's machine name).
-- `useAssistantIdentity()` subscribes with field equality, so a renamed session re-renders only
-  the consumers.
+  that host's machine sigil with kind `djinni`: `AssistantIcon` / `assistantAccent(identity)` in
+  `src/components/bart/assistantIdentity.tsx`.
+- `useAssistantIdentity()` subscribes with field equality, and the selector returns the previous
+  object while the identity is unchanged, so memoized consumers (the home header) re-render only
+  on a real rename or host change.
 
 Consumers: the status surface header (`StatusSurface.tsx`, the one sanctioned edit; props
-unchanged), the Questions overlay's assistant page (`QuestionsScreen`: name and sigil; P4's local
-stand-in is removed), the Personal calendar's "ADDED BY" tag and, from P3, the home tab and its header. P3 owns the `app/(tabs)/_layout.tsx` rewrite
-and uses this hook for the home header (name, sigil). Right after P3 merges, the integration owner
-sets the home tab's title to `name` and its label to `name` upper-cased, and removes the
-`_layout.tsx` exemption from the literal scan. Labels such as "Questions" stay generic.
+unchanged), the home tab (`app/(tabs)/_layout.tsx`: title = `name`, label = `name` upper-cased, icon
+= `AssistantIcon`), the home header (`BartHeader`: name, sigil, accent), the Questions overlay's
+assistant page (`QuestionsScreen`: name and sigil) and the Personal calendar's "ADDED BY" tag.
+Labels such as "Questions" stay generic.
 
 ## Shared constants
 
@@ -167,9 +167,9 @@ export function SessionScreen(props: {
 The route's default export renders `SessionScreen` fed by `useLocalSearchParams`; behaviour of the
 session route is unchanged when `header` is absent. With a `header` the screen is embedded: no stack
 options, no back/menu header, and no redirect away when the session is missing. The session's own
-back button still returns to the Chats route until P3 lands; moving the app's home destination
-(`app/index.tsx`, the session back/redirect target, the push-tap target) to the Bart tab is shared
-edit S3, merged together with P3. `app/(tabs)/bart.tsx` renders
+back button and missing-session redirect return to the home destination `HOME_ROUTE`
+(`'/(tabs)/bart'`, `src/services/homeRoute.ts`, shared edit S3), which is also the app's launch
+redirect (`app/index.tsx`), the post-enrollment target and the push-tap stack seed. `app/(tabs)/bart.tsx` renders
 `<SessionScreen streamId={BART_STREAM_ID} header={<BartHeader … />} />`. P3 does not fork or copy
 the session screen.
 

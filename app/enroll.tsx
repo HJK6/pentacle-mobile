@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { HOME_ROUTE } from '../src/services/homeRoute';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import usePentacleToken from '../src/hooks/usePentacleToken';
@@ -45,7 +46,7 @@ export default function PentacleEnrollScreen() {
         setStatus('Storing device credential behind Face ID…');
         await setToken(result.token);
         if (!active) return;
-        router.replace('/chats' as any);
+        router.replace(HOME_ROUTE as any);
       } catch (err) {
         if (!active) return;
         setError(err instanceof Error ? err.message : 'Enrollment failed');

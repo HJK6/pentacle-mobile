@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { HOME_ROUTE } from '../services/homeRoute';
 import { Platform } from 'react-native';
 import Constants from 'expo-constants';
 import type { DevicePushToken } from 'expo-notifications';
@@ -118,7 +119,7 @@ function pushNotificationRoute(route: string, data: Record<string, unknown>, sou
     source,
   });
   if (route.startsWith('/pentacle/session/')) {
-    router.push('/(tabs)/chats' as any);
+    router.push(HOME_ROUTE as any);
   }
   router.push(route as any);
 }

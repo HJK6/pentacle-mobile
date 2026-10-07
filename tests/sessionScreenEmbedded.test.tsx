@@ -163,7 +163,7 @@ test('an embedded screen never redirects away on a missing session; the route st
   embedded.unmount();
   render(<RouteSessionScreen />);
   act(() => { jest.advanceTimersByTime(5_000); });
-  expect(replace).toHaveBeenCalledWith('/chats');
+  expect(replace).toHaveBeenCalledWith('/(tabs)/bart');
 });
 
 test('the route decodes its stream id and registers stack options; an embedded screen registers none', () => {

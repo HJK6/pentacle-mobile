@@ -10,7 +10,7 @@ import type { SummonMachine } from '../../src/components/SummonModal';
 import { useNewSessionFlow } from '../../src/components/useNewSessionFlow';
 import { performChatOpenNavigation } from '../../src/services/chatOpenNavigation';
 import ChatsDrawer from '../../src/components/bart/ChatsDrawer';
-import { selectLocalAssistantIdentity } from '../../src/components/bart/assistantIdentity';
+import { selectAssistantIdentity } from '../../src/services/assistantIdentity';
 import BartHeader from '../../src/components/bart/BartHeader';
 import BartStatusOverlay from '../../src/components/bart/BartStatusOverlay';
 import { selectDrawerGroups, selectOthersNeedingYou } from '../../src/components/bart/bartSelectors';
@@ -32,7 +32,7 @@ export default function BartScreen() {
   const machines = useMemo(() => selectMachineStatusList(state).filter((machine) => !isIdentityHost(machine.host))
     .map(({ host, title, online }) => ({ host, title, online })), [state]);
   const header = useMemo(() => ({
-    identity: selectLocalAssistantIdentity(state),
+    identity: selectAssistantIdentity(state),
     others: selectOthersNeedingYou(state).length, pending: selectPendingQuestionCount(state),
     lanes: selectOpenLanes(state).length,
     working: state.sessions.find((session) => session.stream_id === BART_STREAM_ID)?.working === true,

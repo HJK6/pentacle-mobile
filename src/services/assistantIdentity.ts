@@ -16,11 +16,18 @@ export type AssistantIdentity = {
   sigilKind: 'djinni';
 };
 
+let lastIdentity: AssistantIdentity | undefined;
+
+// Returns the previous object while the identity is unchanged, so memoized consumers that
+// receive it as a prop (the home header) do not re-render on unrelated store changes.
 export function selectAssistantIdentity(state: Pick<PentacleStreamState, 'sessions'>): AssistantIdentity {
   const session = state.sessions.find((item) => item.stream_id === ASSISTANT_STREAM_ID);
   const name = [session?.display_name, session?.title].map((value) => String(value || '').trim()).find(Boolean)
     || DEFAULT_ASSISTANT_NAME;
-  return { streamId: ASSISTANT_STREAM_ID, name, hostId: session?.host || null, sigilKind: 'djinni' };
+  const next: AssistantIdentity = { streamId: ASSISTANT_STREAM_ID, name, hostId: session?.host || null, sigilKind: 'djinni' };
+  if (lastIdentity && sameAssistantIdentity(lastIdentity, next)) return lastIdentity;
+  lastIdentity = next;
+  return next;
 }
 
 export function sameAssistantIdentity(a: AssistantIdentity, b: AssistantIdentity) {

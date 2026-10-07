@@ -1,4 +1,5 @@
 import React, { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { HOME_ROUTE } from '../../../src/services/homeRoute';
 import {
   ActivityIndicator,
   Alert,
@@ -2953,7 +2954,7 @@ export function SessionScreen(props: SessionScreenProps) {
     if (embedded || !shouldArmRedirectTimer(inputs)) return;
     const timer = setTimeout(() => {
       if (shouldArmRedirectTimer(inputs)) {
-        router.replace('/chats' as any);
+        router.replace(HOME_ROUTE as any);
       }
     }, MISSING_SESSION_REDIRECT_MS);
     return () => clearTimeout(timer);
@@ -3203,7 +3204,7 @@ export function SessionScreen(props: SessionScreenProps) {
   };
   const returnToChats = () => {
     Keyboard.dismiss();
-    router.replace('/(tabs)/chats' as any);
+    router.replace(HOME_ROUTE as any);
   };
   const handleComposerFocus = () => {
     probeFocusedLiveness('tap');
