@@ -9,6 +9,7 @@ entry is not required. Every UI read and tap goes through the accessibility tree
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import time
 
@@ -57,12 +58,33 @@ def _elements(udid: str) -> list[dict]:
             return []
 
 
+def _text_fallback(elements: list[dict], test_id: str) -> dict | None:
+    # RN iOS does not expose a Text's testID as AXUniqueId; match the visible text instead.
+    texts = [e for e in elements if e.get("type") == "StaticText"]
+    label = lambda e: str(e.get("AXLabel") or "")
+    counter = next((e for e in texts if re.fullmatch(r"QUESTION \d+ / \d+", label(e))), None)
+    if test_id == "questions-counter":
+        return counter
+    if test_id == "questions-subtitle" and counter:
+        cf = counter.get("frame") or {}
+        return next((e for e in texts if e is not counter and abs((e.get("frame") or {}).get("y", -999) - (cf.get("y", 0) + cf.get("height", 0))) < 24
+                     and (e.get("frame") or {}).get("y", 0) < 140), None)
+    if test_id == "questions-prompt":
+        return next((e for e in texts if any(marker in label(e) for marker in QUESTIONS)), None)
+    if test_id == "questions-toast":
+        return next((e for e in texts if label(e).startswith("Sent ")), None)
+    if test_id == "questions-submit-label":
+        submit = next((e for e in elements if e.get("AXUniqueId") == "questions-submit"), None)
+        return submit
+    return None
+
+
 def _find(elements: list[dict], test_id: str) -> dict | None:
     for key in ("AXUniqueId", "AXIdentifier"):
         for element in elements:
             if element.get(key) == test_id:
                 return element
-    return None
+    return _text_fallback(elements, test_id)
 
 
 def _await_element(udid: str, test_id: str, timeout_s: float = 10.0) -> dict | None:
@@ -174,7 +196,7 @@ def run(config: dict, stream, cap=None) -> Verdict:
     submit_label = _label(udid, "questions-submit-label")
     if submit_label != "Submit 1 of 3":
         failures.append(f"submit label was {submit_label!r}")
-    sent_after = time.time()
+    sent_after = time.monotonic()
     if tap_error := _tap(udid, "questions-submit"):
         failures.append(tap_error)
 

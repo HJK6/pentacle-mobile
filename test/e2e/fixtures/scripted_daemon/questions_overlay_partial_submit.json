@@ -70,6 +70,8 @@
       "at_ms": 1,
       "wait_for_client": true,
       "notification": {
+        "notification_id": "notif-overlay-0",
+        "state": "open",
         "producer": "agent_question.v1",
         "severity": "info",
         "title": "Overlay question Q-MOCK",
@@ -83,6 +85,7 @@
         ],
         "question": {
           "schema_version": 1,
+          "state": "open",
           "question_id": "q-overlay-mock",
           "title": "Overlay question Q-MOCK",
           "body": "Q-MOCK: pick one",
@@ -111,6 +114,8 @@
       "at_ms": 2,
       "wait_for_client": true,
       "notification": {
+        "notification_id": "notif-overlay-1",
+        "state": "open",
         "producer": "agent_question.v1",
         "severity": "info",
         "title": "Overlay question Q-SECOND",
@@ -124,6 +129,7 @@
         ],
         "question": {
           "schema_version": 1,
+          "state": "open",
           "question_id": "q-overlay-second",
           "title": "Overlay question Q-SECOND",
           "body": "Q-SECOND: pick one",
@@ -152,6 +158,8 @@
       "at_ms": 3,
       "wait_for_client": true,
       "notification": {
+        "notification_id": "notif-overlay-2",
+        "state": "open",
         "producer": "agent_question.v1",
         "severity": "info",
         "title": "Overlay question Q-BART",
@@ -165,6 +173,7 @@
         ],
         "question": {
           "schema_version": 1,
+          "state": "open",
           "question_id": "q-overlay-bart",
           "title": "Overlay question Q-BART",
           "body": "Q-BART: pick one",
