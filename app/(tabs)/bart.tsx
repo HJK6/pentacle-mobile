@@ -12,10 +12,10 @@ import { performChatOpenNavigation } from '../../src/services/chatOpenNavigation
 import ChatsDrawer from '../../src/components/bart/ChatsDrawer';
 import { selectAssistantIdentity } from '../../src/services/assistantIdentity';
 import BartHeader from '../../src/components/bart/BartHeader';
-import BartStatusOverlay from '../../src/components/bart/BartStatusOverlay';
 import { selectDrawerGroups, selectOthersNeedingYou } from '../../src/components/bart/bartSelectors';
 import { selectPendingQuestionCount } from '../../src/components/questions/questionSelectors';
-import { BART_STREAM_ID, selectOpenLanes } from '../../src/components/status/statusSelectors';
+import { BART_STREAM_ID } from '../../src/components/status/statusSelectors';
+import { selectOpenLaneCount, selectWorkLaneCounts } from '../../src/services/workLanes';
 import { usePentacleStreamSelectorWhen } from '../../src/services/pentacleStream';
 import { resetChatOpenNavigationIntents } from '../../src/services/chatOpenNavigationIntent';
 import { logFocusedTab } from '../../src/services/mobileTabsTelemetry';
@@ -25,27 +25,35 @@ export default function BartScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const state = usePentacleStreamSelectorWhen(isFocused, (snapshot) => snapshot);
-  const [statusOpen, setStatusOpen] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const questionsOpening = useRef(false);
+  const lanesOpening = useRef(false);
   const groups = useMemo(() => selectDrawerGroups(state), [state]);
   const machines = useMemo(() => selectMachineStatusList(state).filter((machine) => !isIdentityHost(machine.host))
     .map(({ host, title, online }) => ({ host, title, online })), [state]);
   const header = useMemo(() => ({
     identity: selectAssistantIdentity(state),
     others: selectOthersNeedingYou(state).length, pending: selectPendingQuestionCount(state),
-    lanes: selectOpenLanes(state).length,
+    lanes: selectOpenLaneCount(state), blocked: selectWorkLaneCounts(state).blocked,
     working: state.sessions.find((session) => session.stream_id === BART_STREAM_ID)?.working === true,
   }), [state]);
   useEffect(() => {
     if (isFocused) {
       questionsOpening.current = false;
+      lanesOpening.current = false;
       resetChatOpenNavigationIntents();
       logFocusedTab('bart');
-    } else { setStatusOpen(false); setDrawerOpen(false); }
+    } else { setDrawerOpen(false); }
   }, [isFocused]);
   const openDrawer = useCallback(() => { Keyboard.dismiss(); setDrawerOpen(true); }, []);
-  const openStatus = useCallback(() => { Keyboard.dismiss(); setStatusOpen(true); }, []);
+  // The header count is the daemon's open-lane count; its tap opens the lanes list.
+  const openLanes = useCallback(() => {
+    if (!isFocused || lanesOpening.current) return;
+    lanesOpening.current = true;
+    Keyboard.dismiss();
+    try { router.push('/pentacle/lanes'); }
+    catch { lanesOpening.current = false; }
+  }, [isFocused, router]);
   const openQuestions = useCallback(() => {
     if (!isFocused || questionsOpening.current) return;
     questionsOpening.current = true;
@@ -54,9 +62,8 @@ export default function BartScreen() {
     catch { questionsOpening.current = false; }
   }, [isFocused, router]);
   return <View style={styles.root}>
-    <BartThread {...header} top={insets.top} onDrawer={openDrawer} onStatus={openStatus} onQuestions={openQuestions} />
+    <BartThread {...header} top={insets.top} onDrawer={openDrawer} onStatus={openLanes} onQuestions={openQuestions} />
     {isFocused ? <BartSessions open={drawerOpen} groups={groups} machines={machines} onClose={() => setDrawerOpen(false)} /> : null}
-    {statusOpen ? <BartStatusOverlay onClose={() => setStatusOpen(false)} /> : null}
   </View>;
 }
 

@@ -549,6 +549,7 @@ const NAV_ALLOWLIST: { file: string; argExpression: string; count: number; reaso
   { file: "src/services/harnessActions.ts", argExpression: "ROUTE", count: 1, reason: "harness tab nav (updates); non-session" },
   { file: "src/services/harnessActions.ts", argExpression: "route", count: 1, reason: "harness tab nav smoke; non-session" },
   { file: "src/hooks/usePushNotifications.ts", argExpression: "HOME_ROUTE as any", count: 1, reason: "product: push-tap seeds the home tab under a session route (non-session; src/services/homeRoute.ts)" },
+  { file: "app/pentacle/lanes.tsx", argExpression: "HOME_ROUTE as any", count: 1, reason: "product: a lane whose visible chat is the assistant composite returns to the home tab (non-session; granted by integration owner)" },
   { file: "app/enroll.tsx", argExpression: "HOME_ROUTE as any", count: 1, reason: "product: enrollment lands on the home tab (non-session)" },
   { file: "app/pentacle/session/[streamId].tsx", argExpression: "HOME_ROUTE as any", count: 2, reason: "product: session back and missing-session redirect return to the home tab (non-session)" },
   { file: "src/components/personal/ListsIndex.tsx", argExpression: "{ pathname: '/pentacle/personal/list/[id]', params: { id } }", count: 1, reason: "product: Personal list detail (non-session route; id is a fixed Cosmo list name); granted by integration owner (S5)" },

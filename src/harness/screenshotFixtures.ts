@@ -24,6 +24,8 @@ import type {
   PentacleSessionSummary,
   SessionStatusCard,
   PentacleUpdateMessage,
+  WorkLane,
+  WorkLaneUpdateKind,
 } from "pentacle-chat-core";
 import type { AssetComment, PentacleReport } from "../services/pentacleAssets";
 
@@ -36,6 +38,7 @@ export type HarnessSnapshot = {
   limits?: PentacleLimit[];
   updates?: PentacleUpdateMessage[];
   notifications?: PentacleNotification[];
+  work_lanes?: unknown;
 };
 
 export type HarnessSeedOpts = {
@@ -59,7 +62,7 @@ export type HarnessFixture = {
 };
 
 export type HarnessScreen =
-  "chats" | "updates" | "settings" | "enroll" | "session";
+  "chats" | "updates" | "settings" | "enroll" | "session" | "lanes" | "bart";
 export type HarnessVariant =
   | 'populated'
   | 'empty'
@@ -943,6 +946,76 @@ const consentFixture = (expired: boolean): HarnessFixture => {
   return {snapshot: {...POPULATED_SNAPSHOT, notifications: [card]}, opts: SEEDED};
 };
 
+
+// ---------------------------------------------------------------------------
+// Work lanes (daemon projection v1): synthetic lanes and typed lane updates.
+// ---------------------------------------------------------------------------
+
+function laneLead(streamId: string, over: Partial<NonNullable<WorkLane['lead']>> = {}): NonNullable<WorkLane['lead']> {
+  return {
+    stream_id: streamId, generation: `gen-${streamId}`, qualifies: true, status: 'open', visibility: 'default',
+    presence: { online: true, working: false, capture_liveness: 'idle', last_activity: T0 },
+    status_card: { goal: 'Sample goal', active_step: 'Sample step', update: null,
+      eta_at: '2026-05-30T20:00:00.000Z', eta_set_at: '2026-05-30T15:00:00.000Z', updated_at: T0 },
+    eta_stale: false, ...over,
+  };
+}
+
+function lane(over: Partial<WorkLane> & { lane_id: string; title: string }): WorkLane {
+  return {
+    summary: '', state: 'active', state_reason: 'fd', blocker: null, owner_kind: 'fd', version: 1,
+    updated_at: T0, first_admitted_at: T0, done_at: null, lead: null,
+    visible_chat: { stream_id: 'bart:assistant', generation: null, kind: 'composite', available: 'open' },
+    last_update: null, ...over,
+  };
+}
+
+const SAMPLE_LANES: WorkLane[] = [
+  lane({ lane_id: 'lane-blocked', title: 'Sample deploy lane', summary: 'Ship the sample candidate', state: 'blocked',
+    blocker: 'Waiting for a sample window', lead: laneLead('hosta:lane-lead-1'),
+    visible_chat: { stream_id: 'hosta:lane-lead-1', generation: 'gen-hosta:lane-lead-1', kind: 'session', available: 'open' } }),
+  lane({ lane_id: 'lane-active', title: 'Sample build lane', summary: 'Build the sample slice',
+    lead: laneLead('hosta:lane-lead-2', { presence: { online: true, working: true, capture_liveness: 'idle', last_activity: T0 } }) }),
+  lane({ lane_id: 'lane-paused-unavailable', title: 'Sample review lane', state: 'paused', state_reason: 'lead_lost_unreconciled',
+    owner_kind: 'operator', lead: laneLead('hosta:lane-lead-3', { qualifies: false, eta_stale: true }),
+    visible_chat: { stream_id: 'hosta:lane-chat-3', generation: 'gen-old', kind: 'session', available: 'unavailable' } }),
+  lane({ lane_id: 'lane-paused-history', title: 'Sample research lane', state: 'paused', state_reason: 'lead_lost', owner_kind: 'operator',
+    lead: laneLead('hosta:lane-lead-4', { qualifies: false, status: 'closed', eta_stale: true,
+      presence: { online: false, working: false, capture_liveness: 'transport_unknown', last_activity: null } }),
+    visible_chat: { stream_id: 'hosta:lane-lead-4', generation: 'gen-hosta:lane-lead-4', kind: 'session', available: 'history' } }),
+];
+
+const LANES_SNAPSHOT: HarnessSnapshot = {
+  hosts: POPULATED_HOSTS, hosts_stats: POPULATED_MACHINE_STATS, sessions: [], events: [], updates: [], notifications: [],
+  work_lanes: { type: 'work_lanes.inventory', lanes: SAMPLE_LANES,
+    counts: { open: 4, active: 1, paused: 2, blocked: 1 }, truncated: false, generated_at: T0 },
+};
+
+const LANE_UPDATE_SAMPLES: Array<[WorkLaneUpdateKind, string, string]> = [
+  ['lane_started', 'Sample build lane', 'Build the sample slice'],
+  ['lane_blocked', 'Sample deploy lane', 'Waiting for a sample window'],
+  ['lane_unblocked', 'Sample deploy lane', 'Blocker cleared: sample window granted'],
+  ['major_decision', 'Sample build lane', 'Chose the sample approach'],
+  ['milestone', 'Sample build lane', 'Sample slice builds green'],
+  ['lane_completed', 'Sample research lane', 'Sample findings published'],
+];
+
+// First screen for the Release-simulator proof: the Bart thread with the lane count in its header and
+// one typed card per update kind.
+const BART_LANE_UPDATES_SNAPSHOT: HarnessSnapshot = {
+  ...EMPTY_SNAPSHOT,
+  work_lanes: LANES_SNAPSHOT.work_lanes,
+  sessions: [session({ stream_id: 'bart:assistant', host: 'hostc', provider: 'composite', session_name: 'assistant', title: 'Assistant' })],
+  events: LANE_UPDATE_SAMPLES.map(([kind, title, summary], index): PentacleEvent => ({
+    daemon_seq: 100 + index, host: 'hostc', provider: 'composite', session_id: 'bart:assistant', session_name: 'assistant',
+    stream_id: 'bart:assistant', timestamp: `2026-05-30T16:0${index}:00.000Z`, kind: 'ASSIST_TEXT', text: summary,
+    message_id: `publication:lane-update:lane-${index}:src-${index}`, publish_kind: 'lane_update',
+    raw: { publish_kind: 'lane_update', lane_update: { update_id: `lane-update:lane-${index}:src-${index}`, lane_id: `lane-${index}`,
+      kind, summary, source: { type: 'transition', id: `src-${index}` }, state: 'active', prior_state: null, owner_kind: 'fd',
+      title, ts: `2026-05-30T16:0${index}:00.000Z` } },
+  })),
+};
+
 export const FIXTURES: Record<string, HarnessFixture> = {
   "enroll:default": { snapshot: POPULATED_SNAPSHOT, opts: SEEDED },
   'chats:populated': { snapshot: POPULATED_SNAPSHOT, opts: SEEDED },
@@ -951,6 +1024,9 @@ export const FIXTURES: Record<string, HarnessFixture> = {
   'chats:native_question': { snapshot: { ...QUESTION_SNAPSHOT, notifications: [] }, opts: SEEDED },
   'chats:status_card': { snapshot: STATUS_CARD_SNAPSHOT, opts: SEEDED },
   'chats:empty': { snapshot: EMPTY_SNAPSHOT, opts: SEEDED },
+  'lanes:populated': { snapshot: LANES_SNAPSHOT, opts: SEEDED },
+  'lanes:empty': { snapshot: { ...EMPTY_SNAPSHOT, work_lanes: { type: 'work_lanes.inventory', lanes: [], counts: { open: 0, active: 0, paused: 0, blocked: 0 }, truncated: false, generated_at: T0 } }, opts: SEEDED },
+  'bart:lane_updates': { snapshot: BART_LANE_UPDATES_SNAPSHOT, opts: SEEDED },
   'chats:loading': { snapshot: {}, opts: LOADING },
   'chats:error': { snapshot: { hosts: POPULATED_HOSTS, hosts_stats: POPULATED_MACHINE_STATS, sessions: [] }, opts: ERRORED },
 

@@ -22,7 +22,8 @@ import {
   getPentacleStreamState,
   selectStreamSlice,
 } from '../src/services/pentacleStream';
-import { selectChatList, selectMachineStatsTabs } from 'pentacle-chat-core';
+import { selectChatList, selectMachineStatsTabs, selectOpenLaneCount, selectWorkLanes } from 'pentacle-chat-core';
+import { selectLaneUpdates } from '../src/services/workLanes';
 
 function seed(key: string) {
   const fixture = FIXTURES[key];
@@ -65,6 +66,27 @@ describe('screenshot harness fixtures', () => {
   it('chats:populated yields a non-empty chat list; chats:empty yields none', () => {
     expect(selectChatList(seed('chats:populated')).length).toBeGreaterThan(0);
     expect(selectChatList(seed('chats:empty')).length).toBe(0);
+  });
+
+  it('lanes:populated seeds blocked/active/paused lanes, a stale ETA and an unavailable chat through the snapshot path', () => {
+    const state = seed('lanes:populated');
+    expect(selectOpenLaneCount(state)).toBe(4);
+    expect(selectWorkLanes(state).map((lane) => lane.state)).toEqual(['blocked', 'active', 'paused', 'paused']);
+    expect(selectWorkLanes(state).some((lane) => lane.lead?.eta_stale)).toBe(true);
+    expect(selectWorkLanes(state).some((lane) => lane.visible_chat.available === 'unavailable')).toBe(true);
+    expect(selectWorkLanes(state).some((lane) => lane.visible_chat.available === 'history')).toBe(true);
+  });
+
+  it('lanes:empty seeds no lanes', () => {
+    expect(selectOpenLaneCount(seed('lanes:empty'))).toBe(0);
+  });
+
+  it('bart:lane_updates seeds one typed card per update kind in the assistant timeline', () => {
+    const state = seed('bart:lane_updates');
+    expect(selectOpenLaneCount(state)).toBe(4);
+    expect(selectLaneUpdates(state).map((entry) => entry.update.kind).sort()).toEqual([
+      'lane_blocked', 'lane_completed', 'lane_started', 'lane_unblocked', 'major_decision', 'milestone',
+    ]);
   });
 
   it('chats:error surfaces the tailnet lastError banner copy', () => {
