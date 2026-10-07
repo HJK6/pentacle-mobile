@@ -68,10 +68,10 @@ test('tap hands the lane model to the opener; unavailable chats show an inline s
 
 test('expanding a lane with a qualifying lead reuses the shared status-card mini view', () => {
   const { view, onOpenLead } = surface();
-  expect(view.queryByTestId('card-status-mini-hosta:v2-lead0002')).toBeNull();
+  expect(view.queryByTestId('card-status-mini-fixture-host:v2-lead0002')).toBeNull();
   fireEvent.press(view.getByTestId('lane-toggle-wl-active-0002'));
-  fireEvent.press(view.getByTestId('card-status-mini-hosta:v2-lead0002'));
-  expect(onOpenLead).toHaveBeenCalledWith('hosta:v2-lead0002');
+  fireEvent.press(view.getByTestId('card-status-mini-fixture-host:v2-lead0002'));
+  expect(onOpenLead).toHaveBeenCalledWith('fixture-host:v2-lead0002');
   expect(view.getByText('Mobile lanes UI')).toBeTruthy();
 });
 

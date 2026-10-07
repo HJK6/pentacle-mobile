@@ -41,7 +41,7 @@ test('renders the daemon lanes in order with the open count', () => {
 test('an open session lane navigates to that session', () => {
   render(<LanesRoute />);
   fireEvent.press(screen.getByTestId('lane-row-wl-blocked-0001'));
-  expect(router().push).toHaveBeenCalledWith('/pentacle/session/hosta%3Av2-lead0001');
+  expect(router().push).toHaveBeenCalledWith('/pentacle/session/fixture-host%3Av2-lead0001');
 });
 
 test("a lane whose visible chat is the assistant composite returns to the assistant thread, not a session route", () => {
@@ -55,7 +55,7 @@ test('a closed chat opens the read-only history for its exact generation, never 
   render(<LanesRoute />);
   await act(async () => { fireEvent.press(screen.getByTestId('lane-row-wl-paused-0003')); });
   expect(screen.getByTestId('lane-history-screen')).toBeTruthy();
-  expect(requestLaneHistory).toHaveBeenCalledWith('hosta:v2-lead0003', 'gen-lead-0003', expect.any(Object));
+  expect(requestLaneHistory).toHaveBeenCalledWith('fixture-host:v2-lead0003', 'gen-lead-0003', expect.any(Object));
   expect(router().push).not.toHaveBeenCalled();
   expect(router().replace).not.toHaveBeenCalled();
   fireEvent.press(screen.getByLabelText('Close history'));

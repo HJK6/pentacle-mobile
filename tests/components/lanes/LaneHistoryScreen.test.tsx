@@ -5,9 +5,9 @@ import { act, fireEvent, render } from '@testing-library/react-native';
 import type { PentacleEvent } from 'pentacle-chat-core';
 import LaneHistoryScreen from '../../../src/components/lanes/LaneHistoryScreen';
 
-const target = { streamId: 'hosta:v2-lead0003', generation: 'gen-lead-0003', title: 'Household boards' };
+const target = { streamId: 'fixture-host:v2-lead0003', generation: 'gen-lead-0003', title: 'Household boards' };
 const event = (seq: number, kind: string, text: string, extra: Partial<PentacleEvent> = {}): PentacleEvent => ({
-  daemon_seq: seq, host: 'hosta', provider: 'claude', session_id: 's', session_name: 'v2-lead0003',
+  daemon_seq: seq, host: 'fixture-host', provider: 'claude', session_id: 's', session_name: 'v2-lead0003',
   stream_id: target.streamId, timestamp: `2026-10-07T12:00:${String(seq).padStart(2, '0')}Z`, kind, text, ...extra,
 });
 
@@ -25,7 +25,7 @@ test('requests the lane generation and renders the retained transcript read-only
     event(4, 'TOOL', 'tool noise'), event(5, 'ASSIST', ''),
   ]);
   const { view } = await mount(readHistory);
-  expect(readHistory).toHaveBeenCalledWith('hosta:v2-lead0003', 'gen-lead-0003', expect.objectContaining({ limit: expect.any(Number) }));
+  expect(readHistory).toHaveBeenCalledWith('fixture-host:v2-lead0003', 'gen-lead-0003', expect.objectContaining({ limit: expect.any(Number) }));
   const rows = view.getAllByTestId(/^lane-history-row-/).map((row) => row.props.testID);
   expect(rows).toEqual(['lane-history-row-1', 'lane-history-row-2', 'lane-history-row-3']);
   expect(view.getByText('Household boards')).toBeTruthy();
