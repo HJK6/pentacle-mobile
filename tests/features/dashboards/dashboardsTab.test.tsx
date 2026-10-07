@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen } from '@testing-library/react-native';
+import { act, render, screen } from '@testing-library/react-native';
 import DashboardsScreen from '../../../app/(tabs)/dashboards';
 import { DASHBOARD_ORDER, DASHBOARD_REGISTRY } from '../../../src/features/dashboards/dashboardRegistry';
 import { dashboardHubClient } from '../../../src/features/dashboards/dashboardHubClient';
@@ -12,6 +12,9 @@ jest.mock('../../../src/services/mobileTabsTelemetry', () => ({ logFocusedTab: j
 jest.mock('../../../src/features/dashboards/dashboardHubRuntime', () => ({
   loadDashboardHubRuntime: jest.fn(async () => ({ url: 'wss://hub.example.invalid', deviceToken: 'synthetic' })),
 }));
+
+// RefreshControl renders without props in the test renderer; read it from the ScrollView.
+const refreshControl = () => screen.getByTestId('dashboards-scroll').props.refreshControl.props;
 
 describe('Dashboards tab with no current boards', () => {
   let connect: jest.SpyInstance;
@@ -43,5 +46,20 @@ describe('Dashboards tab with no current boards', () => {
     expect(loadDashboardHubRuntime).not.toHaveBeenCalled();
     expect(connect).not.toHaveBeenCalled();
     expect(refresh).not.toHaveBeenCalled();
+  });
+
+  it('pull-to-refresh on the empty tab settles without refreshing the hub', () => {
+    jest.useFakeTimers();
+    try {
+      render(<DashboardsScreen />);
+      act(() => refreshControl().onRefresh());
+      expect(refreshControl().refreshing).toBe(true);
+      act(() => { jest.advanceTimersByTime(350); });
+      expect(refreshControl().refreshing).toBe(false);
+      expect(refresh).not.toHaveBeenCalled();
+      expect(connect).not.toHaveBeenCalled();
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });
