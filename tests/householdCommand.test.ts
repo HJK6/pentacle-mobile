@@ -74,3 +74,12 @@ test('rejects non-household verbs and is not replayed after a disconnect', async
   expect(recovered.sent.map((item) => JSON.parse(item)).filter((item) => item.type === 'household.item.done')).toHaveLength(0);
   unsubscribe();
 });
+
+test('a caller field cannot override the household verb', () => {
+  const { stream, socket, unsubscribe } = connect();
+  void stream.sendHouseholdCommand('household.item.add', { type: 'consent.approve', text: 'x' }).catch(() => undefined);
+  const types = socket.sent.map((item) => JSON.parse(item).type);
+  expect(types).toContain('household.item.add');
+  expect(types).not.toContain('consent.approve');
+  unsubscribe();
+});

@@ -40,8 +40,9 @@ no shared edit to register. A route sets its own presentation (e.g. the Question
 
 ## Selectors
 
-Both are pure functions of `PentacleStreamState` and derive only from daemon-authoritative data
-(notifications, sessions and the existing optimistic-answer projection). Opening, closing or
+Both derive only from `PentacleStreamState` — daemon-authoritative notifications and sessions plus
+the existing optimistic-answer projection — and from the build's configured assistant role, which
+`selectSmartChatList` uses for row order only (it never changes membership or counts). Opening, closing or
 paging through a surface never changes either value; a count drops only when the daemon closes the
 question or the existing optimistic-answer identity covers it.
 

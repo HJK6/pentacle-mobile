@@ -165,3 +165,27 @@ test('an embedded screen never redirects away on a missing session; the route st
   act(() => { jest.advanceTimersByTime(5_000); });
   expect(replace).toHaveBeenCalledWith('/chats');
 });
+
+test('the route decodes its stream id and registers stack options; an embedded screen registers none', () => {
+  const { stackScreens } = expoRouter.__mock;
+  stackScreens.mockClear();
+  const embedded = render(<SessionScreen streamId={STREAM_ID} header={<Text>Bart</Text>} />);
+  expect(stackScreens).not.toHaveBeenCalled();
+  embedded.unmount();
+  mockParams = { streamId: encodeURIComponent(STREAM_ID) };
+  render(<RouteSessionScreen />);
+  expect(stackScreens).toHaveBeenCalledWith(expect.objectContaining({ options: { headerShown: false } }));
+  expect(mockActions.sendTurn).not.toHaveBeenCalled();
+  fireEvent.changeText(screen.getByTestId('composer-input'), 'hi');
+  fireEvent.press(screen.getByTestId('composer-send-button'));
+  expect(mockActions.sendTurn).toHaveBeenCalledWith(STREAM_ID, 'hi');
+});
+
+test('route query params still reach the inner screen', () => {
+  mockParams = { streamId: encodeURIComponent(STREAM_ID), openStatus: '1' };
+  const router = expoRouter.useRouter();
+  const setParams = jest.fn();
+  router.setParams = setParams;
+  render(<RouteSessionScreen />);
+  expect(setParams).toHaveBeenCalledWith({ openStatus: undefined });
+});

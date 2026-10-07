@@ -4799,7 +4799,8 @@ export function sendConsentCommand<T = Record<string, unknown>>(verb: string, fi
 // fail on disconnect and are never replayed.
 export function sendHouseholdCommand<T = Record<string, unknown>>(verb: string, fields: Record<string, unknown>): Promise<T> {
   if (!verb.startsWith('household.')) throw new Error('Invalid household verb');
-  return sendCommand<T>({type: verb, ...fields}, 'household');
+  // type is set last so a caller field can never escape the household namespace.
+  return sendCommand<T>({...fields, type: verb}, 'household');
 }
 
 export function sendPentacleAssetCommand<T extends Record<string, unknown>>(

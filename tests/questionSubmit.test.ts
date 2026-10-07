@@ -80,3 +80,19 @@ test('a non-stale legacy dismiss failure discards and throws without sending', a
   expect(actions.discardOptimisticQuestionAnswer).toHaveBeenCalledWith('opt1');
   expect(actions.sendMessage).not.toHaveBeenCalled();
 });
+
+test('a durable item runs begin -> queued hook -> answerPrompt -> queue in order, and discards after a failed answer', async () => {
+  const log: string[] = [];
+  const actions = makeActions();
+  actions.beginOptimisticQuestionAnswer.mockImplementation(() => { log.push('begin'); return 'opt1'; });
+  actions.answerPrompt.mockImplementation(async () => { log.push('answer'); return true as const; });
+  actions.queueOptimisticQuestionAnswer.mockImplementation(() => { log.push('queue'); });
+  actions.discardOptimisticQuestionAnswer.mockImplementation(() => { log.push('discard'); });
+  const hooks = { onDurableAnswerQueued: () => log.push('queued-hook'), onDurableAnswerRejected: () => log.push('rejected-hook') };
+  await submitQuestionSubmission(actions, 's1', durable([{ questionId: 'q1' }]), hooks);
+  expect(log).toEqual(['begin', 'queued-hook', 'answer', 'queue']);
+  log.length = 0;
+  actions.answerPrompt.mockImplementation(async () => { log.push('answer'); throw Object.assign(new Error('x'), { errorCode: 'stale' }); });
+  await expect(submitQuestionSubmission(actions, 's1', durable([{ questionId: 'q1' }]), hooks)).rejects.toThrow('x');
+  expect(log).toEqual(['begin', 'queued-hook', 'answer', 'discard', 'rejected-hook']);
+});
