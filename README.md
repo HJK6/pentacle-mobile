@@ -43,6 +43,18 @@ setup. Give it the path to [AGENT_SETUP.md](AGENT_SETUP.md). That separate guide
 contains the full agent checklist. You may still need to complete provider
 login, Apple signing or a device trust/unlock prompt yourself.
 
+## Tabs and assistant home
+
+The tab bar is **Assistant · Personal · Dashboards · Settings** (using your assistant’s configured
+name). Choose the assistant tab for the
+coordinator's existing conversation, open Sessions from its left header button,
+open pending Questions from **?**, or tap the assistant’s name for the status surface.
+Dashboards keeps its existing work screens. Chats, Unified, and Updates remain
+available by route but are hidden from the tab bar.
+
+See [the assistant shell guide](docs/bart_shell.md) for the source files, drawer
+behavior, and the separately owned startup/back-navigation integration.
+
 ## Do I need chat-core separately?
 
 **No.** [pentacle-chat-core](https://github.com/HJK6/pentacle-chat-core) is public,
@@ -92,8 +104,9 @@ rebuild or reset to the shipped defaults.
 ## Always-on assistant
 
 Pentacle includes an optional **always-on assistant** — a persistent chat for
-talking to your whole fleet in one place. This kit names it **Bart** and gives
-it an icon; both the name and icon are yours to change. It is opt-in: set
+talking to your whole fleet in one place. The home tab and header use its
+configured display name (default **Assistant**) and its host-associated identity
+icon. Rename the session to change the displayed name. It is opt-in: set
 `features.assistantRole` in your `pentacle.config.local.ts` to match the
 daemon's assistant role. You choose the assistant's name and provider when you
 bootstrap it on the daemon host — see the desktop
