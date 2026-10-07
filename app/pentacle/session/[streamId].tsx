@@ -1013,6 +1013,9 @@ export type SessionScreenProps = {
   // screen is embedded outside the session route, e.g. the Bart home tab
   // (docs/bart_home_contracts.md). Embedded screens never redirect away on a missing session.
   header?: React.ReactNode;
+  // The supplied header already carries the questions button (the Bart home header opens
+  // the cross-session overlay), so the in-chat question FAB is not drawn beside it.
+  questionsInHeader?: boolean;
 };
 
 export default function PentacleSessionScreen() {
@@ -1021,7 +1024,7 @@ export default function PentacleSessionScreen() {
 }
 
 export function SessionScreen(props: SessionScreenProps) {
-  const { streamId, header } = props;
+  const { streamId, header, questionsInHeader = false } = props;
   const embedded = header !== undefined;
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -3610,7 +3613,7 @@ export function SessionScreen(props: SessionScreenProps) {
           {/* Keep question controls inside the measured composer inset so they
               cannot intercept a Retry or message in the transcript. */}
           <QuestionFab
-            count={questionOverlayOpen ? 0 : visibleQuestionFlow.unansweredCount}
+            count={questionOverlayOpen || questionsInHeader ? 0 : visibleQuestionFlow.unansweredCount}
             accent={chrome.accent}
             onPress={() => {
               setQuestionPageIndex(0);

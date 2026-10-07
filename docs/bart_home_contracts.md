@@ -161,6 +161,8 @@ export function SessionScreen(props: {
   // Replaces the default combined header (back button + status trigger). The session's own
   // transcript, composer, questions and overlays are unchanged.
   header?: React.ReactNode;
+  // The header already carries the Questions button, so the in-chat question FAB is not drawn.
+  questionsInHeader?: boolean;
 }): JSX.Element
 ```
 
@@ -170,7 +172,9 @@ options, no back/menu header, and no redirect away when the session is missing. 
 back button and missing-session redirect return to the home destination `HOME_ROUTE`
 (`'/(tabs)/bart'`, `src/services/homeRoute.ts`, shared edit S3), which is also the app's launch
 redirect (`app/index.tsx`), the post-enrollment target and the push-tap stack seed. `app/(tabs)/bart.tsx` renders
-`<SessionScreen streamId={BART_STREAM_ID} header={<BartHeader … />} />`. P3 does not fork or copy
+`<SessionScreen streamId={BART_STREAM_ID} header={<BartHeader … />} questionsInHeader />`: the header's
+Questions button is then the only questions control on the home screen, and the glowing in-chat FAB
+(`QuestionFab`) stays on every other chat, where it is the sole affordance. P3 does not fork or copy
 the session screen.
 
 ## Answering questions
