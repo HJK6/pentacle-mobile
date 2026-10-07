@@ -3,7 +3,7 @@ import {
   poisonDeviceZone, registerOutboundGuard, rpcError, rpcTimeout, sameColor, snapshotCalls, textOf,
   unknownOutcomeFor, withBackground,
 } from './support';
-import { fireEvent, mount, resetWorld, screen, within } from './screens';
+import { fireEvent, isDisabled, mount, resetWorld, screen, within } from './screens';
 
 registerOutboundGuard();
 
@@ -42,12 +42,6 @@ describe('CalendarView month grid', () => {
     }
     expect(screen.queryByTestId('calendar-cell-2026-09-30')).toBeNull();
     expect(screen.queryByTestId('calendar-cell-2026-11-01')).toBeNull();
-  });
-
-  it('offers no month paging (deviation D4): no stepper chevrons beyond the back chevron', async () => {
-    await mount('CalendarView');
-    expect(screen.queryByText('›')).toBeNull();
-    expect(screen.getAllByText('‹')).toHaveLength(1);
   });
 
   it('colours today green, past days muted, the selected day with a green border and fill', async () => {
@@ -202,6 +196,102 @@ describe('CalendarView ✕ remove', () => {
   });
 });
 
+describe('CalendarView month paging', () => {
+  const next = () => fireEvent.press(screen.getByTestId('calendar-next-month'));
+  const prev = () => fireEvent.press(screen.getByTestId('calendar-prev-month'));
+
+  it('has labelled previous/next month buttons beside + Event, and no back-to-today on the current month', async () => {
+    await mount('CalendarView');
+    expect(screen.getByTestId('calendar-prev-month').props.accessibilityLabel).toBe('Previous month');
+    expect(screen.getByTestId('calendar-next-month').props.accessibilityLabel).toBe('Next month');
+    expect(screen.queryByTestId('calendar-back-to-today')).toBeNull();
+    expect(screen.getByText('2026')).toBeTruthy();
+  });
+
+  it('next selects the 1st of the next month, requests that month and offers back to today', async () => {
+    server.events.push(event({ id: 301, date: '2026-11-01', time: '09:00', title: 'Synthetic first-of-month' }));
+    await mount('CalendarView');
+    next();
+    await flush();
+    expect(screen.getByText('November')).toBeTruthy();
+    expect(screen.getByText('SUN 1')).toBeTruthy();
+    expect(requestedMonths()).toContain('2026-11');
+    expect(hasAgendaRow('Synthetic first-of-month')).toBe(true);
+    expect(screen.getByText('2026 · BACK TO TODAY')).toBeTruthy();
+    expect(screen.queryByTestId('calendar-cell-2026-10-06')).toBeNull();
+  });
+
+  it('previous selects the 1st of the previous month, and paging back into this month selects today', async () => {
+    await mount('CalendarView');
+    prev();
+    await flush();
+    expect(screen.getByText('September')).toBeTruthy();
+    expect(screen.getByText('TUE 1')).toBeTruthy();
+    expect(requestedMonths()).toContain('2026-09');
+    next();
+    await flush();
+    expect(screen.getByText('October')).toBeTruthy();
+    expect(screen.getByText('TUE 6 · TODAY')).toBeTruthy();
+    expect(screen.queryByTestId('calendar-back-to-today')).toBeNull();
+  });
+
+  it('back to today returns to this month with today selected', async () => {
+    await mount('CalendarView');
+    next();
+    next();
+    await flush();
+    expect(screen.getByText('December')).toBeTruthy();
+    fireEvent.press(screen.getByTestId('calendar-back-to-today'));
+    await flush();
+    expect(screen.getByText('October')).toBeTruthy();
+    expect(screen.getByText('TUE 6 · TODAY')).toBeTruthy();
+    expect(screen.queryByTestId('calendar-back-to-today')).toBeNull();
+  });
+
+  it.each([
+    ['2000-01-15', 'calendar-prev-month', 'calendar-next-month'],
+    ['2100-12-15', 'calendar-next-month', 'calendar-prev-month'],
+  ])('at %s the outward button is disabled and the inward one is not', async (date, outward, inward) => {
+    await mount('CalendarView', { date });
+    expect(isDisabled(screen.getByTestId(outward))).toBe(true);
+    expect(isDisabled(screen.getByTestId(inward))).toBe(false);
+  });
+
+  it('holds paging and back to today while a change is unresolved, then releases them', async () => {
+    server.events.push(event({ id: 302, date: '2026-11-03', time: '09:00', title: 'Synthetic removable' }));
+    server.override('household.event.remove', unknownOutcomeFor('household.event.remove', 'never'));
+    await mount('CalendarView', { date: '2026-11-03' });
+    fireEvent.press(within(agendaRow('Synthetic removable')).getByTestId('agenda-remove'));
+    await flush();
+    expect(screen.getByText(UNRESOLVED)).toBeTruthy();
+    expect(isDisabled(screen.getByTestId('calendar-next-month'))).toBe(true);
+    expect(isDisabled(screen.getByTestId('calendar-prev-month'))).toBe(true);
+    expect(screen.queryByTestId('calendar-back-to-today')).toBeNull();
+    await advance(6000);
+    await flush();
+    expect(screen.getByText('Not saved')).toBeTruthy();
+    expect(isDisabled(screen.getByTestId('calendar-next-month'))).toBe(false);
+    expect(screen.getByTestId('calendar-back-to-today')).toBeTruthy();
+  });
+
+  it('a new event saved in another month moves the calendar to that month with its day selected', async () => {
+    await mount('CalendarView');
+    fireEvent.press(screen.getByTestId('calendar-new-event'));
+    await flush();
+    fireEvent.press(screen.getByTestId('event-sheet-date'));
+    fireEvent.press(screen.getByTestId('mini-calendar-next'));
+    fireEvent.press(screen.getByTestId('mini-calendar-day-2026-11-20'));
+    fireEvent.changeText(screen.getByTestId('event-sheet-title'), 'Synthetic November save');
+    fireEvent.press(screen.getByTestId('event-sheet-save'));
+    await flush();
+    expect(screen.queryByTestId('event-sheet-save')).toBeNull();
+    expect(screen.getByText('November')).toBeTruthy();
+    expect(screen.getByText('FRI 20')).toBeTruthy();
+    expect(hasAgendaRow('Synthetic November save')).toBe(true);
+    expect(requestedMonths().slice(-1)).toEqual(['2026-11']);
+  });
+});
+
 describe('CalendarView route date', () => {
   it('without a date, selects today and requests no out-of-range month', async () => {
     await mount('CalendarView', {}, false);
@@ -222,7 +312,7 @@ describe('CalendarView route date', () => {
     expect(requestedMonths()).toContain('2026-11');
     expect(screen.getByText('November')).toBeTruthy();
     expect(screen.getByText('SUN 15')).toBeTruthy();
-    expect(screen.queryByText(/TODAY/)).toBeNull();
+    expect(screen.queryByText(/· TODAY$/)).toBeNull();
     expect(screen.queryByTestId('calendar-cell-2026-11-30')).not.toBeNull();
     expect(screen.queryByTestId('calendar-cell-2026-10-06')).toBeNull();
     expect(within(agendaRow('Nov thing')).getByText('10:00a')).toBeTruthy();
@@ -236,7 +326,7 @@ describe('CalendarView route date', () => {
     expect(requestedMonths()).toContain(month);
     expect(screen.getByText(header)).toBeTruthy();
     expect(screen.getByText(monthName)).toBeTruthy();
-    expect(screen.getByText(year)).toBeTruthy();
+    expect(screen.getByText(`${year} · BACK TO TODAY`)).toBeTruthy();
     expect(screen.queryByTestId(`calendar-cell-${date}`)).not.toBeNull();
     expect(screen.queryByText('Household store unavailable')).toBeNull();
   });
