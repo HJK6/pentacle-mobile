@@ -12,25 +12,25 @@ import { logFocusedTab } from '../../src/services/mobileTabsTelemetry';
 export default function DashboardsScreen() {
   const insets = useSafeAreaInsets();
   const isFocused = useIsFocused();
-  const [activeId, setActiveId] = useState<DashboardId>('foreclosure');
+  const [activeId, setActiveId] = useState<DashboardId | null>(DASHBOARD_ORDER[0] ?? null);
   const [foreclosureBatch, setForeclosureBatch] = useState('');
   const [refreshing, setRefreshing] = useState(false);
-  const { client, connectionState, refresh } = useDashboardHub(isFocused);
-  const definition = DASHBOARD_REGISTRY[activeId];
-  const Renderer = definition.render;
-  const snapshot = definition.resolve(
-    client.getEnvelope(definition.hubKey),
-    connectionState === 'connected',
-    { batch: foreclosureBatch },
-  );
+  const hasBoards = DASHBOARD_ORDER.length > 0;
+  // With no boards the tab never connects to (or polls) the dashboard hub.
+  const { client, connectionState, refresh } = useDashboardHub(isFocused && hasBoards);
+  const definition = activeId ? DASHBOARD_REGISTRY[activeId] ?? null : null;
+  const Renderer = definition?.render;
+  const snapshot = definition
+    ? definition.resolve(client.getEnvelope(definition.hubKey), connectionState === 'connected', { batch: foreclosureBatch })
+    : null;
 
   useEffect(() => {
     if (isFocused) logFocusedTab('dashboards');
   }, [isFocused]);
 
   useEffect(() => {
-    if (isFocused) refresh(definition.hubKey);
-  }, [definition.hubKey, isFocused, refresh]);
+    if (isFocused && definition) refresh(definition.hubKey);
+  }, [definition, isFocused, refresh]);
 
   const selectBatch = useCallback((batch: string) => {
     setForeclosureBatch(batch);
@@ -39,9 +39,9 @@ export default function DashboardsScreen() {
 
   const handleRefresh = useCallback(() => {
     setRefreshing(true);
-    refresh(definition.hubKey);
+    if (definition) refresh(definition.hubKey);
     setTimeout(() => setRefreshing(false), 350);
-  }, [definition.hubKey, refresh]);
+  }, [definition, refresh]);
 
   const selector = useMemo(() => DASHBOARD_ORDER.map((id) => {
     const item = DASHBOARD_REGISTRY[id];
@@ -70,12 +70,19 @@ export default function DashboardsScreen() {
       >
         <View style={styles.topRow}>
           <Text style={styles.screenTitle}>DASHBOARDS</Text>
-          <Text style={styles.connection}>{connectionState.toUpperCase()}</Text>
+          {hasBoards ? <Text style={styles.connection}>{connectionState.toUpperCase()}</Text> : null}
         </View>
-        <ScrollView horizontal contentContainerStyle={styles.selector} showsHorizontalScrollIndicator={false} testID="dashboard-selector">
-          {selector}
-        </ScrollView>
-        <Renderer snapshot={snapshot} onSelectBatch={selectBatch} onMutateGate={mutateForeclosureGate} />
+        {hasBoards ? (
+          <ScrollView horizontal contentContainerStyle={styles.selector} showsHorizontalScrollIndicator={false} testID="dashboard-selector">
+            {selector}
+          </ScrollView>
+        ) : (
+          <View style={styles.empty} testID="dashboards-empty">
+            <Text style={styles.emptyTitle}>No dashboards yet</Text>
+            <Text style={styles.emptyBody}>New dashboards will appear here when they are ready.</Text>
+          </View>
+        )}
+        {Renderer ? <Renderer snapshot={snapshot} onSelectBatch={selectBatch} onMutateGate={mutateForeclosureGate} /> : null}
       </ScrollView>
     </View>
   );
@@ -92,4 +99,7 @@ const styles = StyleSheet.create({
   selectorButtonActive: { borderColor: Tokens.palette.green },
   selectorText: { color: Tokens.palette.muted, fontFamily: Fonts.jetBrainsMono.bold, fontSize: 10, letterSpacing: 0.4, textTransform: 'uppercase' },
   selectorTextActive: { color: Tokens.palette.text },
+  empty: { alignItems: 'center', borderColor: Tokens.palette.line, borderRadius: 8, borderStyle: 'dashed', borderWidth: 1, gap: 6, marginTop: 24, paddingHorizontal: 16, paddingVertical: 28 },
+  emptyTitle: { color: Tokens.palette.muted, fontFamily: Fonts.rajdhani.medium, fontSize: 17 },
+  emptyBody: { color: Tokens.palette.muted, fontFamily: Fonts.jetBrainsMono.regular, fontSize: 10, letterSpacing: 0.4, textAlign: 'center' },
 });
