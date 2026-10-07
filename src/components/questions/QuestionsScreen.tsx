@@ -264,7 +264,7 @@ export default function QuestionsScreen({ notificationId }: { notificationId?: s
         <View style={styles.headerCopy}>
           <Text testID="questions-counter" style={[styles.counter, { color: accent }]}>{`QUESTION ${index + 1} / ${total}`}</Text>
           <Text testID="questions-subtitle" numberOfLines={1} style={styles.subtitle}>
-            {current.isBart ? 'Bartimaeus' : `${current.machineLabel} · ${current.sessionTitle}`}
+            {current.isBart ? 'Bart' : `${current.machineLabel} · ${current.sessionTitle}`}
           </Text>
         </View>
         {current.isBart ? null : (

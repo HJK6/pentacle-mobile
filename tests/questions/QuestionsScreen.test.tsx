@@ -6,11 +6,11 @@ import QuestionsRoute from '../../app/pentacle/questions';
 import { QuestionsScreen } from '../../src/components/questions';
 import { performChatOpenNavigation } from '../../src/services/chatOpenNavigation';
 import {
-  AMA_SESSION,
+  SESSION_B,
   BART,
   HOSTS_CONFIG,
   LEGACY_SESSION,
-  MERLIN_SESSION,
+  SESSION_C,
   baseState,
   durableQuestion,
   fixtureState,
@@ -53,8 +53,8 @@ const mockNavigate = performChatOpenNavigation as jest.Mock;
 
 const LINE = 'rgba(120,255,160,0.16)';
 const GREEN = '#3dff66';
-const MERLIN_ACCENT = '#1f5bff';
-const AMA_ACCENT = '#ff2e3e';
+const ACCENT_C = '#1f5bff';
+const ACCENT_B = '#ff2e3e';
 
 function notify() {
   act(() => { mockListeners.forEach((listener) => listener()); });
@@ -94,17 +94,17 @@ function installActions() {
   mockActions.sendMessage = jest.fn().mockResolvedValue(undefined);
 }
 
-// Three single-item durable questions: Merlin session (blue), Amaterasu session (red), Bart (green).
+// Three single-item durable questions: Host C session (blue), Host B session (red), Bart (green).
 function threeState() {
   return baseState({
     sessions: [
-      session(MERLIN_SESSION, 'Deploy lane', { last_event_at: '2026-10-06T12:05:00.000Z' }),
-      session(AMA_SESSION, 'Code review', { last_event_at: '2026-10-06T12:04:00.000Z' }),
-      session(BART, 'Bartimaeus', { last_event_at: '2026-10-06T12:00:00.000Z' }),
+      session(SESSION_C, 'Deploy lane', { last_event_at: '2026-10-06T12:05:00.000Z' }),
+      session(SESSION_B, 'Code review', { last_event_at: '2026-10-06T12:04:00.000Z' }),
+      session(BART, 'Bart', { last_event_at: '2026-10-06T12:00:00.000Z' }),
     ],
     notifications: [
-      durableQuestion(MERLIN_SESSION, 'n-merlin'),
-      durableQuestion(AMA_SESSION, 'n-ama'),
+      durableQuestion(SESSION_C, 'n-deploy'),
+      durableQuestion(SESSION_B, 'n-review'),
       durableQuestion(BART, 'n-bart'),
     ],
   });
@@ -150,15 +150,15 @@ describe('header (T2–T7)', () => {
   test('T3/T4: counter text and "Machine · session title" subtitle for the first page', () => {
     render(<QuestionsScreen />);
     expect(counter()).toBe('QUESTION 1 / 3');
-    expect(text('questions-subtitle')).toBe('Merlin · Deploy lane');
-    expect(style('questions-counter').color).toBe(MERLIN_ACCENT);
+    expect(text('questions-subtitle')).toBe('Host C · Deploy lane');
+    expect(style('questions-counter').color).toBe(ACCENT_C);
   });
 
-  test('T3/T4: a Bart page reads "Bartimaeus", uses the lamp green and hides See chat', () => {
+  test('T3/T4: a Bart page reads "Bart", uses the lamp green and hides See chat', () => {
     render(<QuestionsScreen />);
     goTo(2);
     expect(counter()).toBe('QUESTION 3 / 3');
-    expect(text('questions-subtitle')).toBe('Bartimaeus');
+    expect(text('questions-subtitle')).toBe('Bart');
     expect(style('questions-counter').color).toBe(GREEN);
     expect(screen.queryByTestId('questions-see-chat')).toBeNull();
   });
@@ -167,12 +167,12 @@ describe('header (T2–T7)', () => {
     render(<QuestionsScreen />);
     fireEvent.press(screen.getByTestId('questions-see-chat'));
     expect(mockNavigate).toHaveBeenCalledTimes(1);
-    expect(mockNavigate.mock.calls[0][0]).toBe(MERLIN_SESSION);
+    expect(mockNavigate.mock.calls[0][0]).toBe(SESSION_C);
     expect(mockNavigate.mock.calls[0][1]).toBe(expoRouter.router);
     expect(expoRouter.__mock.push).not.toHaveBeenCalled();
     goTo(1);
     fireEvent.press(screen.getByTestId('questions-see-chat'));
-    expect(mockNavigate.mock.calls[1][0]).toBe(AMA_SESSION);
+    expect(mockNavigate.mock.calls[1][0]).toBe(SESSION_B);
   });
 
   test('T6/C7: no mic; the header exposes an empty accessory slot before the close button', () => {
@@ -214,7 +214,7 @@ describe('footer state machine (T10–T13)', () => {
       // T11 Submit: shown once >= 1 answered.
       expect(!!screen.queryByTestId('questions-submit')).toBe(count > 0);
       if (count > 0) {
-        const accent = [MERLIN_ACCENT, AMA_ACCENT, GREEN][page];
+        const accent = [ACCENT_C, ACCENT_B, GREEN][page];
         const submit = style('questions-submit');
         expect(text('questions-submit-label')).toBe(all ? 'Send all answers' : `Submit ${count} of 3`);
         // Filled when last page or all answered; outline otherwise.
@@ -226,7 +226,7 @@ describe('footer state machine (T10–T13)', () => {
       // T12 Next: when not last; filled unless all answered.
       expect(!!screen.queryByTestId('questions-next')).toBe(!last);
       if (!last) {
-        const accent = [MERLIN_ACCENT, AMA_ACCENT, GREEN][page];
+        const accent = [ACCENT_C, ACCENT_B, GREEN][page];
         expect(style('questions-next').backgroundColor).toBe(all ? 'transparent' : accent);
       }
 
@@ -260,12 +260,12 @@ describe('dots (T9)', () => {
   test('one dot per page; active is 22 wide in its accent; answered is accent+66; others are the line color; tap navigates', () => {
     render(<QuestionsScreen />);
     goTo(1);
-    answerCurrentPage(); // page 2 (Amaterasu) answered; then leave it
+    answerCurrentPage(); // page 2 (Host B) answered; then leave it
     goTo(0);
 
     expect(screen.getAllByTestId(/^questions-dot-\d+$/)).toHaveLength(3);
-    expect(style('questions-dot-0')).toMatchObject({ width: 22, backgroundColor: MERLIN_ACCENT });
-    expect(style('questions-dot-1')).toMatchObject({ width: 8, backgroundColor: `${AMA_ACCENT}66` });
+    expect(style('questions-dot-0')).toMatchObject({ width: 22, backgroundColor: ACCENT_C });
+    expect(style('questions-dot-1')).toMatchObject({ width: 8, backgroundColor: `${ACCENT_B}66` });
     expect(style('questions-dot-2')).toMatchObject({ width: 8, backgroundColor: LINE });
 
     goTo(2);
@@ -275,7 +275,7 @@ describe('dots (T9)', () => {
     goTo(1);
     expect(counter()).toBe('QUESTION 2 / 3');
     // Active wins over answered.
-    expect(style('questions-dot-1')).toMatchObject({ width: 22, backgroundColor: AMA_ACCENT });
+    expect(style('questions-dot-1')).toMatchObject({ width: 22, backgroundColor: ACCENT_B });
   });
 });
 
@@ -288,11 +288,11 @@ describe('partial submit (T14, AC4)', () => {
     await press('questions-submit');
 
     expect(mockActions.answerPrompt).toHaveBeenCalledTimes(1);
-    expect(mockActions.answerPrompt.mock.calls[0][0]).toMatchObject({ questionId: 'q-n-ama', selections: ['yes'] });
+    expect(mockActions.answerPrompt.mock.calls[0][0]).toMatchObject({ questionId: 'q-n-review', selections: ['yes'] });
     expect(mockBack).not.toHaveBeenCalled();
     expect(text('questions-toast')).toBe('Sent 1 answer · 2 left');
     expect(counter()).toBe('QUESTION 1 / 2');
-    expect(text('questions-subtitle')).toBe('Merlin · Deploy lane');
+    expect(text('questions-subtitle')).toBe('Host C · Deploy lane');
     expect(screen.queryByTestId('questions-dot-2')).toBeNull();
 
     act(() => { jest.advanceTimersByTime(2199); });
@@ -333,9 +333,9 @@ describe('partial submit (T14, AC4)', () => {
 
     expect(mockActions.answerPrompt).toHaveBeenCalledTimes(2);
     expect(text('questions-toast')).toBe('Sent 1 answer · 2 left');
-    // Sent item (Amaterasu) left; the failed Merlin item is still page 1 with its draft and error.
+    // Sent item (Host B) left; the failed Host C item is still page 1 with its draft and error.
     expect(counter()).toBe('QUESTION 1 / 2');
-    expect(text('questions-subtitle')).toBe('Merlin · Deploy lane');
+    expect(text('questions-subtitle')).toBe('Host C · Deploy lane');
     expect(text('questions-item-error')).toBe('daemon offline');
     expect(screen.getByTestId('questions-option-1').props.accessibilityState.checked).toBe(true);
   });
@@ -344,12 +344,12 @@ describe('partial submit (T14, AC4)', () => {
     mockState = fixtureState();
     render(<QuestionsScreen />);
     expect(counter()).toBe('QUESTION 1 / 6');
-    answerCurrentPage(); // n-merlin:0
+    answerCurrentPage(); // n-deploy:0
     await press('questions-submit');
-    expect(mockActions.answerPrompt.mock.calls[0][0].questionId).toBe('q-n-merlin-a');
+    expect(mockActions.answerPrompt.mock.calls[0][0].questionId).toBe('q-n-deploy-a');
     expect(text('questions-toast')).toBe('Sent 1 answer · 5 left');
     expect(counter()).toBe('QUESTION 1 / 5');
-    expect(text('questions-prompt')).toBe('n-merlin second?');
+    expect(text('questions-prompt')).toBe('n-deploy second?');
   });
 });
 
@@ -358,7 +358,7 @@ describe('legacy send failure (C4)', () => {
     mockState = fixtureState();
     mockActions.sendMessage.mockRejectedValueOnce(new Error('socket closed'));
     render(<QuestionsScreen />);
-    goTo(2); answerCurrentPage(); // n-ama:0
+    goTo(2); answerCurrentPage(); // n-review:0
     goTo(3); answerCurrentPage(); // legacy
     expect(counter()).toBe('QUESTION 4 / 6');
     await press('questions-submit');
@@ -412,7 +412,7 @@ describe('send all (T15, AC5)', () => {
     expect(mockActions.answerPrompt).toHaveBeenCalledTimes(3);
     expect(mockBack).not.toHaveBeenCalled();
     expect(counter()).toBe('QUESTION 1 / 1');
-    expect(text('questions-subtitle')).toBe('Amaterasu · Code review');
+    expect(text('questions-subtitle')).toBe('Host B · Code review');
     expect(text('questions-item-error')).toBe('rejected by daemon');
     expect(screen.getByTestId('questions-option-1').props.accessibilityState.checked).toBe(true);
     expect(screen.queryByTestId('questions-dot-1')).toBeNull();
@@ -421,8 +421,8 @@ describe('send all (T15, AC5)', () => {
   test('retrying the failed item sends it again and closes the overlay once it resolves', async () => {
     mockActions.answerPrompt.mockRejectedValueOnce(new Error('flaky')).mockResolvedValue(undefined);
     mockState = baseState({
-      sessions: [session(AMA_SESSION, 'Code review')],
-      notifications: [durableQuestion(AMA_SESSION, 'n-ama')],
+      sessions: [session(SESSION_B, 'Code review')],
+      notifications: [durableQuestion(SESSION_B, 'n-review')],
     });
     render(<QuestionsScreen />);
     answerCurrentPage();
@@ -437,7 +437,7 @@ describe('send all (T15, AC5)', () => {
 
 describe('empty state and entry param (C5)', () => {
   test('zero pending shows "No questions waiting" with a working close', async () => {
-    mockState = baseState({ sessions: [session(BART, 'Bartimaeus')] });
+    mockState = baseState({ sessions: [session(BART, 'Bart')] });
     render(<QuestionsScreen />);
     expect(within(screen.getByTestId('questions-empty')).getByText('No questions waiting')).toBeTruthy();
     expect(screen.queryByTestId('questions-counter')).toBeNull();
@@ -447,14 +447,14 @@ describe('empty state and entry param (C5)', () => {
 
   test('notificationId opens on the first page of that notification when still pending', () => {
     mockState = fixtureState();
-    render(<QuestionsScreen notificationId="n-ama" />);
+    render(<QuestionsScreen notificationId="n-review" />);
     expect(counter()).toBe('QUESTION 3 / 6');
-    expect(text('questions-subtitle')).toBe('Amaterasu · Code review');
+    expect(text('questions-subtitle')).toBe('Host B · Code review');
   });
 
   test('a multi-item notification opens on its first item', () => {
     mockState = fixtureState();
-    render(<QuestionsScreen notificationId="n-merlin" />);
+    render(<QuestionsScreen notificationId="n-deploy" />);
     expect(counter()).toBe('QUESTION 1 / 6');
   });
 
@@ -467,7 +467,7 @@ describe('empty state and entry param (C5)', () => {
     mockParams = { notificationId: 'n-bart' };
     render(<QuestionsRoute />);
     expect(counter()).toBe('QUESTION 3 / 3');
-    expect(text('questions-subtitle')).toBe('Bartimaeus');
+    expect(text('questions-subtitle')).toBe('Bart');
     expect(expoRouter.__mock.stackScreens).toHaveBeenCalledWith(expect.objectContaining({
       options: { presentation: 'transparentModal', animation: 'fade' },
     }));
@@ -481,10 +481,10 @@ describe('live data (AC8)', () => {
     expect(counter()).toBe('QUESTION 3 / 3');
     patchState((state) => ({
       ...state,
-      notifications: state.notifications.filter((n: any) => n.notification_id !== 'n-merlin'),
+      notifications: state.notifications.filter((n: any) => n.notification_id !== 'n-deploy'),
     }));
     expect(counter()).toBe('QUESTION 2 / 2');
-    expect(text('questions-subtitle')).toBe('Bartimaeus');
+    expect(text('questions-subtitle')).toBe('Bart');
   });
 
   test('a new question arriving appends without moving the current page', () => {
@@ -492,11 +492,11 @@ describe('live data (AC8)', () => {
     goTo(1);
     patchState((state) => ({
       ...state,
-      sessions: [...state.sessions, session('amaterasu:codex:new', 'Late arrival', { last_event_at: '2020-01-01T00:00:00.000Z' })],
-      notifications: [...state.notifications, durableQuestion('amaterasu:codex:new', 'n-new')],
+      sessions: [...state.sessions, session('hostb:codex:new', 'Late arrival', { last_event_at: '2020-01-01T00:00:00.000Z' })],
+      notifications: [...state.notifications, durableQuestion('hostb:codex:new', 'n-new')],
     }));
     expect(counter()).toBe('QUESTION 2 / 4');
-    expect(text('questions-subtitle')).toBe('Amaterasu · Code review');
+    expect(text('questions-subtitle')).toBe('Host B · Code review');
     expect(screen.getAllByTestId(/^questions-dot-\d+$/)).toHaveLength(4);
   });
 
@@ -508,7 +508,7 @@ describe('live data (AC8)', () => {
       notifications: state.notifications.filter((n: any) => n.notification_id !== 'n-bart'),
     }));
     expect(counter()).toBe('QUESTION 2 / 2');
-    expect(text('questions-subtitle')).toBe('Amaterasu · Code review');
+    expect(text('questions-subtitle')).toBe('Host B · Code review');
   });
 
   test('a deck emptied by the daemon shows the empty state', () => {

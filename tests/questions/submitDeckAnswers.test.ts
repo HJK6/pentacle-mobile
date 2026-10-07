@@ -58,32 +58,32 @@ describe('submitDeckAnswers (C4)', () => {
   test('calls submitQuestionSubmission once per answered durable item with that single item, never for unanswered items', async () => {
     const deck = selectQuestionDeck(fixtureState());
     const actions = makeActions();
-    const answers = answerMap([['n-merlin:1', pick(2)], ['n-bart:0', pick(1)]]);
+    const answers = answerMap([['n-deploy:1', pick(2)], ['n-bart:0', pick(1)]]);
 
     const result = await submitDeckAnswers({ actions, deck, answers });
 
     expect(submitSpy).toHaveBeenCalledTimes(2);
-    const merlin = deck.find((entry) => entry.key === 'n-merlin:1')!;
+    const hostc = deck.find((entry) => entry.key === 'n-deploy:1')!;
     const [, streamId, submission] = submitSpy.mock.calls[0];
-    expect(streamId).toBe(merlin.streamId);
-    expect(submission.action).toBe(merlin.action);
+    expect(streamId).toBe(hostc.streamId);
+    expect(submission.action).toBe(hostc.action);
     expect(submission.answers).toEqual([pick(2)]);
     expect(submission.items).toHaveLength(1);
-    expect(submission.items[0].questionId).toBe('q-n-merlin-b');
+    expect(submission.items[0].questionId).toBe('q-n-deploy-b');
     expect(submitSpy.mock.calls[1][2].items[0].questionId).toBe('q-n-bart');
     // One prompt.answer per item, in deck order; unanswered items untouched.
-    expect(actions.answerPrompt.mock.calls.map(([arg]) => arg.questionId)).toEqual(['q-n-merlin-b', 'q-n-bart']);
+    expect(actions.answerPrompt.mock.calls.map(([arg]) => arg.questionId)).toEqual(['q-n-deploy-b', 'q-n-bart']);
     expect(actions.answerPrompt.mock.calls[0][0]).toMatchObject({ selections: ['b2'] });
     expect(actions.dismissQuestion).not.toHaveBeenCalled();
-    expect(result).toEqual({ sent: ['n-merlin:1', 'n-bart:0'], failed: [], legacyFailed: [] });
+    expect(result).toEqual({ sent: ['n-deploy:1', 'n-bart:0'], failed: [], legacyFailed: [] });
   });
 
   test('both items of a two-item durable are two independent submissions', async () => {
     const deck = selectQuestionDeck(fixtureState());
     const actions = makeActions();
-    await submitDeckAnswers({ actions, deck, answers: answerMap([['n-merlin:0', pick(1)], ['n-merlin:1', pick(1)]]) });
+    await submitDeckAnswers({ actions, deck, answers: answerMap([['n-deploy:0', pick(1)], ['n-deploy:1', pick(1)]]) });
     expect(submitSpy).toHaveBeenCalledTimes(2);
-    expect(submitSpy.mock.calls.map((call) => call[2].items[0].questionId)).toEqual(['q-n-merlin-a', 'q-n-merlin-b']);
+    expect(submitSpy.mock.calls.map((call) => call[2].items[0].questionId)).toEqual(['q-n-deploy-a', 'q-n-deploy-b']);
     expect(submitSpy.mock.calls.every((call) => call[2].answers.length === 1)).toBe(true);
   });
 
@@ -92,7 +92,7 @@ describe('submitDeckAnswers (C4)', () => {
     const actions = makeActions();
     let release: () => void = () => undefined;
     actions.answerPrompt.mockImplementationOnce(() => new Promise<void>((resolve) => { release = resolve; }));
-    const pending = submitDeckAnswers({ actions, deck, answers: answerMap([['n-merlin:0', pick(1)], ['n-ama:0', pick(1)]]) });
+    const pending = submitDeckAnswers({ actions, deck, answers: answerMap([['n-deploy:0', pick(1)], ['n-review:0', pick(1)]]) });
     await Promise.resolve();
     await Promise.resolve();
     expect(actions.answerPrompt).toHaveBeenCalledTimes(1);
@@ -111,12 +111,12 @@ describe('submitDeckAnswers (C4)', () => {
     const result = await submitDeckAnswers({
       actions,
       deck,
-      answers: answerMap([['n-merlin:0', pick(1)], ['n-ama:0', pick(1)], ['n-bart:0', pick(2)]]),
+      answers: answerMap([['n-deploy:0', pick(1)], ['n-review:0', pick(1)], ['n-bart:0', pick(2)]]),
     });
 
     expect(actions.answerPrompt).toHaveBeenCalledTimes(3);
-    expect(result.sent).toEqual(['n-ama:0', 'n-bart:0']);
-    expect(result.failed).toEqual([{ key: 'n-merlin:0', message: 'network down' }]);
+    expect(result.sent).toEqual(['n-review:0', 'n-bart:0']);
+    expect(result.failed).toEqual([{ key: 'n-deploy:0', message: 'network down' }]);
     expect(result.legacyFailed).toEqual([]);
     expect(actions.discardOptimisticQuestionAnswer).toHaveBeenCalledTimes(1);
   });
@@ -125,8 +125,8 @@ describe('submitDeckAnswers (C4)', () => {
     const deck = selectQuestionDeck(fixtureState());
     const actions = makeActions();
     actions.answerPrompt.mockRejectedValueOnce('nope');
-    const result = await submitDeckAnswers({ actions, deck, answers: answerMap([['n-ama:0', pick(1)]]) });
-    expect(result.failed).toEqual([{ key: 'n-ama:0', message: 'Question answer could not be submitted.' }]);
+    const result = await submitDeckAnswers({ actions, deck, answers: answerMap([['n-review:0', pick(1)]]) });
+    expect(result.failed).toEqual([{ key: 'n-review:0', message: 'Question answer could not be submitted.' }]);
   });
 
   test('a legacy single-item action is one submission (dismiss by key, then one message)', async () => {
