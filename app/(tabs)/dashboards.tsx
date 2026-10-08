@@ -187,7 +187,9 @@ export default function DashboardsScreen() {
         {catalogResult.message ? <View style={styles.statusCard} testID={catalogResult.status === 'unavailable' ? 'dashboard-catalog-unavailable' : 'dashboard-catalog-error'}>
           <Text style={styles.statusText}>{catalogResult.message}</Text>
         </View> : null}
-        {catalogResult.catalog ? <Text style={styles.catalogVersion} testID="dashboard-catalog-version">{catalogResult.catalog.catalog_version}</Text> : null}
+        {catalogResult.catalog ? <View accessible accessibilityLabel={catalogResult.catalog.catalog_version} testID="dashboard-catalog-version">
+          <Text style={styles.catalogVersion}>{catalogResult.catalog.catalog_version}</Text>
+        </View> : null}
         {catalogResult.cached ? <Text style={styles.catalogVersion} testID="dashboard-catalog-cached">catalog cached {cacheAge(catalogResult.age ?? 0)}</Text> : null}
         {catalogBusy ? <Text style={styles.catalogVersion}>Loading dashboard catalog…</Text> : null}
         {hasBoards ? (
