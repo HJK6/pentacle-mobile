@@ -27,6 +27,8 @@ export type PentacleConfig = {
   dashboardHub?: {
     url: string;
   };
+  // Optional catalog spec. Expo extra is build/profile configuration.
+  dashboardCatalogSpecId?: string;
   hosts: Record<string, HostTheme>;
   hostOrder?: string[];
   // Optional local opt-in. Omit or leave assistantRole empty in public builds.
@@ -48,6 +50,8 @@ const config: PentacleConfig = {
   dashboardHub: {
     url: 'ws://192.0.2.1:7781',
   },
+  // Opt in only in your gitignored local config; public default stays empty.
+  // dashboardCatalogSpecId: 'example__dashboard_catalog',
   hosts: {
     laptop: {
       label: 'Laptop',

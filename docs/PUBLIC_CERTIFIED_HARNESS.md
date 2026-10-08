@@ -16,6 +16,119 @@ in the closure.
 The existing fixed nine-case plan remains unchanged: horizontal scrolling, clean
 runtime, six expected failures, and the native comments/keyboard journey.
 
+## Dashboard catalog scenario
+
+`dashboard_catalog` is a separate scenario implemented inside the already-pinned
+`test/e2e/run_scenario.py`. It does not extend or replace the fixed nine-case
+report-viewer plan. No new executable dependency, daemon implementation, or mock
+asset handler is introduced. Native execution of this scenario is **NOT RUN**
+for this source-only milestone; the fleet runs it on its macOS simulator host.
+Python syntax and pure input/redaction checks are not native certification.
+
+### Fixture and credential preconditions
+
+The fleet must supply a hermetic **real** daemon using the public web repository's
+`test/e2e/lib/web_gate_daemon.py`, bound to loopback with a scratch store. Seed
+through its production `AssetStore` using
+`test/e2e/lib/seed_dashboard_assets.py` and the web gate's synthetic catalog
+fixture. Use catalog version `0.2.0+aaaaaaa`, boards `example-report`,
+`example-board`, and `example-hosted`, and the F-B report rows plus foreign rows
+under `example__dashboard_reports`. The report rows must be owned by
+`hostx:example-producer`; the latest body produced by the seeder contains
+`Synthetic report example-report-20261007T1300Z.` The web fixture's additional
+`example-broken` board is allowed but is not a mobile SRI assertion.
+
+The fleet provisions the app credential separately from the report-owner
+session. The mobile socket's hello identifies `pentacle-mobile` and a credential,
+but exposes no authenticated session identity. Therefore the native scenario can
+prove the actual app request used the listed owner, and that the daemon returned
+the unique seeded body; it cannot derive the credential's session provenance
+from the app or from an opaque token. Fleet credential-issuance provenance is a
+required external precondition, not an app-observed fact. Do not substitute the
+report owner's credential to make a refusal pass.
+
+The fleet must supply `daemon_token_owner_stream_id` from the token-issuance
+record alongside the credential file. This is non-secret setup evidence. Missing
+or malformed provenance, or an owner equal to `hostx:example-producer`, fails
+before any native work or credential-file read. Accepted stream IDs have a
+`hostx:` or `local:` prefix and a 1–128 character alphanumeric/dot/underscore/hyphen
+session name. The runner labels the supplied value as a fixture precondition
+with `app_observed: false`; it neither sends it as an app identity override nor
+decodes or derives it from the token.
+
+Supply these settings through the ignored scenario env file (alongside the
+existing bound simulator, bundle, and simulator-device-set settings):
+
+```dotenv
+PENTACLE_DAEMON_WS_URL=ws://127.0.0.1:17880/
+dashboard_catalog_spec_id=example__dashboard_catalog
+daemon_token_file=/absolute/path/to/fixture-app-token
+daemon_token_owner_stream_id=local:example-reader
+```
+
+The URL must use a numeric loopback host and an explicit port, without URL
+credentials, query parameters, or a fragment. The token file must already exist,
+be an owned regular non-symlink file with mode `0600`, and contain the app's
+existing fixture-daemon credential. The runner reads it only during native
+execution. It uses the existing nonpersistent `pentacle_token` harness launch
+parameter consumed by `usePentacleTokenHarness` and `usePentacleToken`; it does
+not use `install_device_token`, enroll a device, alter authorization, or persist
+the credential in SecureStore. The value and its encoded forms are masked before
+runner traces, raw log chunks, telemetry, or errors are retained. Neither the
+file value nor a token hash belongs in the result or this repository.
+
+The runner never starts, seeds, resets, or shuts down the supplied daemon. Its
+scratch-store ownership, production seeding, credential provenance, and teardown
+are the fleet fixture owner's responsibility. The mobile mock daemon has no
+asset handlers and is expressly not a fallback for this scenario.
+
+### Native journey and evidence
+
+Run on the fleet's bound, installed harness build with `EXPO_PUBLIC_HARNESS=1`:
+
+```sh
+PYTHONPATH=test:test/e2e python3 test/e2e/run_scenario.py dashboard_catalog \
+  --env-file "$HOME/.pentacle-test.env" --runs-dir test/e2e/runs
+```
+
+The runner performs two separately identified cold launches under one primary
+result, each with its own native PID proof, recording, logs, accessibility trace,
+screenshots, runtime observation, and owned teardown:
+
+1. Configured: first require the real connection's connected, non-connecting,
+   hydrated store transition from the freshly verified native PID after arming.
+   This existing telemetry has no run-id field, so the proof uses that native PID
+   and receipt-time boundary. Then tap the actual Dashboards tab, inspect version `0.2.0+aaaaaaa`,
+   select `example-report`, and require latest
+   `example-report-20261007T1300Z` plus its unique seeded body in the native
+   accessibility tree. Require the app's same-run, same-native-PID successful
+   `harness:ui_trace` telemetry with `kind: dashboard_report_asset_get`: `listed_stream_id` and
+   `request_stream_id` must both be `hostx:example-producer`, and `spec_id` must
+   be `example__dashboard_reports`. Select `example-board` and `example-hosted`
+   individually, using native horizontal selector gestures when necessary; each
+   must show `Unsupported on this client`.
+2. Unset: relaunch with an explicit empty `dashboard_catalog_spec_id`, overriding
+   any baked Expo extra value. Require `No dashboards yet` and no catalog asset
+   request telemetry during the empty-state observation. The configured leg also
+   requires a real catalog list event, so an absent telemetry path cannot alone
+   produce a passing no-request assertion.
+
+The existing service sends report commands over the app's already-authenticated
+connection. The runner never fetches the report itself and never injects an asset
+reply. An observed report `asset.get` error stops assertions immediately, records
+the exact daemon error code and `stopped_on_denial`, and skips the unset launch.
+There is no alternative authorization attempt. The pinned fixture daemon's
+`asset.error` sets `error` and `error_code` to the same code, so the existing mobile
+transport's `Error.message` preserves it. Missing owner/get/body evidence fails;
+failure, unavailable native tools, or incomplete teardown cannot become PASS.
+
+The primary JSON declares `-configured.case.json` and, only when reached,
+`-unset.case.json` sidecars. Each declares its native artifacts; the top-level
+teardown receipt combines only the two launches' owned resources. The credential
+mechanism and supplied token-issuance provenance are labeled in the result. Keep
+the final candidate's runner and example-config pin update in its separately
+reviewed last commit; hash alignment alone does not certify this native journey.
+
 `scripts/storage-certified-closure.test.cjs` follows those public callers.
 `scripts/storage-authority.cjs` pins the executable bytes. The literal oracle in
 `scripts/storage-model-oracle.test.cjs` is derived independently from reviewed
@@ -137,3 +250,7 @@ handoff and no uninstall, erase, app-data or Keychain clear. The certified sourc
 feeds the existing prebuild rule and ready-artifact packet; operator plug-in/unlock
 approval and physical first-screen screenshot remain at that boundary. The certified
 command does not perform an install. TestFlight is reserved for the separate phone product.
+
+The coordinator rejects externally supplied `_dashboard_catalog_phase` values. Both cold launches remain mandatory for successful certification. A daemon denial skips further UI/capture steps and the unset phase; owned teardown still runs and any secondary cleanup failure retains the original exact denial code. Credential masking covers native JSON-in-JSON encoding before raw log writes and recursively sanitizes retained event, command and error values.
+
+Catalog discovery gets also emit the existing `harness:ui_trace` event with `kind: dashboard_catalog_asset_get`. A refusal there stops before the report proof and retains the failing kind, asset, spec and listed/requested owner in `failed_asset_get`; it is never labelled a completed report cross-owner check. Both get kinds use the same native PID/run-bound denial watcher.

@@ -49,7 +49,7 @@ The tab bar is **Assistant · Personal · Dashboards · Settings** (using your a
 name). Choose the assistant tab for the
 coordinator's existing conversation, open Sessions from its left header button,
 open pending Questions from **?**, or tap the assistant’s name for the status surface.
-Dashboards keeps its existing work screens. Chats, Unified, and Updates remain
+Dashboards shows optional runtime catalog boards; its static registry is empty by default. Chats, Unified, and Updates remain
 available by route but are hidden from the tab bar.
 
 See [the assistant shell guide](docs/bart_shell.md) for the source files, drawer
@@ -127,3 +127,47 @@ live connectivity. See [Testing](docs/TESTING.md) and
 [Native builds](docs/PENTACLE_MOBILE_BUILD.md) for details. Normal builds compile
 the vendored core automatically. Clear caches or regenerate native projects
 only for an identified build problem, preserving existing native edits first.
+
+## Runtime dashboard catalog
+
+The default static dashboard registry is empty and shows **No dashboards yet**.
+To opt in, copy `pentacle.config.example.ts` to the gitignored
+`pentacle.config.local.ts` and set the optional `dashboardCatalogSpecId` to your
+catalog's spec ID. The example uses only the synthetic placeholder
+`example__dashboard_catalog`; keep real IDs and endpoints in local configuration.
+Credentials continue through the existing enrollment/SecureStore flow; keep them
+out of the local TypeScript config and Expo `extra`.
+
+Expo publishes this field as
+`Constants.expoConfig.extra.dashboardCatalogSpecId`. Expo `extra` is build/profile
+configuration baked into the app, not a runtime user setting. Changing the
+configured spec requires updating that build/profile. Catalog **content** changes
+are fetched on Dashboards view entry or pull-to-refresh and need no rebuild or
+host restart. An unset spec performs no catalog request and never starts the
+retired dashboard hub.
+
+- Discovery selects the exact `dashboard-catalog` asset, validates the entire
+  catalog, and gets bodies using each listed owner `stream_id`
+- `report` boards use one bounded, prefix/producer-filtered, descending-asset-ID
+  list per refresh. Latest and distinct-key revision history preserve that order;
+  full windows are visibly partial. The existing generic report block renderer
+  displays the selected body, without the session modal's extra list/comment/read
+  operations
+- `web-adapter` and `hosted-view` boards display **Unsupported on this client**.
+  Mobile never downloads/evaluates their code or embeds a WebView
+- The last validated catalog is stored by spec in memory and AsyncStorage. It is
+  shown with an unavailable card and **catalog cached <age>** only when retrieval
+  is unavailable. Malformed/unsupported responses show their own card and retain
+  but do not display the prior good catalog. Valid replacements are atomic
+
+On web, the adapter action allowlist is an API convention, not a sandbox. Mobile
+has no adapter action surface. Both clients share the authoritative catalog and
+report-retrieval fixtures.
+
+Tests: `npm run test:unit -- tests/features/dashboards`, `npm run typecheck`, and
+an iOS JavaScript export cover source behavior. They do not certify native
+runtime or cross-owner authorization. The separately owned `dashboard_catalog`
+simulator journey, real fixture daemon, existing nonpersistent credential route
+and required token-issuance provenance are documented in
+[Public certified simulator harness](docs/PUBLIC_CERTIFIED_HARNESS.md#dashboard-catalog-scenario).
+The existing fixed nine-case report-viewer plan is unchanged.

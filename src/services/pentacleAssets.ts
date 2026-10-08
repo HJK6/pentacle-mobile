@@ -235,6 +235,26 @@ export function isReportSessionClosed(streamId: string) {
   return closedStreams.has(streamId);
 }
 
+// Spec-scoped catalog/report reads preserve the daemon's raw asset-id order.
+// They do not touch the session viewer cache or its updated_at ordering.
+export type ReportListOptions = { assetIdPrefix?: string; producer?: string; sort?: 'asset_id_desc'; limit?: number };
+export async function listReportsBySpec(specId: string, options: ReportListOptions = {}): Promise<PentacleReport[]> {
+  const reply = await command({ type: 'asset.list', spec_id: specId,
+    ...(options.assetIdPrefix !== undefined ? { asset_id_prefix: options.assetIdPrefix } : {}),
+    ...(options.producer !== undefined ? { producer: options.producer } : {}),
+    ...(options.sort !== undefined ? { sort: options.sort } : {}),
+    ...(options.limit !== undefined ? { limit: options.limit } : {}) });
+  if (reply.ok === false || reply.error) throw new Error(String(reply.error || 'asset.list failed'));
+  if (!Array.isArray(reply.assets)) throw new Error('asset.list returned no assets');
+  return reply.assets;
+}
+export async function getReportByOwner(streamId: string, assetId: string, specId: string): Promise<PentacleReport> {
+  const reply = await command({ type: 'asset.get', stream_id: streamId, asset_id: assetId, spec_id: specId });
+  if (reply.ok === false || reply.error) throw new Error(String(reply.error || 'asset.get failed'));
+  if (!reply.asset) throw new Error('Report was not returned');
+  return reply.asset;
+}
+
 export async function listReports(streamId: string) {
   if (isHarnessAssetMode()) {
     if (harnessAssetError) throw new Error(harnessAssetError);
