@@ -1,9 +1,11 @@
-# Parked certified-launch draft
+# Certified launch integration candidate
 
-This branch preserves unfinished work under the accepted single-entry launch plan. It is not a release candidate and must not be merged or used for certification.
+This branch implements the accepted single-entry launch plan. Source QA, independent pin derivation and exact CI must accept the final clean SHA before publication or activation; no native window is granted by these source controls.
 
-The actual START consumer missing-receipt journey is RED on the base and GREEN in this draft; focused consumer, predicate and prepared-cleanup controls pass. Journal claims, final evidence, public observation and environment/facade consolidation are partially implemented. The facade is not registered as a supported endpoint. Closure pins intentionally remain at the accepted baseline until independent derivation and implementation QA. No native run is authorized from these bytes.
+The supported CLI is gate:certified with a candidate and bound FD allocation packet. The common low-level consumers require the same quiet receipt and immutable journal claim. The facade owns environment probes and opaque handoff, retained failure outputs, final evidence checks and owned cleanup. The 120-second initial-claim age is proposed for the scoped review, not a retroactive acceptance rule.
 
-Remaining work: finish raw evidence and claim/handoff controls; integrate the single supported entry and its bounded allocation/QA/CI packet; prove actual child imports/sandbox wiring; preserve legacy record readability; consolidate executable closure/pins; update runbooks; independent launch-chain QA and exact CI; then request a fresh allocated certified window. The proposed 120-second initial-claim freshness interval remains subject to that review.
+The original44 literal component controls remain. Launch source, including the authority table itself, is also attested against the externally reviewed gate commit's complete tracked blobs, with missing/altered dependency controls. Legacy records remain readable and do not authorize new certification.
 
-The current priority is a separately built uncertified Release from QA-merged main. This draft does not enter that artifact.
+Pentacle Mobile delivery is the existing configured signed Release with embedded bundle and in-place USB devicectl handoff. The certification entry never queries or installs on a phone. The ready-artifact packet and operator Done approval remain at that boundary. A separately accepted1373 artifact is frozen while this integration is reviewed.
+
+Remaining readiness work is independent executable census/pin input, consolidated gates, source QA/CI and the reviewed launch-packet GATE. Any actual native run requires a fresh FD allocation.

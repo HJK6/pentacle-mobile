@@ -56,6 +56,18 @@ test('the CLI preserves the exact child status, not merely non-zero-ness', () =>
   }
 });
 
+test('certified facade status propagates through the real public CLI', () => {
+  const argv = ['gate:certified', 'HEAD', '/tmp/approved-window.json'];
+  for (const status of [0, 1, 17, 130, 143]) {
+    const result = cli(argv, { result: { status, disposition: status ? 'REFUSED' : 'CERTIFIED' } });
+    assert.equal(result.status, status, result.stderr);
+    assert.equal(JSON.parse(result.stdout).status, status);
+  }
+  const invalid = cli(argv, { result: { disposition: 'CERTIFIED' } });
+  assert.equal(invalid.status, 1);
+  assert.match(invalid.stderr, /CLI_OUTCOME_UNREPRESENTABLE:gate:certified/);
+});
+
 test('a janitor run that recorded errors exits non-zero', () => {
   // The SECOND live instance of the class, found by the enumerated sweep rather than by another false
   // green. runJanitor RESOLVES with report.errors populated - a per-run or per-ticket failure it caught

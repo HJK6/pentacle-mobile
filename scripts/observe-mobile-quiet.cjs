@@ -6,18 +6,18 @@ const { spawnOwned, runOwnedSync } = require("./owned-process.cjs");
 const ROOT = path.resolve(__dirname, "..");
 const os = require("node:os");
 const cp = require("node:child_process");
-const { POLICY, canonical } = require("./certified-start-receipt.cjs");
+const { POLICY, canonical, SHA, bindReviewFiles } = require("./certified-start-receipt.cjs");
 const TARGET = cp.execFileSync("/usr/bin/git", ["rev-parse", "HEAD"], { cwd: ROOT, encoding: "utf8" }).trim();
 const windowPath = process.argv[2];
 if (!windowPath || !path.isAbsolute(windowPath) || !process.argv[3] || !path.isAbsolute(process.argv[3])) throw new Error("QUIET_OBSERVER_INPUT_REQUIRED");
 const window = JSON.parse(fs.readFileSync(windowPath, "utf8"));
-if (window.candidate_sha !== TARGET || window.fd_go !== true || typeof window.from_stream !== "string" || !window.from_stream || !window.tell_id)
+if (!SHA.test(window.candidate_sha || '') || window.gate_code_sha !== TARGET || window.fd_go !== true || typeof window.from_stream !== "string" || !window.from_stream || !window.tell_id)
   throw new Error("FRESH_FD_WINDOW_GO_REQUIRED");
 if (Date.now() / 1000 >= window.expires_epoch) throw new Error("FD_WINDOW_EXPIRED");
 const A = process.argv[3];
 fs.mkdirSync(A, { recursive: false });
 fs.copyFileSync(windowPath, path.join(A, "fd-window.json"), fs.constants.COPYFILE_EXCL);
-const receipt = { schema: 2, policy_revision: POLICY.revision, host: os.hostname(), uid: process.getuid(), attempt_id: window.attempt_id, gate_code_sha: TARGET, certification: "UNCERTIFIED", native_certification: false, candidate_sha: TARGET, authority: "Fresh FD closing-window grant required; executable-aware F6 adapter; unchanged quietness thresholds/cadence/bounds; read-only observation, no certification", observer_pid: process.pid,
+const receipt = { schema: 2, policy_revision: POLICY.revision, host: os.hostname(), uid: process.getuid(), attempt_id: window.attempt_id, gate_code_sha: TARGET, certification: "UNCERTIFIED", native_certification: false, candidate_sha: window.candidate_sha, authority: "Fresh FD closing-window grant required; executable-aware F6 adapter; unchanged quietness thresholds/cadence/bounds; read-only observation, no certification", observer_pid: process.pid,
   observer_sha256: crypto.createHash("sha256").update(fs.readFileSync(__filename)).digest("hex"), started_at: new Date().toISOString(),
   scope: "pre-run quiet-window observation only; production policy/bounds unchanged", required_median_disk_tps_below: 2000, required_peak_disk_tps_at_most: 10000,
   required_observation_seconds: 60, process_checks: [], simulator_checks: [], disk_intervals: [], ready: false };
@@ -76,6 +76,7 @@ function simulatorCheck(label) {
 }
 async function main() {
   write();
+  bindReviewFiles(window, A, true);
   if (!processCheck("process-start") || !simulatorCheck("simulator-start")) { receipt.result = "BUSY_OR_UNAVAILABLE"; write(); process.exitCode = 2; return; }
   const stdoutFile = path.join(A, "iostat.stdout.log"), stderrFile = path.join(A, "iostat.stderr.log");
   const stdoutFd = fs.openSync(stdoutFile, "wx"), stderrFd = fs.openSync(stderrFile, "wx");

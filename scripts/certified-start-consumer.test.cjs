@@ -43,10 +43,20 @@ function receiptFixture(t) {
   const head = cp.execFileSync('/usr/bin/git', ['rev-parse', 'HEAD'], { cwd: source, encoding: 'utf8' }).trim();
   const now = Date.now(); const host = os.hostname(); const uid = process.getuid(); const attempt = crypto.randomUUID();
   const window = { schema: 1, fd_go: true, tell_id: crypto.randomUUID(), from_stream: 'hosta:v2-fd', host, uid, candidate_sha: head, gate_code_sha: head, policy_revision: POLICY.revision, attempt_id: attempt, not_before_epoch: (now - 120000) / 1000, expires_epoch: (now + POLICY.combinedClosingBudgetMs + 300000) / 1000 };
+  for (const [field, value] of Object.entries({
+    source_qa: { report_id: crypto.randomUUID(), qa_verdict: 'accept', target_sha: head },
+    policy_qa: { report_id: crypto.randomUUID(), qa_verdict: 'accept', target_sha: 'b'.repeat(40) },
+    ci: { head_sha: head, conclusion: 'success' },
+  })) {
+    const file = path.join(dir, `review-${field}.json`);
+    const bytes = Buffer.from(JSON.stringify(value)); fs.writeFileSync(file, bytes);
+    window[field] = { path: file, sha256: hash(bytes), ...(value.report_id ? { report_id: value.report_id } : {}) };
+  }
   fs.writeFileSync(path.join(dir, 'fd-window.json'), JSON.stringify(window));
   const processChecks = ['process-start', ...Array.from({ length: 6 }, (_, i) => `process-during-${i + 1}`), 'process-end'].map(label => ({ label, ok: true, status: 0, error: null, malformed_rows: 0, identity: { status: 0, error: null }, unavailable: [], heavy: [], excluded_own_ancestor_pids: [100, 10, 1] }));
   const simulatorChecks = ['simulator-start', 'simulator-end'].map(label => ({ label, ok: true, status: 0, error: null, booting: [] }));
   for (const check of [...processChecks, ...simulatorChecks]) {
+    if (check.identity) fs.writeFileSync(path.join(dir, `${check.label}-pids.json`), JSON.stringify([{ pid: 100, ppid: 10 }, { pid: 10, ppid: 1 }, { pid: 1, ppid: 0 }, { pid: 1000, ppid: 1 }]));
     for (const kind of ['stdout', 'stderr']) {
       const content = kind === 'stdout' ? (check.identity ? '100 10\n10 1\n1 0\n1000 1\n' : JSON.stringify({ devices: { fixture: [{ udid: 'fixture', state: 'Shutdown' }] } })) : '';
       fs.writeFileSync(path.join(dir, `${check.label}.${kind}.log`), content);
@@ -73,13 +83,20 @@ function receiptFixture(t) {
     ready: true, result: 'QUIET_60S_PASS',
   };
   const file = path.join(dir, 'receipt.json');
-  return { file, receipt, dir, authority: { host, uid }, write: () => fs.writeFileSync(file, JSON.stringify(receipt)) };
+  return { file, receipt, window, dir, authority: { host, uid }, write: () => {
+    fs.writeFileSync(path.join(dir, 'fd-window.json'), JSON.stringify(window));
+    receipt.fd_window_go_sha256 = hash(fs.readFileSync(path.join(dir, 'fd-window.json')));
+    fs.writeFileSync(file, JSON.stringify(receipt));
+  }, refreshRaw: () => {
+    const raw = fs.readdirSync(dir).filter(name => name !== 'fd-window.json' && name !== 'receipt.json').sort().map(relative => ({ relative, size: fs.statSync(path.join(dir, relative)).size, sha256: hash(fs.readFileSync(path.join(dir, relative))) }));
+    receipt.raw_evidence_digest = hash(canonical(raw));
+  } };
 }
 
-async function actualStart(environment, authority) {
+async function actualStart(environment, authority, values = ['HEAD']) {
   let heavyStarts = 0; let stderr = '';
   const moduleObject = { exports: {} };
-  const processStub = { argv: ['node', 'storage-cli.cjs', 'gate:native-root', 'HEAD'], env: environment, stdout: { write() {} }, stderr: { write(value) { stderr += value; } }, exit(code) { throw Object.assign(new Error('exit'), { code }); } };
+  const processStub = { argv: ['node', 'storage-cli.cjs', 'gate:native-root', ...values], env: environment, stdout: { write() {} }, stderr: { write(value) { stderr += value; } }, exit(code) { throw Object.assign(new Error('exit'), { code }); } };
   const mocks = {
     './storage-authority.cjs': { ...require('./storage-authority.cjs'), rejectEnvironmentAuthority() {} },
     './storage-capability.cjs': { claim: () => ({}) },
@@ -99,6 +116,42 @@ test('valid input reaches the actual unchanged owned admission boundary once', a
   assert.equal(result.heavyStarts, 1); assert.equal(result.exit, 0); assert.equal(result.stderr, '');
 });
 
+test('invalid native-root arity refuses before the owned child even with a valid quiet input', async t => {
+  const f = receiptFixture(t); f.write();
+  const result = await actualStart({ PENTACLE_GATE_QUIET_RECEIPT: f.file }, f.authority, ['HEAD', 'extra']);
+  assert.equal(result.heavyStarts, 0); assert.equal(result.exit, 1);
+  assert.match(result.stderr, /FORBIDDEN_AUTHORITY/);
+});
+
+test('same immutable claim reaches full after preparation; copied reviews survive original-file removal', t => {
+  const f = receiptFixture(t); f.write();
+  const quiet = require('./certified-start-receipt.cjs');
+  const repository = path.resolve(__dirname, '..');
+  const inputs = quiet.readInputs(f.file);
+  const now = Date.now();
+  const initial = quiet.validateReceipt(inputs.receipt, inputs.window, quiet.expectedBindings(repository, 'HEAD', f.authority, inputs), now);
+  const id = crypto.randomUUID(), generation = crypto.randomUUID();
+  const run = { id, generation, owner: { ...f.authority, pid: 100 }, candidate_ref: f.receipt.candidate_sha,
+    gate_code_sha: f.receipt.gate_code_sha, reserved_at: initial.claimed_at, quiet_start: { ...initial, run_id: id } };
+  const evidence = path.join(f.dir, 'retained'); fs.mkdirSync(evidence);
+  quiet.copyClaimInputs(inputs, evidence);
+  for (const field of ['source_qa','policy_qa','ci']) fs.unlinkSync(f.window[field].path);
+  const mockState = { validateInstalledAuthority: () => ({ ...f.authority, generation }), readRecord: () => run };
+  const moduleObject = { exports: {} };
+  const localRequire = name => name === './storage-state.cjs' ? mockState
+    : name === './storage-containers.cjs' ? { resolveMounted: () => ({ mount: evidence }) }
+    : name.startsWith('./') ? require(path.join(__dirname, name)) : require(name);
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname, 'certified-start-receipt.cjs'), 'utf8'), {
+    require: localRequire, module: moduleObject, __dirname, process,
+  });
+  const claim = moduleObject.exports.requireAllocatedStart(id, repository, now + 300000);
+  assert.equal(claim.receipt_sha256, initial.receipt_sha256);
+  assert.equal(claim.claimed_at, initial.claimed_at);
+  assert.throws(() => quiet.assertUnclaimed(initial, [run]), /ALREADY_CLAIMED/);
+  run.quiet_start.receipt_sha256 = '9'.repeat(64);
+  assert.throws(() => moduleObject.exports.requireAllocatedStart(id, repository, now + 300000), /CLAIM_BINDING/);
+});
+
 for (const [name, alter, error] of [
   ['generic preflight', f => { f.receipt.schema = 1; }, 'SCHEMA_POLICY'],
   ['failed observation', f => { f.receipt.ready = false; }, 'NOT_READY'],
@@ -110,4 +163,30 @@ for (const [name, alter, error] of [
   const f = receiptFixture(t); alter(f); f.write();
   const result = await actualStart({ PENTACLE_GATE_QUIET_RECEIPT: f.file }, f.authority);
   assert.equal(result.heavyStarts, 0); assert.equal(result.exit, 1); assert.match(result.stderr, new RegExp(`QUIET_START_(${error})`));
+});
+
+for (const [name, alter] of [
+  ['missing source review', f => { delete f.window.source_qa; }],
+  ['missing policy review', f => { delete f.window.policy_qa; }],
+  ['missing exact CI', f => { delete f.window.ci; }],
+  ['unbound source review copy', f => { fs.unlinkSync(path.join(f.dir, 'review-source_qa.json')); f.refreshRaw(); }],
+  ['foreign PID omitted from identity rows', f => {
+    const check = f.receipt.process_checks[0];
+    const file = path.join(f.dir, `${check.label}-identity.stdout.log`);
+    const identities = JSON.parse(fs.readFileSync(file));
+    fs.writeFileSync(file, JSON.stringify(identities.filter(row => row.pid !== 1000)));
+    check.identity.stdout_sha256 = hash(fs.readFileSync(file)); f.refreshRaw();
+  }],
+  ['undeclared file in retained quiet evidence', f => {
+    fs.writeFileSync(path.join(f.dir, 'undeclared.json'), '{}'); f.refreshRaw();
+  }],
+  ['identity helper receives a different PID census', f => {
+    const check = f.receipt.process_checks[0];
+    fs.writeFileSync(path.join(f.dir, `${check.label}-pids.json`), JSON.stringify([{ pid: 100, ppid: 10 }])); f.refreshRaw();
+  }],
+]) test(`actual START refuses ${name} even when summary and raw hashes agree`, async t => {
+  const f = receiptFixture(t); alter(f); f.write();
+  const result = await actualStart({ PENTACLE_GATE_QUIET_RECEIPT: f.file }, f.authority);
+  assert.equal(result.heavyStarts, 0);
+  assert.equal(result.exit, 1);
 });

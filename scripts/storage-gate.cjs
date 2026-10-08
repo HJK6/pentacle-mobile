@@ -769,6 +769,9 @@ function verifyRetainedEvidence(run, recoveryRoot = null) {
   // exact, so bypassing a broken marker does not bypass evidence-drift detection.
   const comparable = (entries) => recoveryRoot === null ? entries : entries.filter((entry) => entry.relative !== '.pentacle-container.json');
   if (JSON.stringify(comparable(current)) !== JSON.stringify(comparable(manifest.files))) throw new Error('EVIDENCE_RETAINED_DIGEST_DRIFT');
+  // Legacy records stay readable/reclaimable. Every new claim is independently
+  // checked again at retention, including the copied reviews and raw window.
+  if (run.quiet_start !== undefined) require('./certified-start-receipt.cjs').validateClaimEvidence(root, run);
   // manifest.outcome, NOT the strict default. This line took the default while the very next line was
   // already outcome-aware, so the reclamation path judged a failed run by passed-run rules and threw
   // EVIDENCE_CASE_MANIFEST_INVALID. storage-janitor.cjs:99 gates the evidence DISCARD on this, so failed-run

@@ -86,12 +86,48 @@ publishing a non-promoting candidate. Required CI binds that exact SHA.
 From the clean advertised candidate, use the existing storage path:
 
 ```sh
-env -u npm_config_cache PATH="$PWD/node_modules/.bin:$PATH" node scripts/storage-cli.cjs gate:native-root HEAD
-env -u npm_config_cache PATH="$PWD/node_modules/.bin:$PATH" node scripts/storage-cli.cjs gate:full RUN_ID LOCK_TOKEN
+node scripts/storage-cli.cjs gate:certified HEAD /absolute/path/fd-window.json
 ```
 
-Use the returned opaque run ID and lock token, the shared simulator queue, and
-run-owned cleanup. Keep raw receipts and final digests in artifact holding.
+The facade derives PATH and import wiring, validates the allocation and source
+inputs, runs the reviewed observer once and carries the native/full opaque state
+without caller copying. The command requires a regular bounded allocation file
+containing schema 1, FD GO/tell and unique attempt IDs, host/UID, full candidate
+and gate-code SHAs, policy revision, not-before/expiry epochs, and SHA256-bound
+`source_qa`, `policy_qa` and `ci` references. A distinct gate-code SHA also requires
+its own `gate_qa` and `gate_ci`; these may reference the same receipts when the
+candidate and gate are identical. QA values come from typed verdict fields,
+not prose summaries. Reference paths are absolute owned regular JSON files.
+
+The quiet predicate retains 60 timed intervals over at least 60 seconds, excludes
+the initial cumulative row, requires median TPS below 2000 and peak at most 10000,
+and keeps all process/simulator/completeness and owned-command checks. The proposed
+first-claim interval is 120 seconds after observation completion, subject to the
+scoped launch review before activation. The same immutable claim carries through
+preparation and full; it is not claimed anew after preparation. Raw process, disk
+and review files are copied and hashed into retained evidence. A reused attempt,
+unbound review, missing PID identity or unknown raw file refuses. Legacy run
+records remain readable but cannot admit a new certified run without a claim.
+
+The original 44-member literal pin table remains mandatory with every missing/
+altered control. Launch source, including the authority table itself, is also
+attested against the exact reviewed gate commit's tracked Git blobs before
+observation; snapshot attestation retains its stricter no-untracked rule. This
+avoids a self-referential authority hash and preserves exact executed bytes even
+when an index flag hides a local edit. Independent census covers both classes
+and actual callers.
+
+The supported command returns one REFUSED, FAILED, CLEANUP_INCOMPLETE or CERTIFIED
+disposition, with original failure and cleanup outcomes retained. It verifies the
+claimed admission, full result, journal, evidence digest, final window and owned
+cleanup together. Low-level operations retain the same guard for diagnostics;
+a full exit zero alone is insufficient. Keep raw receipts and final digests in
+artifact holding; lock tokens stay local and are redacted from persisted summaries.
 Admission or harness failure holds native promotion. Harness source lands
 separately before a product candidate is rebased and certified. Phone interaction
-and store submission retain their release approval boundaries.
+retains its separate release approval boundary. Pentacle Mobile uses the existing
+configured, signed Release/embedded-bundle USB `devicectl` path, with an in-place
+handoff and no uninstall, erase, app-data or Keychain clear. The certified source
+feeds the existing prebuild rule and ready-artifact packet; operator plug-in/unlock
+approval and physical first-screen screenshot remain at that boundary. The certified
+command does not perform an install. TestFlight is reserved for the separate phone product.

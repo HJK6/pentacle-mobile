@@ -103,6 +103,65 @@ function readRegular(file, maximum = 1024 * 1024) {
   } finally { fs.closeSync(descriptor); }
 }
 
+function readReference(reference) {
+  if (!reference || !path.isAbsolute(reference.path || '') || !DIGEST.test(reference.sha256 || '')) refuse('REVIEW_REFERENCE');
+  const bytes = readRegular(reference.path);
+  if (hash(bytes) !== reference.sha256) refuse('REVIEW_DIGEST');
+  let value;
+  try { value = JSON.parse(bytes); } catch { refuse('REVIEW_JSON'); }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) refuse('REVIEW_JSON');
+  return value;
+}
+
+function validateReviews(packet, candidateSha, gateCodeSha = candidateSha) {
+  const acceptance = (field, targetSha) => {
+    const reference = packet[field];
+    const wrapper = readReference(reference);
+    const report = wrapper.report || wrapper;
+    if (report.qa_verdict !== 'accept' || !UUID.test(report.report_id || '')
+        || report.report_id !== reference.report_id || !SHA.test(report.target_sha || '')
+        || targetSha && report.target_sha !== targetSha) refuse(`REVIEW_${field.toUpperCase()}`);
+    return { report_id: report.report_id, target_sha: report.target_sha, receipt_sha256: reference.sha256 };
+  };
+  const ci = (field, targetSha) => {
+    const reference = packet[field];
+    const report = readReference(reference);
+    if (report.head_sha !== targetSha || report.conclusion !== 'success'
+        || report.status !== undefined && report.status !== 'completed') refuse(`REVIEW_${field.toUpperCase()}`);
+    return { head_sha: report.head_sha, receipt_sha256: reference.sha256 };
+  };
+  const source = acceptance('source_qa', candidateSha);
+  const policy = acceptance('policy_qa');
+  const sourceCi = ci('ci', candidateSha);
+  const separateGate = gateCodeSha !== candidateSha;
+  const gate = separateGate || packet.gate_qa ? acceptance('gate_qa', gateCodeSha) : source;
+  const gateCi = separateGate || packet.gate_ci ? ci('gate_ci', gateCodeSha) : sourceCi;
+  return { source_report_id: source.report_id, policy_report_id: policy.report_id, gate_report_id: gate.report_id,
+    source_receipt_sha256: source.receipt_sha256, policy_receipt_sha256: policy.receipt_sha256,
+    ci_receipt_sha256: sourceCi.receipt_sha256, gate_receipt_sha256: gate.receipt_sha256,
+    gate_ci_receipt_sha256: gateCi.receipt_sha256 };
+}
+
+function reviewFields(packet) {
+  const fields = ['source_qa', 'policy_qa', 'ci'];
+  for (const field of ['gate_qa', 'gate_ci']) if (packet.candidate_sha !== packet.gate_code_sha || packet[field]) fields.push(field);
+  return fields;
+}
+
+function bindReviewFiles(packet, root, copy = false) {
+  const rebound = { ...packet };
+  for (const field of reviewFields(packet)) {
+    const reference = packet[field];
+    if (!reference || !path.isAbsolute(reference.path || '') || !DIGEST.test(reference.sha256 || '')) refuse('REVIEW_REFERENCE');
+    const target = path.join(root, `review-${field}.json`);
+    const bytes = readRegular(copy ? reference.path : target);
+    if (hash(bytes) !== reference.sha256) refuse('REVIEW_DIGEST');
+    if (copy) fs.writeFileSync(target, bytes, { mode: 0o600, flag: 'wx' });
+    rebound[field] = { ...reference, path: target };
+  }
+  return validateReviews(rebound, packet.candidate_sha, packet.gate_code_sha);
+}
+
 function readInputs(receiptFile) {
   if (typeof receiptFile !== 'string' || !receiptFile || !path.isAbsolute(receiptFile)) refuse('RECEIPT_REQUIRED');
   const root = path.dirname(receiptFile);
@@ -111,6 +170,7 @@ function readInputs(receiptFile) {
   let receipt, window;
   const windowBytes = readRegular(path.join(root, 'fd-window.json'));
   try { receipt = JSON.parse(bytes); window = JSON.parse(windowBytes); } catch { refuse('MALFORMED'); }
+  if (!window || typeof window !== 'object' || Array.isArray(window)) refuse('WINDOW_BINDING');
   const raw = fs.readdirSync(root).filter(name => name !== path.basename(receiptFile) && name !== 'fd-window.json').sort().map(name => {
     if (name.includes('/') || name === '.' || name === '..') refuse('FILE');
     const content = readRegular(path.join(root, name), 16 * 1024 * 1024);
@@ -119,6 +179,24 @@ function readInputs(receiptFile) {
   const byName = new Map(raw.map(row => [row.relative, row]));
   if (!receipt || typeof receipt !== 'object' || Array.isArray(receipt)
       || !Array.isArray(receipt.process_checks) || !Array.isArray(receipt.simulator_checks)) refuse('MALFORMED');
+  const allowedRaw = new Set(['iostat.stdout.log', 'iostat.stderr.log', ...reviewFields(window).map(field => `review-${field}.json`)]);
+  for (const check of receipt.process_checks) {
+    if (!/^process-(?:start|end|during-[1-9]\d*)$/.test(check.label || '')) refuse('RAW_PARSE');
+    for (const suffix of ['stdout.log', 'stderr.log', 'identity.stdout.log', 'identity.stderr.log', 'pids.json']) {
+      allowedRaw.add(`${check.label}${suffix.startsWith('identity') || suffix === 'pids.json' ? '-' : '.'}${suffix}`);
+    }
+    const io = receipt.process_io_observations?.find(row => row.label === `${check.label}-io`);
+    if (io) for (const kind of ['stdout', 'stderr']) {
+      const name = `${check.label}-io.${kind}.log`;
+      if (byName.get(name)?.sha256 !== io[`${kind}_sha256`]) refuse('RAW_DIGEST');
+      allowedRaw.add(name);
+    }
+  }
+  for (const check of receipt.simulator_checks) {
+    if (!/^simulator-(?:start|end)$/.test(check.label || '')) refuse('RAW_PARSE');
+    allowedRaw.add(`${check.label}.stdout.log`); allowedRaw.add(`${check.label}.stderr.log`);
+  }
+  if (raw.length !== allowedRaw.size || raw.some(row => !allowedRaw.has(row.relative))) refuse('RAW_FILES');
   for (const check of [...receipt.process_checks, ...receipt.simulator_checks, receipt.iostat || {}]) {
     const label = check.label || 'iostat';
     if (!/^(?:process-(?:start|end|during-[1-9]\d*)|simulator-(?:start|end)|iostat)$/.test(label)
@@ -141,11 +219,17 @@ function readInputs(receiptFile) {
     });
     const byPid = new Map(rows.map(row => [row.pid, row]));
     if (byPid.size !== rows.length || !byPid.has(receipt.observer_pid)) refuse('RAW_PARSE');
+    let suppliedPids;
+    try { suppliedPids = JSON.parse(readRegular(path.join(root, `${check.label}-pids.json`))); } catch { refuse('RAW_PARSE'); }
+    if (canonical(suppliedPids) !== canonical(rows)) refuse('PROCESS_IDENTITY');
     const ancestors = new Set(); let cursor = receipt.observer_pid;
     while (cursor > 0 && !ancestors.has(cursor)) { ancestors.add(cursor); cursor = byPid.get(cursor)?.ppid || 0; }
     if (canonical([...ancestors]) !== canonical(check.excluded_own_ancestor_pids)) refuse('PROCESS_IDENTITY');
-    if (new Set(identities.map(row => row.pid)).size !== identities.length
-        || identities.some(row => !byPid.has(row.pid))) refuse('RAW_PARSE');
+    const expectedIdentityPids = rows.filter(row => row.pid > 1).map(row => row.pid).sort((a, b) => a - b);
+    const identityPids = identities.map(row => row.pid).sort((a, b) => a - b);
+    if (new Set(identityPids).size !== identities.length || canonical(expectedIdentityPids) !== canonical(identityPids)
+        || identities.some(row => row.ppid !== undefined && row.ppid !== byPid.get(row.pid)?.ppid
+          || typeof row.exited !== 'boolean' || !Number.isInteger(row.identity_errno))) refuse('RAW_PARSE');
     const unavailable = identities.filter(row => !ancestors.has(row.pid) && !row.exited
       && (row.identity_errno !== 0 || !row.executable || !Array.isArray(row.argv) && typeof row.command_line !== 'string'));
     const heavy = identities.filter(row => !ancestors.has(row.pid) && !row.exited && row.identity_errno === 0
@@ -172,7 +256,8 @@ function readInputs(receiptFile) {
   });
   if (!Array.isArray(receipt.disk_intervals) || parsed.length !== receipt.disk_intervals.length + 1
       || parsed.slice(1).some((row, i) => row.raw !== receipt.disk_intervals[i].raw || row.tps !== receipt.disk_intervals[i].tps)) refuse('RAW_PARSE');
-  return { receipt, window, receiptDigest: hash(bytes), windowDigest: hash(windowBytes), rawDigest: hash(canonical(raw)), root, raw, receiptFile };
+  const reviews = bindReviewFiles(window, root);
+  return { receipt, window, reviews, receiptDigest: hash(bytes), windowDigest: hash(windowBytes), rawDigest: hash(canonical(raw)), root, raw, receiptFile };
 }
 
 function requireReceiptInput(environment = process.env) {
@@ -259,6 +344,7 @@ function requireAllocatedStart(runId, repository, now = Date.now()) {
   const authority = state.validateInstalledAuthority();
   const run = state.readRecord('runs', runId);
   if (run.generation !== authority.generation || run.owner.host !== authority.host || run.owner.uid !== authority.uid) refuse('HOST');
+  if (git(repository, ['rev-parse', 'HEAD']) !== run.gate_code_sha) refuse('PIN');
   const evidence = require('./storage-containers.cjs').resolveMounted('evidence', runId).mount;
   const input = validateClaimEvidence(evidence, run);
   if (run.quiet_start.observer_sha256 !== hash(readRegular(path.join(repository, 'scripts/observe-mobile-quiet.cjs')))) refuse('PIN');
@@ -268,5 +354,5 @@ function requireAllocatedStart(runId, repository, now = Date.now()) {
   return run.quiet_start;
 }
 
-module.exports = { POLICY, UUID, SHA, DIGEST, hash, canonical, validateReceipt, readInputs, readRegular, requireReceiptInput,
+module.exports = { POLICY, UUID, SHA, DIGEST, hash, canonical, validateReceipt, readInputs, readRegular, readReference, validateReviews, bindReviewFiles, requireReceiptInput,
   expectedBindings, assertUnclaimed, inspectNativeStart, validateClaimShape, copyClaimInputs, validateClaimEvidence, requireAllocatedStart };
