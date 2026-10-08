@@ -98,6 +98,9 @@ and gate-code SHAs, policy revision, not-before/expiry epochs, and SHA256-bound
 its own `gate_qa` and `gate_ci`; these may reference the same receipts when the
 candidate and gate are identical. QA values come from typed verdict fields,
 not prose summaries. Reference paths are absolute owned regular JSON files.
+The policy review must target the exact executing gate-code SHA, which contains
+the canonical policy revision and values. Prior policy evidence may be reused in
+that review; an accepted report targeting unrelated source cannot admit a launch.
 
 The quiet predicate retains 60 timed intervals over at least 60 seconds, excludes
 the initial cumulative row, requires median TPS below 2000 and peak at most 10000,
@@ -118,8 +121,11 @@ when an index flag hides a local edit. Independent census covers both classes
 and actual callers.
 
 The supported command returns one REFUSED, FAILED, CLEANUP_INCOMPLETE or CERTIFIED
-disposition, with original failure and cleanup outcomes retained. It verifies the
-claimed admission, full result, journal, evidence digest, final window and owned
+disposition, with original failure and cleanup outcomes retained.
+For a readable allocation with a valid attempt ID, preflight refusals also retain
+a restricted terminal record before any child starts. An existing attempt record
+is preserved; a reused allocation gets a separate refusal record.
+The command verifies the claimed admission, full result, journal, evidence digest, final window and owned
 cleanup together. Low-level operations retain the same guard for diagnostics;
 a full exit zero alone is insufficient. Keep raw receipts and final digests in
 artifact holding; lock tokens stay local and are redacted from persisted summaries.

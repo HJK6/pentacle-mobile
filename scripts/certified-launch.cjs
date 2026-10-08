@@ -2,6 +2,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
+const { randomUUID } = require('node:crypto');
 const { spawnSync } = require('node:child_process');
 const quiet = require('./certified-start-receipt.cjs');
 const launchEnvironment = require('./certified-launch-environment.cjs');
@@ -86,13 +87,13 @@ async function runCertified(candidateRef, allocationFile, options = {}) {
   if (!io.git) io.git = args => git(args, io.root);
   const load = (name, file) => io[name] || (io[name] = require(file));
   const secrets = new Set();
-  let output, admission, lock, mutations, packet;
+  let output, terminalFile, admission, lock, mutations, packet;
   let phase = 'preflight', nativeStarted = false, fullStarted = false;
   const terminal = { schema: 1, status: 1, disposition: 'REFUSED', candidate_sha: null,
     gate_code_sha: null, phases: [], cleanup: [], certification: 'NOT_CERTIFIED' };
   const sanitize = value => redact(value, [...secrets]);
   const persist = () => {
-    if (output) fs.writeFileSync(path.join(output, 'terminal.json'), JSON.stringify(sanitize(terminal), null, 2) + '\n', { mode: 0o600 });
+    if (terminalFile) fs.writeFileSync(terminalFile, JSON.stringify(sanitize(terminal), null, 2) + '\n', { mode: 0o600 });
   };
   const write = (name, content) => fs.writeFileSync(path.join(output, name), sanitize(String(content)), { mode: 0o600, flag: 'wx' });
   // A phase record is durable before the child starts, and its outputs are written before any
@@ -112,10 +113,27 @@ async function runCertified(candidateRef, allocationFile, options = {}) {
     return result;
   };
   try {
-    mutations = io.mutations || boundMutations(mutationCapability);
-    if (!mutations || MUTATIONS.some(name => typeof mutations[name] !== 'function')) throw new Error('CERTIFIED_LAUNCH_MUTATION_CAPABILITY');
     const allocationBytes = io.quiet.readRegular(allocationFile);
     try { packet = JSON.parse(allocationBytes); } catch { throw new Error('CERTIFIED_LAUNCH_ALLOCATION_JSON'); }
+    if (!quiet.UUID.test(packet?.attempt_id || '')) throw new Error('CERTIFIED_LAUNCH_ALLOCATION');
+    // A valid attempt ID is enough to retain a sanitized refusal. Create its restricted record
+    // before authority, source, review or lock checks, while no child or allocation has started.
+    const outputRoot = io.outputRoot || path.join(io.root, '_artifacts', 'certified-launch');
+    fs.mkdirSync(outputRoot, { recursive: true, mode: 0o700 });
+    const outputStat = fs.lstatSync(outputRoot);
+    if (!outputStat.isDirectory() || outputStat.uid !== process.getuid()) throw new Error('CERTIFIED_LAUNCH_OUTPUT');
+    terminal.fd_window_sha256 = quiet.hash(allocationBytes); terminal.attempt_id = packet.attempt_id;
+    const attemptOutput = path.join(outputRoot, packet.attempt_id);
+    try { fs.mkdirSync(attemptOutput, { mode: 0o700 }); }
+    catch (error) {
+      if (error.code !== 'EEXIST') throw new Error('CERTIFIED_LAUNCH_OUTPUT');
+      // Never overwrite a previous attempt, even when the caller retries its allocation.
+      terminalFile = path.join(outputRoot, `refused-${packet.attempt_id}-${randomUUID()}.json`);
+      throw new Error('CERTIFIED_LAUNCH_ATTEMPT_USED');
+    }
+    output = attemptOutput; terminalFile = path.join(output, 'terminal.json'); persist();
+    mutations = io.mutations || boundMutations(mutationCapability);
+    if (!mutations || MUTATIONS.some(name => typeof mutations[name] !== 'function')) throw new Error('CERTIFIED_LAUNCH_MUTATION_CAPABILITY');
     const state = load('state', './storage-state.cjs');
     const containers = load('containers', './storage-containers.cjs');
     const gate = load('gate', './storage-gate.cjs');
@@ -126,6 +144,7 @@ async function runCertified(candidateRef, allocationFile, options = {}) {
     if (!quiet.SHA.test(candidateSha) || !quiet.SHA.test(gateCodeSha)) throw new Error('CERTIFIED_LAUNCH_SOURCE');
     terminal.candidate_sha = candidateSha; terminal.gate_code_sha = gateCodeSha;
     validateAllocation(packet, { host: authority.host, uid: authority.uid, candidateSha, gateCodeSha }, io.now());
+    fs.writeFileSync(path.join(output, 'fd-window.json'), allocationBytes, { flag: 'wx', mode: 0o600 });
     if (io.git(['remote', 'get-url', 'origin']) !== PUBLIC_ORIGIN
         || io.git(['status', '--porcelain=v1', '--untracked-files=all'])) throw new Error('CERTIFIED_LAUNCH_SOURCE');
     const provenance = load('provenance', './gate-code-provenance.cjs');
@@ -140,14 +159,6 @@ async function runCertified(candidateRef, allocationFile, options = {}) {
     if (state.listRecords('runs').some(run => run.quiet_start?.attempt_id === packet.attempt_id)) throw new Error('CERTIFIED_LAUNCH_ATTEMPT_USED');
     lock = io.lockPath || path.join(require('./storage-authority.cjs').fixedLayout().state, 'gate.lock');
     if (fs.existsSync(lock)) throw new Error('CERTIFIED_LAUNCH_ALLOCATION_UNRESOLVED');
-    const outputRoot = io.outputRoot || path.join(io.root, '_artifacts', 'certified-launch');
-    fs.mkdirSync(outputRoot, { recursive: true, mode: 0o700 });
-    try { fs.mkdirSync(path.join(outputRoot, packet.attempt_id), { mode: 0o700 }); }
-    catch (error) { throw new Error(error.code === 'EEXIST' ? 'CERTIFIED_LAUNCH_ATTEMPT_USED' : 'CERTIFIED_LAUNCH_OUTPUT'); }
-    output = path.join(outputRoot, packet.attempt_id);
-    fs.writeFileSync(path.join(output, 'fd-window.json'), allocationBytes, { flag: 'wx', mode: 0o600 });
-    terminal.fd_window_sha256 = quiet.hash(allocationBytes); terminal.attempt_id = packet.attempt_id; persist();
-
     const environment = io.environment.canonicalChildEnvironment(io.root);
     terminal.environment = io.environment.probeChildEnvironment(io.root, environment); persist();
 

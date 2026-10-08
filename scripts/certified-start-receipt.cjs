@@ -131,7 +131,9 @@ function validateReviews(packet, candidateSha, gateCodeSha = candidateSha) {
     return { head_sha: report.head_sha, receipt_sha256: reference.sha256 };
   };
   const source = acceptance('source_qa', candidateSha);
-  const policy = acceptance('policy_qa');
+  // The executing gate commit contains the canonical POLICY values. Its accepted policy review
+  // must name that exact immutable source identity; an unrelated accepted report is insufficient.
+  const policy = acceptance('policy_qa', gateCodeSha);
   const sourceCi = ci('ci', candidateSha);
   const separateGate = gateCodeSha !== candidateSha;
   const gate = separateGate || packet.gate_qa ? acceptance('gate_qa', gateCodeSha) : source;

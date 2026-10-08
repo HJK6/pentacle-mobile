@@ -39,7 +39,7 @@ function fixture(options = {}) {
     policy_revision: quiet.POLICY.revision, not_before_epoch: (NOW - 60000) / 1000,
     expires_epoch: (NOW + (options.windowMs ?? 7 * 3600000)) / 1000,
     source_qa: { ...reference('source-qa', { report: { qa_verdict: 'accept', target_sha: CANDIDATE, report_id: SOURCE_REPORT } }), report_id: SOURCE_REPORT },
-    policy_qa: { ...reference('policy-qa', { qa_verdict: 'accept', target_sha: 'c'.repeat(40), report_id: POLICY_REPORT }), report_id: POLICY_REPORT },
+    policy_qa: { ...reference('policy-qa', { qa_verdict: 'accept', target_sha: options.policyTarget || gateCode, report_id: POLICY_REPORT }), report_id: POLICY_REPORT },
     ci: reference('ci', { head_sha: CANDIDATE, conclusion: 'success' }),
     ...options.packet,
   };
@@ -168,6 +168,40 @@ test('differing gate code requires its own accepted review and CI', async () => 
   const terminal = await bound.start();
   assert.equal(terminal.disposition, 'CERTIFIED', terminal.error);
   assert.equal(terminal.reviews.gate_report_id, GATE_REPORT);
+});
+
+test('unrelated accepted policy refuses durably before observer or native starts', async () => {
+  const f = fixture({ policyTarget: 'c'.repeat(40) });
+  const terminal = await f.start();
+  assert.deepEqual([terminal.disposition, terminal.error], ['REFUSED', 'QUIET_START_REVIEW_POLICY_QA']);
+  assert.deepEqual(started(f), []);
+  assert.equal(f.calls.probes, 0);
+  assert.deepEqual(persisted(f).terminal, terminal);
+});
+
+test('tracked-byte refusal leaves a durable terminal with zero child starts', async () => {
+  const f = fixture({ attestTrackedTree: () => { throw new Error('CERTIFIED_TRACKED_BYTES_DRIFT'); } });
+  const terminal = await f.start();
+  assert.deepEqual([terminal.disposition, terminal.error], ['REFUSED', 'CERTIFIED_TRACKED_BYTES_DRIFT']);
+  assert.deepEqual(started(f), []);
+  assert.equal(f.calls.probes, 0);
+  assert.deepEqual(persisted(f).terminal, terminal);
+});
+
+test('reused output preserves the prior terminal and retains a separate refusal', async () => {
+  const f = fixture();
+  await f.start();
+  const original = fs.readFileSync(path.join(f.outputRoot, ATTEMPT, 'terminal.json'));
+  const count = started(f).length;
+  const terminal = await f.start();
+  assert.deepEqual([terminal.disposition, terminal.error], ['REFUSED', 'CERTIFIED_LAUNCH_ATTEMPT_USED']);
+  assert.equal(started(f).length, count, 'a reused attempt starts no new child');
+  assert.deepEqual(fs.readFileSync(path.join(f.outputRoot, ATTEMPT, 'terminal.json')), original);
+  const refusals = fs.readdirSync(f.outputRoot).filter(name => name.startsWith(`refused-${ATTEMPT}-`));
+  assert.equal(refusals.length, 1);
+  const file = path.join(f.outputRoot, refusals[0]);
+  assert.deepEqual(JSON.parse(fs.readFileSync(file)), terminal);
+  assert.equal(fs.statSync(file).mode & 0o777, 0o600);
 });
 
 for (const [label, options, error] of [

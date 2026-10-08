@@ -45,7 +45,7 @@ function receiptFixture(t) {
   const window = { schema: 1, fd_go: true, tell_id: crypto.randomUUID(), from_stream: 'hosta:v2-fd', host, uid, candidate_sha: head, gate_code_sha: head, policy_revision: POLICY.revision, attempt_id: attempt, not_before_epoch: (now - 120000) / 1000, expires_epoch: (now + POLICY.combinedClosingBudgetMs + 300000) / 1000 };
   for (const [field, value] of Object.entries({
     source_qa: { report_id: crypto.randomUUID(), qa_verdict: 'accept', target_sha: head },
-    policy_qa: { report_id: crypto.randomUUID(), qa_verdict: 'accept', target_sha: 'b'.repeat(40) },
+    policy_qa: { report_id: crypto.randomUUID(), qa_verdict: 'accept', target_sha: head },
     ci: { head_sha: head, conclusion: 'success' },
   })) {
     const file = path.join(dir, `review-${field}.json`);
@@ -168,6 +168,13 @@ for (const [name, alter, error] of [
 for (const [name, alter] of [
   ['missing source review', f => { delete f.window.source_qa; }],
   ['missing policy review', f => { delete f.window.policy_qa; }],
+  ['unrelated accepted policy review', f => {
+    const reference = f.window.policy_qa;
+    const report = JSON.parse(fs.readFileSync(reference.path));
+    report.target_sha = 'b'.repeat(40);
+    fs.writeFileSync(reference.path, JSON.stringify(report));
+    reference.sha256 = hash(fs.readFileSync(reference.path)); f.refreshRaw();
+  }],
   ['missing exact CI', f => { delete f.window.ci; }],
   ['unbound source review copy', f => { fs.unlinkSync(path.join(f.dir, 'review-source_qa.json')); f.refreshRaw(); }],
   ['foreign PID omitted from identity rows', f => {
