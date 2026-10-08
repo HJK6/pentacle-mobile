@@ -541,6 +541,17 @@ def execute_dashboard_catalog(config, runs_dir, stem):
                 "closed_count": len(closed), "orphans": orphans, "orphan_count": len(orphans)}
 
 
+DEFAULT_SIMULATOR_DEVICE_SET = Path.home() / "Library" / "Developer" / "CoreSimulator" / "Devices"
+
+
+def require_idb_visible_device_set(config, environ=None):
+    """idb resolves only the default device set; a private set needs the gate's IDB_COMPANION address."""
+    environ = os.environ if environ is None else environ
+    root = Path(config["PENTACLE_SCENARIO_DEVICE_SET_ROOT"])
+    if os.path.realpath(root) != os.path.realpath(DEFAULT_SIMULATOR_DEVICE_SET) and not environ.get("IDB_COMPANION"):
+        raise ValueError("dashboard_catalog idb inspection needs IDB_COMPANION for a non-default simulator device set")
+
+
 def execute_native(name, config, runs_dir, stem, *, _catalog_phase=None):
     if name == "dashboard_catalog":
         dashboard_catalog_inputs(config)
@@ -558,6 +569,8 @@ def execute_native(name, config, runs_dir, stem, *, _catalog_phase=None):
     if not re.fullmatch(r"[0-9A-Fa-f]{8}(?:-[0-9A-Fa-f]{4}){3}-[0-9A-Fa-f]{12}", udid or "") or not bundle:
         raise ValueError("exact bound simulator and bundle are required")
     simctl = scenario_simctl_command(config=config)
+    if name == "dashboard_catalog":
+        require_idb_visible_device_set(config)
     config["SIMULATOR_UDID"] = udid
     run_id, sentinel = config["scenario_run_id"], config.get("runtime_sentinel", "clean")
     module = DashboardCatalogScenario() if name == "dashboard_catalog" else importlib.import_module(REPORT_MODULES[name])

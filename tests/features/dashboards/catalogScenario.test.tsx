@@ -73,3 +73,20 @@ test('fixed report-viewer sentinel token never becomes a catalog credential', ()
   expect(runner).toMatch(/query\["pentacle_token"\] = credential_token/);
   expect(runner).not.toMatch(/query\["pentacle_token"\] = token\b/);
 });
+test('catalog idb inspection refuses a private device set without the gate companion', () => {
+  const result = execFileSync('python3', ['-c', String.raw`
+import importlib.util, json, os, sys, tempfile
+sys.path[:0]=['test', 'test/e2e']
+spec=importlib.util.spec_from_file_location('example_catalog_runner', 'test/e2e/run_scenario.py')
+m=importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+m.require_idb_visible_device_set({'PENTACLE_SCENARIO_DEVICE_SET_ROOT': str(m.DEFAULT_SIMULATOR_DEVICE_SET)}, environ={})
+private={'PENTACLE_SCENARIO_DEVICE_SET_ROOT': tempfile.mkdtemp()}
+try: m.require_idb_visible_device_set(private, environ={})
+except ValueError as error: refused=str(error)
+else: raise AssertionError('private set without IDB_COMPANION was accepted')
+m.require_idb_visible_device_set(private, environ={'IDB_COMPANION': '/tmp/idb/example_companion.sock'})
+os.rmdir(private['PENTACLE_SCENARIO_DEVICE_SET_ROOT'])
+print(json.dumps({'refused': refused}))
+`], { cwd: root, encoding: 'utf8', timeout: 15000 });
+  expect(JSON.parse(result).refused).toBe('dashboard_catalog idb inspection needs IDB_COMPANION for a non-default simulator device set');
+});
