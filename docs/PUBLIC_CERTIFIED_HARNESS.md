@@ -66,6 +66,11 @@ daemon_token_file=/absolute/path/to/fixture-app-token
 daemon_token_owner_stream_id=local:example-reader
 ```
 
+The scenario inspects the native UI with `idb`, which resolves only the default
+simulator device set. With any other `PENTACLE_SCENARIO_DEVICE_SET_ROOT` it requires
+`IDB_COMPANION` (the companion address the storage gate exports) and refuses before
+native work without it.
+
 The URL must use a numeric loopback host and an explicit port, without URL
 credentials, query parameters, or a fragment. The token file must already exist,
 be an owned regular non-symlink file with mode `0600`, and contain the app's

@@ -187,7 +187,9 @@ export default function DashboardsScreen() {
         {catalogResult.message ? <View style={styles.statusCard} testID={catalogResult.status === 'unavailable' ? 'dashboard-catalog-unavailable' : 'dashboard-catalog-error'}>
           <Text style={styles.statusText}>{catalogResult.message}</Text>
         </View> : null}
-        {catalogResult.catalog ? <Text style={styles.catalogVersion} testID="dashboard-catalog-version">{catalogResult.catalog.catalog_version}</Text> : null}
+        {catalogResult.catalog ? <View accessible accessibilityLabel={catalogResult.catalog.catalog_version} testID="dashboard-catalog-version">
+          <Text style={styles.catalogVersion}>{catalogResult.catalog.catalog_version}</Text>
+        </View> : null}
         {catalogResult.cached ? <Text style={styles.catalogVersion} testID="dashboard-catalog-cached">catalog cached {cacheAge(catalogResult.age ?? 0)}</Text> : null}
         {catalogBusy ? <Text style={styles.catalogVersion}>Loading dashboard catalog…</Text> : null}
         {hasBoards ? (
@@ -196,7 +198,9 @@ export default function DashboardsScreen() {
           </ScrollView>
         ) : (
           <View style={styles.empty} testID="dashboards-empty">
-            <Text style={styles.emptyTitle} testID="dashboards-empty-state">No dashboards yet</Text>
+            <View accessible accessibilityLabel="No dashboards yet" testID="dashboards-empty-state">
+              <Text style={styles.emptyTitle}>No dashboards yet</Text>
+            </View>
             <Text style={styles.emptyBody}>New dashboards will appear here when they are ready.</Text>
           </View>
         )}

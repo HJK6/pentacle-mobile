@@ -8,7 +8,9 @@ export default function UnsupportedBoard({ board }: { board: CatalogBoard }) {
     <View style={styles.card} testID={`dashboard-board-${board.id}`} accessibilityValue={{ text: 'unsupported' }}>
       <Text style={styles.title}>{board.name}</Text>
       <View testID="dashboard-board-unsupported">
-        <Text style={styles.body} testID={`dashboard-board-unsupported-${board.id}`}>Unsupported on this client</Text>
+        <View accessible accessibilityLabel="Unsupported on this client" testID={`dashboard-board-unsupported-${board.id}`}>
+          <Text style={styles.body}>Unsupported on this client</Text>
+        </View>
       </View>
     </View>
   );
