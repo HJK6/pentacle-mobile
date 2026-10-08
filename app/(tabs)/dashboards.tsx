@@ -198,7 +198,9 @@ export default function DashboardsScreen() {
           </ScrollView>
         ) : (
           <View style={styles.empty} testID="dashboards-empty">
-            <Text style={styles.emptyTitle} testID="dashboards-empty-state">No dashboards yet</Text>
+            <View accessible accessibilityLabel="No dashboards yet" testID="dashboards-empty-state">
+              <Text style={styles.emptyTitle}>No dashboards yet</Text>
+            </View>
             <Text style={styles.emptyBody}>New dashboards will appear here when they are ready.</Text>
           </View>
         )}

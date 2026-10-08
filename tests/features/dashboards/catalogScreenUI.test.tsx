@@ -61,6 +61,7 @@ test('unset config preserves the empty state without catalog, report, or hub cal
   try {
     render(<DashboardsScreen />);
     expect(screen.getByTestId('dashboards-empty-state')).toHaveTextContent('No dashboards yet');
+    expect(screen.getByTestId('dashboards-empty-state').props).toMatchObject({ accessible: true, accessibilityLabel: 'No dashboards yet' });
     await act(async () => {});
     expect(list).not.toHaveBeenCalled(); expect(get).not.toHaveBeenCalled();
     expect(connect).not.toHaveBeenCalled(); expect(hubRefresh).not.toHaveBeenCalled();
