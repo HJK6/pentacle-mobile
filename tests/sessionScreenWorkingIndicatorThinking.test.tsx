@@ -1,3 +1,4 @@
+import { setDraft } from '../src/services/composerDrafts';
 // Regression suite for the pre-reply (thinking / tool-running / USER-only)
 // working window.
 // Spec: docs/behavior-contract.md
@@ -160,6 +161,7 @@ function resetState(streamId: string = STREAM_ID) {
 }
 
 beforeEach(() => {
+  setDraft(STREAM_ID, '');
   jest.useFakeTimers({ now: new Date('2026-05-13T12:00:00.000Z') });
   resetState();
   (usePentacleToken as jest.Mock).mockReturnValue({ isReady: true, token: 'test' });

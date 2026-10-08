@@ -268,11 +268,11 @@ test('a second non-empty tap surfaces feedback, retains its draft, and can send 
   fireEvent.changeText(input, 'first message');
   const sendButton = screen.getByTestId('composer-send-button');
   act(() => {
-    fireEvent.press(sendButton);
+    fireEvent.press(screen.getByTestId('composer-send-button'));
   });
   fireEvent.changeText(input, 'second message');
   act(() => {
-    fireEvent.press(sendButton);
+    fireEvent.press(screen.getByTestId('composer-send-button'));
   });
 
   expect(mockActions.sendMessage).toHaveBeenCalledTimes(1);
@@ -312,11 +312,11 @@ test('the in-flight modal is suppressed and the feedback outcome is recorded', (
   fireEvent.changeText(input, 'first message');
   const sendButton = screen.getByTestId('composer-send-button');
   act(() => {
-    fireEvent.press(sendButton);
+    fireEvent.press(screen.getByTestId('composer-send-button'));
   });
   fireEvent.changeText(input, 'second message');
   act(() => {
-    fireEvent.press(sendButton);
+    fireEvent.press(screen.getByTestId('composer-send-button'));
   });
 
   expect(mockAlert).not.toHaveBeenCalled();

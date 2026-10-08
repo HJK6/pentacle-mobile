@@ -155,10 +155,10 @@ test('B1: send stays enabled while working; empty-input guard holds; idle send d
   // Idle + non-empty text: enabled. Pressing dispatches via sendTurn.
   fireEvent.changeText(input, 'hello');
   const sendButton = screen.getByTestId('composer-send-button');
-  expect(sendButton.props.accessibilityState.disabled).toBe(false);
+  expect(screen.getByTestId('composer-send-button').props.accessibilityState.disabled).toBe(false);
   expect(input.props.editable).toBe(true);
   await act(async () => {
-    fireEvent.press(sendButton);
+    fireEvent.press(screen.getByTestId('composer-send-button'));
   });
   expect(mockActions.sendTurn).toHaveBeenCalledWith(STREAM_ID, 'hello');
   expect(mockActions.enqueueTurn).not.toHaveBeenCalled();
@@ -169,7 +169,7 @@ test('B1: send stays enabled while working; empty-input guard holds; idle send d
   await act(async () => {
     rendered.rerender(<SessionScreen />);
   });
-  expect(sendButton.props.accessibilityState.disabled).toBe(false);
+  expect(screen.getByTestId('composer-send-button').props.accessibilityState.disabled).toBe(false);
 
   // Phase = working: still enabled. Pressing now QUEUES via enqueueTurn (not
   // sendTurn) — the message must not begin/dispatch a turn while one is in flight.
@@ -183,10 +183,10 @@ test('B1: send stays enabled while working; empty-input guard holds; idle send d
   await act(async () => {
     rendered.rerender(<SessionScreen />);
   });
-  expect(sendButton.props.accessibilityState.disabled).toBe(false);
+  expect(screen.getByTestId('composer-send-button').props.accessibilityState.disabled).toBe(false);
   mockActions.sendTurn.mockClear();
   await act(async () => {
-    fireEvent.press(sendButton);
+    fireEvent.press(screen.getByTestId('composer-send-button'));
   });
   expect(mockActions.enqueueTurn).toHaveBeenCalledWith(STREAM_ID, 'queued while working', undefined);
   expect(mockActions.sendTurn).not.toHaveBeenCalled();
@@ -213,7 +213,7 @@ test('opening an already-idle session self-heals a stuck working turn (resync re
   const sendButton = screen.getByTestId('composer-send-button');
 
   // B1: even with a stuck "working" turn, send is NOT locked (send-while-working).
-  expect(sendButton.props.accessibilityState.disabled).toBe(false);
+  expect(screen.getByTestId('composer-send-button').props.accessibilityState.disabled).toBe(false);
 
   // An authoritative resync (the daemon session inventory the all-chats list
   // receives continuously) reports the session working:false and reconciles the
@@ -224,7 +224,7 @@ test('opening an already-idle session self-heals a stuck working turn (resync re
   await act(async () => {
     rendered.rerender(<SessionScreen />);
   });
-  expect(sendButton.props.accessibilityState.disabled).toBe(false);
+  expect(screen.getByTestId('composer-send-button').props.accessibilityState.disabled).toBe(false);
   expect(input.props.editable).toBe(true);
 });
 

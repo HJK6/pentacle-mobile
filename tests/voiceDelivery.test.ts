@@ -49,3 +49,31 @@ test('empty transcript fails visibly and retains audio for retry or discard', as
   expect(io.deliver).not.toHaveBeenCalled();
   expect(io.removeFile).not.toHaveBeenCalled();
 });
+
+const imageDraft = { originGeneration: 'generation-1', originLabel: 'Origin', textPrefix: 'Photo note', images: [{ uri: 'file://photo.jpg', fileName: 'photo.jpg', mimeType: 'image/jpeg', width: 10, height: 10, bytes: 123 }] };
+test('image upload retry keeps completed transcript, captured draft and origin in one delivery', async () => {
+  const io = { transcribe: jest.fn().mockResolvedValue({ transcript: { text: 'spoken detail' }, blobSha: 'audio' }),
+    uploadImages: jest.fn().mockRejectedValueOnce(new Error('upload failed')).mockResolvedValueOnce([{ key: 'image', mime: 'image/jpeg' }]),
+    deliver: jest.fn().mockResolvedValue({ landed: true }), removeFile: jest.fn().mockResolvedValue(undefined) };
+  const delivery = new VoiceDelivery(io);
+  await delivery.accept({ ...take, draft: imageDraft });
+  expect(delivery.snapshot().takes[0].status).toBe('failed');
+  expect(io.deliver).not.toHaveBeenCalled();
+  await delivery.retry(take.recordingId);
+  expect(io.transcribe).toHaveBeenCalledTimes(1);
+  expect(io.uploadImages).toHaveBeenCalledTimes(2);
+  expect(io.deliver).toHaveBeenCalledTimes(1);
+  expect(io.deliver).toHaveBeenCalledWith(expect.objectContaining({ streamId: take.streamId, originGeneration: 'generation-1', text: 'Photo note\nspoken detail', attachments: [expect.objectContaining({ key: 'image', uri: 'file://photo.jpg' })] }));
+});
+test('discard during image upload blocks the late combined send', async () => {
+  const uploaded = deferred<any>();
+  const io = { transcribe: jest.fn().mockResolvedValue({ transcript: { text: 'late' } }), uploadImages: jest.fn(() => uploaded.promise), deliver: jest.fn(), removeFile: jest.fn().mockResolvedValue(undefined) };
+  const delivery = new VoiceDelivery(io);
+  const work = delivery.accept({ ...take, draft: imageDraft });
+  await Promise.resolve();
+  expect(io.uploadImages).toHaveBeenCalledTimes(1);
+  delivery.discard(take.recordingId);
+  uploaded.resolve([{ key: 'image', mime: 'image/jpeg' }]);
+  await work;
+  expect(io.deliver).not.toHaveBeenCalled();
+});
