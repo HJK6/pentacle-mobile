@@ -10,6 +10,15 @@ const mutationCapability = require('./storage-capability.cjs').claim();
 
 async function bootstrapAndDispatch(endpoint, values) {
   if (['gate:native-root', 'gate:full'].includes(endpoint)) {
+    if (endpoint === 'gate:native-root') {
+      const quiet = require('./certified-start-receipt.cjs');
+      quiet.requireReceiptInput(process.env);
+      const journal = require('./storage-state.cjs');
+      quiet.inspectNativeStart(path.resolve(__dirname, '..'), values[0], process.env,
+        journal.validateInstalledAuthority(), journal.listRecords('runs'));
+    }
+    if (endpoint === 'gate:full') require('./certified-start-receipt.cjs')
+      .requireAllocatedStart(values[0], path.resolve(__dirname, '..'));
     const repoRoot = path.resolve(__dirname, '..');
     const ownership = require('./owned-process.cjs');
     if (!ownership.isOwnedInvocation()) {
@@ -33,6 +42,7 @@ async function bootstrapAndDispatch(endpoint, values) {
 async function executeEndpoint(endpoint, values) {
   const operation = () => {
     require('./storage-authority.cjs').rejectEnvironmentAuthority();
+    inputFor(endpoint, values);
     return bootstrapAndDispatch(endpoint, values);
   };
   if (endpoint !== 'gate:full') return operation();
@@ -55,6 +65,7 @@ async function dispatch(endpoint, values) {
   switch (endpoint) {
     case 'storage:install': return require('./storage-scheduler.cjs').bind(mutationCapability).installOrUpdate('install');
     case 'storage:update': return require('./storage-scheduler.cjs').bind(mutationCapability).installOrUpdate('update');
+    case 'gate:certified': return await require('./certified-launch.cjs').runCertified(input.candidate_ref, input.allocation_file, { mutationCapability });
     case 'gate:native-root': return await require('./storage-gate.cjs').bind(mutationCapability).prepareNativeRoot(input.candidate_ref, mainGateBootstrap);
     case 'gate:full': return await require('./storage-gate.cjs').bind(mutationCapability).runFullGate(input.run_id, input.lock_token, { gateBootstrap: mainGateBootstrap });
     case 'storage:recover-run': return require('./storage-janitor.cjs').bind(mutationCapability).recoverRun(input.run_id);
@@ -96,6 +107,7 @@ const THROWS_ONLY = () => 0;
 const OUTCOME_CONTRACT = Object.freeze({
   'storage:install': THROWS_ONLY,
   'storage:update': THROWS_ONLY,
+  'gate:certified': (result) => result.status,
   'gate:native-root': THROWS_ONLY,
   // The instance that exposed the class. result.status is the supervisor's preserved child status -
   // 0/nonzero/130/143 - so propagating it verbatim is what makes the documented "on every exit the

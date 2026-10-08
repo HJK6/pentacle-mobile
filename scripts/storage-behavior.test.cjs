@@ -441,6 +441,26 @@ test('report-viewer evidence rejects every accepted-boundary mutation independen
 // change whenever a stage is added, and it read as authoritative while being stale.
 test('passed evidence requires every certified stage in order with companion fields', () => {
   const fixture = reportViewerFixture();
+  const vm = require('node:vm');
+  const runId = '00000000-0000-4000-8000-000000000000';
+  const journal = { id: runId, quiet_start: { input: 'stand-in-for-stage-audit' } };
+  const moduleObject = { exports: {} };
+  let admissionChecks = 0;
+  // The stage audit now also consumes a journal-bound admission input. Supply
+  // that boundary explicitly; the actual receipt/file/claim validation has its
+  // own positive and negative journeys in certified-start-consumer.test.cjs.
+  const localRequire = name => name === './storage-state.cjs' ? { ...require(name), readRecord: () => journal }
+    : name === './certified-start-receipt.cjs' ? { ...require(name), validateClaimEvidence: (root, run) => {
+      assert.equal(root, fixture.root); assert.equal(run.id, runId); assert.equal(run.quiet_start.input, 'stand-in-for-stage-audit');
+      admissionChecks += 1; return { bound: true };
+    } }
+    : name === './storage-capability.cjs' ? { ...require(name), claim: () => mutationCapability }
+    : require(name);
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname, 'storage-gate.cjs'), 'utf8'), {
+    module: moduleObject, require: localRequire, __dirname, __filename: path.join(__dirname, 'storage-gate.cjs'),
+    process, Buffer, setTimeout, clearTimeout, setInterval, clearInterval, console,
+  });
+  const gateAudit = moduleObject.exports;
   const stages = certifiedStages();
   const gates = stages.map((name, index) => ({ name, command: `command-${index}`, status: 0, started_at: '2026-07-17T00:00:00Z', finished_at: '2026-07-17T00:00:01Z', log: `${name}.log` }));
   fs.writeFileSync(path.join(fixture.root, '.pentacle-container.json'), '{}\n');
@@ -451,32 +471,33 @@ test('passed evidence requires every certified stage in order with companion fie
     fs.writeFileSync(path.join(fixture.root, `${gate.name}.json`), `${JSON.stringify(gate)}\n`);
     fs.writeFileSync(path.join(fixture.root, gate.log), 'log\n');
   }
-  assert.doesNotThrow(() => require('./storage-gate.cjs').validateEvidence(fixture.root, '00000000-0000-4000-8000-000000000000', 'pre-cleanup', 0));
+  assert.doesNotThrow(() => gateAudit.validateEvidence(fixture.root, runId, 'pre-cleanup', 0));
+  assert.equal(admissionChecks, 1);
   const cleanupFile = path.join(fixture.root, 'cleanup.json');
   const cleanup = { schema: 1, run_id: '00000000-0000-4000-8000-000000000000', status: 'passed', simulator_deleted: true, indirections_removed: true, queue_released: true, scratch_discarded: true, completed_at: '2026-07-17T00:00:02.000Z' };
   fs.writeFileSync(cleanupFile, `${JSON.stringify(cleanup)}\n`);
-  assert.doesNotThrow(() => require('./storage-gate.cjs').validateEvidence(fixture.root, cleanup.run_id, 'final', 0));
+  assert.doesNotThrow(() => gateAudit.validateEvidence(fixture.root, cleanup.run_id, 'final', 0));
   fs.writeFileSync(cleanupFile, `${JSON.stringify({ ...cleanup, queue_released: false })}\n`);
-  assert.throws(() => require('./storage-gate.cjs').validateEvidence(fixture.root, cleanup.run_id, 'final', 0), /EVIDENCE_CLEANUP_INVALID/);
+  assert.throws(() => gateAudit.validateEvidence(fixture.root, cleanup.run_id, 'final', 0), /EVIDENCE_CLEANUP_INVALID/);
   fs.writeFileSync(cleanupFile, `${JSON.stringify(cleanup)}\n`);
   const triggerFile = path.join(fixture.root, 'storage-surface-trigger.json');
   const triggerRecord = JSON.parse(fs.readFileSync(triggerFile, 'utf8'));
   fs.writeFileSync(triggerFile, `${JSON.stringify({ ...triggerRecord, status: 'skipped', reason: 'case-results-incomplete', observed_results: 0, launch: { status: 'not-attempted', error: null, pids: [] }, cleanup: { status: 'not-required', error: null, outcomes: [] } })}\n`);
-  assert.throws(() => require('./storage-gate.cjs').validateEvidence(fixture.root, cleanup.run_id, 'pre-cleanup', 0), /EVIDENCE_SURFACE_TRIGGER_REQUIRED/);
+  assert.throws(() => gateAudit.validateEvidence(fixture.root, cleanup.run_id, 'pre-cleanup', 0), /EVIDENCE_SURFACE_TRIGGER_REQUIRED/);
   fs.writeFileSync(triggerFile, `${JSON.stringify({ ...triggerRecord, reason: 'launch-failed', launch: { status: 'failed', error: 'open failed', pids: [] }, cleanup: { status: 'not-required', error: null, outcomes: [] } })}\n`);
-  assert.throws(() => require('./storage-gate.cjs').validateEvidence(fixture.root, cleanup.run_id, 'pre-cleanup', 0), /EVIDENCE_SURFACE_TRIGGER_REQUIRED/);
+  assert.throws(() => gateAudit.validateEvidence(fixture.root, cleanup.run_id, 'pre-cleanup', 0), /EVIDENCE_SURFACE_TRIGGER_REQUIRED/);
   fs.writeFileSync(triggerFile, `${JSON.stringify(triggerRecord)}\n`);
   fs.writeFileSync(triggerFile, `${JSON.stringify({ ...triggerRecord, cleanup: { status: 'failed', error: 'survivor', outcomes: [] } })}\n`);
-  assert.throws(() => require('./storage-gate.cjs').validateEvidence(fixture.root, cleanup.run_id, 'pre-cleanup', 0), /EVIDENCE_SURFACE_TRIGGER_CLEANUP/);
+  assert.throws(() => gateAudit.validateEvidence(fixture.root, cleanup.run_id, 'pre-cleanup', 0), /EVIDENCE_SURFACE_TRIGGER_CLEANUP/);
   fs.writeFileSync(triggerFile, `${JSON.stringify(triggerRecord)}\n`);
   fs.unlinkSync(triggerFile);
-  assert.throws(() => require('./storage-gate.cjs').validateEvidence(fixture.root, cleanup.run_id, 'pre-cleanup', 0), /EVIDENCE_REQUIRED_MISSING:storage-surface-trigger.json/);
+  assert.throws(() => gateAudit.validateEvidence(fixture.root, cleanup.run_id, 'pre-cleanup', 0), /EVIDENCE_REQUIRED_MISSING:storage-surface-trigger.json/);
   fs.writeFileSync(triggerFile, `${JSON.stringify(triggerRecord)}\n`);
   const runFile = path.join(fixture.root, 'run.json');
   const run = JSON.parse(fs.readFileSync(runFile, 'utf8'));
   run.gates.reverse();
   fs.writeFileSync(runFile, `${JSON.stringify(run)}\n`);
-  assert.throws(() => require('./storage-gate.cjs').validateEvidence(fixture.root, '00000000-0000-4000-8000-000000000000', 'pre-cleanup', 0), /EVIDENCE_STAGE_ORDER/);
+  assert.throws(() => gateAudit.validateEvidence(fixture.root, runId, 'pre-cleanup', 0), /EVIDENCE_STAGE_ORDER/);
 });
 
 test('frontmatter parser requires exact delimiters, required keys, and unique top-level fields', () => {

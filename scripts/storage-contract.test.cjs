@@ -8,6 +8,7 @@ const test = require('node:test');
 const EXPECTED_ENDPOINTS = Object.freeze({
   'storage:install': [],
   'storage:update': [],
+  'gate:certified': ['candidate_ref', 'allocation_file'],
   'gate:native-root': ['candidate_ref'],
   'gate:full': ['run_id', 'lock_token'],
   'storage:recover-run': ['run_id'],
@@ -72,7 +73,7 @@ test('actual CommonJS and package surfaces expose no unbound mutation helper', (
     'storage-scheduler.cjs': ['LABEL', 'bind', 'plistOwned', 'renderPlist', 'smokeReport', 'validateSmokeReport'],
     'storage-supervisor.cjs': ['SupervisorMachine', 'bind', 'exitStatus', 'processGroupAlive'],
     'storage-sandbox.cjs': ['bind', 'hostTemporaryRoot', 'idbRoot', 'profileForRun', 'renderProfile'],
-    'storage-surface-trigger.cjs': ['bind', 'createCaseCompletionTrigger', 'reportViewerResultCount'],
+    'storage-surface-trigger.cjs': ['bind', 'createCaseCompletionTrigger', 'reportViewerResultCount', 'resolveSimulatorSurfaceApp'],
   };
   const banned = {
     'storage-state.cjs': ['createPreparedAuthority', 'createInstalledAuthority', 'createRecord', 'replaceRecord', 'rotateTerminal', 'recoverAtomicTemps', 'transitionRun', 'transitionInstalledAuthority'],
@@ -118,6 +119,7 @@ test('every public endpoint rejects path-shaped and extra authority', () => {
     mode: 'dry-run',
     reason: 'operator review complete',
     proof_file: '/tmp/owned-recovery-proof.json',
+    allocation_file: '/tmp/approved-fd-window.json',
   };
   for (const [endpoint, fields] of Object.entries(EXPECTED_ENDPOINTS)) {
     const accepted = Object.fromEntries(fields.map((field) => [field, values[field]]));

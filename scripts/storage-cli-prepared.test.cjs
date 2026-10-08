@@ -5,7 +5,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 const test = require('node:test');
 
-for (const boundary of ['environment', 'plugin', 'host', 'bootstrap', 'provision', 'dispatch', 'forward']) {
+for (const boundary of ['environment', 'quiet', 'plugin', 'host', 'bootstrap', 'provision', 'dispatch', 'forward']) {
   test(`prepared CLI releases both images and lock after ${boundary} refusal`, async () => {
     const resources = new Set(['scratch', 'evidence', 'lock']);
     const events = [];
@@ -22,6 +22,7 @@ for (const boundary of ['environment', 'plugin', 'host', 'bootstrap', 'provision
     const mocks = {
       './storage-authority.cjs': { ...require('./storage-authority.cjs'), rejectEnvironmentAuthority: () => { if (boundary === 'environment') failure(); } },
       './storage-capability.cjs': { claim: () => ({}) },
+      './certified-start-receipt.cjs': { requireAllocatedStart: () => { if (boundary === 'quiet') failure(); } },
       './owned-process.cjs': { isOwnedInvocation: () => boundary !== 'forward', runOwnedSync: failure },
       './gate-preflight.cjs': { beforeBootstrap: (_root, receive) => {
         events.push('preflight');

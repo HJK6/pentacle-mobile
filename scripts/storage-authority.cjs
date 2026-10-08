@@ -10,6 +10,7 @@ const CONTRACT = Object.freeze({
   endpoints: Object.freeze({
     'storage:install': [],
     'storage:update': [],
+    'gate:certified': ['candidate_ref', 'allocation_file'],
     'gate:native-root': ['candidate_ref'],
     'gate:full': ['run_id', 'lock_token'],
     'storage:recover-run': ['run_id'],
@@ -88,7 +89,7 @@ const CERTIFIED_COMPONENTS = Object.freeze({
   'scripts/reset-simulator-app.cjs': '9b41a6acaba3fe27f319a89f4d7824a4e221c764efd657fa77e33bcb089284f5',
   'scripts/sim-resource-guard.cjs': '5d9c910ba81db1526f5a5cb74db47ff206497979aa280461d1b67b4db7a15b9c',
   'scripts/sim-substrate.cjs': '7d357248c077e9d7833e84d5ff5ea7e7dece7ccff1f0d6014d2c6e57e8396c59',
-  'scripts/storage-gate.cjs': '51babe1b229ac6b0bc2494061affcb795a18d1db46ffb85ae0034dd3d3f8f3d6',
+  'scripts/storage-gate.cjs': '3db2815a8244da4bffaa15663c90496b8755b4a3a37f064300084254a1ba0f4b',
   'scripts/wire-contract-sim-e2e.cjs': 'b9f8a46167ec1c9a5a68150faa42f43b14cb9d84566ce361206f3d587c300e94',
   'scripts/wire-contract-sim-e2e.test.cjs': 'c91a665db99c04a0b2d7139d5f9cee10f0dfdaafefbb43843c56eeae87e4b00e',
   'test/e2e/__init__.py': '1948fbbfd7e4223867ed98177e05ea7e4b9a8eacb99b3905f5577fd81e8591c9',
@@ -430,6 +431,7 @@ function validateScalar(name, value) {
   if (name === 'lock_token' && !/^[0-9a-f]{64}$/.test(value)) rejectAuthority();
   if (name === 'mode' && value !== 'dry-run' && value !== 'apply') rejectAuthority();
   if (name === 'candidate_ref' && (path.isAbsolute(value) || value.includes('..') || value.startsWith('-'))) rejectAuthority();
+  if (name === 'allocation_file' && !path.isAbsolute(value)) rejectAuthority();
 }
 
 function parseEndpoint(endpoint, input) {

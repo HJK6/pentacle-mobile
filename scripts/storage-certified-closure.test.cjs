@@ -21,6 +21,10 @@ const CERTIFIED_ENTRIES = [
   'test/e2e/tests/test_native_capture.py',
   'test/testtime-jest-reporter.test.cjs',
 ];
+const LAUNCH_ENTRIES = [
+  ...CERTIFIED_ENTRIES, 'scripts/storage-cli.cjs', 'scripts/storage-builder-worker.cjs',
+  'scripts/build-native-root.cjs', 'scripts/observe-mobile-quiet.cjs',
+];
 
 function pythonTargets(root, relative, source) {
   const parsed = spawnSync('python3', ['-c', `import ast,json,sys
@@ -132,6 +136,36 @@ function certifiedRequireClosure(root = ROOT, entries = CERTIFIED_ENTRIES) {
 
 test('certification pins the complete repository-local require closure', () => {
   assert.deepEqual(Object.keys(CERTIFIED_COMPONENTS).sort(), certifiedRequireClosure());
+});
+
+test('every launch dependency, including the authority table, rejects missing and altered tracked bytes', () => {
+  const members = certifiedRequireClosure(ROOT, LAUNCH_ENTRIES);
+  const fixture = fs.mkdtempSync(path.join(os.tmpdir(), 'certified-launch-closure-'));
+  const git = args => {
+    const result = spawnSync('/usr/bin/git', args, { cwd: fixture, encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr); return result.stdout.trim();
+  };
+  try {
+    for (const member of members) {
+      const target = path.join(fixture, member); fs.mkdirSync(path.dirname(target), { recursive: true });
+      fs.copyFileSync(path.join(ROOT, member), target); fs.chmodSync(target, fs.statSync(path.join(ROOT, member)).mode);
+    }
+    git(['init', '--quiet']); git(['add', '.']);
+    git(['-c','user.name=Gate Test','-c','user.email=gate@example.test','commit','--quiet','-m','complete launch fixture']);
+    const sha = git(['rev-parse','HEAD']);
+    const { attestTrackedTree } = require('./storage-cli-bootstrap.cjs');
+    assert.ok(members.includes('scripts/storage-authority.cjs'));
+    assert.equal(attestTrackedTree(fixture, sha), true, 'complete source fixture must pass before negatives');
+    for (const member of members) {
+      const target = path.join(fixture, member), before = fs.readFileSync(target), mode = fs.statSync(target).mode;
+      fs.unlinkSync(target);
+      assert.throws(() => attestTrackedTree(fixture, sha), /GATE_CODE_SNAPSHOT_BYTES/, `${member}: missing`);
+      fs.writeFileSync(target, Buffer.concat([before, Buffer.from('\nchanged\n')]), { mode });
+      assert.throws(() => attestTrackedTree(fixture, sha), /GATE_CODE_SNAPSHOT_BYTES/, `${member}: altered`);
+      fs.writeFileSync(target, before, { mode });
+    }
+    assert.equal(attestTrackedTree(fixture, sha), true);
+  } finally { fs.rmSync(fixture, { recursive: true, force: true }); }
 });
 
 test('closure follows Python relative imports, package initialization and explicit dynamic dispatch', () => {

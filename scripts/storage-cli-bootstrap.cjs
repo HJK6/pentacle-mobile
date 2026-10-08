@@ -66,7 +66,7 @@ function blobOid(bytes) {
   return crypto.createHash('sha1').update(Buffer.from(`blob ${bytes.length}\0`)).update(bytes).digest('hex');
 }
 
-function attestSnapshotTree(root) {
+function attestSnapshotTree(root, { trackedOnly = false } = {}) {
   if (git(root, ['rev-parse', '--show-object-format']) !== 'sha1') throw new Error('GATE_CODE_SNAPSHOT_OBJECT_FORMAT');
   const entries = gitRaw(root, ['ls-tree', '-rz', '--full-tree', 'HEAD']).split('\0').filter(Boolean).map((entry) => {
     const separator = entry.indexOf('\t');
@@ -90,7 +90,11 @@ function attestSnapshotTree(root) {
         if (error.code === 'ENOENT') continue;
         throw error;
       }
-      if (stat.isSymbolicLink() || !stat.isDirectory() || fs.readdirSync(target).length) throw new Error('GATE_CODE_SNAPSHOT_BYTES');
+      if (stat.isSymbolicLink() || !stat.isDirectory()) throw new Error('GATE_CODE_SNAPSHOT_BYTES');
+      if (fs.readdirSync(target).length) {
+        if (!trackedOnly) throw new Error('GATE_CODE_SNAPSHOT_BYTES');
+        attestTrackedTree(target, entry.oid);
+      }
       continue;
     }
     if (entry.type !== 'blob' || !['100644', '100755', '120000'].includes(entry.mode)) throw new Error('GATE_CODE_SNAPSHOT_TREE');
@@ -109,7 +113,7 @@ function attestSnapshotTree(root) {
     if (blobOid(bytes) !== entry.oid) throw new Error('GATE_CODE_SNAPSHOT_BYTES');
   }
   const gitMetadata = path.join(root, '.git');
-  if (!fs.lstatSync(gitMetadata).isDirectory()) throw new Error('GATE_CODE_SNAPSHOT_IDENTITY');
+  if (!trackedOnly && !fs.lstatSync(gitMetadata).isDirectory()) throw new Error('GATE_CODE_SNAPSHOT_IDENTITY');
   const walk = (directory, relative = '') => {
     for (const name of fs.readdirSync(directory)) {
       if (!relative && name === '.git') continue;
@@ -126,8 +130,17 @@ function attestSnapshotTree(root) {
       } else if (!tracked.has(childRelative)) throw new Error('GATE_CODE_SNAPSHOT_UNTRACKED');
     }
   };
-  walk(root);
+  if (!trackedOnly) walk(root);
   return true;
+}
+
+// The live launch checkout has ordinary ignored inputs (node_modules and
+// artifacts). Its executable source must still equal the externally reviewed
+// commit byte-for-byte, including the authority file that contains the literal
+// pin table. The snapshot's stricter no-untracked rule remains unchanged.
+function attestTrackedTree(root, expectedSha) {
+  if (!SHA.test(expectedSha || '') || git(root, ['rev-parse', 'HEAD']) !== expectedSha) throw new Error('RUN_GATE_CODE_PROVENANCE_DRIFT');
+  return attestSnapshotTree(root, { trackedOnly: true });
 }
 
 function requireSnapshot(runId, gateCodeSha) {
@@ -284,6 +297,7 @@ function bootstrapGateEndpoint(endpoint, values, repositoryRoot, dependencies = 
 }
 
 module.exports = {
+  attestTrackedTree,
   bootstrapGateEndpoint,
   createSnapshot,
   discardSnapshot,
