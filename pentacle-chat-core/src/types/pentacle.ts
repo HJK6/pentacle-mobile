@@ -514,6 +514,9 @@ export type OptimisticSendStatus =
 export type PentacleSendState = 'queued' | 'sending' | 'failed' | 'cancelled';
 
 export interface OptimisticSendState {
+  // Optional captured destination lifetime. Kept through reconnect/retry/rekey;
+  // null means the original inventory did not carry a generation.
+  origin_generation?: string | null;
   optimistic_id: string;
   request_id: string;
   stream_id: string;

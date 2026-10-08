@@ -349,6 +349,7 @@ type CurrentTailApplyOutcome = {
 
 let ws: WebSocket | null = null;
 let currentSocketGeneration = 0;
+let sendInventoryGeneration: number | null = null;
 let reconnectAttempt = 0;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let preOpenConnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -2733,6 +2734,7 @@ function dispatchOfflineQueuedSends(generation: number) {
       optimistic.status !== 'queued' ||
       optimistic.socket_generation !== generation
     ) continue;
+    if (optimistic.origin_generation !== undefined && sendInventoryGeneration !== generation) continue;
     const session = state.sessions.find((item) => item.stream_id === optimistic.stream_id);
     if (!session) continue;
     void dispatchHeldSend(optimisticId, session, optimistic.attachments).catch(() => {
@@ -3646,7 +3648,9 @@ function handleMessageInner(raw: string) {
         events || [],
       );
     }
+    if (sessions) sendInventoryGeneration = currentSocketGeneration;
     setState(nextState);
+    dispatchOfflineQueuedSends(currentSocketGeneration);
     void reconcilePendingSessionCloses(sessions || [], currentSocketGeneration);
     return;
   }
@@ -3740,10 +3744,12 @@ function handleMessageInner(raw: string) {
 
   if (message.type === 'session.inventory' && Array.isArray(message.sessions)) {
     const sessions = message.sessions as PentacleSessionSummary[];
+    sendInventoryGeneration = currentSocketGeneration;
     setState(applyPentacleSessionInventory(
       state,
       sessions,
     ));
+    dispatchOfflineQueuedSends(currentSocketGeneration);
     void reconcilePendingSessionCloses(sessions, currentSocketGeneration);
     return;
   }
@@ -4782,6 +4788,17 @@ function sendCommand<T>(
   if (!ws || ws.readyState !== WebSocket.OPEN) {
     return Promise.reject(new Error('Pentacle stream is not connected'));
   }
+  // Every ordinary/queued/reconnect/conflict-rekey send reaches this boundary.
+  // A pre-retry check is insufficient: inventory can change during its awaits.
+  const boundSend = options.optimisticId ? state.optimisticSends?.[options.optimisticId] : undefined;
+  if (requestPrefix === 'send' && boundSend?.origin_generation !== undefined) {
+    const origin = state.sessions.find(session => session.stream_id === boundSend.stream_id);
+    if (sendInventoryGeneration !== currentSocketGeneration || !origin || (origin.session_generation ?? null) !== boundSend.origin_generation) {
+      queuedOptimisticDispatchRequests.delete(boundSend.optimistic_id);
+      markOptimisticFailed(boundSend.optimistic_id, 'Originating chat is unavailable or has been replaced.');
+      return Promise.resolve(false as T);
+    }
+  }
   const request_id = options.requestId || requestId(requestPrefix);
   const myGen = currentSocketGeneration;
   const socket = ws;
@@ -5571,7 +5588,8 @@ function waitForRetryConnection(optimisticId: string, sendRequestId: string): Pr
       const row = state.optimisticSends?.[optimisticId];
       if (!subscribers || !row || row.request_id !== sendRequestId || row.status !== 'dispatched') {
         finish(false);
-      } else if (state.connected && ws?.readyState === WebSocket.OPEN) {
+      } else if (state.connected && ws?.readyState === WebSocket.OPEN
+        && (row.origin_generation === undefined || sendInventoryGeneration === currentSocketGeneration)) {
         finish(true);
       }
     };
@@ -5692,6 +5710,7 @@ export function replaceOptimisticAttachments(
 }
 
 export async function sendPentacleMessage(args: {
+  originGeneration?: string | null;
   meta?: PentacleEvent['meta'];
   host: string;
   sessionName: string;
@@ -5776,6 +5795,10 @@ export async function sendPentacleMessage(args: {
       })
       : next);
     optimistic = state.optimisticSends?.[optimistic.optimistic_id];
+  }
+  if (optimistic && args.originGeneration !== undefined && optimistic.origin_generation === undefined) {
+    optimistic = { ...optimistic, origin_generation: args.originGeneration };
+    setState({ ...state, optimisticSends: { ...state.optimisticSends, [optimistic.optimistic_id]: optimistic } });
   }
   if (optimistic && args.meta) {
     const event = peekEventsForStream(state, optimistic.stream_id).find(event => event.optimistic_id === optimistic!.optimistic_id && event.client_origin);
@@ -6837,6 +6860,7 @@ export function __resetPentacleStreamForTests() {
   clearDisconnectBannerTimer();
   failPendingRequests(new Error('test reset'));
   queuedOptimisticDispatchRequests.clear();
+  sendInventoryGeneration = null;
   pendingNotificationResolves = {};
   if (ws) {
     try {

@@ -142,7 +142,7 @@ export const voiceDelivery = new VoiceDelivery({
     // Same recording -> same binding: a pre-send re-run builds the identical meta (daemon dedups on recording_id).
     const voiceAnswers = blobSha ? buildVoiceAnswersMeta(recordingId, { blobSha, durationS }) : null;
     const meta = { voice: { duration_s: durationS }, ...(voiceAnswers ? { voice_answers: voiceAnswers } : {}) };
-    return stream.sendPentacleMessage({ host: session.host, sessionName: session.session_name, text, optimisticId, meta, ...(attachments?.length ? { attachments } : {}) }).then(landed => ({ landed, optimisticId, requestId })).catch(error => {
+    return stream.sendPentacleMessage({ host: session.host, sessionName: session.session_name, text, optimisticId, meta, ...(originGeneration !== undefined ? { originGeneration } : {}), ...(attachments?.length ? { attachments } : {}) }).then(landed => ({ landed, optimisticId, requestId })).catch(error => {
       // Existing reconnect/receipt reconciliation owns ambiguous sends. Never
       // run transcription again after any text frame may have left the phone.
       if (error instanceof Error && /Pentacle stream (?:disconnected|is not connected)|Pentacle command timed out/.test(error.message)) return { landed: false, optimisticId, requestId };
