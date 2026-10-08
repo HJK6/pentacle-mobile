@@ -87,11 +87,12 @@ function loadLocalConfig(): PentacleConfig {
   }
 }
 
-export function buildExpoExtra(config: PentacleConfig, wsUrl: string) {
+export function buildExpoExtra(config: PentacleConfig & { dashboardCatalogSpecId?: string }, wsUrl: string) {
   return {
     router: {},
     wsUrl,
     dashboardHubUrl: config.dashboardHub?.url,
+    dashboardCatalogSpecId: config.dashboardCatalogSpecId,
     hosts: config.hosts,
     hostOrder: config.hostOrder || [],
     ...(config.features ? { features: config.features } : {}),

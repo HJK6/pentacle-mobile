@@ -350,6 +350,8 @@ function BlockBody({ block, e2eTableTargets = false }: { block: ReportBlock; e2e
   return <Runs runs={block.runs} />;
 }
 
+export { BlockBody as ReportBlockBody };
+
 function ThreadSheet({
   active,
   comments,
