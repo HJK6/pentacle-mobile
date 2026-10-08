@@ -54,6 +54,13 @@ const original = Module._load;
 Module._load = function load(request) {
   if (path.basename(request) === 'gate-preflight.cjs') return { requirePluginIntegrity: () => undefined, beforeBootstrap: (_, bootstrap) => bootstrap() };
   if (path.basename(request) === 'owned-process.cjs') return { isOwnedInvocation: () => true };
+  // These outcome tests synthesize the operation boundary. Actual admission and
+  // receipt refusals are covered separately by certified-start-consumer.test.cjs.
+  if (path.basename(request) === 'certified-start-receipt.cjs') return {
+    requireReceiptInput: () => '/tmp/synthetic-quiet-receipt.json', inspectNativeStart: () => ({}), requireAllocatedStart: () => ({}),
+  };
+  if (path.basename(request) === 'storage-state.cjs') return { validateInstalledAuthority: () => ({}), listRecords: () => [] };
+  if (path.basename(request) === 'certified-launch.cjs') return { runCertified: operation };
   if (path.basename(request) === 'storage-cli-bootstrap.cjs') {
     return { bootstrapGateEndpoint: () => ({ kind: 'continue', context: Object.freeze({ test: true }) }) };
   }

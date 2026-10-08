@@ -32,6 +32,30 @@ function repositoryFixture(files = { 'scripts/storage-cli.cjs': '#!/usr/bin/env 
   return { temp, checkout, sha: git(checkout, ['rev-parse', 'HEAD']) };
 }
 
+test('tracked launch bytes include the authority source and reject missing or edited members hidden by index flags', () => {
+  const fixture = repositoryFixture({
+    'scripts/storage-authority.cjs': 'module.exports = { pins: {} };\n',
+    'scripts/observer.cjs': 'module.exports = true;\n',
+    'scripts/identity.py': 'value = True\n',
+  });
+  try {
+    fs.mkdirSync(path.join(fixture.checkout, 'node_modules'));
+    fs.writeFileSync(path.join(fixture.checkout, 'node_modules', 'ignored-input'), 'input');
+    assert.equal(bootstrap.attestTrackedTree(fixture.checkout, fixture.sha), true);
+    for (const relative of ['scripts/storage-authority.cjs', 'scripts/observer.cjs', 'scripts/identity.py']) {
+      const target = path.join(fixture.checkout, relative), before = fs.readFileSync(target);
+      git(fixture.checkout, ['update-index', '--skip-worktree', relative]);
+      fs.appendFileSync(target, '\n# changed\n');
+      assert.throws(() => bootstrap.attestTrackedTree(fixture.checkout, fixture.sha), /GATE_CODE_SNAPSHOT_BYTES/);
+      fs.unlinkSync(target);
+      assert.throws(() => bootstrap.attestTrackedTree(fixture.checkout, fixture.sha), /GATE_CODE_SNAPSHOT_BYTES/);
+      fs.writeFileSync(target, before); git(fixture.checkout, ['update-index', '--no-skip-worktree', relative]);
+    }
+    assert.throws(() => bootstrap.attestTrackedTree(fixture.checkout, 'f'.repeat(40)), /PROVENANCE_DRIFT/);
+    assert.equal(bootstrap.attestTrackedTree(fixture.checkout, fixture.sha), true);
+  } finally { fs.rmSync(fixture.temp, { recursive: true, force: true }); }
+});
+
 test('a snapshot derives its UUID and invoking checkout, then binds clean pushed HEAD', () => {
   const fixture = repositoryFixture();
   const runId = crypto.randomUUID();

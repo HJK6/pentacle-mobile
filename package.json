@@ -23,7 +23,22 @@
     "validate": "tsc --noEmit && npx expo export --platform ios --output-dir /tmp/expo-validate-build",
     "test": "jest",
     "test:coverage": "jest --coverage",
-    "test:unit": "jest --runInBand"
+    "test:unit": "jest --runInBand",
+    "storage:install": "node scripts/storage-cli.cjs storage:install",
+    "storage:update": "node scripts/storage-cli.cjs storage:update",
+    "storage:recover-run": "node scripts/storage-cli.cjs storage:recover-run",
+    "storage:recover-system-scratch": "node scripts/storage-cli.cjs storage:recover-system-scratch",
+    "storage:discard-scratch": "node scripts/storage-cli.cjs storage:discard-scratch",
+    "storage:reclaim-failed-scratch": "node scripts/storage-cli.cjs storage:reclaim-failed-scratch",
+    "storage:discard-evidence": "node scripts/storage-cli.cjs storage:discard-evidence",
+    "storage:dispose-unclassified": "node scripts/storage-cli.cjs storage:dispose-unclassified",
+    "storage:dispose-absent-backing": "node scripts/storage-cli.cjs storage:dispose-absent-backing",
+    "storage:register-worktree": "node scripts/storage-cli.cjs storage:register-worktree",
+    "storage:retire-worktree": "node scripts/storage-cli.cjs storage:retire-worktree",
+    "storage:janitor": "node scripts/storage-cli.cjs storage:janitor",
+    "storage:restore": "node scripts/storage-cli.cjs storage:restore",
+    "storage:uninstall": "node scripts/storage-cli.cjs storage:uninstall",
+    "gate:certified": "node scripts/storage-cli.cjs gate:certified"
   },
   "dependencies": {
     "@expo-google-fonts/cinzel": "^0.4.2",

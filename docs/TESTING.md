@@ -45,14 +45,33 @@ The portable synthetic harness gate and retained private inputs are documented i
 Use the clean, origin-advertised candidate with the installed storage authority:
 
 ```sh
-env -u npm_config_cache PATH="$PWD/node_modules/.bin:$PATH" node scripts/storage-cli.cjs gate:native-root HEAD
-env -u npm_config_cache PATH="$PWD/node_modules/.bin:$PATH" node scripts/storage-cli.cjs gate:full RUN_ID LOCK_TOKEN
+node scripts/storage-cli.cjs gate:certified HEAD /absolute/path/fd-window.json
 ```
 
-The first command returns the opaque run ID and lock token for the second. The
-host singleton and shared `sim-queue` serialize native work. Candidate and gate
+The supported entry builds the child environment, probes dependencies, runs one
+fresh 60-sample quiet observation, and carries the opaque native/full handoff
+internally. The allocation packet binds the host, candidate, executing gate code,
+policy, accepted typed QA receipts, exact green CI and an FD window large enough
+for the unchanged combined bound and cleanup. Missing, stale, reused or mismatched
+inputs refuse before native preparation. The host singleton and shared `sim-queue`
+serialize native work. Candidate and gate
 code provenance, native process identity, all fixed simulator cases, finalized
 video and owned cleanup must pass. See [public harness contracts](PUBLIC_CERTIFIED_HARNESS.md).
+
+The low-level `gate:native-root` and `gate:full` operations remain for diagnosis
+and owned recovery. They enforce the same receipt and journal claim and cannot
+produce a new certified result by omitting the supported launch contract. Do not
+copy their opaque lock token into shared logs or assemble a separate shell runner.
+
+Pentacle Mobile delivery uses an Apple Development signed Release with an
+embedded bundle and an in-place USB `devicectl` install. TestFlight is reserved
+for the separate phone product. Certification supplies source and retained proof
+to the existing release-build handoff; it never queries or installs on a physical
+phone. The release packet binds the app hash, source, version/build, operator-device
+profile check and first-screen proof before the operator is asked to plug in.
+The actual install waits for the FD's named operator Done relay, preserves app
+data and Keychain, and stops without retry on lock, authentication or readback
+failure. Physical acceptance requires a screenshot of the app UI.
 
 Storage uses the installed fixed layout and rejects caller-selected paths. The
 installed authority binds host, UID and generation; journal schema and reference

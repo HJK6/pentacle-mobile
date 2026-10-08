@@ -19,6 +19,10 @@ test('gate code provenance accepts only a clean pushed checkout', () => {
   const origin = path.join(tempRoot, 'origin.git');
   const checkout = path.join(tempRoot, 'checkout');
   execFileSync('git', ['init', '--bare', '--quiet', origin]);
+  // This fixture later removes its last advertised ref. A bare repository's
+  // HEAD is not a checkout and must not turn that test setup into a Git-policy
+  // refusal unrelated to provenance.
+  git(origin, ['config', 'receive.denyDeleteCurrent', 'ignore']);
   execFileSync('git', ['init', '--quiet', '-b', 'main', checkout]);
   fs.writeFileSync(path.join(checkout, 'gate.txt'), 'reviewed\n');
   git(checkout, ['add', 'gate.txt']);
