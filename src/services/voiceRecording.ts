@@ -1,5 +1,6 @@
 import { logTelemetry, TELEMETRY_EVENTS } from 'pentacle-chat-core';
 
+import type { ProcessedAsset } from './imageCapture';
 import type { VoiceRecordingAsset } from './voiceSendUnit';
 
 // Module-level recording session. It lives OUTSIDE any React component so a take
@@ -34,7 +35,15 @@ export const SAMPLE_INTERVAL_MS = 90;
 export const DISPLAY_BARS = 46;
 export const MAX_DURATION_MS = 5 * 60 * 1000; // 5-minute cap (§ Journey)
 
+export interface RecordingDraft {
+  originGeneration: string | null;
+  originLabel: string;
+  textPrefix: string;
+  images: ProcessedAsset[];
+}
+
 export interface ActiveRecording {
+  draft?: RecordingDraft;
   streamId: string;
   recordingId: string;
   /** Full metering series (retained for the pending voice bubble downsample). */
@@ -55,7 +64,7 @@ export interface RecordingSnapshot {
   error?: string;
 }
 
-export type FinishedRecording = VoiceRecordingAsset & { streamId: string; recordingId: string; levels: number[]; interrupted: boolean };
+export type FinishedRecording = VoiceRecordingAsset & { draft?: RecordingDraft; streamId: string; recordingId: string; levels: number[]; interrupted: boolean };
 
 type Listener = (snapshot: RecordingSnapshot | null) => void;
 
@@ -136,7 +145,7 @@ export class VoiceRecorder {
    * Begin a recording bound to `streamId`. Rejects with PermissionDeniedError if
    * the mic is denied, or RecorderBusyError if one is already active elsewhere.
    */
-  async start(streamId: string): Promise<string> {
+  async start(streamId: string, draft?: RecordingDraft): Promise<string> {
     if (this.active || this.starting) throw new RecorderBusyError();
     this.starting = true;
     try {
@@ -144,10 +153,12 @@ export class VoiceRecorder {
     if (permission !== 'granted') throw new PermissionDeniedError();
     await this.engine.start();
     const recordingId = `rec-${Date.now()}-${this.nextId++}`;
-    this.active = { streamId, recordingId, levels: [], durationMs: 0, status: 'recording' };
+    this.active = { streamId, draft, recordingId, levels: [], durationMs: 0, status: 'recording' };
     logTelemetry(TELEMETRY_EVENTS.CHAT_VOICE_RECORD_STARTED, {
       stream_id: streamId,
       recording_id: recordingId,
+      subsystem: 'voice', bug_ref: 'mobile-image-voice-drafts',
+      image_count: draft?.images.length ?? 0,
     });
     this.tick = this.scheduler.setInterval(() => this.sample(), SAMPLE_INTERVAL_MS);
     this.emit();
@@ -214,6 +225,7 @@ export class VoiceRecorder {
     this.emit();
     const take: FinishedRecording = {
       streamId: a.streamId,
+      draft: a.draft,
       uri,
       mime: this.engine.mime,
       durationS,

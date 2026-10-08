@@ -1,7 +1,9 @@
 import { useSyncExternalStore } from 'react';
 import * as FileSystem from 'expo-file-system/legacy';
-import { logTelemetry, TELEMETRY_EVENTS, type PentacleTranscriptItem } from 'pentacle-chat-core';
+import { logTelemetry, TELEMETRY_EVENTS, type PentacleTranscriptItem, type ChatAttachment } from 'pentacle-chat-core';
 import { runVoiceUploadTranscribe, voiceTranscribeFailureMessage, NOTHING_RECOGNIZED_MESSAGE } from './voiceSendUnit';
+import { uploadStagedAttachments } from './attachmentUpload';
+import type { VoiceUploadTranscribeResult } from './voiceSendUnit';
 import type { FinishedRecording } from './voiceRecording';
 import * as stream from './pentacleStream';
 import {
@@ -19,12 +21,18 @@ export type VoiceTake = FinishedRecording & {
   transcribeRequestId: string;
   createdAt: number;
   error?: string;
+  transcription?: VoiceUploadTranscribeResult;
+  attachments?: ChatAttachment[];
 };
-type DeliveryInput = { streamId: string; text: string; durationS: number; recordingId: string; blobSha?: string };
+type DeliveryInput = { streamId: string; text: string; durationS: number; recordingId: string; blobSha?: string; originGeneration?: string | null; attachments?: ChatAttachment[] };
 type DeliveryResult = { landed: boolean; optimisticId?: string; requestId?: string };
+class VoiceOriginUnavailableError extends Error {
+  constructor() { super('Originating chat is unavailable or has been replaced.'); }
+}
 const voiceOrigins = new Map<string, Omit<DeliveryInput, 'text'>>();
 interface VoiceDeliveryIO {
   transcribe: typeof runVoiceUploadTranscribe;
+  uploadImages?: typeof uploadStagedAttachments;
   deliver: (input: DeliveryInput) => Promise<DeliveryResult>;
   removeFile: (uri: string) => Promise<void>;
 }
@@ -77,13 +85,25 @@ export class VoiceDelivery {
     this.running.add(id);
     let dispatched = false;
     try {
-      const result = await this.io.transcribe({ recording: take, transcribeRequestId: take.transcribeRequestId, tags: { stream_id: take.streamId, recording_id: id }, isCancelled: () => !this.state.takes.some(t => t.recordingId === id) });
+      const result = take.transcription ?? await this.io.transcribe({ recording: take, transcribeRequestId: take.transcribeRequestId, tags: { stream_id: take.streamId, recording_id: id }, isCancelled: () => !this.state.takes.some(t => t.recordingId === id) });
       if (!this.state.takes.some(t => t.recordingId === id)) return;
-      const text = result.transcript.text.trim();
-      if (!text) throw new Error(NOTHING_RECOGNIZED_MESSAGE);
+      const transcript = result.transcript.text.trim();
+      if (!transcript) throw new Error(NOTHING_RECOGNIZED_MESSAGE);
+      take.transcription = result;
+      this.update(this.state.takes.map(t => t.recordingId === id ? { ...t, transcription: result } : t));
+      const images = take.draft?.images ?? [];
+      if (images.length && !take.attachments) {
+        if (!this.io.uploadImages) throw new Error('Image upload unavailable');
+        const uploaded = await this.io.uploadImages(images);
+        if (!this.state.takes.some(t => t.recordingId === id)) return;
+        take.attachments = uploaded.map((attachment, index) => ({ ...attachment, uri: images[index].uri }));
+        this.update(this.state.takes.map(t => t.recordingId === id ? { ...t, attachments: take.attachments } : t));
+      }
+      if (!this.state.takes.some(t => t.recordingId === id)) return;
+      const text = [take.draft?.textPrefix, transcript].filter(Boolean).join('\n');
       // No async gap between the cancellation guard and text dispatch. deliver
       // synchronously inserts the text optimistic row before yielding.
-      const delivery = this.io.deliver({ streamId: take.streamId, text, durationS: take.durationS, recordingId: id, blobSha: result.blobSha });
+      const delivery = this.io.deliver({ streamId: take.streamId, text, durationS: take.durationS, recordingId: id, blobSha: result.blobSha, ...(take.draft ? { originGeneration: take.draft.originGeneration } : {}), ...(take.attachments?.length ? { attachments: take.attachments } : {}) });
       dispatched = true;
       // The binding now lives in the optimistic event's meta, which every resend reuses.
       releaseVoiceAnswersBinding(id);
@@ -95,7 +115,10 @@ export class VoiceDelivery {
     } catch (error) {
       if (!dispatched && !this.state.takes.some(t => t.recordingId === id)) return;
       if (!dispatched) {
-        const message = error instanceof Error && error.message === NOTHING_RECOGNIZED_MESSAGE ? NOTHING_RECOGNIZED_MESSAGE : voiceTranscribeFailureMessage(error);
+        const message = error instanceof VoiceOriginUnavailableError ? error.message
+          : error instanceof Error && error.message === NOTHING_RECOGNIZED_MESSAGE ? NOTHING_RECOGNIZED_MESSAGE
+          : take.transcription && take.draft?.images.length && !take.attachments ? 'Image upload failed. Try again.'
+          : voiceTranscribeFailureMessage(error);
         this.update(this.state.takes.map(t => t.recordingId === id ? { ...t, status: 'failed', error: message } : t), this.state.last?.recordingId === id ? { ...take, label: 'Failed' } : this.state.last);
       } else {
         this.update(this.state.takes, this.state.last?.recordingId === id ? { ...take, label: 'Failed' } : this.state.last);
@@ -107,18 +130,19 @@ export class VoiceDelivery {
 
 export const voiceDelivery = new VoiceDelivery({
   transcribe: runVoiceUploadTranscribe,
+  uploadImages: uploadStagedAttachments,
   removeFile: uri => FileSystem.deleteAsync(uri, { idempotent: true }),
-  deliver: ({ streamId, text, durationS, recordingId, blobSha }) => {
+  deliver: ({ streamId, text, durationS, recordingId, blobSha, originGeneration, attachments }) => {
     const session = stream.getPentacleStreamState().sessions.find(s => s.stream_id === streamId);
-    if (!session) throw new Error('Originating chat is unavailable');
-    const optimisticId = stream.appendOptimisticUserMessage(streamId, text);
+    if (!session || (originGeneration !== undefined && (session.session_generation ?? null) !== originGeneration)) throw new VoiceOriginUnavailableError();
+    const optimisticId = stream.appendOptimisticUserMessage(streamId, text, attachments);
     if (!optimisticId) throw new Error('Could not prepare voice message');
-    voiceOrigins.set(optimisticId, { streamId, durationS, recordingId });
+    voiceOrigins.set(optimisticId, { streamId, durationS, recordingId, originGeneration });
     const requestId = stream.getPentacleStreamState().optimisticSends?.[optimisticId]?.request_id;
     // Same recording -> same binding: a pre-send re-run builds the identical meta (daemon dedups on recording_id).
     const voiceAnswers = blobSha ? buildVoiceAnswersMeta(recordingId, { blobSha, durationS }) : null;
     const meta = { voice: { duration_s: durationS }, ...(voiceAnswers ? { voice_answers: voiceAnswers } : {}) };
-    return stream.sendPentacleMessage({ host: session.host, sessionName: session.session_name, text, optimisticId, meta }).then(landed => ({ landed, optimisticId, requestId })).catch(error => {
+    return stream.sendPentacleMessage({ host: session.host, sessionName: session.session_name, text, optimisticId, meta, ...(attachments?.length ? { attachments } : {}) }).then(landed => ({ landed, optimisticId, requestId })).catch(error => {
       // Existing reconnect/receipt reconciliation owns ambiguous sends. Never
       // run transcription again after any text frame may have left the phone.
       if (error instanceof Error && /Pentacle stream (?:disconnected|is not connected)|Pentacle command timed out/.test(error.message)) return { landed: false, optimisticId, requestId };
@@ -140,6 +164,8 @@ export function voiceTakeRow(take: VoiceTake): PentacleTranscriptItem {
 export async function retryVoiceMessage(id: string, retry: (id: string) => Promise<boolean>) {
   const origin = voiceOrigins.get(id);
   if (!origin) return retry(id);
+  const session = stream.getPentacleStreamState().sessions.find(s => s.stream_id === origin.streamId);
+  if (!session || (origin.originGeneration !== undefined && (session.session_generation ?? null) !== origin.originGeneration)) throw new VoiceOriginUnavailableError();
   const tags = { stream_id: origin.streamId, recording_id: origin.recordingId, duration_s: origin.durationS, optimistic_id: id };
   logTelemetry(TELEMETRY_EVENTS.CHAT_VOICE_SEND_OUTCOME, { ...tags, outcome: 'retried' });
   try {

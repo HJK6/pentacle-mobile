@@ -528,3 +528,11 @@ test('a photo-only message (no text) still sends', async () => {
 // ImageViewerModal) — driving them through the async upload→optimistic→transcript
 // path couples the assertion to selectSessionDetail's content-version cache and
 // the transcript-ready timer, which is render-timing noise, not the contract.
+
+test('attaching a photo preserves accessible voice entry', async () => {
+  imageCapture.pickImagesFromLibrary.mockResolvedValueOnce([libraryAsset(0)]);
+  render(<SessionScreen />);
+  await stagePhotosViaLibrary();
+  expect(screen.getByTestId('composer-attachment-thumb-0')).toBeTruthy();
+  expect(screen.getByTestId('composer-mic-button')).toBeTruthy();
+});

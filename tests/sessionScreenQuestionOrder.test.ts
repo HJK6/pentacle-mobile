@@ -157,3 +157,14 @@ test('a restored resolved answer without a loaded echo uses its recorded time, n
   expect(idsBottomToTop(orderSessionTranscriptRows(source, [projection], source, times)))
     .toEqual(['2', 'session-question-answer-a', '1']);
 });
+
+test('resolved answer precedes later sent rows retaining optimistic identity', () => {
+  const source = [
+    detailRow('optimistic-first', 'USER', 'later voice', { optimisticId: 'optimistic-first', correlatedDaemonSeq: 12 }),
+    detailRow('optimistic-second', 'USER', 'later text', { optimisticId: 'optimistic-second', correlatedDaemonSeq: 13 }),
+  ];
+  const projection = { ...answerProjection('restored', 'Operator answered: Continue', 'question-restored'), answerTimestamp: '2026-10-08T21:51:00Z' };
+  const eventTimes = new Map([['12', '2026-10-08T22:07:00Z'], ['13', '2026-10-08T22:07:20Z']]);
+  expect(orderSessionTranscriptRows(source, [projection], source, eventTimes).map(row => row.id))
+    .toEqual(['optimistic-second', 'optimistic-first', 'session-question-answer-restored']);
+});

@@ -1,4 +1,6 @@
 import React, { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useComposerDraft, draftRevision, restoreDraft } from '../../../src/services/composerDrafts';
+import { getPentacleStreamState } from '../../../src/services/pentacleStream';
 import { HOME_ROUTE } from '../../../src/services/homeRoute';
 import {
   ActivityIndicator,
@@ -899,6 +901,9 @@ export function orderSessionTranscriptRows(
   sourceItems: readonly PentacleTranscriptItem[] = detailItems,
   eventTimestamps: ReadonlyMap<string, string> = new Map(),
 ): PentacleTranscriptItem[] {
+  const rowTimestamp = (item: PentacleTranscriptItem) => eventTimestamps.get(item.id)
+    ?? (item.optimisticId ? eventTimestamps.get(item.optimisticId) : undefined)
+    ?? (item.correlatedDaemonSeq != null ? eventTimestamps.get(String(item.correlatedDaemonSeq)) : undefined);
   const retained = new Set(detailItems.map((item) => item.id));
   const echoed = new Set(sourceItems
     .filter((item) => item.eventCase === 'agent-question-answer' && item.notificationId)
@@ -913,11 +918,11 @@ export function orderSessionTranscriptRows(
     consumed.add(projection.id);
     ordered.push(anchor ? {
       ...projection,
-      timestampLabel: anchor.timestampLabel || answerClock(eventTimestamps.get(anchor.id)) || projection.timestampLabel,
+      timestampLabel: anchor.timestampLabel || answerClock(rowTimestamp(anchor)) || projection.timestampLabel,
     } : projection);
   };
   for (const item of sourceItems) {
-    const itemTime = Date.parse(eventTimestamps.get(item.id) || '');
+    const itemTime = Date.parse(rowTimestamp(item) || '');
     if (Number.isFinite(itemTime)) {
       for (const projection of timed) {
         if (!echoed.has(projection.notificationId || '') && Date.parse(projection.answerTimestamp!) < itemTime) {
@@ -1379,7 +1384,10 @@ export function SessionScreen(props: SessionScreenProps) {
     (left, right) => left === right || (left.length === right.length && left.every((event, index) => event === right[index])),
   );
   const questionEventTimestamps = useMemo(() => new Map(
-    questionTimelineEvents.map((event) => [String(event.daemon_seq), event.timestamp]),
+    questionTimelineEvents.flatMap((event) => [
+      [String(event.daemon_seq), event.timestamp] as const,
+      ...(event.optimistic_id ? [[event.optimistic_id, event.timestamp] as const] : []),
+    ]),
   ), [questionTimelineEvents]);
   const hasOptimisticPending = Boolean(
     detail?.transcriptItems.some((item) => item.pending) ||
@@ -4841,18 +4849,29 @@ export function ComposerBar({
         }
         await voiceRecorder.stop('tap');
       } else {
-        if (disabled || submissionDisabled || !streamId) return;
+        if (disabled || submissionDisabled || !streamId || picking || sendInFlightRef.current) return;
         setMicrophoneDenied(false);
         Keyboard.dismiss();
         setMoreExpanded(false);
-        await voiceRecorder.start(streamId);
+        const origin = getPentacleStreamState().sessions.find(session => session.stream_id === streamId);
+        const revision = draftRevision(streamId);
+        const capturedImages = stagedAttachments;
+        await voiceRecorder.start(streamId, {
+          originGeneration: origin?.session_generation ?? null,
+          originLabel: origin?.title || streamId,
+          textPrefix: composer.trim(),
+          images: capturedImages.slice(),
+        });
+        // Permission can take time. Clear only the draft we actually captured.
+        if (draftRevision(streamId) === revision) setComposer('');
+        setStagedAttachments(current => current.filter(asset => !capturedImages.includes(asset)));
       }
     } catch (error) {
       if (error instanceof PermissionDeniedError) setMicrophoneDenied(true);
       else onError('Could not record audio. Try again.');
     } finally { voiceBusyRef.current = false; setVoiceBusy(false); }
   };
-  const [composer, setComposer] = useState('');
+  const [composer, setComposer] = useComposerDraft(streamId);
   // Expanded state for the top-right "+" more-menu (photo + camera actions).
   const [moreExpanded, setMoreExpanded] = useState(false);
   // A1: images staged in the draft (compressed, pre-upload), FIFO. They preview
@@ -5028,7 +5047,7 @@ export function ComposerBar({
     // removed the working-state block — the user may send while the agent works
     // (the parent queues it). The connection `disabled` gate, the empty-input
     // guard, and the synchronous double-send latch still hold.
-    if (disabled || submissionDisabled || (!text && staged.length === 0)) return;
+    if (disabled || submissionDisabled || voiceBusyRef.current || (!text && staged.length === 0)) return;
     if (sendInFlightRef.current) {
       onError('A message is already sending. Please wait.');
       return;
@@ -5038,6 +5057,11 @@ export function ComposerBar({
     // Clear the draft optimistically (snappy UX); restore it if the send fails
     // so an all-or-nothing batch is never silently lost.
     setComposer('');
+    const clearedRevision = streamId ? draftRevision(streamId) : 0;
+    const restoreText = () => {
+      if (streamId) restoreDraft(streamId, clearedRevision, text);
+      else setComposer(current => current || text);
+    };
     setStagedAttachments([]);
     // composer_text_persists_after_send_2026_09: on iOS a multiline TextInput
     // commits pending marked text (predictive/QuickType input, dictation,
@@ -5056,7 +5080,7 @@ export function ComposerBar({
     if (staged.length === 0) {
       onSend(text)
         .catch((error) => {
-          setComposer((current) => (current ? current : text));
+          restoreText();
           onError(error instanceof Error ? error.message : `Failed to send message to ${host}`);
         })
         .finally(() => {
@@ -5076,7 +5100,7 @@ export function ComposerBar({
         await onSend(text, optimisticAttachments, thumbs, beginStagedUpload(staged));
       } catch (error) {
         // Restore the draft so the user can retry the whole batch.
-        setComposer((current) => (current ? current : text));
+        restoreText();
         setStagedAttachments((current) => (current.length ? current : staged));
         onError(error instanceof Error ? error.message : `Failed to send message to ${host}`);
       } finally {
@@ -5102,7 +5126,7 @@ export function ComposerBar({
       style={styles.composerShell}
       testID="composer-bar"
       accessibilityLabel="Message composer"
-      accessible
+      accessible={false}
       collapsable={false}
     >
       {stagedAttachments.length ? (
@@ -5268,11 +5292,12 @@ export function ComposerBar({
             </Svg>
           </Pressable>
         ) : null}
-        {recording || (!composer.trim() && stagedAttachments.length === 0) ? (
-          <Pressable testID="composer-mic-button" accessibilityRole="button" accessibilityLabel={recording ? 'Stop and send' : 'Voice mode'} accessibilityState={{ disabled: voiceBusy || (!recording && (disabled || submissionDisabled || !streamId)) }} disabled={voiceBusy || (!recording && (disabled || submissionDisabled || !streamId))} onPress={() => { void handleVoicePress(); }} style={recording ? recordButtonStyle(40) : styles.sendButton} hitSlop={8}>
+        {(recording || !composer.trim() || stagedAttachments.length > 0) ? (
+          <Pressable testID="composer-mic-button" accessibilityRole="button" accessibilityLabel={recording ? 'Stop and send' : 'Voice mode'} accessibilityState={{ disabled: voiceBusy || (!recording && (disabled || submissionDisabled || !streamId)) }} disabled={voiceBusy || (!recording && (disabled || submissionDisabled || !streamId))} onPress={() => { void handleVoicePress(); }} style={recording ? recordButtonStyle(40) : [styles.sendButton, stagedAttachments.length > 0 && { right: 50 }]} hitSlop={8}>
             <VoiceRecordFace recording={Boolean(recording)} />
           </Pressable>
-        ) : <Pressable
+        ) : null}
+        {!recording && (composer.trim() || stagedAttachments.length > 0) ? <Pressable
           testID="composer-send-button"
           accessibilityLabel="Send message"
           accessibilityRole="button"
@@ -5286,7 +5311,7 @@ export function ComposerBar({
           hitSlop={8}
         >
           <WandCastSendIcon color={Tokens.palette.green} size={20} />
-        </Pressable>}
+        </Pressable> : null}
         </View>
       </View>
     </View>

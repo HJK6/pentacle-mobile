@@ -142,3 +142,50 @@ test('denied microphone permission stays idle and offers OS Settings recovery', 
     expect(settings).toHaveBeenCalledTimes(1);
   } finally { denied.mockRestore(); settings.mockRestore(); }
 });
+
+test('chat draft survives composer unmount and restores only in its origin', () => {
+  const first = render(<ComposerBar {...props} streamId="hosta:origin" />);
+  fireEvent.changeText(first.getByTestId('composer-input'), 'Unsent origin draft');
+  first.unmount();
+  const other = render(<ComposerBar {...props} streamId="hosta:other" />);
+  expect(other.getByTestId('composer-input').props.value).toBe('');
+  other.unmount();
+  const returned = render(<ComposerBar {...props} streamId="hosta:origin" />);
+  expect(returned.getByTestId('composer-input').props.value).toBe('Unsent origin draft');
+});
+
+test('draft failure after navigation restores only origin and cannot resurrect a newer cleared edit', async () => {
+  let reject!: (error: Error) => void;
+  const send = jest.fn(() => new Promise<void>((_resolve, fail) => { reject = fail; }));
+  const view = render(<ComposerBar {...props} onSend={send} streamId="hosta:failed-draft" />);
+  fireEvent.changeText(view.getByTestId('composer-input'), 'old');
+  fireEvent.press(view.getByTestId('composer-send-button'));
+  view.rerender(<ComposerBar {...props} onSend={send} streamId="hosta:other-draft" />);
+  fireEvent.changeText(view.getByTestId('composer-input'), 'other');
+  await act(async () => reject(new Error('definite failure')));
+  expect(view.getByTestId('composer-input').props.value).toBe('other');
+  view.rerender(<ComposerBar {...props} onSend={send} streamId="hosta:failed-draft" />);
+  expect(view.getByTestId('composer-input').props.value).toBe('old');
+  fireEvent.press(view.getByTestId('composer-send-button'));
+  fireEvent.changeText(view.getByTestId('composer-input'), 'new');
+  fireEvent.changeText(view.getByTestId('composer-input'), '');
+  await act(async () => reject(new Error('late failure')));
+  expect(view.getByTestId('composer-input').props.value).toBe('');
+});
+
+test('a replacement origin generation cannot receive an in-flight voice transcript', async () => {
+  const origin = mockState.sessions[0] as typeof mockState.sessions[0] & { session_generation?: string };
+  origin.session_generation = 'original';
+  try {
+    const view = render(<ComposerBar {...props} streamId="hosta:origin-generation-test" />);
+    // Use the actual known origin after clearing a prior test's retained draft.
+    view.rerender(<ComposerBar {...props} streamId="hosta:origin" />);
+    fireEvent.changeText(view.getByTestId('composer-input'), '');
+    await act(async () => fireEvent.press(view.getByTestId('composer-mic-button')));
+    await act(async () => fireEvent.press(view.getByTestId('composer-mic-button')));
+    origin.session_generation = 'replacement';
+    await act(async () => resolveTranscript({ text: 'must remain retained', model: 'test', vocabulary_version: 'test' }));
+    expect(mockSend).not.toHaveBeenCalled();
+    expect(voiceDelivery.snapshot().takes[0]).toMatchObject({ status: 'failed', error: expect.stringContaining('replaced') });
+  } finally { delete origin.session_generation; }
+});
