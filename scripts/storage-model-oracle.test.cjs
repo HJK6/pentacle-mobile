@@ -39,7 +39,7 @@ const EXPECTED_PINS = {
   'test/e2e/harness/render_evidence.py': '0c1f97e20f26a604234366d04abdb59abb6da92e78f0886c7e6a55b73be5bc76',
   'test/e2e/harness/telemetry_events.py': '6fb135b164b0261cafcf4563ff282efce20999d33131c5f5c0388024d386f365',
   'test/e2e/recorder_preflight.py': '9d8a3434b3dc1777ae74e6e191b0759326bfb08bad9a7156a38f4ba1ea80b04e',
-  'test/e2e/run_scenario.py': 'f31c8374026adddf0ef1de419367179c3b44d6c85c790e7aa22bf82a5174baee',
+  'test/e2e/run_scenario.py': 'cc59255c6eec4f19b6b745079da06527fc691c7f3fcca8fdf3a9ea60850a739c',
   'test/e2e/scenarios/__init__.py': '72d44eae31d83b58bc62ec58e034a87d01ab246532e5138dbd6c41053906c75d',
   'test/e2e/scenarios/_question_evidence.py': '1669c21d3d1dff5a15db07fa628bbf82ad5947bf3567721da458366febeaa2fd',
   'test/e2e/scenarios/report_viewer_comments_keyboard.py': '2ed2ca4b861b6d056647aa2163245dd6af3c5698fd273bfc15d3fadcf17d68af',
