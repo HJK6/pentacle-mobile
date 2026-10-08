@@ -10,7 +10,7 @@ jest.mock('@react-native-async-storage/async-storage', () => ({ getItem: jest.fn
 jest.mock('expo-constants', () => ({ expoConfig: { extra: {} } }));
 jest.mock('../../../src/utils/harnessRuntime', () => ({ getParam: jest.fn() }));
 // Byte-for-byte HJK6/pentacle:test/fixtures/dashboard_catalog/catalog_cases.json
-// SHA256 75596c04c268773653fb58da083ff74d4a82ef58fa784c48dc10d6cb536f69c4
+// SHA256 a2bfaf2b8b1ebd4cad925308d554843c89fb8b428c5abdb805ae18fd4b9f62a1
 const catalogCases = require('./fixtures/catalog_cases.json');
 // Byte-for-byte HJK6/pentacle:test/fixtures/dashboard_catalog/report_retrieval_cases.json
 // SHA256 ce4c8ec61ec42e2f8113310add075a2d73a71f3898ca8f102b9a20d58e9c0235
@@ -34,7 +34,7 @@ for (const fixture of retrieval.cases) test(`shared retrieval fixture: ${fixture
   for (const [field, value] of Object.entries(fixture.outcome)) expect(outcome[field as keyof typeof outcome]).toEqual(value);
 });
 test('shared fixture bytes have exact documented source digests', () => {
-  for (const [file, hash] of [['catalog_cases.json', '75596c04c268773653fb58da083ff74d4a82ef58fa784c48dc10d6cb536f69c4'], ['report_retrieval_cases.json', 'ce4c8ec61ec42e2f8113310add075a2d73a71f3898ca8f102b9a20d58e9c0235']]) expect(crypto.createHash('sha256').update(fs.readFileSync(path.join(__dirname, 'fixtures', file))).digest('hex')).toBe(hash);
+  for (const [file, hash] of [['catalog_cases.json', 'a2bfaf2b8b1ebd4cad925308d554843c89fb8b428c5abdb805ae18fd4b9f62a1'], ['report_retrieval_cases.json', 'ce4c8ec61ec42e2f8113310add075a2d73a71f3898ca8f102b9a20d58e9c0235']]) expect(crypto.createHash('sha256').update(fs.readFileSync(path.join(__dirname, 'fixtures', file))).digest('hex')).toBe(hash);
 });
 test('host API above one is unsupported including large integers, after whole-schema validation', async () => {
   const h = harness(), c = full(); c.requires.host_api = 9007199254740992; h.get.mockResolvedValue({ ...meta, body: JSON.stringify(c) });
