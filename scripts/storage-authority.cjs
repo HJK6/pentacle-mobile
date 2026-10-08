@@ -70,7 +70,7 @@ const CONTRACT = Object.freeze({
 // certified program unchanged on paper. The full-gate pins below move for explicit gate-code
 // provenance; its helper, plugin and simulator imports enter the set because they execute in that program.
 const CERTIFIED_COMPONENTS = Object.freeze({
-  'pentacle.config.example.ts': '03be8f39a941a5f937a2ec4ac97e389dba8a744c4b3295cd5c6c53d52c16add4',
+  'pentacle.config.example.ts': 'b74d67c0c2b9333282c77e499caf758c89081f10dbfb82f4468eeeb60c6740f4',
   'plugins/withHarnessLaunchUrl.js': '17e0d96c38e95555815f1fad8ef3ab311564b02f6a7d6a833fe31851fca75a08',
   'scripts/full-gate.cjs': '1530f7959652a4cf7f8391eb989a406620b3050f3ab723eb3fe4b48f81168a49',
   'scripts/full-gate.test.cjs': '8c9c5a1ec785851986784808929c954f5a4466beb360d9da78f99e57352e6367',
