@@ -19,6 +19,53 @@ After installing, verify the installed bundle identifier and build version match
 the signed app, launch it, open a chat, send a message, and confirm the assistant
 reply renders. A successful build or launch alone does not prove connectivity.
 
+## Release validation
+
+Select and review the validation plan from the changed behavior before release.
+Full certification is not a prerequisite for every release. Every row retains
+applicable source/unit/type/configuration/export checks, independent review,
+[publication guards and exact-SHA CI](repo_workflow.md), and configured Release
+build, bundle, signing, startup and affected native journey proof. A scoped
+release must not be labeled fully certified.
+
+| Changed surface | Blocking behavior proof | Full-qualification trigger |
+|---|---|---|
+| UI/composer | Reproduce the defect when repairing one; component/interaction regression and the affected configured Release journey, including navigation, ordering or draft isolation as changed. | The change also touches a native dependency, protected report journey or certification machinery below. |
+| Voice/transport | Exercise the production dispatch path on configured Release: intended chat/generation, exactly-once landed send, slow upload, interrupted transcription/reconnect and bounded recovery under the accepted contract (retained audio and explicit Retry may satisfy it; automatic replay is not implicitly required), cancellation/replaced target, voice with image, draft isolation and answer ordering as affected. Retain negative controls; unit or diagnostic-harness success alone is insufficient. | A native/runtime dependency, protected native report path or certification machinery changes, or required native baseline qualification cannot be reused. Shared transport code or inclusion of its unit tests in the full runner alone is not this trigger. |
+| Native/toolchain/runtime dependencies | Focused regression plus full qualification and affected configured Release journeys. A non-dev runtime lockfile delta includes transitive and patch/minor upgrades. | Changed native code/config plugins, native dependencies, runtime packages, executable toolchain or platform inputs affecting the qualified behavior. |
+| Protected report/harness/provenance | Focused fail-first controls for the change, then full qualification covering report gestures/keyboard, runtime error detection, evidence integrity, ownership/isolation and cleanup as applicable. | Changes to those protected journeys, the shared certification harness, provenance/ownership machinery, or inability to substantiate a required baseline. |
+
+Reuse qualification only for its unchanged tested scope and inputs: relevant
+source/native dependency bytes, harness, executable interpreter/toolchain and
+environment/configuration identities. Record the prior evidence and comparison,
+including exclusions. A new SHA label or rebuilt app alone does not erase
+unrelated qualification. Changed inputs invalidate the evidence that covers
+them; an older certificate does not prove the changed candidate. Always bind and
+check the new artifact and changed journeys. If required native qualification
+cannot be substantiated, use the full route rather than claiming reuse.
+
+When full qualification is required, use the unchanged supported
+[`gate:certified` contract](TESTING.md#certified-native-gate-and-storage), retaining
+all nine native cases and its allocation, provenance, capacity, evidence and
+owned-cleanup requirements. Its reservation/budget is a condition of that route,
+not a universal scoped-release wait. Do not bypass an enforced hook or lower-level
+admission check. Inspect the actual release entrypoints for the candidate; a
+concrete enforcement conflict needs a reviewed correction.
+
+Before installation, bind accepted source, configuration identity, version/build,
+signed app and embedded-bundle hashes, endpoint/fingerprint checks, native
+startup and affected-journey evidence, and the retained rollback artifact.
+Distinguish a configured Release simulator artifact from the signed device app;
+simulator proof does not establish device signing, microphone acoustics or a
+successful phone upgrade. Use the ordinary
+[USB installation controls](TESTING.md#certified-native-gate-and-storage), including
+device consent, data/Keychain preservation, installed identity readback and an
+app-UI screenshot. Verify affected physical microphone/image/send and reconnect
+behavior where relevant; stop on failed authentication or readback, and use the
+recorded rollback for a confirmed product regression. Source reconciliation or
+scoped validation does not itself authorize device installation, OTA or store
+publication.
+
 ## Production export cache and endpoint check
 
 Metro inlines `EXPO_PUBLIC_PENTACLE_WS_URL` into the bundle at transform time,
