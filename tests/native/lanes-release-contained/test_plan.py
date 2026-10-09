@@ -683,3 +683,425 @@ def test_every_supplemental_scene_runs_the_shared_path(tmp_path, monkeypatch):
         assert record["admission"]["problems"] == [] and record["build_identity"] == spec["build"], name
         assert (code, record["verdict"], record["scene_verdict"]) == (4, "SETUP_FAIL", "PASS"), name
         assert record["companion_stopped"] is False and record["teardown"]["complete"] is True, name
+
+
+# Real-run fixes: macOS venv python re-execs (identity), and operator-authenticated probes.
+
+def test_same_process_ignores_the_interpreter_path_only():
+    start = "Fri Oct 9 07:59:37 2026"
+    recorded = {"start": start, "command": "/run/venv/bin/python /d/web_gate_daemon.py /s --port 17893"}
+    reexec = {"start": start, "command": "/opt/Python.app/Contents/MacOS/Python /d/web_gate_daemon.py /s --port 17893"}
+    assert sd.same_process(recorded, reexec)
+    assert not sd.same_process(recorded, {**reexec, "start": "Fri Oct 9 08:00:00 2026"})
+    assert not sd.same_process(recorded, {**reexec, "command": "/opt/Python /d/other.py /s --port 17893"})
+    assert not sd.same_process({"start": start, "command": "/run/venv/bin/python"}, {"start": start, "command": "/opt/Python"})
+
+
+def test_owned_stop_accepts_its_own_reexeced_interpreter(tmp_path):
+    env = {"PATH": "/usr/bin:/bin"}
+    receipt = sd.start_owned("sleeper", [sys.executable, "-c", "import time; time.sleep(60)"], env=env, cwd=tmp_path,
+                             log=tmp_path / "sleeper.log", port=None)
+    current = sd.process_identity(receipt["pid"])
+    _, _, tail = current["command"].partition(" ")
+    reexec = {**receipt, "identity": {"start": current["start"], "command": "/elsewhere/bin/python " + tail}}
+    outcome = sd.stop_owned(reexec)
+    assert outcome["absent"] is True and not outcome.get("identity_changed")
+
+
+class _FakeOperatorAuth:
+    AUTH_SCHEME = "hmac-sha256-v2"
+
+    @staticmethod
+    def decode_envelope(value):
+        assert value == "pentacle-auth-v2:fake"
+        return {"version": 2, "credential_id": "11111111-2222-3333-4444-555555555555", "client_kind": "pentacle",
+                "proof_key": b"k" * 32}
+
+    @staticmethod
+    def make_proof(key, nonce, credential_id, client_kind):
+        return f"proof({len(key)},{nonce},{credential_id},{client_kind})"
+
+
+def test_probe_hello_is_anonymous_or_an_operator_proof_over_the_welcome_nonce():
+    welcome = {"type": "welcome", "auth": {"operator": {"scheme": "hmac-sha256-v2", "nonce": "N0"}}}
+    anonymous = sd.probe_hello(welcome, None)
+    assert "auth_v2" not in anonymous and anonymous["client"] == "lanes-release-contained-probe"
+    hello = sd.probe_hello(welcome, {"envelope": "pentacle-auth-v2:fake", "module": _FakeOperatorAuth})
+    assert hello["client"] == "pentacle"
+    assert hello["auth_v2"] == {"scheme": "hmac-sha256-v2", "credential_id": "11111111-2222-3333-4444-555555555555",
+                                "proof": "proof(32,N0,11111111-2222-3333-4444-555555555555,pentacle)"}
+    with pytest.raises(RuntimeError, match="nonce"):
+        sd.probe_hello({"type": "welcome"}, {"envelope": "pentacle-auth-v2:fake", "module": _FakeOperatorAuth})
+
+
+def test_operator_credential_is_issued_by_the_pinned_wrapper_inside_scratch(tmp_path):
+    argv = sd.issue_argv("/venv/python", tmp_path / "checkout", tmp_path / "scratch")
+    assert argv == ["/venv/python", str(tmp_path / "checkout" / sd.WRAPPER_PATH), str(tmp_path / "scratch"), "--issue"]
+    assert sd.operator_token_path(tmp_path / "scratch") == tmp_path / "scratch" / "operator-auth" / "token"
+
+
+def test_scratch_hashes_never_include_operator_auth_material(tmp_path):
+    owned = _owned_scratch(tmp_path)
+    (owned.scratch / "operator-auth").mkdir()
+    (owned.scratch / "operator-auth" / "token").write_text("pentacle-auth-v2:secret")
+    (owned.scratch / "operator-auth" / "registry.json").write_text("{}")
+    (owned.scratch / "sessions.db").write_text("x")
+    owned.hash_evidence()
+    assert set(owned.result["scratch_file_sha256"]) == {"sessions.db"}
+
+
+def test_probe_a_reads_show_as_operator_and_proves_anonymous_reads_are_refused(tmp_path, monkeypatch):
+    owned = _owned_scratch(tmp_path)
+    owned.probe_auth = {"envelope": "e", "module": _FakeOperatorAuth}
+    v1_inventory = json.loads((Path(run.__file__).resolve().parents[3] / sd.FIXTURE_PATH).read_text())["inventory_frame"]
+    calls = []
+
+    def fake_probe(port, lane_id=None, timeout_s=20, auth=None):
+        calls.append(auth)
+        if auth is None:
+            return {"inventory": v1_inventory, "show": {"type": "work_lanes.show.error", "error_code": "work_lanes_unauthorized"}}
+        return {"inventory": v1_inventory, "show": {"type": "work_lanes.show.ok", "lane": {"lane_id": lane_id}}}
+
+    monkeypatch.setattr(run.sd, "probe", fake_probe)
+    monkeypatch.setattr(run.v1, "check_v1_inventory", lambda *a: [])
+    monkeypatch.setattr(run.v1, "check_v1_show", lambda frame, lane: [] if frame["type"].endswith(".ok") else ["no show.ok"])
+    owned.probe_a()
+    assert calls == [owned.probe_auth, None]
+    assert owned.result["checks"]["probe_a"]["anonymous_show_error_code"] == "work_lanes_unauthorized"
+
+
+def test_load_probe_auth_executes_a_real_postponed_annotation_dataclass_module(tmp_path):
+    # Shape of the pinned services/_shared/operator_auth.py: future annotations + @dataclass.
+    shared = tmp_path / "checkout" / "services" / "_shared"
+    shared.mkdir(parents=True)
+    (shared / "operator_auth.py").write_text(
+        "from __future__ import annotations\n"
+        "from dataclasses import dataclass\n"
+        "AUTH_SCHEME = 'hmac-sha256-v2'\n"
+        "@dataclass(frozen=True)\n"
+        "class ConnectionTrust:\n"
+        "    credential_id: str\n"
+        "    client_kind: str\n"
+        "def decode_envelope(value):\n"
+        "    return {'credential_id': value, 'client_kind': 'pentacle', 'proof_key': b'k' * 32}\n")
+    token = sd.operator_token_path(tmp_path / "scratch")
+    token.parent.mkdir(parents=True)
+    token.write_text("envelope-value\n")
+    auth = sd.load_probe_auth(tmp_path / "checkout", tmp_path / "scratch")
+    assert auth["envelope"] == "envelope-value"
+    assert auth["module"].ConnectionTrust("c", "pentacle").client_kind == "pentacle"
+    assert auth["module"].AUTH_SCHEME == "hmac-sha256-v2"
+
+
+_PINNED = [Path(p) for p in __import__("os").environ.get("LANES_PINNED_DAEMON_CHECKOUTS", "").split(":") if p]
+
+
+@pytest.mark.skipif(not _PINNED, reason="set LANES_PINNED_DAEMON_CHECKOUTS to the pinned daemon checkouts")
+@pytest.mark.parametrize("checkout", _PINNED, ids=[p.name for p in _PINNED])
+def test_load_probe_auth_loads_the_real_pinned_operator_auth(checkout, tmp_path):
+    # Real pinned module + a real envelope it encodes itself; the proof must verify with the module's own transcript.
+    token = sd.operator_token_path(tmp_path)
+    token.parent.mkdir(parents=True)
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("envelope_maker", checkout / "services" / "_shared" / "operator_auth.py")
+    maker = importlib.util.module_from_spec(spec)
+    sys.modules["envelope_maker"] = maker
+    try:
+        spec.loader.exec_module(maker)
+        envelope = maker.encode_envelope("11111111-2222-4333-8444-555555555555", "pentacle", b"k" * maker.AUTH_PROOF_BYTES)
+    finally:
+        sys.modules.pop("envelope_maker", None)
+    token.write_text(envelope)
+    auth = sd.load_probe_auth(checkout, tmp_path)
+    nonce = auth["module"].encode_b64url(b"n" * auth["module"].AUTH_NONCE_BYTES)
+    hello = sd.probe_hello({"type": "welcome", "auth": {"operator": {"nonce": nonce}}}, auth)
+    assert hello["client"] == "pentacle" and hello["auth_v2"]["scheme"] == auth["module"].AUTH_SCHEME
+    import hashlib, hmac
+    expected = hmac.new(b"k" * 32, auth["module"].proof_transcript(nonce, hello["auth_v2"]["credential_id"], "pentacle"),
+                        hashlib.sha256).digest()
+    assert hello["auth_v2"]["proof"] == auth["module"].encode_b64url(expected)
+
+
+# Reduced proof: exact-label system alerts, in-app lanes navigation, smoke/reduced plans.
+
+def _el(label, kind, x=0, y=0):
+    return {"AXLabel": label, "type": kind, "frame": {"x": x, "y": y, "width": 140, "height": 48}}
+
+
+def test_known_system_alerts_match_exact_titles_and_buttons():
+    notifications = [_el("“Pentacle” Would Like to Send You Notifications", "StaticText"),
+                     _el("Notifications may include alerts, sounds, and icon badges.", "StaticText"),
+                     _el("Don’t Allow", "Button", 57, 494), _el("Allow", "Button", 205, 494)]
+    title, button = run.known_system_alert(notifications)
+    assert title.startswith("“Pentacle” Would Like") and button["AXLabel"] == "Don’t Allow"
+    opener = [_el('Open in "Pentacle"?', "StaticText"), _el("Cancel", "Button"), _el("Open", "Button", 300, 500)]
+    title, button = run.known_system_alert(opener)  # straight or curly quotes, same title
+    assert title == "Open in “Pentacle”?" and button["frame"]["x"] == 300
+    assert run.known_system_alert([_el("Cancel", "Button"), _el("Open session status", "Button")]) is None
+    with pytest.raises(run.SetupFail, match="exactly one"):
+        run.known_system_alert([_el("Open in “Pentacle”?", "StaticText"), _el("Cancel", "Button")])
+
+
+def _alert_ui(tmp_path, screens):
+    ui = run.Ui("U-1", "idb", lambda *a: None, tmp_path / "screenshots")
+    (tmp_path / "screenshots").mkdir()
+    taps, frames = [], iter(screens)
+    ui.elements = lambda: next(frames)
+    ui._idb = lambda *args: taps.append(args) or subprocess.CompletedProcess(args, 0, "", "")
+    return ui, taps
+
+
+@pytest.mark.parametrize("button", [
+    {"AXLabel": "Open", "type": "Button"},                      # no frame
+    {**_el("Open", "Button", 300, 500), "AXEnabled": False},    # disabled
+])
+def test_untappable_system_alert_button_is_setup_fail_with_a_dump(tmp_path, monkeypatch, button):
+    monkeypatch.setattr(run.time, "sleep", lambda s: None)
+    ui, taps = _alert_ui(tmp_path, [[_el("Open in “Pentacle”?", "StaticText"), _el("Cancel", "Button"), button]])
+    with pytest.raises(run.SetupFail, match="Open in"):
+        ui.clear_system_alerts()
+    assert taps == [] and [p.name for p in (tmp_path / "ax").iterdir()] == ["00-system-alert.json"]
+
+
+@pytest.mark.parametrize("buttons", [[_el("Cancel", "Button")],
+                                     [_el("Open", "Button", 300, 500), _el("Open", "Button", 300, 560)]])
+def test_known_alert_without_exactly_one_button_dumps_before_setup_fail(tmp_path, buttons):
+    ui, taps = _alert_ui(tmp_path, [[_el("Open in “Pentacle”?", "StaticText"), *buttons]])
+    with pytest.raises(run.SetupFail, match="exactly one"):
+        ui.clear_system_alerts()
+    dumps = list((tmp_path / "ax").iterdir())
+    assert taps == [] and [p.name for p in dumps] == ["00-system-alert-unmatched.json"]
+    assert "Open in" in dumps[0].read_text(encoding="utf-8")
+
+
+def test_lanes_status_button_is_the_assistant_header_label():
+    elements = [_el("Sessions, 0 need you", "Button"), _el("Assistant status, 9 open lanes, 1 blocked", "Button"),
+                _el("Questions, 0 pending", "Button")]
+    assert run.lanes_status_button(elements)["AXLabel"].startswith("Assistant status")
+    assert run.lanes_status_button([_el("Assistant status, 9 open lanes", "StaticText")]) is None
+
+
+_TABS = [_el(f"{name}, tab, {i} of 7", "Button")
+         for i, name in enumerate(["ASSISTANT", "PERSONAL", "DASHBOARDS", "SETTINGS"], 1)]
+
+
+def test_home_state_accepts_the_hydrated_tab_without_the_fixture_assistant_header():
+    # smoke-1 ax/02: hydrated with a credential, no session under the app's assistant stream id, so no header.
+    no_header = [_el("Pentacle", "Application"), _el("In progress", "GenericElement"),
+                 _el("Returning to chats...", "StaticText"), *_TABS]
+    assert run.home_state(no_header)["header"].startswith("absent: no assistant session")
+    header = [_el("Assistant status, 9 open lanes, 1 blocked", "Button"), *_TABS]
+    assert run.home_state(header) == {"header": "present", "lanes_button": "Assistant status, 9 open lanes, 1 blocked"}
+    assert run.home_state([_el("Unlocking Pentacle…", "StaticText"), *_TABS]) is None
+    assert run.home_state([_el("Pentacle access is unavailable on this device.", "StaticText"),
+                           _el("Returning to chats...", "StaticText"), *_TABS]) is None
+    assert run.home_state([_el("LOADING CHAT…", "StaticText"), *_TABS]) is None   # not hydrated yet
+    assert run.home_state([_el("Returning to chats...", "StaticText")]) is None   # no tab bar
+    assert run.home_state([_el("Returning to chats...", "StaticText"), *_TABS[1:]]) is None   # no assistant tab
+
+
+def _lanes_run(tmp_path, monkeypatch, screens):
+    owned = _owned_scratch(tmp_path)
+    owned.udid = "U-1"
+    frames, opened, dumps = iter(screens), [], []
+
+    class FakeUi:
+        def clear_system_alerts(self):
+            return []
+
+        def elements(self):
+            return next(frames)
+
+        def dump(self, name, elements=None):
+            dumps.append(name)
+
+    owned.ui = FakeUi()
+    monkeypatch.setattr(run.subprocess, "run", lambda argv, **k: opened.append(argv) or subprocess.CompletedProcess(argv, 0, "", ""))
+    monkeypatch.setattr(run.time, "sleep", lambda s: None)
+    return owned, opened, dumps
+
+
+def test_open_lanes_without_header_uses_the_route_deep_link_and_fails_closed(tmp_path, monkeypatch):
+    home = [_el("Returning to chats...", "StaticText"), *_TABS]
+    owned, opened, dumps = _lanes_run(tmp_path, monkeypatch, [home] * 3)
+    clock = iter([0, 0, 31])
+    monkeypatch.setattr(run.time, "monotonic", lambda: next(clock))
+    with pytest.raises(run.SetupFail, match="lanes view did not open from the deep link"):
+        owned.open_lanes()
+    assert opened == [["xcrun", "simctl", "openurl", "U-1", "pentacle://pentacle/lanes"]]
+    assert dumps == ["lanes-not-open"] and owned.result["lanes_entry"] == "deep link"
+
+
+def test_open_lanes_deep_link_waits_for_the_lanes_view(tmp_path, monkeypatch):
+    home = [_el("Returning to chats...", "StaticText"), *_TABS]
+    lanes = [{"AXIdentifier": "lanes-view-list", "type": "Button"}]
+    owned, opened, dumps = _lanes_run(tmp_path, monkeypatch, [home, home, lanes])
+    monkeypatch.setattr(owned, "show_view", lambda view: None)
+    monkeypatch.setattr(owned.ui, "find", lambda *a, **k: {}, raising=False)
+    owned.open_lanes()
+    assert owned.result["lanes_entry"] == "deep link" and dumps == [] and len(opened) == 1
+
+
+def _r2_list_screen():
+    # reduced-1 (14:03Z) companion log: the cards' Texts are StaticText without an identifier; only the
+    # role=button pressables (toggle / log / chat, the view toggles) expose their testID.
+    lanes = ["wl-4abf858209848e516dccde25", "wl-298430ea76b6dc262400bbec", "wl-29130385f0ef26863b99a771"]
+    screen = [{"AXIdentifier": f"lanes-view-{v}", "AXLabel": v.title(), "type": "Button",
+               "frame": {"x": 40 + 140 * i, "y": 266, "width": 90, "height": 80}} for i, v in enumerate(["list", "map"])]
+    for i, lane in enumerate(lanes):
+        y = 510 + 760 * i
+        screen += [_el("Clay tile batch", "StaticText", 74, y), _el("1 unresolved", "StaticText", 74, y + 330),
+                   {**_el("View log for Clay tile batch", "Button", 74, y + 590), "AXIdentifier": f"lane-card-log-{lane}"},
+                   {**_el("See chat for Clay tile batch", "Button", 282, y + 590), "AXIdentifier": f"lane-card-chat-{lane}"}]
+    return lanes, screen
+
+
+def test_list_view_is_found_by_exposed_card_buttons_not_text_ids(tmp_path, monkeypatch):
+    lanes, screen = _r2_list_screen()
+    owned = _owned_scratch(tmp_path)
+
+    class FakeUi:
+        def tap(self, identifier, timeout_s=20):
+            return {}
+
+        def ids(self, prefix=""):
+            return [e for e in screen if run.Ui.ident(e).startswith(prefix)]
+
+    owned.ui = FakeUi()
+    monkeypatch.setattr(run.time, "sleep", lambda s: None)
+    owned.show_view("list")   # RED before: waited for lane-card-progress-, which iOS never exposes
+    assert owned.visible_order(run.LIST_CARD) == lanes
+
+
+def test_every_step_failure_saves_a_screenshot_and_an_accessibility_dump(tmp_path):
+    owned = _owned_scratch(tmp_path)
+    owned.udid, captured = "U-1", []
+
+    class FakeUi:
+        def screenshot(self, name):
+            captured.append(("screenshot", name))
+
+        def dump(self, name, elements=None):
+            captured.append(("dump", name))
+
+    owned.ui = FakeUi()
+    for error in (run.AssertFail("list view did not render"), run.SetupFail("lanes view did not open")):
+        captured.clear()
+
+        def fail():
+            raise error
+        with pytest.raises(type(error)):
+            owned.step("open_lanes", fail)
+        assert captured == [("screenshot", "failure-open_lanes"), ("dump", "failure-open_lanes")]
+
+
+class _ScrollWorld:
+    """A 393x852 screen whose scroll content moves with idb drags (reduced-2 frames); taps are recorded."""
+    BIG = "wl-298430ea76b6dc262400bbec"
+
+    def __init__(self):
+        self.offset, self.taps, self.swipes = 0.0, [], []
+        self.fixed = [{"type": "Application", "AXLabel": "Pentacle", "frame": {"x": 0, "y": 0, "width": 393, "height": 852}},
+                      {"AXLabel": "Close lanes", "type": "Button", "AXIdentifier": "lanes-close",
+                       "frame": {"x": 333, "y": 59, "width": 44, "height": 44}},
+                      {"AXIdentifier": "lanes-pinned-offscreen", "type": "Button", "frame": {"x": 31, "y": 900, "width": 331, "height": 44}}]
+        self.content = [{"AXIdentifier": f"lane-card-member-{self.BIG}-spec_example__span_01", "type": "Button",
+                         "frame": {"x": 31, "y": 757.7, "width": 331, "height": 111.7}},
+                        {"AXIdentifier": f"lane-card-show-all-{self.BIG}", "type": "Button",
+                         "frame": {"x": 31, "y": 1731.0, "width": 331, "height": 44}}]
+
+    def elements(self):
+        moved = [{**e, "frame": {**e["frame"], "y": e["frame"]["y"] - self.offset}} for e in self.content]
+        return self.fixed + moved
+
+    def idb(self, *args):
+        if args[:2] == ("ui", "swipe"):
+            self.swipes.append(args)
+            self.offset += float(args[3]) - float(args[5])
+        elif args[:2] == ("ui", "tap"):
+            self.taps.append((int(args[2]), int(args[3])))
+        return subprocess.CompletedProcess(args, 0, "", "")
+
+    def at(self, point):
+        x, y = point
+        return [run.Ui.ident(e) for e in self.elements()[1:]
+                if e["frame"]["x"] <= x <= e["frame"]["x"] + e["frame"]["width"]
+                and e["frame"]["y"] <= y <= e["frame"]["y"] + e["frame"]["height"]]
+
+
+def _world_ui(tmp_path, monkeypatch):
+    world = _ScrollWorld()
+    ui = run.Ui("U-1", "idb", lambda *a: None, tmp_path / "screenshots")
+    ui.elements, ui._idb = world.elements, world.idb
+    monkeypatch.setattr(run.time, "sleep", lambda s: None)
+    return ui, world
+
+
+def test_offscreen_show_all_is_scrolled_into_view_before_the_tap(tmp_path, monkeypatch):
+    # reduced-2: show-all at y1731 on an 852-pt screen; the unscrolled centre tap (196,1753) hit Span 01.
+    ui, world = _world_ui(tmp_path, monkeypatch)
+    ui.tap(f"lane-card-show-all-{world.BIG}")
+    assert world.swipes and len(world.taps) == 1
+    x, y = world.taps[0]
+    assert 8 <= y <= 852 - 60 and world.at((x, y)) == [f"lane-card-show-all-{world.BIG}"]
+
+
+def test_on_screen_targets_are_tapped_without_scrolling(tmp_path, monkeypatch):
+    ui, world = _world_ui(tmp_path, monkeypatch)
+    ui.tap_element(next(e for e in world.elements() if run.Ui.ident(e) == "lanes-close"), "close")
+    assert world.swipes == [] and world.taps == [(355, 81)]
+
+
+def test_a_row_cut_by_the_screen_edge_is_scrolled_clear_before_the_tap(tmp_path, monkeypatch):
+    # Span 01 (y757-869) crosses the 852 edge; its centre lies in the bottom margin, so it is moved up first.
+    ui, world = _world_ui(tmp_path, monkeypatch)
+    member = f"lane-card-member-{world.BIG}-spec_example__span_01"
+    ui.tap(member)
+    assert len(world.swipes) == 1 and world.at(world.taps[0]) == [member] and world.taps[0][1] <= 852 - 60
+
+
+def test_offscreen_target_that_does_not_scroll_fails_setup_without_a_tap(tmp_path, monkeypatch):
+    ui, world = _world_ui(tmp_path, monkeypatch)
+    with pytest.raises(run.SetupFail, match="does not scroll into view: lanes-pinned-offscreen"):
+        ui.tap("lanes-pinned-offscreen")
+    assert world.taps == [] and len(world.swipes) == 1
+
+
+def test_screen_is_the_application_frame_not_the_offscreen_content(tmp_path, monkeypatch):
+    ui, world = _world_ui(tmp_path, monkeypatch)
+    assert ui.screen() == {"x": 0, "y": 0, "width": 393, "height": 852}
+
+
+def test_smoke_and_reduced_plans_are_inc1_only_and_bounded():
+    assert run.SMOKE_STEPS == ["admission", "seed_inc1", "proxy_start", "daemon_b_start", "probe_b",
+                               "simulator_activate", "app_launch", "enroll", "home_enrolled"]
+    assert run.REDUCED_STEPS == run.SMOKE_STEPS + ["open_lanes", "reduced_list", "reduced_members", "reduced_map"]
+    assert not {"seed_v1", "daemon_a_start", "probe_a", "run_c_reconnect"} & set(run.REDUCED_STEPS)
+    common = ["--run-dir", "/r", "--app", "/a.app", "--bundle-id", "b", "--production-config", "/p",
+              "--v1-checkout", "/v1", "--inc1-checkout", "/i", "--python", "/py", "--proxy-source", "/px",
+              "--device-type", "d", "--runtime", "r"]
+    assert run.parse(["smoke", *common]).command == "smoke"
+    assert run.parse(["reduced", *common]).command == "reduced"
+
+
+def test_enroll_presses_known_alerts_until_the_snapshot_arrives(tmp_path, monkeypatch):
+    owned = _owned_scratch(tmp_path)
+    owned.udid, owned.enroll_checkout = "U-1", tmp_path
+    pressed, snapshots = [], iter([False, False, True])
+
+    class FakeUi:
+        def clear_system_alerts(self):
+            if not pressed:
+                pressed.append("Open in “Pentacle”?")
+                return ["Open in “Pentacle”?"]
+            return []
+
+    owned.ui = FakeUi()
+    monkeypatch.setattr(owned, "sh", lambda *a, **k: subprocess.CompletedProcess(a, 0, json.dumps({"url": "pentacle://enroll?code=X"}), ""))
+    monkeypatch.setattr(run.subprocess, "run", lambda *a, **k: subprocess.CompletedProcess(a, 0, "", ""))
+    monkeypatch.setattr(owned, "wire", lambda: [])
+    monkeypatch.setattr(run, "connections_with_snapshot", lambda rows, since: next(snapshots))
+    monkeypatch.setattr(run.time, "sleep", lambda s: None)
+    owned.enroll()
+    assert owned.result["system_alerts"] == ["Open in “Pentacle”?"]
+    assert owned.result["enrollment"]["code_retained"] is False

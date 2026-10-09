@@ -105,6 +105,33 @@ python3 tests/native/lanes-release-contained/run.py supplemental \
   --device-type <id> --runtime <id> --production-config <production public config .json>
 ```
 
+Reduced modes (the production path only; same admission, daemon, proxy and teardown):
+
+- `run.py smoke ...` (same arguments as `run`): an enroll-only check. It seeds the increment-1 daemon on a
+  fresh scratch (no v1 store, no upgrade), launches the app, opens the enrollment link and waits for the
+  daemon snapshot through the loopback proxy. It ends on the unlocked, hydrated assistant tab (tab bar, no lock
+  text). The scratch daemon's assistant is `local:web-gate-assistant`, not the app's fixed assistant stream id,
+  so the assistant header is not rendered; the result records whether it was. About 2–3 minutes.
+- `run.py reduced ...`: the smoke, then:
+  - open the lanes view: the assistant header status button (`<name> status, N open lanes`) when rendered,
+    otherwise the `pentacle://pentacle/lanes` deep link through the exact-match `Open` confirmation. No lanes
+    view within 30 s stops the run with SETUP_FAIL and a dump;
+  - the list in daemon order (big lane expanded). Cards are found by their `lane-card-log-<lane>` button: on iOS
+    only accessible pressables expose a testID, so Text ids such as `lane-card-progress-` are not in the tree;
+  - one real `work_lanes.show` round-trip: "show all" opens the 32-member list, paired by `request_id` on
+    the proxy;
+  - map orbit page 1 in daemon order.
+
+iOS system alerts are pressed only when they match exactly: `Open in “Pentacle”?` → **Open** (the deep-link
+confirmation) and `“Pentacle” Would Like to Send You Notifications` → **Don’t Allow**. Each press saves an
+accessibility dump under `evidence/ax/`. A known alert without its exact button stops the run with
+SETUP_FAIL. Other alerts are never pressed: the step times out with a dump. Every failed step saves a screenshot and an
+accessibility dump (`ax/*-failure-<step>.json`).
+
+Taps go to screen points, and the accessibility tree also lists off-screen scroll content. Every tap target whose
+centre is outside the screen (less the status bar and home-indicator margins) is first dragged into view and
+re-found by its id; a target that does not move, or has no id, stops the run with SETUP_FAIL instead of a blind tap.
+
 Exit codes: `0` PASS, `1` FAIL (product assertion), `4` SETUP_FAIL
 (precondition, tool or owned-resource failure, including incomplete teardown).
 
@@ -132,6 +159,14 @@ Exit codes: `0` PASS, `1` FAIL (product assertion), `4` SETUP_FAIL
   `work_lane.*` operations (adopt; `set_members` after the upgrade), using the
   wrapper's existing synthetic composite identity whose provider wake-up is
   suppressed (labelled boundary). Synthetic work items only.
+- Operator registry: before the first daemon start, the pinned wrapper's own
+  `web_gate_daemon.py <scratch> --issue` creates the scratch registry and a
+  0600 operator envelope in `<scratch>/operator-auth/`. `work_lanes.show`
+  needs operator authority at both pins (the loopback allowance does not
+  reach it), so loopback probes authenticate with that envelope through the
+  pinned checkout's own `_shared/operator_auth` proof. Probe A also checks
+  that an anonymous show is refused (`work_lanes_unauthorized`). The envelope
+  is never logged and `operator-auth/` is excluded from the scratch hashes.
 - Enrollment: one normal enrollment deep link on a fresh simulator against the
   scratch registry; the one-time code is never written to evidence.
 
@@ -154,7 +189,9 @@ bodies), `trace.jsonl`, `screenshots/` + `screenshots.sha256`, `result.json`
 
 Restore content size → terminate and uninstall the app → stop the companion,
 daemon and proxy by their recorded PID after re-verifying process identity
-(never a broad kill) and confirm listeners cleared → shut down and delete the
+(start time plus the arguments after the interpreter, re-read once the
+listener is up because a macOS venv python re-execs into its framework
+interpreter; never a broad kill) and confirm listeners cleared → shut down and delete the
 simulator this run created (identity checked) → copy the proxy log and hash
 every scratch file into the result → remove only the scratch root carrying
 this run's ownership marker, and only if every owned stop succeeded (a failed

@@ -60,6 +60,10 @@ URL_RE = re.compile(rb"(?:wss?|https?)://[A-Za-z0-9._~%\-\[\]:]+(?:/[^\s\"'<>\\]
 LOOPBACK_HOSTS = {"127.0.0.1", "::1", "[::1]"}
 
 
+class _FlowDone(Exception):
+    """A smoke/reduced flow completed every one of its steps."""
+
+
 class SetupFail(RuntimeError):
     """Precondition or owned-resource failure; never a product verdict."""
 
@@ -88,6 +92,10 @@ STEPS = [
     "run_b_all_members", "run_b_member_detail", "run_b_log", "run_b_index_unavailable", "run_b_large_text",
     "run_b_final",
 ]
+# Reduced proof (production path only): the release app enrolls to an increment-1 daemon on a fresh scratch.
+SMOKE_STEPS = ["admission", "seed_inc1", "proxy_start", "daemon_b_start", "probe_b",
+               "simulator_activate", "app_launch", "enroll", "home_enrolled"]
+REDUCED_STEPS = SMOKE_STEPS + ["open_lanes", "reduced_list", "reduced_members", "reduced_map"]
 TEARDOWN = ["content_size_restore", "app_terminate", "app_uninstall", "ui-companion_stop", "daemon_stop",
             "proxy_stop", "simulator_shutdown", "simulator_delete", "evidence_hash", "scratch_remove"]
 
@@ -219,11 +227,77 @@ def connections_with_snapshot(rows: list[dict[str, Any]], since: float) -> list[
 # Native UI (idb accessibility tree, owned companion)
 # ---------------------------------------------------------------------------
 
+# iOS system alerts the run may meet, matched exactly: title -> the one button to press. Anything else stops the run.
+SYSTEM_ALERTS = {
+    "Open in “Pentacle”?": "Open",
+    "“Pentacle” Would Like to Send You Notifications": "Don’t Allow",
+}
+
+
+def _norm(text: Any) -> str:
+    return " ".join(str(text or "").replace("“", '"').replace("”", '"').replace("’", "'").split())
+
+
+def known_system_alert(elements: list[dict[str, Any]]) -> tuple[str, dict[str, Any]] | None:
+    """(title, button to press) for an allow-listed alert on screen; a known title without its exact button fails."""
+    labels = {_norm(element.get("AXLabel")) for element in elements}
+    for title, button in SYSTEM_ALERTS.items():
+        if _norm(title) not in labels:
+            continue
+        matches = [element for element in elements if _norm(element.get("AXLabel")) == _norm(button)
+                   and str(element.get("type") or element.get("role") or "") == "Button"]
+        if len(matches) != 1:
+            raise SetupFail(f"system alert {title!r} without exactly one {button!r} button")
+        return title, matches[0]
+    return None
+
+
+# A tap target's centre must lie this far inside the screen (status bar / home indicator), else it is scrolled to.
+REVEAL_TOP, REVEAL_BOTTOM = 8, 60
+
+# The assistant tab's session screen before it is usable (`app/pentacle/session/[streamId].tsx`).
+LOCK_TEXTS = ("Unlocking Pentacle…", "Pentacle access is unavailable on this device.")
+# Hydrated with a credential but no session under the app's fixed assistant stream id: the scratch daemon's
+# assistant composite is `local:web-gate-assistant` (pinned wrapper), so the header and its lanes button are
+# not rendered.
+NO_ASSISTANT_TEXT = "Returning to chats..."
+
+
+def home_state(elements: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """Enrolled and unlocked home: the assistant tab bar, no lock text, and the hydrated session screen."""
+    labels = {_norm(element.get("AXLabel")) for element in elements}
+    if not any(str(element.get("type") or "") == "Button" and str(element.get("AXLabel") or "").startswith("ASSISTANT, tab, ")
+               for element in elements):
+        return None
+    if any(_norm(text) in labels for text in LOCK_TEXTS):
+        return None
+    button = lanes_status_button(elements)
+    if button is not None:
+        return {"header": "present", "lanes_button": button.get("AXLabel")}
+    if _norm(NO_ASSISTANT_TEXT) in labels:
+        return {"header": "absent: no assistant session under the app's stream id (fixture composite local:web-gate-assistant)"}
+    return None
+
+
+# A list card is found by its "Lane log" button: one per card, carrying the lane id. On iOS only accessible
+# elements (pressables with a role) expose their testID; the card's Text ids (e.g. `lane-card-progress-`) are not.
+LIST_CARD = "lane-card-log-"
+
+
+def lanes_status_button(elements: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """The assistant header status button (`<name> status, N open lanes…`), which opens the lanes view in-app."""
+    for element in elements:
+        if str(element.get("type") or "") == "Button" and re.search(r"\bstatus, \d+ open lanes", str(element.get("AXLabel") or "")):
+            return element
+    return None
+
+
 class Ui:
     def __init__(self, udid: str, idb: str, trace: Callable[[str, Any], None], shots: Path):
         self.udid, self.idb, self.trace, self.shots = udid, idb, trace, shots
         self.env = {**os.environ, "IDB_COMPANION": f"{sd.HOST}:{sd.COMPANION_PORT}"}
         self.screenshots: list[dict[str, str]] = []
+        self.viewport: dict[str, float] | None = None
 
     def _idb(self, *args: str) -> subprocess.CompletedProcess:
         result = subprocess.run([self.idb, *args, "--udid", self.udid], capture_output=True, text=True,
@@ -279,12 +353,86 @@ class Ui:
         element = self.find(identifier, timeout_s)
         if element.get("AXEnabled") is False:
             raise AssertFail("disabled tap target: " + identifier)
+        element = self.reveal(element)
         frame = self.frame(element)
         result = self._idb("ui", "tap", str(int(frame["x"] + frame["width"] / 2)), str(int(frame["y"] + frame["height"] / 2)))
         if result.returncode:
             raise SetupFail("native tap failed: " + identifier)
         time.sleep(0.4)
         return element
+
+    def tap_element(self, element: dict[str, Any], what: str) -> None:
+        frame = self.frame(self.reveal(element))
+        result = self._idb("ui", "tap", str(int(frame["x"] + frame["width"] / 2)), str(int(frame["y"] + frame["height"] / 2)))
+        if result.returncode:
+            raise SetupFail("native tap failed: " + what)
+        time.sleep(0.4)
+
+    def reveal(self, element: dict[str, Any], max_drags: int = 10) -> dict[str, Any]:
+        """Scroll an off-screen tap target into view: drag within the screen, re-find it by its id, repeat. idb taps
+        screen points, and the tree lists off-screen scroll content, so tapping such a frame lands on whatever sits
+        at the screen edge. A target that does not move when dragged (not in a scroll view) or has no id to re-find
+        is a setup failure, never a blind tap."""
+        identifier = self.ident(element)
+        self.frame(element)  # a target without a usable frame fails as before, without inspecting the screen
+        view = self.screen() if self.viewport is None else self.viewport
+        self.viewport = view
+        for _ in range(max_drags + 1):
+            frame = self.frame(element)
+            centre = frame["y"] + frame["height"] / 2
+            if view["y"] + REVEAL_TOP <= centre <= view["y"] + view["height"] - REVEAL_BOTTOM:
+                return element
+            if not identifier:
+                raise SetupFail("off-screen tap target has no id to scroll to: " + self.label(element)[:60])
+            middle = view["y"] + view["height"] / 2
+            step = max(-0.4 * view["height"], min(0.4 * view["height"], centre - middle))
+            x = str(int(view["x"] + view["width"] / 2))
+            result = self._idb("ui", "swipe", x, str(int(middle + step / 2)), x, str(int(middle - step / 2)),
+                               "--duration", "1.0")
+            if result.returncode:
+                raise SetupFail("native swipe failed")
+            time.sleep(0.6)
+            moved = next((e for e in self.elements() if self.ident(e) == identifier), None)
+            if moved is None:
+                raise SetupFail("tap target disappeared while scrolling: " + identifier)
+            if abs(self.frame(moved)["y"] - frame["y"]) < 1:
+                raise SetupFail("off-screen tap target does not scroll into view: " + identifier)
+            element = moved
+        raise SetupFail("tap target not on screen after scrolling: " + identifier)
+
+    def dump(self, name: str, elements: list[dict[str, Any]] | None = None) -> Path:
+        """Accessibility dump kept as evidence (screen labels only; no credential is ever on screen)."""
+        folder = self.shots.parent / "ax"
+        folder.mkdir(exist_ok=True)
+        path = folder / f"{len(list(folder.iterdir())):02d}-{name}.json"
+        path.write_text(json.dumps(elements if elements is not None else self.elements(), indent=1), encoding="utf-8")
+        return path
+
+    def clear_system_alerts(self, limit: int = 3) -> list[str]:
+        """Press the allow-listed button of each known system alert on screen, dumping the screen first."""
+        handled: list[str] = []
+        for _ in range(limit):
+            elements = self.elements()
+            try:
+                found = known_system_alert(elements)
+            except SetupFail:
+                self.dump("system-alert-unmatched", elements)
+                raise
+            if found is None:
+                return handled
+            title, button = found
+            self.dump("system-alert", elements)
+            # A system alert is not the app under test: an untappable target is a setup failure, never a product FAIL.
+            if button.get("AXEnabled") is False:
+                raise SetupFail(f"system alert {title!r}: {SYSTEM_ALERTS[title]!r} button is disabled")
+            try:
+                self.tap_element(button, SYSTEM_ALERTS[title])
+            except AssertFail as error:
+                raise SetupFail(f"system alert {title!r}: {error}") from error
+            self.trace("system alert", {"title": title, "pressed": SYSTEM_ALERTS[title]})
+            handled.append(title)
+            time.sleep(1.0)
+        raise SetupFail("system alerts kept appearing: " + ", ".join(handled))
 
     def swipe_up(self, within: dict[str, float]) -> None:
         x = str(int(within["x"] + within["width"] / 2))
@@ -295,8 +443,15 @@ class Ui:
         time.sleep(0.5)
 
     def screen(self) -> dict[str, float]:
-        """Screen bounds from the visible elements (container views are not accessibility elements)."""
-        frames = [element["frame"] for element in self.elements() if isinstance(element.get("frame"), dict)
+        """The visible screen: the Application element's frame. The tree also lists off-screen scroll content, so
+        element frames alone overstate it; they are only the fallback when no Application element is reported."""
+        elements = self.elements()
+        for element in elements:
+            if str(element.get("type") or "") == "Application":
+                frame = element.get("frame") or {}
+                if all(isinstance(frame.get(k), (int, float)) for k in ("x", "y", "width", "height")) and frame["height"] > 0:
+                    return {k: frame[k] for k in ("x", "y", "width", "height")}
+        frames = [element["frame"] for element in elements if isinstance(element.get("frame"), dict)
                   and all(isinstance(element["frame"].get(k), (int, float)) for k in ("x", "y", "width", "height"))]
         if not frames:
             raise SetupFail("no accessible elements on screen")
@@ -398,6 +553,8 @@ class Run:
                                        "steps": [], "checks": {}, "supplemental_real_checks": {}}
         self.processes: dict[str, dict[str, Any]] = {}
         self.stop_failed = False  # any failed owned stop preserves the scratch for recovery
+        self.probe_auth: dict[str, Any] | None = None  # operator credential for loopback probes (never logged)
+        self.enroll_checkout = self.v1_checkout  # the reduced proof enrolls against the increment-1 daemon
         self.udid: str | None = None
         self.app_pid: str | None = None
         self.content_size: str | None = None
@@ -422,10 +579,11 @@ class Run:
         except Exception as exc:
             record.update(status="error", seconds=round(time.time() - started, 2), error=str(exc)[:500])
             if self.ui and self.udid:
-                try:
-                    self.ui.screenshot("failure-" + name)
-                except Exception:
-                    pass
+                for capture in (self.ui.screenshot, self.ui.dump):  # screen and accessibility tree, every failure
+                    try:
+                        capture("failure-" + name)
+                    except Exception:
+                        pass
             raise
 
     def sh(self, argv: list[str], *, timeout: float = 60, check: bool = True, env: dict[str, str] | None = None,
@@ -520,6 +678,14 @@ class Run:
         self.write("memory-tree.json", sd.write_memory(layout["memory"]))
         self.seed("v1", self.v1_checkout)
 
+    def seed_inc1(self) -> None:
+        """Reduced proof: a fresh scratch seeded directly at the increment-1 pin (no v1 store, no upgrade)."""
+        layout = sd.make_scratch(self.scratch)
+        (self.scratch / OWNER_MARKER).write_text(self.run_id, encoding="utf-8")
+        self.write("memory-tree.json", sd.write_memory(layout["memory"]))
+        self.seed("inc1", self.inc1_checkout)
+        self.enroll_checkout = self.inc1_checkout
+
     def start_proxy(self) -> None:
         proxy = sd.copy_proxy(self.args.proxy_source.resolve(), self.run_dir)
         self.processes["proxy"] = sd.start_owned("proxy", [self.python, str(proxy)], env=sd.child_env(self.scratch),
@@ -528,6 +694,12 @@ class Run:
 
     def start_daemon(self, label: str, checkout: Path) -> None:
         env = sd.child_env(self.scratch)
+        if not sd.operator_token_path(self.scratch).is_file():
+            # work_lanes.show needs operator authority; the pinned wrapper issues the scratch credential.
+            self.sh(sd.issue_argv(self.python, checkout, self.scratch), env=env, cwd=checkout, timeout=60)
+            if not sd.operator_token_path(self.scratch).is_file():
+                raise SetupFail("pinned wrapper did not issue the scratch operator credential")
+        self.probe_auth = sd.load_probe_auth(checkout, self.scratch)
         self.result.setdefault("daemon_child_env", {key: ("" if key == "MIC_API" else value)
                                                     for key, value in env.items() if key != "PATH"})
         self.processes["daemon"] = sd.start_owned(label, sd.daemon_argv(self.python, checkout, self.scratch),
@@ -548,11 +720,21 @@ class Run:
     def stop_daemon(self) -> None:
         self.result.setdefault("stops", []).append(self.stop_owned("daemon"))
 
+    def probe(self, lane_id: str | None = None) -> dict[str, Any]:
+        """Loopback probe as the scratch operator (work_lanes.show requires operator authority)."""
+        return sd.probe(sd.DAEMON_PORT, lane_id, auth=self.probe_auth)
+
     def probe_a(self) -> None:
-        got = sd.probe(sd.DAEMON_PORT, sd.big_lane_id())
+        got = self.probe(sd.big_lane_id())
         problems = v1.check_v1_inventory(got["inventory"], sd.v1_lane_ids()) + v1.check_v1_show(got["show"], sd.big_lane_id())
+        # Negative control: the same read without operator authority is refused by the daemon.
+        anonymous = sd.probe(sd.DAEMON_PORT, sd.big_lane_id())
+        refused = (anonymous["show"] or {}).get("error_code")
+        if refused != "work_lanes_unauthorized":
+            problems.append(f"anonymous show was not refused as unauthorized (got {refused or (anonymous['show'] or {}).get('type')})")
         self.result["checks"]["probe_a"] = {"inventory": sd.summarize_frame(got["inventory"]),
-                                            "show": sd.summarize_frame(got["show"]), "problems": problems}
+                                            "show": sd.summarize_frame(got["show"]), "problems": problems,
+                                            "anonymous_show_error_code": refused}
         if problems:
             raise SetupFail("run A daemon is not serving the v1 wire: " + "; ".join(problems))
         self.inventory_order = [lane["lane_id"] for lane in got["inventory"]["lanes"]]
@@ -561,7 +743,7 @@ class Run:
         last: dict[str, Any] = {}
 
         def ready() -> bool:
-            got = sd.probe(sd.DAEMON_PORT, sd.big_lane_id())
+            got = self.probe(sd.big_lane_id())
             problems = v1.check_inc1_inventory(got["inventory"], sd.all_lane_ids(), sd.big_lane_id())
             problems += v1.check_inc1_show(got["show"], sd.big_lane_id(), sd.BIG)
             lanes = {lane["lane_id"]: lane for lane in got["inventory"].get("lanes", [])} if got["inventory"] else {}
@@ -633,9 +815,10 @@ class Run:
 
     def enroll(self) -> None:
         since = time.time()
+        checkout = self.enroll_checkout
         out = self.sh([self.python, str(Path(__file__).resolve().parent / "scratch_daemon.py"), "enroll-link",
-                       "--checkout", str(self.v1_checkout), "--scratch", str(self.scratch)],
-                      env=sd.child_env(self.scratch), cwd=self.v1_checkout)
+                       "--checkout", str(checkout), "--scratch", str(self.scratch)],
+                      env=sd.child_env(self.scratch), cwd=checkout)
         url = json.loads(out.stdout.strip().splitlines()[-1])["url"]
         opened = subprocess.run(["xcrun", "simctl", "openurl", self.udid, url], capture_output=True, text=True,
                                 timeout=60, check=False)
@@ -643,19 +826,62 @@ class Run:
         del url
         if opened.returncode:
             raise SetupFail("enrollment deep link did not open")
-        try:
-            sd.wait_for(lambda: bool(connections_with_snapshot(self.wire(), since)), 60, "enrolled snapshot")
-        except TimeoutError:
-            raise SetupFail("enrolled app did not receive a daemon snapshot through the loopback proxy") from None
+        # iOS may confirm the link ("Open in “Pentacle”?") or ask for notifications; only exact known alerts are pressed.
+        alerts = self.result.setdefault("system_alerts", [])
+        deadline = time.monotonic() + 60
+        while not connections_with_snapshot(self.wire(), since):
+            alerts.extend(self.ui.clear_system_alerts())
+            if time.monotonic() > deadline:
+                if hasattr(self.ui, "dump"):
+                    self.ui.dump("enroll-timeout")
+                raise SetupFail("enrolled app did not receive a daemon snapshot through the loopback proxy")
+            time.sleep(1)
         self.result["enrollment"] = {"mechanism": "normal enrollment deep link, fresh simulator, owned scratch registry",
                                      "endpoint": sd.APP_WS_URL, "code_retained": False}
 
+    def home_enrolled(self) -> None:
+        """After enrollment: the assistant tab is unlocked and hydrated; the header is recorded when rendered."""
+        alerts = self.result.setdefault("system_alerts", [])
+        deadline = time.monotonic() + 30
+        while True:
+            alerts.extend(self.ui.clear_system_alerts())
+            elements = self.ui.elements()
+            state = home_state(elements)
+            if state is not None:
+                break
+            if time.monotonic() > deadline:
+                self.ui.dump("home-not-unlocked", elements)
+                raise SetupFail("enrolled home screen is not unlocked and hydrated")
+            time.sleep(1)
+        self.ui.dump("home-enrolled", elements)
+        self.ui.screenshot("home-enrolled")
+        self.result["checks"]["home_enrolled"] = {**state, "system_alerts": list(alerts)}
+
     def open_lanes(self) -> None:
-        opened = subprocess.run(["xcrun", "simctl", "openurl", self.udid, "pentacle://pentacle/lanes"],
-                                capture_output=True, text=True, timeout=60, check=False)
-        if opened.returncode:
-            raise SetupFail("lanes route deep link did not open")
-        self.ui.find("lanes-view-list", 30)
+        """The assistant header status button when rendered; otherwise the route's deep link through the exact-match
+        `Open` confirmation. Either entry must reach the lanes view within 30 s, or the run stops with a dump."""
+        alerts = self.result.setdefault("system_alerts", [])
+        alerts.extend(self.ui.clear_system_alerts())
+        button = lanes_status_button(self.ui.elements())
+        if button is not None:
+            self.ui.tap_element(button, "lanes status button")
+            self.result["lanes_entry"] = "assistant header status button"
+        else:
+            opened = subprocess.run(["xcrun", "simctl", "openurl", self.udid, "pentacle://pentacle/lanes"],
+                                    capture_output=True, text=True, timeout=60, check=False)
+            if opened.returncode:
+                raise SetupFail("lanes route deep link did not open")
+            self.result["lanes_entry"] = "deep link"
+        deadline = time.monotonic() + 30
+        while True:
+            alerts.extend(self.ui.clear_system_alerts())
+            elements = self.ui.elements()
+            if any(Ui.ident(element) == "lanes-view-list" for element in elements):
+                break
+            if time.monotonic() > deadline:
+                self.ui.dump("lanes-not-open", elements)
+                raise SetupFail("lanes view did not open from the " + self.result["lanes_entry"])
+            time.sleep(1)
         self.ui.find("lanes-view-map")
         self.show_view("list")
 
@@ -674,7 +900,7 @@ class Run:
                 time.sleep(0.3)
         else:
             deadline = time.monotonic() + 20
-            while not self.ui.ids("lane-card-progress-"):
+            while not self.ui.ids(LIST_CARD):
                 if time.monotonic() > deadline:
                     raise AssertFail("list view did not render")
                 time.sleep(0.3)
@@ -758,7 +984,7 @@ class Run:
 
     def run_a_list(self) -> None:
         ui = self.ui
-        visible = self.visible_order("lane-card-progress-")
+        visible = self.visible_order(LIST_CARD)
         self.assert_prefix_order(visible, "run A list")
         for lane in visible:
             ui.find(f"lane-card-members-pending-{lane}", 5)
@@ -838,7 +1064,7 @@ class Run:
         sd.tick_edited_spec(self.scratch / "memory")
 
         def changed() -> bool:
-            got = sd.probe(sd.DAEMON_PORT, sd.big_lane_id())
+            got = self.probe(sd.big_lane_id())
             return any(e.get("operation") == "item_change" for e in (got["show"] or {}).get("events", []))
 
         try:
@@ -850,16 +1076,50 @@ class Run:
 
     def run_b_list(self) -> None:
         ui, big = self.ui, sd.big_lane_id()
-        visible = self.visible_order("lane-card-progress-")
+        visible = self.visible_order(LIST_CARD)
         self.assert_prefix_order(visible, "run B list")
         ui.tap(f"lane-card-toggle-{big}")
         for spec in sd.BIG[:8]:
             ui.find(f"lane-card-member-{big}-{spec}", 10)
         ui.find(f"lane-card-show-all-{big}")
-        ui.find(f"lane-card-progress-{big}")
+        ui.find(f"{LIST_CARD}{big}")
         ui.screenshot("b-list-expanded")
         ui.tap(f"lane-card-toggle-{big}")
         self.result["checks"]["run_b_list"] = {"visible_lanes": visible, "expanded_members": 8}
+
+    def reduced_list(self) -> None:
+        self.run_b_list()
+        self.result["checks"]["reduced_list"] = self.result["checks"].pop("run_b_list")
+
+    def reduced_members(self) -> None:
+        """One real work_lanes.show round-trip from the list: the big lane's full member list."""
+        ui, big = self.ui, sd.big_lane_id()
+        ui.tap(f"lane-card-toggle-{big}")
+        since = time.time()
+        ui.tap(f"lane-card-show-all-{big}")
+        ui.find("lane-members-back", 30)
+        pair = self.show_after(since)
+        if pair["reply_type"] != "work_lanes.show.ok":
+            raise AssertFail("member list show did not succeed")
+        order = ui.collect_scrolling("lane-members-row-", 32)
+        got = [identifier[len("lane-members-row-"):] for identifier in order]
+        if got != sd.BIG:
+            raise AssertFail(f"member list shows {len(got)} rows, not all 32 in membership order")
+        ui.screenshot("reduced-members")
+        ui.tap("lane-members-back")
+        ui.find("lanes-view-list", 30)
+        self.result["checks"]["reduced_members"] = {"show": pair, "rows": len(got),
+                                                    "spec_ids_sha256": sha256_bytes("\n".join(got).encode())}
+
+    def reduced_map(self) -> None:
+        """The map renders orbit page 1 in daemon order."""
+        self.show_view("map")
+        page = self.visible_order("lanes-map-lane-")
+        expected = self.inventory_order[:min(8, len(self.inventory_order))]
+        if page != expected:
+            raise AssertFail(f"map page 1 shows {page}, not the first daemon lanes {expected}")
+        self.ui.screenshot("reduced-map")
+        self.result["checks"]["reduced_map"] = {"page_1": page}
 
     def run_b_precedence(self) -> None:
         ui, out = self.ui, {}
@@ -982,13 +1242,13 @@ class Run:
         memory = self.scratch / "memory"
         sd.hide_memory_root(memory)
         try:
-            sd.wait_for(lambda: (sd.probe(sd.DAEMON_PORT)["inventory"] or {}).get("work_index", {}).get("available") is False,
+            sd.wait_for(lambda: (self.probe()["inventory"] or {}).get("work_index", {}).get("available") is False,
                         90, "work_index unavailable", interval=3)
             self.ui.find("lanes-index-banner", 60)
             self.ui.screenshot("b-index-unavailable")
         finally:
             sd.restore_memory_root(memory)
-        sd.wait_for(lambda: (sd.probe(sd.DAEMON_PORT)["inventory"] or {}).get("work_index", {}).get("available") is True,
+        sd.wait_for(lambda: (self.probe()["inventory"] or {}).get("work_index", {}).get("available") is True,
                     90, "work_index restored", interval=3)
         deadline = time.monotonic() + 60
         while self.ui.ids("lanes-index-banner"):
@@ -1022,7 +1282,7 @@ class Run:
         self.result["checks"]["run_b_large_text"] = {"content_size": LARGE_TEXT}
 
     def run_b_final(self) -> None:
-        self.ui.find("lane-card-progress-" + sd.big_lane_id())
+        self.ui.find(LIST_CARD + sd.big_lane_id())
         self.ui.screenshot("b-final-list")
         if self.app_pids() != [self.app_pid]:
             raise AssertFail("app process did not survive the journey")
@@ -1034,13 +1294,28 @@ class Run:
             raise AssertFail(f"crash reports during the run: {crashes}")
 
     # -- orchestration -----------------------------------------------------
-    def execute(self) -> int:
+    def flow(self, mode: str) -> list[tuple[str, Callable[[], Any]]]:
+        steps = {
+            "admission": self.admission, "seed_inc1": self.seed_inc1, "proxy_start": self.start_proxy,
+            "daemon_b_start": lambda: self.start_daemon("daemon-b-inc1", self.inc1_checkout), "probe_b": self.probe_b,
+            "simulator_activate": self.activate_simulator, "app_launch": self.launch, "enroll": self.enroll,
+            "home_enrolled": self.home_enrolled, "open_lanes": self.open_lanes, "reduced_list": self.reduced_list,
+            "reduced_members": self.reduced_members, "reduced_map": self.reduced_map,
+        }
+        return [(name, steps[name]) for name in (SMOKE_STEPS if mode == "smoke" else REDUCED_STEPS)]
+
+    def execute(self, mode: str = "run") -> int:
         self.run_dir.mkdir(parents=True, exist_ok=False)
         self.evidence.mkdir()
         self.shots.mkdir()
         self.trace_file = (self.evidence / "trace.jsonl").open("w", encoding="utf-8")
         verdict, error = "SETUP_FAIL", None
+        self.result["mode"] = mode
         try:
+            if mode in ("smoke", "reduced"):
+                for name, fn in self.flow(mode):
+                    self.step(name, fn)
+                raise _FlowDone()
             for name, fn in [
                 ("admission", self.admission), ("seed_v1", self.seed_v1), ("proxy_start", self.start_proxy),
                 ("daemon_a_start", lambda: self.start_daemon("daemon-a-v1", self.v1_checkout)),
@@ -1062,6 +1337,8 @@ class Run:
                 ("run_b_large_text", self.run_b_large_text), ("run_b_final", self.run_b_final),
             ]:
                 self.step(name, fn)
+            verdict = "PASS"
+        except _FlowDone:
             verdict = "PASS"
         except AssertFail as exc:
             verdict, error = "FAIL", str(exc)
@@ -1138,7 +1415,7 @@ class Run:
         if self.scratch.is_dir():
             sd.assert_scratch_paths(self.scratch)
             for path in sorted(self.scratch.rglob("*")):
-                if path.is_file() and path.name != OWNER_MARKER:
+                if path.is_file() and path.name != OWNER_MARKER and "operator-auth" not in path.relative_to(self.scratch).parts:
                     scratch_hashes[str(path.relative_to(self.scratch))] = sd.sha256_file(path)
         self.result["scratch_file_sha256"] = scratch_hashes
         return {"scratch_files": len(scratch_hashes)}
@@ -1163,8 +1440,8 @@ class Run:
 
 SUPPLEMENTAL_SCENES = {
     "lanes:v1_wire": {"expect": ["lanes-view-list"], "prefix_present": "lane-card-members-pending-"},
-    "lanes:inc1_cases": {"expect": ["lanes-view-list", "lanes-index-banner"], "prefix_present": "lane-card-progress-"},
-    "lanes:overflow": {"expect": ["lanes-view-list"], "prefix_present": "lane-card-progress-"},
+    "lanes:inc1_cases": {"expect": ["lanes-view-list", "lanes-index-banner"], "prefix_present": LIST_CARD},
+    "lanes:overflow": {"expect": ["lanes-view-list"], "prefix_present": LIST_CARD},
 }
 
 
@@ -1464,16 +1741,19 @@ def parse(argv: list[str] | None) -> argparse.Namespace:
     common.add_argument("--runtime", required=True)
     common.add_argument("--idb", default="idb")
     common.add_argument("--idb-companion", default="idb_companion")
-    proof = sub.add_parser("run", parents=[common], help="the contained A/C/B proof")
-    proof.add_argument("--app", type=Path, required=True, help="normal Release simulator .app (loopback config)")
-    proof.add_argument("--bundle-id", required=True)
-    proof.add_argument("--production-config", type=Path, required=True,
-                       help="`expo config --type public --json` of the production build (URLs to reject)")
-    proof.add_argument("--v1-checkout", type=Path, required=True)
-    proof.add_argument("--inc1-checkout", type=Path, required=True)
-    proof.add_argument("--python", type=Path, required=True, help="owned venv python for both daemon pins")
-    proof.add_argument("--proxy-source", type=Path, required=True, help="retained loopback proxy script")
-    proof.add_argument("--run-id")
+    for command, help_text in (("run", "the contained A/C/B proof"),
+                               ("smoke", "enroll-only smoke: inc1 daemon, launch, enroll, snapshot, teardown"),
+                               ("reduced", "reduced proof: smoke + list, one real show, member list, map page 1")):
+        proof = sub.add_parser(command, parents=[common], help=help_text)
+        proof.add_argument("--app", type=Path, required=True, help="normal Release simulator .app (loopback config)")
+        proof.add_argument("--bundle-id", required=True)
+        proof.add_argument("--production-config", type=Path, required=True,
+                           help="`expo config --type public --json` of the production build (URLs to reject)")
+        proof.add_argument("--v1-checkout", type=Path, required=True)
+        proof.add_argument("--inc1-checkout", type=Path, required=True)
+        proof.add_argument("--python", type=Path, required=True, help="owned venv python for both daemon pins")
+        proof.add_argument("--proxy-source", type=Path, required=True, help="retained loopback proxy script")
+        proof.add_argument("--run-id")
     extra = sub.add_parser("supplemental", parents=[common], help="one supplemental scene (separate build) through the shared admission path")
     extra.add_argument("--app", type=Path, required=True)
     extra.add_argument("--scene", choices=sorted(SCENES), required=True)
@@ -1489,7 +1769,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.command == "supplemental":
         return supplemental(args)
-    return Run(args).execute()
+    return Run(args).execute(args.command)
 
 
 if __name__ == "__main__":
