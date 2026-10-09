@@ -612,3 +612,13 @@ test("Done stack row titles are bold", () => {
     ).fontFamily,
   ).toBe(Fonts.rajdhani.bold);
 });
+
+
+test("missing spec sheet status uses the error token", () => {
+  const model = modelFor("missing_member");
+  const member = model.members.find(item => item.status === "missing")!;
+  const { view } = surface([model], model.lane.lane_id);
+  fireEvent.press(view.getByTestId(`lanes-map-member-${member.spec_id}`));
+  const detail = view.getByTestId(`member-detail-${member.spec_id}`);
+  expect(StyleSheet.flatten(within(detail).getByText("MISSING").props.style).color).toBe(Tokens.palette.red);
+});
