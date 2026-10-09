@@ -29,8 +29,9 @@ of the daemon. The normal Release build has no harness telemetry.
    `EXPO_PUBLIC_SCREENSHOT_HARNESS_DEFAULT=lanes:<scene>` (one build per scene:
    `lanes:v1_wire`, `lanes:inc1_cases`, `lanes:overflow`, all replayed from the
    shared fixture). Its output is labelled `harness_rendered_state`; it covers
-   the show error state (offline harness) and fixture-only inputs and is never
-   evidence of a real daemon request/reply.
+   fixture-only inputs and the offline lane-log state ("Waiting for
+   connection", no request sent) and is never evidence of a real daemon
+   request/reply.
 
 Neither identity certifies the production signed device artifact, the
 production endpoint or a physical installation.
@@ -131,9 +132,14 @@ scratch root. Any teardown failure makes the verdict `SETUP_FAIL`.
 
 ## Known limits
 
-- The show **timeout** state is not reproduced natively (the client request
-  timeout equals its no-frame watchdog, so a stalled daemon races reconnect);
-  it is covered by device-free tests. A real **transport-unavailable** log
-  error is recorded during run C as a non-blocking supplemental check.
+- The show **error** and **timeout** states are not reproduced natively: the
+  client request timeout equals its no-frame watchdog (a stalled daemon races
+  reconnect), the real daemon offers no fault-free show error for a listed
+  lane, and a disconnected log waits rather than erring. Both are covered by
+  device-free tests. Run C records the real disconnected log state ("Waiting
+  for connection", no request sent) as a non-blocking supplemental check.
+- Assertions use only accessibility elements (buttons, text). Plain container
+  views (`lane-card-<id>`, `lane-log-<id>`, `lane-members-<id>`,
+  `member-detail-<id>`, `lanes-overlay`, `lanes-map`) are not read.
 - Narrow-width (320 pt) layout is covered by device-free tests; the simulator
   width is fixed by the chosen device type.

@@ -294,10 +294,29 @@ class Ui:
             raise SetupFail("native swipe failed")
         time.sleep(0.5)
 
-    def collect_scrolling(self, container: str, prefix: str, limit: int, max_swipes: int = 12) -> list[str]:
-        """First-appearance order of `prefix` ids while scrolling `container` downward."""
+    def screen(self) -> dict[str, float]:
+        """Screen bounds from the visible elements (container views are not accessibility elements)."""
+        frames = [element["frame"] for element in self.elements() if isinstance(element.get("frame"), dict)
+                  and all(isinstance(element["frame"].get(k), (int, float)) for k in ("x", "y", "width", "height"))]
+        if not frames:
+            raise SetupFail("no accessible elements on screen")
+        return {"x": 0, "y": 0, "width": max(f["x"] + f["width"] for f in frames),
+                "height": max(f["y"] + f["height"] for f in frames)}
+
+    def find_label(self, text: str, timeout_s: float = 20) -> dict[str, Any]:
+        deadline = time.monotonic() + timeout_s
+        while True:
+            for element in self.elements():
+                if text.lower() in self.label(element).lower():
+                    return element
+            if time.monotonic() >= deadline:
+                raise AssertFail(f"no element labelled {text!r}")
+            time.sleep(0.3)
+
+    def collect_scrolling(self, prefix: str, limit: int, max_swipes: int = 12) -> list[str]:
+        """First-appearance order of `prefix` ids while scrolling the current screen downward."""
         order: list[str] = []
-        box = self.frame(self.find(container))
+        box = self.screen()
         for _ in range(max_swipes + 1):
             visible = sorted(self.ids(prefix), key=lambda e: self.frame(e)["y"])
             for element in visible:
@@ -610,10 +629,56 @@ class Run:
                                 capture_output=True, text=True, timeout=60, check=False)
         if opened.returncode:
             raise SetupFail("lanes route deep link did not open")
-        self.ui.find("lanes-overlay", 30)
-        self.ui.find("lanes-view-list")
+        self.ui.find("lanes-view-list", 30)
+        self.ui.find("lanes-view-map")
+        self.show_view("list")
 
     # -- journey -----------------------------------------------------------
+    # The overlay's `lanes-view-list` / `lanes-view-map` are the two toggle buttons
+    # (selected state); container views carry no accessibility element, so the
+    # current view is read from what it renders: list = card progress labels,
+    # map orbit = the centre assistant node (`lanes-map-assistant`).
+    def show_view(self, view: str) -> None:
+        self.ui.tap(f"lanes-view-{view}")
+        if view == "map":
+            deadline = time.monotonic() + 20
+            while not (self.ui.ids("lanes-map-assistant") or self.ui.ids("lanes-map-back")):
+                if time.monotonic() > deadline:
+                    raise AssertFail("map view did not render")
+                time.sleep(0.3)
+        else:
+            deadline = time.monotonic() + 20
+            while not self.ui.ids("lane-card-progress-"):
+                if time.monotonic() > deadline:
+                    raise AssertFail("list view did not render")
+                time.sleep(0.3)
+
+    def focus_lane(self, lane: str) -> None:
+        """Tap a lane node on the paged orbit, paging forward in daemon order until it is visible."""
+        for _ in range(4):
+            if self.ui.ids(f"lanes-map-lane-{lane}"):
+                self.ui.tap(f"lanes-map-lane-{lane}")
+                self.ui.find("lanes-map-back")
+                return
+            self.ui.tap("lanes-map-page-next")
+        raise AssertFail("lane node not reachable on the paged orbit: " + lane)
+
+    def page_position(self) -> tuple[int, int]:
+        """(page, page_count) from the pager label ("Page 1 of 2" accessibility label, "1/2" text)."""
+        match = re.search(r"(\d+)\s*(?:/|of)\s*(\d+)", Ui.label(self.ui.find("lanes-map-page-label")))
+        if not match:
+            raise AssertFail("map pager label is not 'page of count'")
+        return int(match[1]), int(match[2])
+
+    def unfocus_to_page_one(self) -> None:
+        self.ui.tap("lanes-map-back")
+        self.ui.find("lanes-map-assistant")
+        for _ in range(4):
+            if self.page_position()[0] == 1:
+                return
+            self.ui.tap("lanes-map-page-prev")
+        raise AssertFail("could not return the orbit to page 1")
+
     def visible_order(self, prefix: str) -> list[str]:
         cards = sorted((e for e in self.ui.ids(prefix) if re.fullmatch(re.escape(prefix) + r"wl-[0-9a-f]{24}", Ui.ident(e))),
                        key=lambda e: Ui.frame(e)["y"])
@@ -652,7 +717,7 @@ class Run:
                 time.sleep(0.5)
             if not count and not empty:
                 raise AssertFail(f"log tab {tab} rendered neither rows nor an empty state")
-            if self.ui.ids("lane-log-error"):
+            if self.ui.ids("lane-log-retry"):
                 raise AssertFail(f"log tab {tab} shows an error on a live daemon")
             rows[tab] = count
             self.ui.screenshot(f"{tag}-log-{tab}")
@@ -664,7 +729,7 @@ class Run:
 
     def run_a_list(self) -> None:
         ui = self.ui
-        visible = self.visible_order("lane-card-")
+        visible = self.visible_order("lane-card-progress-")
         self.assert_prefix_order(visible, "run A list")
         for lane in visible:
             ui.find(f"lane-card-members-pending-{lane}", 5)
@@ -674,42 +739,42 @@ class Run:
 
     def run_a_map(self) -> None:
         ui = self.ui
-        ui.tap("lanes-view-toggle")
-        ui.find("lanes-view-map")
+        self.show_view("map")
         visible = self.visible_order("lanes-map-lane-")
         if sorted(visible) != sorted(sd.v1_lane_ids()):
             raise AssertFail("run A map does not show exactly the v1 lanes")
         ui.absent("lanes-map-member-")
+        ui.find("lanes-map-members-pending")
         ui.screenshot("a-map")
-        ui.tap(f"lanes-map-lane-{sd.big_lane_id()}")
-        time.sleep(1)
+        self.focus_lane(sd.big_lane_id())
+        ui.find(f"lanes-map-members-pending-{sd.big_lane_id()}")
         ui.absent("lanes-map-member-")
         ui.absent("lanes-map-more-")
         ui.screenshot("a-map-focus")
-        ui.tap("lanes-map-back")
-        ui.tap("lanes-view-toggle")
-        ui.find("lanes-view-list")
+        self.unfocus_to_page_one()
+        self.show_view("list")
         self.result["checks"]["run_a_map"] = {"lanes": visible, "member_nodes": 0}
 
     def run_a_log(self) -> None:
         since = time.time()
         self.ui.tap(f"lane-card-log-{sd.big_lane_id()}")
-        self.ui.find(f"lane-log-{sd.big_lane_id()}")
+        self.ui.find("lane-log-tab-updates")
         pair = self.show_after(since)
         if pair["reply_type"] != "work_lanes.show.ok":
             raise AssertFail("run A lane log show did not succeed on the v1 daemon")
         rows = self.log_tabs(sd.big_lane_id(), "a", need_spec_change=False)
         self.ui.tap("lane-log-back")
-        self.ui.find("lanes-view-list")
+        self.ui.find(f"lane-card-log-{sd.big_lane_id()}")
         self.result["checks"]["run_a_log"] = {"show": pair, "rows": rows}
 
     def transport_unavailable_probe(self) -> None:
         """Supplemental real state: lane log requested while no daemon listens (not a daemon error)."""
         since = time.time()
-        record: dict[str, Any] = {"label": "transport_unavailable_real", "blocking": False}
+        record: dict[str, Any] = {"label": "transport_unavailable_real", "blocking": False,
+                                  "expected": "log waits for the connection and sends no request"}
         try:
             self.ui.tap(f"lane-card-log-{sd.big_lane_id()}", 10)
-            self.ui.find("lane-log-error", 10)
+            self.ui.find_label("Waiting for connection", 10)
             record["observed"] = True
             record["requests_sent"] = len(show_pairs(self.wire(), since))
             self.ui.screenshot("c-transport-unavailable")
@@ -727,10 +792,9 @@ class Run:
         if self.app_pids() != [self.app_pid]:
             raise AssertFail("app process changed across the upgrade (restart or reinstall)")
         ui = self.ui
-        if not ui.ids("lanes-view-list"):
-            if ui.ids("lane-log-back"):
-                ui.tap("lane-log-back")
-            ui.find("lanes-view-list")
+        if ui.ids("lane-log-back"):
+            ui.tap("lane-log-back")
+        self.show_view("list")
         deadline = time.monotonic() + 60
         while ui.ids("lane-card-members-pending-"):
             if time.monotonic() > deadline:
@@ -757,7 +821,7 @@ class Run:
 
     def run_b_list(self) -> None:
         ui, big = self.ui, sd.big_lane_id()
-        visible = self.visible_order("lane-card-")
+        visible = self.visible_order("lane-card-progress-")
         self.assert_prefix_order(visible, "run B list")
         ui.tap(f"lane-card-toggle-{big}")
         for spec in sd.BIG[:8]:
@@ -787,7 +851,7 @@ class Run:
 
     def find_card_progress(self, lane: str) -> dict[str, Any]:
         identifier = f"lane-card-progress-{lane}"
-        box = Ui.frame(self.ui.find("lanes-view-list"))
+        box = self.ui.screen()
         for _ in range(8):
             hits = [e for e in self.ui.ids(identifier) if Ui.ident(e) == identifier]
             if hits:
@@ -797,18 +861,16 @@ class Run:
 
     def map_pages(self) -> list[list[str]]:
         ui = self.ui
-        ui.tap("lanes-view-toggle")
-        ui.find("lanes-view-map")
+        self.show_view("map")
         pages = [self.visible_order("lanes-map-lane-")]
-        label = Ui.label(ui.find("lanes-map-page-label"))
-        match = re.search(r"(\d+)\s*/\s*(\d+)", label)
-        if not match or match[1] != "1":
-            raise AssertFail("map page label is not 1/N with more than 8 lanes")
-        for _ in range(int(match[2]) - 1):
+        page, count = self.page_position()
+        if page != 1 or count < 2:
+            raise AssertFail("map pager is not page 1 of N>1 with more than 8 lanes")
+        for _ in range(count - 1):
             ui.tap("lanes-map-page-next")
             pages.append(self.visible_order("lanes-map-lane-"))
         ui.screenshot("b-map-last-page")
-        for _ in range(int(match[2]) - 1):
+        for _ in range(count - 1):
             ui.tap("lanes-map-page-prev")
         return pages
 
@@ -828,14 +890,14 @@ class Run:
 
     def run_b_focus_overflow(self) -> None:
         ui, big = self.ui, sd.big_lane_id()
-        ui.tap(f"lanes-map-lane-{big}")
+        self.focus_lane(big)
         nodes = [e for e in ui.ids("lanes-map-member-")]
         ids = [Ui.ident(e)[len("lanes-map-member-"):] for e in nodes]
         if sorted(ids) != sorted(sd.BIG[:8]):
             raise AssertFail(f"focused orbit renders {len(ids)} member nodes, not the first 8 in membership order")
         more = ui.find(f"lanes-map-more-{big}")
         digits = re.findall(r"\d+", Ui.label(more))
-        if "Show all" not in Ui.label(more) or not set(digits) & {"24", "32"}:
+        if "Show all" not in Ui.label(more) or "32" not in digits:
             raise AssertFail("+N node lacks its accessible 'Show all N specs' label")
         for element in nodes + [more]:
             assert_target(element)
@@ -849,11 +911,11 @@ class Run:
         ui, big = self.ui, sd.big_lane_id()
         since = time.time()
         ui.tap(f"lanes-map-more-{big}")
-        ui.find(f"lane-members-{big}", 30)
+        ui.find("lane-members-back", 30)
         pair = self.show_after(since)
         if pair["reply_type"] != "work_lanes.show.ok":
             raise AssertFail("all-member list show did not succeed")
-        order = ui.collect_scrolling(f"lane-members-{big}", "lane-members-row-", 32)
+        order = ui.collect_scrolling("lane-members-row-", 32)
         got = [identifier[len("lane-members-row-"):] for identifier in order]
         if got != sd.BIG:
             raise AssertFail(f"all-member list shows {len(got)} rows, not all 32 in membership order")
@@ -864,27 +926,27 @@ class Run:
     def run_b_member_detail(self) -> None:
         ui, big, spec = self.ui, sd.big_lane_id(), sd.BIG[-1]
         ui.tap(f"lane-members-row-{spec}")
-        ui.find(f"member-detail-{spec}")
+        ui.find("member-detail-back")
+        identified = bool(ui.ids(f"member-detail-{spec}"))  # container id; exposed only if made accessible
         ui.screenshot("b-member-detail")
         ui.tap("member-detail-back")
-        ui.find(f"lane-members-{big}")
+        ui.find(f"lane-members-row-{spec}")
         ui.tap("lane-members-back")
         ui.find(f"lanes-map-more-{big}")
-        self.result["checks"]["run_b_member_detail"] = {"spec_id": spec}
+        self.result["checks"]["run_b_member_detail"] = {"spec_id": spec, "detail_id_visible": identified}
 
     def run_b_log(self) -> None:
         ui, big = self.ui, sd.big_lane_id()
         since = time.time()
         ui.tap(f"lanes-map-log-{big}")
-        ui.find(f"lane-log-{big}")
+        ui.find("lane-log-tab-updates")
         pair = self.show_after(since)
         if pair["reply_type"] != "work_lanes.show.ok":
             raise AssertFail("lane log show did not succeed on the increment-1 daemon")
         rows = self.log_tabs(big, "b", need_spec_change=True)
         ui.tap("lane-log-back")
-        ui.tap("lanes-map-back")
-        ui.tap("lanes-view-toggle")
-        ui.find("lanes-view-list")
+        self.unfocus_to_page_one()
+        self.show_view("list")
         self.result["checks"]["run_b_log"] = {"show": pair, "rows": rows}
 
     def run_b_index_unavailable(self) -> None:
@@ -911,27 +973,27 @@ class Run:
         self.simctl("ui", self.udid, "content_size", LARGE_TEXT)
         time.sleep(2)
         try:
-            ui.tap("lanes-view-toggle")
-            ui.find("lanes-view-map")
-            ui.find("lanes-map-page-next")
-            screen = {"width": max(Ui.frame(e)["x"] + Ui.frame(e)["width"] for e in ui.elements() if e.get("frame")),
-                      "height": max(Ui.frame(e)["y"] + Ui.frame(e)["height"] for e in ui.elements() if e.get("frame"))}
-            for identifier in ("lanes-map-page-next", f"lanes-map-lane-{big}"):
-                assert_target(ui.find(identifier), screen)
-            ui.tap(f"lanes-map-lane-{big}")
-            assert_target(ui.find(f"lanes-map-more-{big}"), screen)
-            overlaps = overlapping(ui.ids("lanes-map-member-") + [ui.find(f"lanes-map-more-{big}")])
+            self.show_view("map")
+            screen = ui.screen()
+            assert_target(ui.find("lanes-map-page-next"), screen)
+            self.focus_lane(big)
+            more = ui.find(f"lanes-map-more-{big}")
+            if Ui.frame(more)["y"] + Ui.frame(more)["height"] > screen["height"]:
+                ui.swipe_up(screen)  # the focused map scrolls; the +N action must be reachable, then usable
+                more = ui.find(f"lanes-map-more-{big}")
+            assert_target(more, screen)
+            overlaps = overlapping(ui.ids("lanes-map-member-") + [more])
             if overlaps:
                 raise AssertFail(f"overlapping targets at large text {overlaps[:2]}")
             ui.screenshot("b-large-text-focus")
-            ui.tap("lanes-map-back")
-            ui.tap("lanes-view-toggle")
+            self.unfocus_to_page_one()
+            self.show_view("list")
         finally:
             self.simctl("ui", self.udid, "content_size", self.content_size or "large", check=False)
         self.result["checks"]["run_b_large_text"] = {"content_size": LARGE_TEXT}
 
     def run_b_final(self) -> None:
-        self.ui.find("lanes-view-list")
+        self.ui.find("lane-card-progress-" + sd.big_lane_id())
         self.ui.screenshot("b-final-list")
         if self.app_pids() != [self.app_pid]:
             raise AssertFail("app process did not survive the journey")
@@ -1070,15 +1132,15 @@ class Run:
 # ---------------------------------------------------------------------------
 
 SUPPLEMENTAL_SCENES = {
-    "lanes:v1_wire": {"expect": ["lanes-overlay"], "prefix_present": "lane-card-members-pending-"},
-    "lanes:inc1_cases": {"expect": ["lanes-overlay", "lanes-index-banner"], "prefix_present": "lane-card-progress-"},
-    "lanes:overflow": {"expect": ["lanes-overlay"], "prefix_present": "lane-card-"},
+    "lanes:v1_wire": {"expect": ["lanes-view-list"], "prefix_present": "lane-card-members-pending-"},
+    "lanes:inc1_cases": {"expect": ["lanes-view-list", "lanes-index-banner"], "prefix_present": "lane-card-progress-"},
+    "lanes:overflow": {"expect": ["lanes-view-list"], "prefix_present": "lane-card-progress-"},
 }
 
 
 def supplemental(args: argparse.Namespace) -> int:
     """Install one screenshot-harness build (scene baked by EXPO_PUBLIC_SCREENSHOT_HARNESS_DEFAULT),
-    capture its lanes overlay and the offline log error state. Labelled harness-rendered."""
+    capture its lanes overlay and the offline lane-log state. Labelled harness-rendered."""
     scene = SUPPLEMENTAL_SCENES[args.scene]
     out = args.run_dir.resolve() / ("supplemental-" + args.scene.replace(":", "-") + "-" + uuid.uuid4().hex[:6])
     out.mkdir(parents=True)
@@ -1107,9 +1169,9 @@ def supplemental(args: argparse.Namespace) -> int:
             first = sorted((e for e in ui.ids("lane-card-log-")), key=lambda e: Ui.frame(e)["y"])
             if first:
                 ui.tap(Ui.ident(first[0]))
-                ui.find("lane-log-error", 40)
-                ui.screenshot("offline-log-error")
-                record["log_error_state"] = "rendered (harness offline: request rejected client-side)"
+                ui.find_label("Waiting for connection", 20)
+                ui.screenshot("offline-log-waiting")
+                record["offline_log_state"] = "waiting for connection (harness offline; no request sent)"
             record.update(verdict="PASS", screenshots=ui.screenshots)
         finally:
             sd.stop_owned(companion)
