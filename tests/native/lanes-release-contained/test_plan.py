@@ -842,6 +842,38 @@ def test_known_system_alerts_match_exact_titles_and_buttons():
         run.known_system_alert([_el("Open in “Pentacle”?", "StaticText"), _el("Cancel", "Button")])
 
 
+def _alert_ui(tmp_path, screens):
+    ui = run.Ui("U-1", "idb", lambda *a: None, tmp_path / "screenshots")
+    (tmp_path / "screenshots").mkdir()
+    taps, frames = [], iter(screens)
+    ui.elements = lambda: next(frames)
+    ui._idb = lambda *args: taps.append(args) or subprocess.CompletedProcess(args, 0, "", "")
+    return ui, taps
+
+
+@pytest.mark.parametrize("button", [
+    {"AXLabel": "Open", "type": "Button"},                      # no frame
+    {**_el("Open", "Button", 300, 500), "AXEnabled": False},    # disabled
+])
+def test_untappable_system_alert_button_is_setup_fail_with_a_dump(tmp_path, monkeypatch, button):
+    monkeypatch.setattr(run.time, "sleep", lambda s: None)
+    ui, taps = _alert_ui(tmp_path, [[_el("Open in “Pentacle”?", "StaticText"), _el("Cancel", "Button"), button]])
+    with pytest.raises(run.SetupFail, match="Open in"):
+        ui.clear_system_alerts()
+    assert taps == [] and [p.name for p in (tmp_path / "ax").iterdir()] == ["00-system-alert.json"]
+
+
+@pytest.mark.parametrize("buttons", [[_el("Cancel", "Button")],
+                                     [_el("Open", "Button", 300, 500), _el("Open", "Button", 300, 560)]])
+def test_known_alert_without_exactly_one_button_dumps_before_setup_fail(tmp_path, buttons):
+    ui, taps = _alert_ui(tmp_path, [[_el("Open in “Pentacle”?", "StaticText"), *buttons]])
+    with pytest.raises(run.SetupFail, match="exactly one"):
+        ui.clear_system_alerts()
+    dumps = list((tmp_path / "ax").iterdir())
+    assert taps == [] and [p.name for p in dumps] == ["00-system-alert-unmatched.json"]
+    assert "Open in" in dumps[0].read_text(encoding="utf-8")
+
+
 def test_lanes_status_button_is_the_assistant_header_label():
     elements = [_el("Sessions, 0 need you", "Button"), _el("Assistant status, 9 open lanes, 1 blocked", "Button"),
                 _el("Questions, 0 pending", "Button")]

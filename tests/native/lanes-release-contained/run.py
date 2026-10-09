@@ -347,12 +347,22 @@ class Ui:
         handled: list[str] = []
         for _ in range(limit):
             elements = self.elements()
-            found = known_system_alert(elements)
+            try:
+                found = known_system_alert(elements)
+            except SetupFail:
+                self.dump("system-alert-unmatched", elements)
+                raise
             if found is None:
                 return handled
             title, button = found
             self.dump("system-alert", elements)
-            self.tap_element(button, SYSTEM_ALERTS[title])
+            # A system alert is not the app under test: an untappable target is a setup failure, never a product FAIL.
+            if button.get("AXEnabled") is False:
+                raise SetupFail(f"system alert {title!r}: {SYSTEM_ALERTS[title]!r} button is disabled")
+            try:
+                self.tap_element(button, SYSTEM_ALERTS[title])
+            except AssertFail as error:
+                raise SetupFail(f"system alert {title!r}: {error}") from error
             self.trace("system alert", {"title": title, "pressed": SYSTEM_ALERTS[title]})
             handled.append(title)
             time.sleep(1.0)
