@@ -1,278 +1,1254 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
-import type { WorkLaneMember } from 'pentacle-chat-core';
-import { Fonts, Tokens, type MachineSigilKind } from '@/constants/Colors';
-import type { LaneCardViewModel } from '../../services/workLanes';
-import MachineSigil from '../MachineSigil';
-import { emitHarnessUiTrace } from './lanesTelemetry';
+import { useLaneMembers } from "./useLaneMembers";
+import React, { useEffect, useState } from "react";
+import {
+  Pressable,
+  ScrollView,
+  Text,
+  View,
+  useWindowDimensions,
+  Platform,
+} from "react-native";
+import Svg, { Circle, Ellipse, Line } from "react-native-svg";
+import type { WorkLaneMember } from "pentacle-chat-core";
+import { Fonts, type MachineSigilKind } from "@/constants/Colors";
+import Bevel from "../Bevel";
+import ArcaneRingFrame from "../ArcaneRingFrame";
+import MachineSigil from "../MachineSigil";
+import { Spinner } from "../ArcaneAtoms";
+import type {
+  LaneCardViewModel,
+  LaneUpdateEntry,
+} from "../../services/workLanes";
+import LaneMemberDetail, { memberTitle } from "./LaneMemberDetail";
+import { StepRow } from "./LaneCard";
+import {
+  laneTime,
+  Bang,
+  Pause,
+  body,
+  blockerText,
+  Icon,
+  label,
+  LaneGlyph,
+  LaneMark,
+  LeafLoading,
+  LeafText,
+  memberTone,
+  mono,
+  p,
+  ProgressRing,
+  progressValue,
+  Segments,
+  SpecGlyph,
+  UpdateRow,
+} from "./LaneAtoms";
+import { emitHarnessUiTrace, traceMemberList } from "./lanesTelemetry";
+import { useWorkLaneShow, type ReadWorkLaneShow } from "./useWorkLaneShow";
 
 type Props = {
   lanes: LaneCardViewModel[];
   assistantName: string;
   assistantSigil?: MachineSigilKind;
   focusedLaneId: string | null;
-  onFocusLane: (laneId: string | null) => void;
-  /** Zero-based page, retained by the overlay while a detail or log is open. */
+  onFocusLane(id: string | null): void;
   page: number;
-  onPageChange: (page: number) => void;
-  onOpenMember: (model: LaneCardViewModel, member: WorkLaneMember) => void;
-  onShowAll: (model: LaneCardViewModel) => void;
-  onLog: (model: LaneCardViewModel) => void;
-  onChat: (model: LaneCardViewModel) => void;
+  onPageChange(page: number): void;
+  onOpenMember(model: LaneCardViewModel, member: WorkLaneMember): void;
+  onShowAll(model: LaneCardViewModel): void;
+  onLog(model: LaneCardViewModel): void;
+  onChat(model: LaneCardViewModel): void;
+  updates?: LaneUpdateEntry[];
+  onAllUpdates?(): void;
+  connected?: boolean;
+  readShow?: ReadWorkLaneShow;
+  onBackHandler?(handler: () => void): void;
 };
-
-const PAGE_SIZE = 8;
-const NODE_SIZE = 52;
-const GAP = 8;
-// Clockwise perimeter slots leave each full label and its hit target disjoint,
-// including at narrow widths and large accessibility text sizes.
-const ORBIT_SLOTS = [[1, 0], [2, 0], [2, 1], [2, 2], [1, 2], [0, 2], [0, 1], [0, 0]] as const;
-
-function memberStatus(member: WorkLaneMember): string {
-  return member.status ? member.status.replace(/_/g, ' ') : 'Status unavailable';
+export const laneAttentionRank = (model: LaneCardViewModel) =>
+  model.lane.state === "blocked"
+    ? 0
+    : model.lane.state === "active" && model.lane.lead?.presence.working
+      ? 1
+      : model.lane.state === "active"
+        ? 2
+        : 3;
+export function groupMapMembers(members: WorkLaneMember[]) {
+  if (members.length <= 6)
+    return {
+      live: members,
+      pending: [] as WorkLaneMember[],
+      done: [] as WorkLaneMember[],
+    };
+  const pending = members.filter((m) =>
+    ["ready_for_dev", "analysis", "backlog"].includes(m.status || ""),
+  );
+  const done = members.filter((m) =>
+    ["completed", "deprecated"].includes(m.status || ""),
+  );
+  return {
+    live: members.filter((m) => !pending.includes(m) && !done.includes(m)),
+    pending,
+    done,
+  };
 }
-
-function memberColor(model: LaneCardViewModel, member: WorkLaneMember): string {
-  const segment = model.segments.find((entry) => entry.specId === member.spec_id);
-  if (segment?.unresolved) return Tokens.palette.red;
-  switch (member.status) {
-    case 'missing':
-    case 'ambiguous': return Tokens.palette.red;
-    case 'in_progress': return Tokens.palette[model.stateTone];
-    case 'completed': return Tokens.palette.green;
-    case 'needs_qa': return Tokens.palette.text;
-    case 'ready_for_dev':
-    case 'analysis': return Tokens.palette.dim;
-    default: return Tokens.palette.muted;
-  }
-}
-
-function LaneNode({ model, selected, onPress, position }: {
+type Point = {
+  x: number;
+  y: number;
+  size: number;
+  small?: boolean;
+  labels?: boolean;
+};
+function LaneNode({
+  model,
+  point,
+  selected,
+  width,
+  onPress,
+}: {
   model: LaneCardViewModel;
+  point: Point;
   selected: boolean;
-  onPress: () => void;
-  position: { left: number; top: number; width: number; height: number };
+  width: number;
+  onPress(): void;
 }) {
-  const { lane } = model;
-  const color = Tokens.palette[model.stateTone];
-  const counts = model.membersPending ? '—/—' : `${model.completed}/${model.total}`;
-  const working = lane.state === 'active' && lane.lead?.presence.working === true;
-  return <Pressable testID={`lanes-map-lane-${lane.lane_id}`} accessibilityRole="button"
-    accessibilityLabel={`${lane.title}, ${model.stateLabel}, ${counts}`}
-    accessibilityHint={model.waitingOnYouLabel ?? undefined}
-    accessibilityState={{ selected }} onPress={onPress} style={[styles.node, position]}>
-    <View style={[styles.nodeRing, { borderColor: color }, selected && styles.selectedRing]}>
-      <MachineSigil kind="rune" size={30} color={color} />
-      {working ? <View testID={`lanes-map-working-${lane.lane_id}`} style={[styles.working, { backgroundColor: color }]} /> : null}
-      {model.waitingOnYou > 0 ? <Text testID={`lanes-map-waiting-${lane.lane_id}`} allowFontScaling={false}
-        style={styles.questionBadge}>?{model.waitingOnYou}</Text> : null}
-    </View>
-    <Text style={styles.nodeTitle} numberOfLines={2}>{lane.title}</Text>
-    <Text style={[styles.nodeMeta, { color }]} numberOfLines={1}>{counts}</Text>
-  </Pressable>;
-}
-
-function Spoke({ x, y, cx, cy, color }: { x: number; y: number; cx: number; cy: number; color: string }) {
-  const dx = x - cx;
-  const dy = y - cy;
-  const length = Math.sqrt(dx * dx + dy * dy);
-  return <View pointerEvents="none" style={{ position: 'absolute', height: 1, width: length,
-    left: (x + cx - length) / 2, top: (y + cy) / 2, backgroundColor: color, opacity: 0.28,
-    transform: [{ rotate: `${Math.atan2(dy, dx)}rad` }] }} />;
-}
-
-export default function LanesMap({ lanes, assistantName, assistantSigil = 'djinni', focusedLaneId, onFocusLane,
-  page, onPageChange, onOpenMember, onShowAll, onLog, onChat }: Props) {
-  const dimensions = useWindowDimensions();
-  const scroll = useRef<ScrollView>(null);
-  const [measuredWidth, setMeasuredWidth] = useState<number | null>(null);
-  const openLanes = lanes.filter((model) => model.lane.state !== 'done');
-  const pageCount = Math.max(1, Math.ceil(openLanes.length / PAGE_SIZE));
-  const currentPage = Math.max(0, Math.min(Math.floor(page) || 0, pageCount - 1));
-  const pageLanes = openLanes.slice(currentPage * PAGE_SIZE, (currentPage + 1) * PAGE_SIZE);
-  const focused = openLanes.find((model) => model.lane.lane_id === focusedLaneId);
-  const members = focused && !focused.membersPending && !focused.lane.no_spec_reason
-    ? focused.members.slice(0, PAGE_SIZE) : [];
-  const moreCount = focused && !focused.membersPending && !focused.lane.no_spec_reason && focused.membersTotal > PAGE_SIZE
-    ? focused.membersTotal - members.length : 0;
-  const width = Math.max(160, (measuredWidth ?? dimensions.width) - 24);
-  const nodeWidth = (width - GAP * 2) / 3;
-  const fontScale = Math.max(1, dimensions.fontScale || 1);
-  const nodeHeight = NODE_SIZE + 22 + 44 * fontScale;
-  const canvasHeight = nodeHeight * 3 + GAP * 2;
-  const center = { left: nodeWidth + GAP, top: nodeHeight + GAP, width: nodeWidth, height: nodeHeight };
-  const cx = center.left + nodeWidth / 2;
-  const cy = center.top + NODE_SIZE / 2;
-  const positions = (focused ? members : pageLanes).map((_, index, entries) => {
-    const [column, row] = ORBIT_SLOTS[Math.floor(index * PAGE_SIZE / entries.length)];
-    return { left: column * (nodeWidth + GAP), top: row * (nodeHeight + GAP), width: nodeWidth, height: nodeHeight };
-  });
-  const color = focused ? Tokens.palette[focused.stateTone] : Tokens.palette.green;
-  const renderedLaneIds = focused ? [focused.lane.lane_id] : pageLanes.map((model) => model.lane.lane_id);
-  const renderedMemberIds = members.map((member) => member.spec_id);
-
-  useEffect(() => {
-    if (currentPage !== page) onPageChange(currentPage);
-  }, [currentPage, page, onPageChange]);
-
-  useEffect(() => {
-    if (focusedLaneId !== null && !focused) onFocusLane(null);
-  }, [focusedLaneId, focused, onFocusLane]);
-
-  useEffect(() => {
-    scroll.current?.scrollTo({ y: 0, animated: false });
-  }, [focused?.lane.lane_id, currentPage]);
-
-  useEffect(() => {
-    emitHarnessUiTrace('work_lanes_map_render', {
-      page: currentPage + 1, page_count: pageCount, lane_nodes: renderedLaneIds.length,
-      focused_lane_id: focused?.lane.lane_id ?? null,
-      member_nodes: members.length + (moreCount > 0 ? 1 : 0), more_count: moreCount,
-    });
-  }, [currentPage, pageCount, renderedLaneIds.join('|'), renderedMemberIds.join('|'), focused?.lane.lane_id, moreCount]);
-
-  return <ScrollView ref={scroll} testID="lanes-map" style={styles.root} contentContainerStyle={styles.content}
-    onLayout={(event) => setMeasuredWidth(event.nativeEvent.layout.width)}>
-    {focused ? <Pressable testID="lanes-map-back" accessibilityRole="button" accessibilityLabel="Back to all lanes"
-      onPress={() => onFocusLane(null)} style={styles.back}>
-      <Text style={styles.actionText}>‹ All lanes</Text>
-    </Pressable> : <Text style={styles.hint}>Choose a lane to explore its specs</Text>}
-    {!focused && pageLanes.some((model) => model.membersPending)
-      ? <Text testID="lanes-map-members-pending" style={styles.hint}>Specs arrive when the daemon updates</Text> : null}
-
-    <View testID="lanes-map-orbit" style={{ width, height: canvasHeight, alignSelf: 'center' }}>
-      <View pointerEvents="none" style={[styles.orbit, { left: nodeWidth / 2, top: NODE_SIZE / 2,
-        width: (nodeWidth + GAP) * 2, height: (nodeHeight + GAP) * 2, borderColor: color }]} />
-      {positions.map((position, index) => <Spoke key={index} x={position.left + nodeWidth / 2}
-        y={position.top + NODE_SIZE / 2} cx={cx} cy={cy}
-        color={focused ? memberColor(focused, members[index]) : Tokens.palette[pageLanes[index].stateTone]} />)}
-      {focused ? <LaneNode model={focused} selected onPress={() => onFocusLane(focused.lane.lane_id)} position={center} />
-        : <Pressable testID="lanes-map-assistant" accessibilityRole="button" accessibilityLabel={assistantName}
-          accessibilityHint="All lanes" accessibilityState={{ selected: false }} onPress={() => onFocusLane(null)}
-          style={[styles.node, center]}>
-          <View style={[styles.nodeRing, styles.assistantRing]}><MachineSigil kind={assistantSigil} size={34} /></View>
-          <Text style={styles.nodeTitle} numberOfLines={2}>{assistantName}</Text>
-        </Pressable>}
-      {focused ? members.map((member, index) => {
-        const tone = memberColor(focused, member);
-        const title = member.title || member.spec_id;
-        const quality = member.observation?.quality;
-        return <Pressable key={member.spec_id} testID={`lanes-map-member-${member.spec_id}`}
-          accessibilityRole="button" accessibilityLabel={`${title}, ${memberStatus(member)}`}
-          accessibilityState={{ selected: false }} onPress={() => onOpenMember(focused, member)}
-          style={[styles.node, positions[index]]}>
-          <View style={[styles.nodeRing, { borderColor: tone }, quality && quality !== 'fresh' && styles.observationRing]}>
-            <Text style={[styles.memberGlyph, { color: tone }]} allowFontScaling={false}>
-              {member.status === 'completed' ? '✓' : member.status === 'missing' || member.status === 'ambiguous' ? '!'
-                : member.status === 'needs_qa' ? '◉' : '○'}
-            </Text>
+  const { x, y, size, small, labels = true } = point,
+    color = p[model.stateTone];
+  const lw = small ? 100 : 112,
+    labelLeft =
+      Math.max(4, Math.min(width - lw - 4, x - lw / 2)) - (x - size / 2);
+  const fraction = model.lane.ac_total
+    ? (model.lane.ac_checked || 0) / model.lane.ac_total
+    : model.total
+      ? model.completed / model.total
+      : 0;
+  const working =
+    model.lane.state === "active" && model.lane.lead?.presence.working;
+  return (
+    <Pressable
+      testID={`lanes-map-lane-${model.lane.lane_id}`}
+      accessibilityRole="button"
+      accessibilityLabel={`${model.lane.title}, ${model.stateLabel}, ${model.membersPending ? "—/—" : `${model.completed}/${model.total}`}`}
+      accessibilityHint={model.waitingOnYouLabel || undefined}
+      accessibilityState={{ selected }}
+      hitSlop={Math.max(0, (44 - size) / 2)}
+      onPress={onPress}
+      style={{
+        position: "absolute",
+        left: x - size / 2,
+        top: y - size / 2,
+        width: size,
+        height: size,
+        zIndex: 3,
+        opacity: labels || selected ? 1 : 0.55,
+      }}
+    >
+      {working ? (
+        <View
+          testID={`lanes-map-working-${model.lane.lane_id}`}
+          style={{
+            position: "absolute",
+            left: -7,
+            top: -7,
+            right: -7,
+            bottom: -7,
+            borderRadius: size,
+            borderWidth: 1,
+            borderStyle: "dashed",
+            borderColor: `${p.green}66`,
+          }}
+        />
+      ) : null}
+      {selected ? (
+        <View
+          style={{
+            position: "absolute",
+            left: -12,
+            top: -12,
+            right: -12,
+            bottom: -12,
+            borderRadius: size,
+            backgroundColor: `${color}12`,
+          }}
+        />
+      ) : null}
+      <View
+        style={{
+          width: size,
+          height: size,
+          borderRadius: size / 2,
+          backgroundColor: p.ink,
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        {!model.membersPending ? (
+          <ProgressRing size={size} fraction={fraction} color={color} />
+        ) : null}
+        {size >= 30 ? (
+          <View style={{ opacity: model.lane.state === "paused" ? 0.55 : 1 }}>
+            <LaneMark model={model} size={size * 0.62} />
           </View>
-          <Text style={styles.nodeTitle} numberOfLines={2}>{title}</Text>
-          <Text style={[styles.nodeMeta, { color: tone }]} numberOfLines={1}>
-            {member.ac_checked != null && member.ac_total != null ? `${member.ac_checked}/${member.ac_total}` : '—'}
-          </Text>
-        </Pressable>;
-      }) : pageLanes.map((model, index) => <LaneNode key={model.lane.lane_id} model={model} selected={false}
-        onPress={() => onFocusLane(model.lane.lane_id)} position={positions[index]} />)}
-    </View>
-
-    {focused ? <>
-      {moreCount > 0 ? <Pressable testID={`lanes-map-more-${focused.lane.lane_id}`} accessibilityRole="button"
-        accessibilityLabel={`Show all ${focused.membersTotal} specs`} accessibilityState={{ selected: false }}
-        onPress={() => onShowAll(focused)} style={styles.more}>
-        <Text style={styles.actionText}>+{moreCount} more</Text>
-      </Pressable> : null}
-      <View style={[styles.detail, { borderColor: `${color}66` }]}>
-        <Text style={[styles.state, { color }]}>{focused.stateLabel}</Text>
-        <Text style={styles.title}>{focused.lane.title}</Text>
-        {focused.lane.summary ? <Text style={styles.body}>{focused.lane.summary}</Text> : null}
-        <Text style={styles.meta}>{focused.leadHost ? `${focused.leadHost} · ` : ''}{focused.presenceLabel} · {focused.freshnessLabel}</Text>
-        {focused.blockerLabel ? <Text style={styles.warning}>{focused.blockerLabel}</Text> : null}
-        {focused.waitingOnYouLabel && focused.waitingOnYouLabel !== focused.blockerLabel
-          ? <Text style={styles.warning}>? {focused.waitingOnYouLabel}</Text> : null}
-        <Text testID={`lanes-map-progress-${focused.lane.lane_id}`} style={styles.progress}>{focused.progressLabel}</Text>
-        {focused.membersPending ? <Text testID={`lanes-map-members-pending-${focused.lane.lane_id}`} style={styles.body}>
-          Specs arrive when the daemon updates
-        </Text> : null}
-        {focused.segments.length > 0 && !focused.lane.no_spec_reason ? <View style={styles.segments}>
-          {focused.segments.map((segment) => <View key={segment.specId} style={[styles.segment,
-            segment.unresolved && { backgroundColor: `${Tokens.palette.red}44` }]}>
-            <View style={{ height: '100%', width: `${segment.fraction * 100}%`, backgroundColor: Tokens.palette[segment.tone] }} />
-          </View>)}
-        </View> : null}
-        {focused.lastUpdateText ? <Text style={styles.body}>{focused.lastUpdateText}</Text> : null}
-        <Pressable testID={`lanes-map-log-${focused.lane.lane_id}`} accessibilityRole="button" accessibilityLabel="Open lane log"
-          onPress={() => onLog(focused)} style={styles.action}>
-          <Text style={styles.actionText}>Lane log ›</Text>
-        </Pressable>
-        <Pressable testID={`lanes-map-chat-${focused.lane.lane_id}`} accessibilityRole="button"
-          accessibilityLabel={focused.tap.action === 'unavailable' ? 'Chat unavailable' : 'See chat'}
-          accessibilityState={{ disabled: focused.tap.action === 'unavailable' }} disabled={focused.tap.action === 'unavailable'}
-          onPress={() => onChat(focused)} style={styles.action}>
-          <Text style={[styles.actionText, focused.tap.action === 'unavailable' && styles.unavailable]}>
-            {focused.tap.action === 'unavailable' ? 'Chat unavailable' : focused.tap.action === 'history' ? 'View closed chat ›' : 'See chat ›'}
-          </Text>
-        </Pressable>
+        ) : (
+          <View
+            style={{
+              width: 6,
+              height: 6,
+              borderRadius: 3,
+              backgroundColor: color,
+            }}
+          />
+        )}
       </View>
-    </> : <>
-      {openLanes.length === 0 ? <Text style={styles.empty}>No open lanes</Text> : null}
-      <View style={styles.pager}>
-        <Pressable testID="lanes-map-page-prev" accessibilityRole="button" accessibilityLabel="Previous lanes page"
-          disabled={currentPage === 0} accessibilityState={{ disabled: currentPage === 0 }}
-          onPress={() => onPageChange(currentPage - 1)} style={styles.pageButton}>
-          <Text style={[styles.actionText, currentPage === 0 && styles.unavailable]}>‹</Text>
-        </Pressable>
-        <Text testID="lanes-map-page-label" accessibilityLabel={`Page ${currentPage + 1} of ${pageCount}`} style={styles.pageLabel}>
-          {currentPage + 1}/{pageCount}
-        </Text>
-        <Pressable testID="lanes-map-page-next" accessibilityRole="button" accessibilityLabel="Next lanes page"
-          disabled={currentPage >= pageCount - 1} accessibilityState={{ disabled: currentPage >= pageCount - 1 }}
-          onPress={() => onPageChange(currentPage + 1)} style={styles.pageButton}>
-          <Text style={[styles.actionText, currentPage >= pageCount - 1 && styles.unavailable]}>›</Text>
-        </Pressable>
-      </View>
-    </>}
-  </ScrollView>;
+      {size >= 30 && (model.lane.state !== "active" || model.waitingOnYou) ? (
+        <View
+          testID={
+            model.waitingOnYou
+              ? `lanes-map-waiting-${model.lane.lane_id}`
+              : undefined
+          }
+          style={{
+            position: "absolute",
+            right: -2,
+            top: -2,
+            width: 19,
+            height: 19,
+            borderRadius: 10,
+            backgroundColor: p.ink,
+            justifyContent: "center",
+            alignItems: "center",
+          }}
+        >
+          <LaneGlyph model={model} size={13} />
+        </View>
+      ) : null}
+      {labels ? (
+        <View
+          pointerEvents="none"
+          style={{
+            position: "absolute",
+            top: size + (small ? 5 : 8),
+            left: labelLeft,
+            width: lw,
+          }}
+        >
+          <Text
+            numberOfLines={2}
+            textBreakStrategy="balanced"
+            lineBreakStrategyIOS="standard"
+            style={{
+              ...body,
+              ...(Platform.OS === "web" ? { textWrap: "balance" } : {}),
+              fontFamily: Fonts.rajdhani.bold,
+              fontSize: small ? 11 : 13,
+              lineHeight: small ? 12.5 : 14.5,
+              textAlign: "center",
+              color: small ? p.dim : p.text,
+            }}
+          >
+            {model.lane.title}
+          </Text>
+          <Text
+            numberOfLines={1}
+            style={{
+              ...mono,
+              fontSize: small ? 8.5 : 9.5,
+              marginTop: small ? 2 : 3,
+              color,
+              textAlign: "center",
+              letterSpacing: 0.5,
+            }}
+          >
+            {model.lane.state === "active"
+              ? progressValue(model)
+              : model.lane.state.toUpperCase()}
+          </Text>
+        </View>
+      ) : null}
+    </Pressable>
+  );
 }
-
-const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: Tokens.palette.ink },
-  content: { paddingVertical: 12, paddingBottom: 28 },
-  hint: { marginHorizontal: 16, marginBottom: 12, fontFamily: Fonts.rajdhani.medium, fontSize: 14, color: Tokens.palette.dim },
-  orbit: { position: 'absolute', borderWidth: 1, borderStyle: 'dashed', borderRadius: 120, opacity: 0.18 },
-  node: { position: 'absolute', alignItems: 'center', minWidth: 44, minHeight: 44 },
-  nodeRing: { width: NODE_SIZE, height: NODE_SIZE, borderRadius: NODE_SIZE / 2, borderWidth: 2,
-    alignItems: 'center', justifyContent: 'center', backgroundColor: Tokens.palette.panel },
-  selectedRing: { borderWidth: 3 },
-  assistantRing: { borderColor: Tokens.palette.green, backgroundColor: Tokens.palette.ink },
-  nodeTitle: { fontFamily: Fonts.rajdhani.bold, fontSize: 13, lineHeight: 15, color: Tokens.palette.text,
-    textAlign: 'center', marginTop: 6, paddingHorizontal: 2, maxWidth: '100%' },
-  nodeMeta: { fontFamily: Fonts.jetBrainsMono.regular, fontSize: 10, lineHeight: 14, marginTop: 3, maxWidth: '100%' },
-  working: { width: 9, height: 9, borderRadius: 5, position: 'absolute', top: 0, right: 0 },
-  questionBadge: { position: 'absolute', top: -3, left: -5, minWidth: 27, paddingHorizontal: 3, height: 20, textAlign: 'center',
-    fontFamily: Fonts.jetBrainsMono.bold, fontSize: 13, color: Tokens.palette.amber, backgroundColor: Tokens.palette.ink,
-    borderColor: Tokens.palette.amber, borderWidth: 1, borderRadius: 10 },
-  memberGlyph: { fontFamily: Fonts.jetBrainsMono.bold, fontSize: 25 },
-  observationRing: { borderStyle: 'dashed' },
-  back: { minHeight: 44, minWidth: 44, alignSelf: 'flex-start', justifyContent: 'center', paddingHorizontal: 16, marginBottom: 8 },
-  more: { alignSelf: 'center', minWidth: 100, minHeight: 44, justifyContent: 'center', alignItems: 'center',
-    borderColor: Tokens.palette.line, borderWidth: 1, borderRadius: 22, paddingVertical: 10, paddingHorizontal: 16, marginBottom: 16 },
-  detail: { backgroundColor: Tokens.palette.panel, borderTopWidth: 1, borderTopLeftRadius: 14, borderTopRightRadius: 14,
-    padding: 16, gap: 10 },
-  state: { fontFamily: Fonts.jetBrainsMono.bold, fontSize: 10, letterSpacing: 1 },
-  title: { fontFamily: Fonts.rajdhani.bold, fontSize: 21, color: Tokens.palette.text },
-  body: { fontFamily: Fonts.rajdhani.medium, fontSize: 14.5, color: Tokens.palette.dim },
-  meta: { fontFamily: Fonts.jetBrainsMono.regular, fontSize: 10, color: Tokens.palette.muted },
-  warning: { fontFamily: Fonts.rajdhani.bold, fontSize: 14.5, color: Tokens.palette.amber },
-  progress: { fontFamily: Fonts.jetBrainsMono.medium, fontSize: 13, color: Tokens.palette.text },
-  segments: { flexDirection: 'row', gap: 3 },
-  segment: { flex: 1, height: 5, borderRadius: 2, overflow: 'hidden', backgroundColor: Tokens.palette.line },
-  action: { minWidth: 44, minHeight: 44, borderWidth: 1, borderColor: Tokens.palette.line, borderRadius: 4,
-    paddingHorizontal: 12, paddingVertical: 10, justifyContent: 'center' },
-  actionText: { fontFamily: Fonts.rajdhani.bold, fontSize: 16, color: Tokens.palette.green },
-  unavailable: { color: Tokens.palette.muted },
-  empty: { fontFamily: Fonts.rajdhani.medium, fontSize: 16, color: Tokens.palette.dim, textAlign: 'center' },
-  pager: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 16, paddingHorizontal: 16 },
-  pageButton: { minWidth: 44, minHeight: 44, padding: 10, alignItems: 'center', justifyContent: 'center' },
-  pageLabel: { fontFamily: Fonts.jetBrainsMono.medium, fontSize: 12, color: Tokens.palette.dim, flexShrink: 1 },
-});
+function SpecNode({
+  member,
+  model,
+  point,
+  selected,
+  dense,
+  onPress,
+}: {
+  member: WorkLaneMember;
+  model: LaneCardViewModel;
+  point: Point;
+  selected: boolean;
+  dense: boolean;
+  onPress(): void;
+}) {
+  const size = dense ? 32 : 42,
+    color = memberTone(member, model),
+    quality = member.observation?.quality;
+  return (
+    <Pressable
+      testID={`lanes-map-member-${member.spec_id}`}
+      accessibilityRole="button"
+      accessibilityLabel={`${memberTitle(member)}, ${(member.status || "unknown").replace(/_/g, " ")}`}
+      accessibilityState={{ selected }}
+      hitSlop={Math.max(0, (44 - size) / 2)}
+      onPress={onPress}
+      style={{
+        position: "absolute",
+        left: point.x - size / 2,
+        top: point.y - size / 2,
+        width: size,
+        height: size,
+        zIndex: 4,
+      }}
+    >
+      {selected ? (
+        <View
+          style={{
+            position: "absolute",
+            left: -6,
+            top: -6,
+            right: -6,
+            bottom: -6,
+            borderRadius: size,
+            borderWidth: 1.5,
+            borderColor: color,
+            opacity: 0.7,
+          }}
+        />
+      ) : null}
+      <View
+        style={{
+          width: size,
+          height: size,
+          borderRadius: size / 2,
+          backgroundColor: p.panel,
+          alignItems: "center",
+          justifyContent: "center",
+          borderWidth: quality && quality !== "fresh" ? 1.5 : 0,
+          borderStyle: "dashed",
+          borderColor: quality === "stale" ? p.amber : p.red,
+        }}
+      >
+        {member.ac_total != null ? (
+          <ProgressRing
+            size={size}
+            color={color}
+            fraction={
+              member.ac_total ? (member.ac_checked || 0) / member.ac_total : 0
+            }
+          />
+        ) : null}
+        <SpecGlyph member={member} model={model} size={dense ? 12 : 15} />
+      </View>
+      {!dense || selected ? (
+        <Text
+          textBreakStrategy="balanced"
+          lineBreakStrategyIOS="standard"
+          style={{
+            ...body,
+            ...(Platform.OS === "web" ? { textWrap: "balance" } : {}),
+            position: "absolute",
+            top: size + 5,
+            left: size / 2 - 45,
+            width: 90,
+            textAlign: "center",
+            fontSize: 11.5,
+            lineHeight: 13,
+            fontFamily: Fonts.rajdhani.bold,
+            color: member.terminal ? p.muted : p.text,
+          }}
+        >
+          {memberTitle(member)}
+        </Text>
+      ) : null}
+    </Pressable>
+  );
+}
+function StackNode({
+  kind,
+  count,
+  point,
+  laneId,
+  onPress,
+}: {
+  kind: "pending" | "done";
+  count: number;
+  point: Point;
+  laneId: string;
+  onPress(): void;
+}) {
+  const color = kind === "done" ? p.green : p.dim,
+    size = point.size;
+  return (
+    <Pressable
+      testID={
+        kind === "pending"
+          ? `lanes-map-more-${laneId}`
+          : `lanes-map-done-stack-${laneId}`
+      }
+      accessibilityRole="button"
+      accessibilityLabel={`${kind === "done" ? "Done" : "Pending"}, ${count} specs`}
+      hitSlop={Math.max(0, (44 - size) / 2)}
+      onPress={onPress}
+      style={{
+        position: "absolute",
+        left: point.x - size / 2,
+        top: point.y - size / 2,
+        width: size,
+        height: size,
+        zIndex: 4,
+      }}
+    >
+      {[2, 1, 0].map((k) => (
+        <View
+          key={k}
+          style={{
+            position: "absolute",
+            width: size,
+            height: size,
+            left: k * 3,
+            top: -k * 3,
+            borderRadius: size / 2,
+            borderWidth: k ? 1 : 2,
+            borderStyle: kind === "done" ? "solid" : "dashed",
+            borderColor: color,
+            opacity: k ? 0.3 : 1,
+            backgroundColor: p.panel,
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          {k === 0 ? (
+            <Text
+              style={{
+                ...mono,
+                fontSize: 14,
+                fontFamily: Fonts.jetBrainsMono.bold,
+                color,
+              }}
+            >
+              {count}
+            </Text>
+          ) : null}
+        </View>
+      ))}
+      <Text
+        style={{
+          ...body,
+          position: "absolute",
+          top: size + 5,
+          left: size / 2 - 45,
+          width: 90,
+          textAlign: "center",
+          fontSize: 11.5,
+          fontFamily: Fonts.rajdhani.bold,
+          color: p.muted,
+        }}
+      >
+        {kind === "done" ? "Done" : "Pending"}
+      </Text>
+    </Pressable>
+  );
+}
+export default function LanesMap({
+  lanes,
+  assistantName,
+  assistantSigil = "djinni",
+  focusedLaneId,
+  onFocusLane,
+  onOpenMember,
+  onShowAll,
+  onLog,
+  onChat,
+  updates = [],
+  onAllUpdates = () => {},
+  connected = true,
+  readShow,
+  onBackHandler,
+}: Props) {
+  const dimensions = useWindowDimensions(),
+    [measured, setMeasured] = useState<{
+      width: number;
+      height: number;
+    } | null>(null);
+  const width = measured?.width || dimensions.width,
+    height = measured?.height || Math.max(600, dimensions.height - 104),
+    scale = width / 402;
+  const [selected, setSelected] = useState<string | null>(null),
+    [stack, setStack] = useState<"pending" | "done" | null>(null);
+  const open = lanes.filter((m) => m.lane.state !== "done"),
+    ordered =
+      open.length > 6
+        ? [...open].sort((a, b) => laneAttentionRank(a) - laneAttentionRank(b))
+        : open;
+  const visible = ordered.slice(0, 16),
+    focused = open.find((m) => m.lane.lane_id === focusedLaneId);
+  const needsShow = !!focused && focused.membersTotal > focused.members.length;
+  const show = useWorkLaneShow(
+    focused?.lane.lane_id || "",
+    connected,
+    needsShow,
+    readShow,
+  );
+  const loadedMembers = useLaneMembers(focused?.members || [], show.data);
+  const members =
+    focused?.lane.no_spec_reason || focused?.membersPending
+      ? []
+      : loadedMembers;
+  const group = groupMapMembers(members),
+    stackList = stack ? group[stack] : null;
+  const nodes: (
+    { member: WorkLaneMember } | { kind: "pending" | "done"; count: number }
+  )[] = stackList
+    ? stackList.map((member) => ({ member }))
+    : [
+        ...group.live.map((member) => ({ member })),
+        ...(group.pending.length
+          ? [{ kind: "pending" as const, count: group.pending.length }]
+          : []),
+        ...(group.done.length
+          ? [{ kind: "done" as const, count: group.done.length }]
+          : []),
+      ];
+  const dense = nodes.length > 8,
+    selMember = members.find((m) => m.spec_id === selected);
+  const outer = visible.length > 6,
+    cx = 201,
+    cy = outer ? 330 : 238,
+    rx = outer ? 100 : 132,
+    ry = outer ? 140 : 132,
+    fx = 201,
+    fy = 212,
+    sr = 122;
+  const positions = new Map<string, Point>();
+  const inner = visible.slice(0, 6),
+    outside = visible.slice(6);
+  inner.forEach((m, i) => {
+    const a = ((-90 + (i * 360) / inner.length) * Math.PI) / 180;
+    positions.set(m.lane.lane_id, {
+      x: cx + rx * Math.cos(a),
+      y: cy + ry * Math.sin(a),
+      size: (outer ? 46 : 50) + Math.min(m.membersTotal, 6) * (outer ? 2 : 3),
+    });
+  });
+  outside.forEach((m, i) => {
+    const a = ((-90 + (i * 360) / outside.length) * Math.PI) / 180;
+    positions.set(m.lane.lane_id, {
+      x: cx + 182 * Math.cos(a),
+      y: cy + 240 * Math.sin(a),
+      size: 34,
+      small: true,
+    });
+  });
+  const others = visible.filter((m) => m !== focused),
+    gap = Math.min(34, 290 / Math.max(1, others.length - 1));
+  const lanePoint = (m: LaneCardViewModel): Point =>
+    !focused
+      ? positions.get(m.lane.lane_id)!
+      : m === focused
+        ? { x: fx, y: fy, size: 74, labels: false }
+        : {
+            x: 231 - ((others.length - 1) * gap) / 2 + others.indexOf(m) * gap,
+            y: 26,
+            size: gap < 30 ? 20 : 22,
+            labels: false,
+          };
+  const nodePoints = nodes.map((_, i) => {
+    const a = ((-90 + (i * 360) / nodes.length) * Math.PI) / 180;
+    return {
+      x: fx + sr * Math.cos(a),
+      y: fy + sr * Math.sin(a),
+      size: dense ? 32 : 42,
+    };
+  });
+  const actualLanes =
+    focused && !visible.includes(focused) ? [...visible, focused] : visible;
+  const moreCount = stack ? 0 : group.pending.length + group.done.length;
+  useEffect(() => {
+    setSelected(null);
+    setStack(null);
+  }, [focusedLaneId]);
+  useEffect(() => {
+    if (focusedLaneId && !focused) onFocusLane(null);
+  }, [focusedLaneId, focused, onFocusLane]);
+  useEffect(() => {
+    if (selected && !selMember) setSelected(null);
+  }, [selected, selMember]);
+  useEffect(() => {
+    emitHarnessUiTrace("work_lanes_map_render", {
+      page: 1,
+      page_count: 1,
+      lane_nodes: actualLanes.length,
+      focused_lane_id: focused?.lane.lane_id || null,
+      member_nodes: focused ? nodes.length : 0,
+      more_count: focused ? moreCount : 0,
+    });
+  }, [
+    actualLanes.map((m) => m.lane.lane_id).join("|"),
+    focused?.lane.lane_id,
+    nodes.length,
+    moreCount,
+  ]);
+  useEffect(() => {
+    if (focused && !selMember && (stackList || dense))
+      traceMemberList(focused.lane.lane_id, stackList || group.live);
+  }, [
+    focused?.lane.lane_id,
+    selMember?.spec_id,
+    stack,
+    dense,
+    members.map((m) => m.spec_id).join("|"),
+  ]);
+  const select = (member: WorkLaneMember) => {
+    setSelected((v) => (v === member.spec_id ? null : member.spec_id));
+    if (focused) onOpenMember(focused, member);
+  };
+  const back = () => {
+    if (selected) setSelected(null);
+    else if (stack) setStack(null);
+    else onFocusLane(null);
+  };
+  useEffect(() => {
+    onBackHandler?.(back);
+  }, [selected, stack, focusedLaneId, onBackHandler]);
+  const color = focused ? p[focused.stateTone] : p.green;
+  return (
+    <View
+      testID="lanes-map"
+      style={{ flex: 1 }}
+      onLayout={(e) =>
+        setMeasured({
+          width: e.nativeEvent.layout.width,
+          height: e.nativeEvent.layout.height,
+        })
+      }
+    >
+      <ScrollView
+        contentContainerStyle={{
+          minHeight: Math.max(
+            height,
+            outer && !focused ? 770 * scale : 650 * scale,
+          ),
+        }}
+      >
+        <View
+          testID="lanes-map-orbit"
+          style={{
+            width: 402,
+            height: focused ? 410 : outer ? 650 : 490,
+            transform: [{ scale }],
+            transformOrigin: "top left",
+          }}
+        >
+          <Svg
+            pointerEvents="none"
+            width={402}
+            height={650}
+            style={{ position: "absolute" }}
+          >
+            {!focused ? (
+              <>
+                <Ellipse
+                  cx={cx}
+                  cy={cy}
+                  rx={rx}
+                  ry={ry}
+                  stroke={p.green}
+                  opacity={0.12}
+                  strokeDasharray="2 5"
+                  fill="none"
+                />
+                {outer ? (
+                  <Ellipse
+                    cx={cx}
+                    cy={cy}
+                    rx={182}
+                    ry={240}
+                    stroke={p.muted}
+                    opacity={0.14}
+                    strokeDasharray="1 6"
+                    fill="none"
+                  />
+                ) : null}
+                {visible.map((m) => {
+                  const pt = positions.get(m.lane.lane_id)!;
+                  return (
+                    <Line
+                      key={m.lane.lane_id}
+                      x1={cx}
+                      y1={cy}
+                      x2={pt.x}
+                      y2={pt.y}
+                      stroke={p[m.stateTone]}
+                      opacity={
+                        m.lane.lead?.presence.working?.valueOf() &&
+                        m.lane.state === "active"
+                          ? 0.55
+                          : 0.2
+                      }
+                      strokeWidth={1.2}
+                      strokeDasharray="3 6"
+                    />
+                  );
+                })}
+              </>
+            ) : (
+              <>
+                <Circle
+                  cx={fx}
+                  cy={fy}
+                  r={sr}
+                  stroke={color}
+                  opacity={0.14}
+                  strokeDasharray="2 5"
+                  fill="none"
+                />
+                {nodes.map((node, i) => (
+                  <Line
+                    key={i}
+                    x1={fx}
+                    y1={fy}
+                    x2={nodePoints[i].x}
+                    y2={nodePoints[i].y}
+                    stroke={
+                      "member" in node
+                        ? memberTone(node.member, focused)
+                        : node.kind === "pending"
+                          ? p.dim
+                          : p.green
+                    }
+                    opacity={
+                      "member" in node && node.member.spec_id === selected
+                        ? 0.8
+                        : 0.3
+                    }
+                    strokeWidth={1}
+                  />
+                ))}
+              </>
+            )}
+          </Svg>
+          {!focused ? (
+            <Pressable
+              testID="lanes-map-assistant"
+              accessibilityRole="button"
+              accessibilityLabel={assistantName}
+              onPress={() => onFocusLane(null)}
+              style={{
+                position: "absolute",
+                left: cx - 34,
+                top: cy - 34,
+                width: 68,
+                height: 68,
+              }}
+            >
+              <ArcaneRingFrame size={68} color={p.green}>
+                <MachineSigil kind={assistantSigil} size={44} color={p.green} />
+              </ArcaneRingFrame>
+            </Pressable>
+          ) : null}
+          {actualLanes.map((m) => (
+            <LaneNode
+              key={m.lane.lane_id}
+              model={m}
+              point={lanePoint(m)}
+              width={402}
+              selected={m === focused}
+              onPress={() => {
+                setSelected(null);
+                setStack(null);
+                onFocusLane(m.lane.lane_id);
+              }}
+            />
+          ))}
+          {!focused && open.length > 16 ? (
+            <Pressable
+              testID="lanes-map-overflow"
+              accessibilityRole="button"
+              accessibilityLabel={`Show all ${open.length} lanes`}
+              onPress={() => onShowAll(open[0])}
+              style={{
+                position: "absolute",
+                left: 340,
+                top: 570,
+                borderWidth: 1,
+                borderColor: p.line,
+                borderRadius: 20,
+                padding: 10,
+              }}
+            >
+              <Text style={body}>+{open.length - visible.length}</Text>
+            </Pressable>
+          ) : null}
+          {focused
+            ? nodes.map((node, i) =>
+                "member" in node ? (
+                  <SpecNode
+                    key={node.member.spec_id}
+                    member={node.member}
+                    model={focused}
+                    point={nodePoints[i]}
+                    dense={dense}
+                    selected={node.member.spec_id === selected}
+                    onPress={() => select(node.member)}
+                  />
+                ) : (
+                  <StackNode
+                    key={node.kind}
+                    kind={node.kind}
+                    count={node.count}
+                    point={nodePoints[i]}
+                    laneId={focused.lane.lane_id}
+                    onPress={() => {
+                      setSelected(null);
+                      setStack(node.kind);
+                    }}
+                  />
+                ),
+              )
+            : null}
+          {focused ? (
+            <Pressable
+              testID="lanes-map-back"
+              accessibilityRole="button"
+              accessibilityLabel="Back to all lanes"
+              onPress={back}
+              style={{
+                position: "absolute",
+                left: 12,
+                top: 52,
+                zIndex: 6,
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 4,
+                borderWidth: 1,
+                borderColor: p.line,
+                borderRadius: 14,
+                paddingVertical: 5,
+                paddingHorizontal: 10,
+                backgroundColor: p.ink,
+              }}
+            >
+              <Icon kind="back" size={13} />
+              <Text
+                style={{
+                  ...body,
+                  fontSize: 12.5,
+                  fontFamily: Fonts.rajdhani.bold,
+                }}
+              >
+                {selected
+                  ? stack
+                    ? stack === "done"
+                      ? "Done"
+                      : "Pending"
+                    : focused.lane.title
+                  : stack
+                    ? focused.lane.title
+                    : "All lanes"}
+              </Text>
+            </Pressable>
+          ) : null}
+          {stack && focused ? (
+            <Pressable
+              testID="lanes-map-stack-close"
+              accessibilityRole="button"
+              accessibilityLabel={`Close ${stack}`}
+              onPress={() => {
+                setSelected(null);
+                setStack(null);
+              }}
+              style={{
+                position: "absolute",
+                right: 12,
+                top: 52,
+                zIndex: 6,
+                flexDirection: "row",
+                gap: 6,
+                borderWidth: 1,
+                borderStyle: stack === "done" ? "solid" : "dashed",
+                borderColor: p.dim,
+                borderRadius: 14,
+                paddingVertical: 5,
+                paddingHorizontal: 10,
+                backgroundColor: p.ink,
+              }}
+            >
+              <Text style={{ ...mono, fontSize: 10, letterSpacing: 1 }}>
+                {stack.toUpperCase()} · {stackList?.length}
+              </Text>
+              <Icon kind="close" size={12} />
+            </Pressable>
+          ) : null}
+        </View>
+      </ScrollView>
+      {!focused ? (
+        <View
+          style={{
+            position: "absolute",
+            left: 14,
+            right: 14,
+            bottom: 22,
+            gap: 12,
+          }}
+        >
+          {!open.length ? <Text style={body}>No open lanes</Text> : null}
+          <View
+            style={{ flexDirection: "row", gap: 10, justifyContent: "center" }}
+          >
+            {(["active", "blocked", "paused"] as const).map((state) => (
+              <View
+                key={state}
+                style={{ flexDirection: "row", alignItems: "center", gap: 5 }}
+              >
+                {state === "active" ? (
+                  <Spinner size={10} color={p.green} strokeWidth={1.7} />
+                ) : state === "blocked" ? (
+                  <Bang size={10} />
+                ) : (
+                  <Pause size={10} />
+                )}
+                <Text style={{ ...mono, letterSpacing: 0.8 }}>
+                  {open.filter((m) => m.lane.state === state).length}{" "}
+                  {state.toUpperCase()}
+                </Text>
+              </View>
+            ))}
+          </View>
+          <Pressable
+            testID="lanes-latest-update"
+            accessibilityRole="button"
+            accessibilityLabel="Open update log"
+            onPress={onAllUpdates}
+          >
+            <Bevel
+              cut={10}
+              fill="rgba(8,11,10,0.92)"
+              stroke={`${p.green}33`}
+              contentStyle={{
+                paddingHorizontal: 13,
+                paddingVertical: 11,
+                gap: 4,
+              }}
+            >
+              <View
+                style={{ flexDirection: "row", alignItems: "center", gap: 7 }}
+              >
+                <Text style={{ ...label, fontSize: 10 }}>
+                  LATEST · {laneTime(updates[0]?.update.ts)}
+                </Text>
+                <View
+                  style={{
+                    width: 6,
+                    height: 6,
+                    borderRadius: 3,
+                    backgroundColor: p.green,
+                  }}
+                />
+              </View>
+              <View
+                style={{ flexDirection: "row", gap: 8, alignItems: "center" }}
+              >
+                <Text
+                  style={{ ...body, color: p.text, lineHeight: 20, flex: 1 }}
+                >
+                  {updates[0]?.update.summary || "No updates yet"}
+                </Text>
+                <Icon kind="chevron" size={13} />
+              </View>
+            </Bevel>
+          </Pressable>
+        </View>
+      ) : (
+        <View
+          style={{
+            position: "absolute",
+            left: 0,
+            right: 0,
+            bottom: 0,
+            top: Math.min(410 * scale, height * 0.6),
+            backgroundColor: "rgba(10,16,13,0.97)",
+            borderTopWidth: 1,
+            borderColor: `${color}44`,
+            borderTopLeftRadius: 14,
+            borderTopRightRadius: 14,
+          }}
+        >
+          <View
+            style={{
+              width: 36,
+              height: 4,
+              borderRadius: 2,
+              backgroundColor: p.line,
+              alignSelf: "center",
+              marginTop: 8,
+            }}
+          />
+          <ScrollView
+            contentContainerStyle={{
+              paddingHorizontal: 16,
+              paddingTop: 10,
+              paddingBottom: 24,
+              gap: 11,
+            }}
+          >
+            {selMember ? (
+              <LaneMemberDetail
+                member={selMember}
+                laneTitle={focused.lane.title}
+                onBack={() => setSelected(null)}
+              />
+            ) : stackList ? (
+              <View testID={`lane-members-${focused.lane.lane_id}`}>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`Back to ${focused.lane.title}`}
+                  onPress={() => {
+                    setSelected(null);
+                    setStack(null);
+                  }}
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: 4,
+                    paddingBottom: 10,
+                  }}
+                >
+                  <Icon kind="back" size={13} />
+                  <Text
+                    style={{
+                      ...body,
+                      fontSize: 13,
+                      fontFamily: Fonts.rajdhani.bold,
+                    }}
+                  >
+                    {focused.lane.title}
+                  </Text>
+                </Pressable>
+                <Text style={[label, { paddingBottom: 6, color: p.muted }]}>
+                  {stack} · {stackList.length}
+                </Text>
+                {stackList.map((member) => (
+                  <StepRow
+                    chevron
+                    key={member.spec_id}
+                    id={`lane-members-row-${member.spec_id}`}
+                    member={member}
+                    model={focused}
+                    onPress={() => select(member)}
+                  />
+                ))}
+              </View>
+            ) : (
+              <>
+                <View
+                  style={{ flexDirection: "row", gap: 6, alignItems: "center" }}
+                >
+                  <LaneGlyph model={focused} size={11} />
+                  <Text style={{ ...mono, letterSpacing: 1, color }}>
+                    {focused.stateLabel}
+                  </Text>
+                  <Text style={mono}>· {focused.freshnessLabel}</Text>
+                </View>
+                <View>
+                  <Text
+                    style={{
+                      ...body,
+                      fontSize: 19,
+                      fontFamily: Fonts.rajdhani.bold,
+                      color: p.text,
+                    }}
+                  >
+                    {focused.lane.title}
+                  </Text>
+                  {focused.lane.summary ? (
+                    <Text
+                      style={{
+                        ...body,
+                        fontSize: 13.5,
+                        lineHeight: 19,
+                        marginTop: 3,
+                      }}
+                    >
+                      {focused.lane.summary}
+                    </Text>
+                  ) : null}
+                </View>
+                {blockerText(focused) ? (
+                  <View style={{ flexDirection: "row", gap: 7 }}>
+                    <LaneGlyph model={focused} />
+                    <Text
+                      style={{
+                        ...body,
+                        color: p.amber,
+                        fontFamily: Fonts.rajdhani.bold,
+                        flex: 1,
+                      }}
+                    >
+                      {blockerText(focused)}
+                    </Text>
+                  </View>
+                ) : null}
+                <View style={{ flexDirection: "row", gap: 10 }}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={mono}>SPECS</Text>
+                    <Text
+                      style={{
+                        ...mono,
+                        color: p.text,
+                        fontSize: 15,
+                        fontFamily: Fonts.jetBrainsMono.bold,
+                        marginTop: 3,
+                      }}
+                    >
+                      {focused.completed}/{focused.total}
+                    </Text>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={mono}>ACCEPTANCE</Text>
+                    <Text
+                      style={{
+                        ...mono,
+                        color: p.text,
+                        fontSize: 15,
+                        fontFamily: Fonts.jetBrainsMono.bold,
+                        marginTop: 3,
+                      }}
+                    >
+                      {focused.lane.ac_checked ?? "—"}/
+                      {focused.lane.ac_total ?? "—"}
+                    </Text>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={mono}>EST WORK</Text>
+                    <LeafText
+                      id={`lanes-map-progress-${focused.lane.lane_id}`}
+                      text={progressValue(focused)}
+                      style={{
+                        ...mono,
+                        color: p.text,
+                        fontSize: 15,
+                        fontFamily: Fonts.jetBrainsMono.bold,
+                        marginTop: 3,
+                      }}
+                    />
+                    <Text
+                      style={{
+                        ...mono,
+                        fontSize: 8.5,
+                        marginTop: 2,
+                        lineHeight: 11,
+                      }}
+                    >
+                      {focused.lane.open_estimate_h
+                        ? focused.lane.estimate_complete
+                          ? `median ${focused.lane.open_estimate_h.median}h`
+                          : `${focused.lane.open_estimated ?? 0} of ${focused.lane.items_open ?? 0} open specs estimated`
+                        : ""}
+                    </Text>
+                  </View>
+                </View>
+                {focused.membersPending ? (
+                  <LeafText
+                    id={`lanes-map-members-pending-${focused.lane.lane_id}`}
+                    text="Specs arrive when the daemon updates"
+                    style={body}
+                  />
+                ) : focused.lane.no_spec_reason ? (
+                  <Text style={body}>{focused.lane.no_spec_reason}</Text>
+                ) : (
+                  <Segments model={focused} />
+                )}
+                <UpdateRow
+                  connected={connected}
+                  readShow={readShow}
+                  model={focused}
+                  showCount
+                  id={`lanes-map-log-${focused.lane.lane_id}`}
+                  onPress={() => onLog(focused)}
+                />
+                {focused.tap.action === "unavailable" ? (
+                  <Text style={mono}>CHAT UNAVAILABLE</Text>
+                ) : (
+                  <Pressable
+                    testID={`lanes-map-chat-${focused.lane.lane_id}`}
+                    accessibilityRole="button"
+                    accessibilityLabel={
+                      focused.tap.action === "history"
+                        ? "View closed chat"
+                        : `Open ${focused.leadHost || "lead"} chat`
+                    }
+                    onPress={() => onChat(focused)}
+                    style={{
+                      borderWidth: 1,
+                      borderColor: color,
+                      borderRadius: 4,
+                      padding: 11,
+                      backgroundColor:
+                        focused.tap.action === "history"
+                          ? "transparent"
+                          : color,
+                    }}
+                  >
+                    <Text
+                      style={{
+                        ...body,
+                        fontSize: 15,
+                        fontFamily: Fonts.rajdhani.bold,
+                        color: focused.tap.action === "history" ? color : p.ink,
+                        textAlign: "center",
+                      }}
+                    >
+                      {focused.tap.action === "history"
+                        ? "View closed chat"
+                        : `Open ${focused.leadHost || "lead"} chat`}
+                    </Text>
+                  </Pressable>
+                )}
+                {dense ? (
+                  <View testID={`lane-members-${focused.lane.lane_id}`}>
+                    <Text style={label}>Live specs · {group.live.length}</Text>
+                    {group.live.map((member) => (
+                      <StepRow
+                        chevron
+                        key={member.spec_id}
+                        id={`lane-members-row-${member.spec_id}`}
+                        member={member}
+                        model={focused}
+                        onPress={() => select(member)}
+                      />
+                    ))}
+                  </View>
+                ) : null}
+              </>
+            )}
+            {show.loading ? (
+              <LeafLoading
+                id="lane-members-loading"
+                text="Loading lane members"
+              />
+            ) : null}
+            {show.error ||
+            (show.data &&
+              show.data.members.length <
+                (show.data.projection?.members_total ??
+                  focused.membersTotal)) ? (
+              <View testID="lane-members-error">
+                <Text style={{ ...body, color: p.red }}>
+                  {show.error || "Incomplete member list. Please retry."}
+                </Text>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Retry members"
+                  onPress={() => void show.retry()}
+                >
+                  <Text style={body}>Retry</Text>
+                </Pressable>
+              </View>
+            ) : null}
+          </ScrollView>
+        </View>
+      )}
+    </View>
+  );
+}
