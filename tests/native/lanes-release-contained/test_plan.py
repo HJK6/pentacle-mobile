@@ -159,6 +159,8 @@ def test_compiled_scan_passes_loopback_only():
     (b"ws://127.0.0.1:17896", _app_config(ws="ws://127.0.0.1:7791"), "extra.wsUrl"),
     (b"nothing", _app_config(), "does not contain the owned loopback"),
     (b"ws://127.0.0.1:17896", _app_config(hub="https://hub.example.net/x"), "production operational"),
+    (b"ws://127.0.0.1:17896", _app_config(dashboardHubUrl="https://unowned.example.org"), "non-loopback operational"),
+    (b"ws://127.0.0.1:17896", _app_config(hosts=[{"url": "http://198.51.100.7:7795"}]), "non-loopback operational"),
 ])
 def test_compiled_scan_rejects_escapes(bundle, config, fragment):
     problems = run.scan_compiled(bundle, config, run.operational_urls(PROD))["problems"]

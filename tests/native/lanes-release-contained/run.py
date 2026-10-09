@@ -132,7 +132,7 @@ def _host(url: str) -> str:
 
 
 def scan_compiled(bundle: bytes, app_config: dict[str, Any], production: list[str]) -> dict[str, Any]:
-    """Loopback-only compiled config; every production operational URL/host absent."""
+    """Loopback-only compiled config (every operational URL under extra); every production operational URL/host absent."""
     problems: list[str] = []
     extra = app_config.get("extra", {}) if isinstance(app_config, dict) else {}
     if extra.get("wsUrl") != sd.APP_WS_URL:
@@ -141,8 +141,8 @@ def scan_compiled(bundle: bytes, app_config: dict[str, Any], production: list[st
         problems.append("JS bundle does not contain the owned loopback endpoint")
     config_urls = operational_urls(app_config)
     for url in config_urls:
-        if url.startswith(("ws://", "wss://")) and _host(url) not in LOOPBACK_HOSTS:
-            problems.append("embedded config carries a non-loopback socket endpoint")
+        if _host(url) not in LOOPBACK_HOSTS:
+            problems.append("embedded config carries a non-loopback operational endpoint")
     socket_urls = sorted({m.group(0).decode(errors="replace") for m in URL_RE.finditer(bundle)
                           if m.group(0).startswith((b"ws://", b"wss://"))})
     for url in socket_urls:
