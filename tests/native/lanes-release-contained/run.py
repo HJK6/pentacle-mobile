@@ -42,7 +42,7 @@ import subprocess
 import sys
 import time
 from typing import Any, Callable
-from urllib.parse import urlsplit
+from urllib.parse import urlencode, urlsplit
 import uuid
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -1168,6 +1168,136 @@ SUPPLEMENTAL_SCENES = {
 }
 
 
+# Show failure scenes: an ARMED harness build (`EXPO_PUBLIC_HARNESS=1`) connects
+# to a loopback stub that serves the shared fixture's v1 inventory and then
+# answers the app's real `work_lanes.show` with a typed error, or never answers
+# (while still answering pings) so the client's own 30 s RPC timeout settles it.
+# Product settlement is unchanged; nothing is injected into component state.
+SHOW_FAILURE_BUILD = "harness_release_loopback_stub"
+SHOW_FAILURE_SCENES = {
+    "lanes:show_error": {"mode": "typed_error", "expect_text": "Lane details unavailable", "min_wait_s": 0},
+    "lanes:show_timeout": {"mode": "no_reply", "expect_text": "Request timed out", "min_wait_s": 30},
+}
+
+
+def _mock_daemon_class():
+    tools = Path(__file__).resolve().parents[3] / "test" / "e2e" / "tools"
+    if str(tools) not in sys.path:
+        sys.path.insert(0, str(tools))
+    import mock_v2_daemon  # existing public mock; imported, never modified
+    return mock_v2_daemon.MockDaemon
+
+
+class LaneShowStub:
+    """Loopback stub for the show failure scenes; records every show request."""
+
+    def __init__(self, mode: str, inventory: dict[str, Any]):
+        if mode not in ("typed_error", "no_reply"):
+            raise ValueError("unknown stub mode")
+        base = _mock_daemon_class()
+        stub = self
+
+        class _Daemon(base):
+            def _snapshot_frame(self, events_mode, exclude):
+                return {**super()._snapshot_frame(events_mode, exclude), "work_lanes": inventory}
+
+            async def _dispatch(self, ws, msg):
+                if msg.get("type") == "work_lanes.show":
+                    await stub._on_show(self, ws, msg)
+                    return
+                await super()._dispatch(ws, msg)
+
+            async def _on_hello(self, ws, msg):
+                await super()._on_hello(ws, msg)
+                await self._send(ws, {**inventory, "type": "work_lanes.inventory"})
+
+        self.mode, self.receipts = mode, []
+        self.daemon = _Daemon(argparse.Namespace(host="supplemental-host", recent_limit=100, credential_registry=""))
+        self.handler = self.daemon.handler
+
+    async def _on_show(self, daemon, ws, msg) -> None:
+        receipt = {"at": time.time(), "request_id": msg.get("request_id"), "lane_id": msg.get("lane_id"), "reply": None}
+        self.receipts.append(receipt)
+        if self.mode == "typed_error":
+            await daemon._send(ws, {"type": "work_lanes.show.error", "request_id": msg.get("request_id"),
+                                    "error_code": "work_lanes_show_failed", "error": "synthetic supplemental failure"})
+            receipt["reply"] = "work_lanes.show.error"
+
+
+def start_stub(stub: LaneShowStub, port: int) -> Callable[[], None]:
+    """Serve the stub on loopback in a background thread; returns its stop function."""
+    import asyncio
+    import threading
+    import websockets
+
+    loop = asyncio.new_event_loop()
+    ready, state = threading.Event(), {}
+
+    async def serve() -> None:
+        try:
+            state["server"] = await websockets.serve(stub.handler, sd.HOST, port, max_size=None)
+        except Exception as exc:
+            state["error"] = exc
+            ready.set()
+            return
+        ready.set()
+        await state["server"].wait_closed()
+
+    def runner() -> None:
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(serve())
+
+    thread = threading.Thread(target=runner, daemon=True)
+    thread.start()
+    ready.wait(10)
+    if "error" in state or not sd.port_listening(port):
+        raise SetupFail(f"loopback stub did not listen on {port}: {state.get('error')}")
+
+    def stop() -> None:
+        loop.call_soon_threadsafe(state["server"].close)
+        thread.join(10)
+        if sd.port_listening(port):
+            raise SetupFail("loopback stub still listening after stop")
+    return stop
+
+
+def run_show_failure_scene(scene: dict[str, Any], ui: "Ui", stub: LaneShowStub, record: dict[str, Any],
+                           lane_id: str) -> None:
+    """Open one lane log and assert the settled failure state plus a real Retry request."""
+    ui.find(f"lane-card-log-{lane_id}", 60)
+    tapped = time.time()
+    ui.tap(f"lane-card-log-{lane_id}")
+    deadline = time.monotonic() + 20
+    while not stub.receipts:
+        if time.monotonic() > deadline:
+            raise AssertFail("the app sent no work_lanes.show to the stub")
+        time.sleep(0.3)
+    pending_visible = None
+    if scene["mode"] == "no_reply":
+        pending_visible = bool(ui.ids("lane-log-loading")) and not ui.ids("lane-log-retry")
+        if ui.ids("lane-log-retry"):
+            raise AssertFail("the unanswered request settled before the client timeout")
+        ui.screenshot("show-pending")
+    ui.find_label(scene["expect_text"], scene["min_wait_s"] + 30)
+    settled = time.time()
+    ui.find("lane-log-retry", 5)
+    waited = settled - stub.receipts[0]["at"]
+    if waited < scene["min_wait_s"] - 1:
+        raise AssertFail(f"{scene['expect_text']} appeared after {waited:.1f}s, before the client timeout")
+    ui.screenshot("show-settled")
+    before = len(stub.receipts)
+    ui.tap("lane-log-retry")
+    deadline = time.monotonic() + 20
+    while len(stub.receipts) == before:
+        if time.monotonic() > deadline:
+            raise AssertFail("Retry did not send a new work_lanes.show")
+        time.sleep(0.3)
+    record["show_failure"] = {"mode": scene["mode"], "expect_text": scene["expect_text"], "tapped_at": tapped,
+                              "pending_spinner_visible": pending_visible,
+                              "settled_after_request_s": round(waited, 1), "retry_requests": len(stub.receipts) - before,
+                              "requests": [{k: r[k] for k in ("request_id", "lane_id", "reply")} for r in stub.receipts]}
+
+
 def supplemental_teardown(udid: str, runner: Callable[..., subprocess.CompletedProcess] = subprocess.run) -> dict[str, Any]:
     """Shut down and delete the simulator this run created; verify it is gone. Never raises."""
     record: dict[str, Any] = {"udid": udid}
@@ -1200,45 +1330,83 @@ def finalize_supplemental(record: dict[str, Any], teardown: dict[str, Any]) -> d
 def supplemental(args: argparse.Namespace) -> int:
     """Install one screenshot-harness build (scene baked by EXPO_PUBLIC_SCREENSHOT_HARNESS_DEFAULT),
     capture its lanes overlay and the offline lane-log state. Labelled harness-rendered."""
-    scene = SUPPLEMENTAL_SCENES[args.scene]
+    show_failure = SHOW_FAILURE_SCENES.get(args.scene)
+    scene = show_failure or SUPPLEMENTAL_SCENES[args.scene]
     out = args.run_dir.resolve() / ("supplemental-" + args.scene.replace(":", "-") + "-" + uuid.uuid4().hex[:6])
     out.mkdir(parents=True)
-    record: dict[str, Any] = {"label": "harness_rendered_state", "build_identity": SUPPLEMENTAL_BUILD,
+    record: dict[str, Any] = {"label": "harness_rendered_state",
+                              "build_identity": SHOW_FAILURE_BUILD if show_failure else SUPPLEMENTAL_BUILD,
                               "scene": args.scene, "not_proof_of": "real daemon request/reply"}
-    udid = None
+    udid, stop_stub, stub = None, None, None
     try:
         identity = app_identity(args.app.resolve())
         record["app"] = identity
         udid = subprocess.run(["xcrun", "simctl", "create", f"{SCENARIO}-supplemental-{out.name}", args.device_type,
                                args.runtime], capture_output=True, text=True, check=True, timeout=120).stdout.strip()
-        for argv in (["boot", udid], ["bootstatus", udid, "-b"], ["install", udid, str(args.app.resolve())],
-                     ["launch", udid, identity["bundle_id"]]):
+        for argv in (["boot", udid], ["bootstatus", udid, "-b"], ["install", udid, str(args.app.resolve())]):
             subprocess.run(["xcrun", "simctl", *argv], capture_output=True, text=True, check=True, timeout=300)
+        launch = ["launch", udid, identity["bundle_id"]]
+        launch_env = None
+        if show_failure:
+            inventory = json.loads((Path(__file__).resolve().parents[3] / sd.FIXTURE_PATH).read_text(encoding="utf-8"))["inventory_frame"]
+            stub = LaneShowStub(show_failure["mode"], inventory)
+            stop_stub = start_stub(stub, sd.PROXY_PORT)
+            query = {"scenario": "lanes-show-failure", "scenario_run_id": out.name, "actions": "disable_pentacle_auth",
+                     "ws_url": sd.APP_WS_URL}
+            launch += ["-HarnessUrl", "pentacle://harness?" + urlencode(query)]
+            launch_env = {**os.environ, "SIMCTL_CHILD_PENTACLE_ALLOW_HARNESS_LAUNCH_ARG": "1"}
+            record["stub"] = {"endpoint": sd.APP_WS_URL, "inventory": "shared fixture inventory_frame",
+                              "mode": show_failure["mode"]}
+        subprocess.run(["xcrun", "simctl", *launch], capture_output=True, text=True, check=True, timeout=300, env=launch_env)
         companion = sd.start_owned("ui-companion", [args.idb_companion, "--udid", udid, "--grpc-port", str(sd.COMPANION_PORT)],
                                    env={k: os.environ[k] for k in ("PATH", "HOME", "TMPDIR", "LANG") if k in os.environ},
                                    cwd=out, log=out / "ui-companion.log", port=sd.COMPANION_PORT)
         try:
             ui = Ui(udid, args.idb, lambda *_: None, out)
             subprocess.run(["xcrun", "simctl", "openurl", udid, "pentacle://pentacle/lanes"], check=True, timeout=60)
-            for identifier in scene["expect"]:
+            if show_failure:
+                run_show_failure_scene(show_failure, ui, stub, record, inventory["lanes"][0]["lane_id"])
+                record.update(verdict="PASS", screenshots=ui.screenshots)
+                return_early = True
+            else:
+                return_early = False
+            for identifier in ([] if return_early else scene["expect"]):
                 ui.find(identifier, 30)
-            if not ui.ids(scene["prefix_present"]):
+            if not return_early and not ui.ids(scene["prefix_present"]):
                 raise AssertFail("scene lacks " + scene["prefix_present"])
-            ui.screenshot("scene")
-            first = sorted((e for e in ui.ids("lane-card-log-")), key=lambda e: Ui.frame(e)["y"])
+            if not return_early:
+                ui.screenshot("scene")
+            first = [] if return_early else sorted((e for e in ui.ids("lane-card-log-")), key=lambda e: Ui.frame(e)["y"])
             if first:
                 ui.tap(Ui.ident(first[0]))
-                ui.find_label("Waiting for connection", 20)
-                ui.screenshot("offline-log-waiting")
-                record["offline_log_state"] = "waiting for connection (harness offline; no request sent)"
-            record.update(verdict="PASS", screenshots=ui.screenshots)
+                # Seeded scenes report connected with no socket: the real request path rejects at once.
+                for text in ("Lane details unavailable", "Waiting for connection"):
+                    if any(text.lower() in Ui.label(e).lower() for e in ui.elements()):
+                        record["offline_log_state"] = text
+                        break
+                else:
+                    ui.find_label("Lane details unavailable", 20)
+                    record["offline_log_state"] = "Lane details unavailable"
+                ui.screenshot("offline-log")
+            if not return_early:
+                record.update(verdict="PASS", screenshots=ui.screenshots)
         finally:
             sd.stop_owned(companion)
     except Exception as exc:
+        record.pop("verdict", None)
         record.update(verdict="FAIL" if isinstance(exc, AssertFail) else "SETUP_FAIL", error=str(exc)[:300])
     finally:
+        if stop_stub:
+            try:
+                stop_stub()
+                record["stub_stopped"] = True
+            except Exception as exc:
+                record["stub_stopped"] = False
+                record["stub_stop_error"] = str(exc)[:200]
         if udid:
             record["teardown"] = supplemental_teardown(udid)
+            if stop_stub and not record.get("stub_stopped"):
+                record["teardown"]["complete"] = False
             record = finalize_supplemental(record, record["teardown"])
     (out / "supplemental.json").write_text(json.dumps(record, indent=2, default=str) + "\n", encoding="utf-8")
     print(json.dumps({"scenario": SCENARIO + ":supplemental", "verdict": record["verdict"], "result": str(out)}))
@@ -1267,7 +1435,7 @@ def parse(argv: list[str] | None) -> argparse.Namespace:
     proof.add_argument("--run-id")
     extra = sub.add_parser("supplemental", parents=[common], help="one screenshot-harness scene (separate build)")
     extra.add_argument("--app", type=Path, required=True)
-    extra.add_argument("--scene", choices=sorted(SUPPLEMENTAL_SCENES), required=True)
+    extra.add_argument("--scene", choices=sorted({**SUPPLEMENTAL_SCENES, **SHOW_FAILURE_SCENES}), required=True)
     return parser.parse_args(argv)
 
 

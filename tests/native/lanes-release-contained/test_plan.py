@@ -357,6 +357,25 @@ def test_supplemental_scenes_exist_in_the_screenshot_harness():
     source = (REPO / "src/harness/screenshotFixtures.ts").read_text(encoding="utf-8")
     for scene in run.SUPPLEMENTAL_SCENES:
         assert f"'{scene}'" in source, scene
+    # Show failure scenes are stub-driven; their asserted texts must be the client's settled wording.
+    settlement = (REPO / "src/components/lanes/useWorkLaneShow.ts").read_text(encoding="utf-8")
+    log = (REPO / "src/components/lanes/LaneLog.tsx").read_text(encoding="utf-8")
+    assert set(run.SHOW_FAILURE_SCENES) == {"lanes:show_error", "lanes:show_timeout"}
+    for scene in run.SHOW_FAILURE_SCENES.values():
+        assert f"'{scene['expect_text']}'" in settlement, scene
+    for test_id in ("lane-log-retry", "lane-log-loading"):
+        assert f'testID="{test_id}"' in log, test_id
+
+
+def test_stub_serves_on_loopback_and_stops():
+    import socket
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        port = probe.getsockname()[1]
+    stop = run.start_stub(run.LaneShowStub("typed_error", _fixture()["inventory_frame"]), port)
+    assert sd.port_listening(port)
+    stop()
+    assert not sd.port_listening(port)
 
 
 def test_scenario_scripts_compile():
@@ -408,8 +427,66 @@ def test_orchestration_verdicts(tmp_path, capsys, fail_at, error, code, verdict)
 
 
 # ---------------------------------------------------------------------------
-# Checked supplemental teardown.
+# Supplemental show error / timeout (real requestWorkLaneShow settlement against
+# a loopback stub) and checked supplemental teardown.
 # ---------------------------------------------------------------------------
+
+def test_show_failure_scenes_are_declared_and_selectable():
+    scenes = run.SHOW_FAILURE_SCENES
+    assert scenes["lanes:show_error"]["mode"] == "typed_error"
+    assert scenes["lanes:show_error"]["expect_text"] == "Lane details unavailable"
+    assert scenes["lanes:show_timeout"]["mode"] == "no_reply"
+    assert scenes["lanes:show_timeout"]["expect_text"] == "Request timed out"
+    assert scenes["lanes:show_timeout"]["min_wait_s"] >= 30  # client RPC timeout
+    args = run.parse(["supplemental", "--run-dir", "/tmp/x", "--app", "/tmp/a.app", "--scene", "lanes:show_timeout",
+                      "--device-type", "d", "--runtime", "r"])
+    assert args.scene == "lanes:show_timeout"
+
+
+def _stub_exchange(mode, frames_after_show=1, wait_s=1.5):
+    import asyncio
+    import websockets
+
+    async def go():
+        stub = run.LaneShowStub(mode, _fixture()["inventory_frame"])
+        async with websockets.serve(stub.handler, "127.0.0.1", 0) as server:
+            port = server.sockets[0].getsockname()[1]
+            async with websockets.connect(f"ws://127.0.0.1:{port}") as ws:
+                assert json.loads(await ws.recv())["type"] == "welcome"
+                await ws.send(json.dumps({"type": "hello", "client": "pentacle-mobile",
+                                          "capabilities": {"work_lanes_v1": True}, "subscribe": {}}))
+                seen = {}
+                while "work_lanes.inventory" not in seen:
+                    frame = json.loads(await asyncio.wait_for(ws.recv(), 5))
+                    seen[frame["type"]] = frame
+                lane = _fixture()["inventory_frame"]["lanes"][0]["lane_id"]
+                await ws.send(json.dumps({"type": "work_lanes.show", "lane_id": lane, "request_id": "work_lanes_show-1"}))
+                await ws.send(json.dumps({"type": "ping"}))
+                replies = []
+                try:
+                    while True:
+                        replies.append(json.loads(await asyncio.wait_for(ws.recv(), wait_s)))
+                except asyncio.TimeoutError:
+                    pass
+                return seen, replies, stub.receipts
+    return asyncio.run(go())
+
+
+def test_lane_show_stub_typed_error_settles_the_request():
+    seen, replies, receipts = _stub_exchange("typed_error")
+    assert seen["snapshot"]["work_lanes"]["lanes"] == _fixture()["inventory_frame"]["lanes"]
+    error = [r for r in replies if r["type"] == "work_lanes.show.error"]
+    assert error == [{"type": "work_lanes.show.error", "request_id": "work_lanes_show-1",
+                      "error_code": "work_lanes_show_failed", "error": "synthetic supplemental failure"}]
+    assert {"type": "pong"} in replies
+    assert [r["reply"] for r in receipts] == ["work_lanes.show.error"]
+
+
+def test_lane_show_stub_no_reply_leaves_only_liveness():
+    seen, replies, receipts = _stub_exchange("no_reply")
+    assert [r["type"] for r in replies] == ["pong"]  # socket stays alive; the request is never answered
+    assert receipts[0]["request_id"] == "work_lanes_show-1" and receipts[0]["reply"] is None
+
 
 class _FakeSimctl:
     def __init__(self, shutdown_rc=0, delete_rc=0, still_listed=False):

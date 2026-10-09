@@ -29,9 +29,25 @@ of the daemon. The normal Release build has no harness telemetry.
    `EXPO_PUBLIC_SCREENSHOT_HARNESS_DEFAULT=lanes:<scene>` (one build per scene:
    `lanes:v1_wire`, `lanes:inc1_cases`, `lanes:overflow`, all replayed from the
    shared fixture). Its output is labelled `harness_rendered_state`; it covers
-   fixture-only inputs and the offline lane-log state ("Waiting for
-   connection", no request sent) and is never evidence of a real daemon
-   request/reply.
+   fixture-only inputs and the offline lane-log state (seeded "connected" with
+   no socket, so the real request path rejects at once: "Lane details
+   unavailable") and is never evidence of a real daemon request/reply.
+3. **Show failure build** (`harness_release_loopback_stub`): Release with
+   `EXPO_PUBLIC_HARNESS=1` (harness launch argument accepted only with
+   `SIMCTL_CHILD_PENTACLE_ALLOW_HARNESS_LAUNCH_ARG=1`), launched armed with
+   `disable_pentacle_auth` and `ws_url=ws://127.0.0.1:17896`. The runner serves
+   a loopback stub there (a subclass of `test/e2e/tools/mock_v2_daemon.py`)
+   with the shared fixture's v1 inventory. Scenes:
+   - `lanes:show_error`: the app's real `work_lanes.show` gets a typed
+     `work_lanes.show.error`; asserts "Lane details unavailable" and
+     `lane-log-retry`, then that Retry sends a new request.
+   - `lanes:show_timeout`: the request is never answered while pings are
+     (so the connection stays live); the client's own 30 s RPC timeout settles
+     it; asserts the pending state first, "Request timed out" no earlier than
+     the timeout, `lane-log-retry`, and a new request on Retry.
+   Product settlement is not altered and no component state is injected. Each
+   scene writes its own `supplemental.json` (stub receipts: request ids,
+   replies, settle time) and screenshots, labelled `harness_rendered_state`.
 
 Neither identity certifies the production signed device artifact, the
 production endpoint or a physical installation.
@@ -72,6 +88,10 @@ prints the step plan without acting. Supplemental scenes:
 ```sh
 python3 tests/native/lanes-release-contained/run.py supplemental \
   --run-dir <root> --app <screenshot-harness .app> --scene lanes:inc1_cases \
+  --device-type <id> --runtime <id>
+# show failure scenes: the harness build, port 17896 free, owned venv Python
+python3 tests/native/lanes-release-contained/run.py supplemental \
+  --run-dir <root> --app <harness .app> --scene lanes:show_timeout \
   --device-type <id> --runtime <id>
 ```
 
@@ -133,12 +153,16 @@ scratch root. Any teardown failure makes the verdict `SETUP_FAIL`.
 
 ## Known limits
 
-- The show **error** and **timeout** states are not reproduced natively: the
-  client request timeout equals its no-frame watchdog (a stalled daemon races
-  reconnect), the real daemon offers no fault-free show error for a listed
-  lane, and a disconnected log waits rather than erring. Both are covered by
-  device-free tests. Run C records the real disconnected log state ("Waiting
-  for connection", no request sent) as a non-blocking supplemental check.
+- The show **error** and **timeout** states are not produced by the real
+  daemon run (the daemon offers no fault-free show error for a listed lane, and
+  a stalled daemon would race the 30 s no-frame watchdog). They are proved by
+  the show failure scenes above against a loopback stub, plus device-free
+  tests. Run C records the real disconnected log state ("Waiting for
+  connection", no request sent) as a non-blocking supplemental check.
+- Supplemental teardown is checked: simulator shutdown and delete results are
+  recorded, the owned UDID must be absent afterwards, and an incomplete
+  teardown (or a stub still listening) makes the verdict `SETUP_FAIL` with the
+  scene's own result kept as `scene_verdict`.
 - Assertions use only accessibility elements (buttons, text). Plain container
   views (`lane-card-<id>`, `lane-log-<id>`, `lane-members-<id>`,
   `member-detail-<id>`, `lanes-overlay`, `lanes-map`) are not read.
