@@ -53,6 +53,7 @@ export default function LaneLog({ model, connected, updates = [], onBack, readSh
     });
   }, [data, model.lane.lane_id, tab, currentPage, shown.length, rows.length]);
   return <View testID={`lane-log-${model.lane.lane_id}`} style={s.root}>
+    <ScrollView key={`${tab}:${currentPage}`} contentContainerStyle={{ paddingBottom: bottom }}>
     <View style={s.header}>
       <Pressable testID="lane-log-back" accessibilityRole="button" accessibilityLabel={`Back to ${model.lane.title}`} onPress={onBack} style={s.button}>
         <Text numberOfLines={2} style={s.buttonText}>‹ {model.lane.title}</Text>
@@ -62,7 +63,7 @@ export default function LaneLog({ model, connected, updates = [], onBack, readSh
         accessibilityRole="button" accessibilityState={{ selected: tab === item.id }} onPress={() => { setTab(item.id); setPage(0); }}
         style={[s.button, tab === item.id && { borderColor: Tokens.palette.green }]}><Text style={s.buttonText}>{item.label}</Text></Pressable>)}</View>
     </View>
-    <ScrollView key={`${tab}:${currentPage}`} contentContainerStyle={[s.body, { paddingBottom: bottom }]}>
+    <View style={s.body}>
       {loading ? <ActivityIndicator testID="lane-log-loading" color={Tokens.palette.green} /> : null}
       {error ? <View testID="lane-log-error" style={s.panel}><Text style={s.error}>{error}</Text>
         <Pressable testID="lane-log-retry" accessibilityRole="button" onPress={() => void retry()} style={s.button}><Text style={s.buttonText}>Retry</Text></Pressable>
@@ -74,6 +75,7 @@ export default function LaneLog({ model, connected, updates = [], onBack, readSh
       </View>)}
       {currentPage + 1 < pageCount ? <Pressable testID="lane-log-older" accessibilityRole="button" accessibilityLabel="Load older lane log rows"
         onPress={() => setPage(currentPage + 1)} style={s.button}><Text style={s.buttonText}>Older · {currentPage + 1}/{pageCount}</Text></Pressable> : null}
+    </View>
     </ScrollView>
   </View>;
 }

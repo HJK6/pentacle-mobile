@@ -37,17 +37,19 @@ export default function LaneMemberDetail({ member, laneTitle, onBack, bottom = 1
   member: WorkLaneMember; laneTitle: string; onBack(): void; bottom?: number;
 }) {
   return <View testID={`member-detail-${member.spec_id}`} style={s.root}>
+    <ScrollView contentContainerStyle={{ paddingBottom: bottom }}>
     <View style={s.header}>
       <Pressable testID="member-detail-back" accessibilityRole="button" accessibilityLabel={`Back to ${laneTitle}`} onPress={onBack} style={s.button}>
         <Text numberOfLines={2} style={s.buttonText}>‹ {laneTitle}</Text>
       </Pressable>
     </View>
-    <ScrollView contentContainerStyle={[s.body, { paddingBottom: bottom }]}>
+    <View style={s.body}>
       <LaneMemberSummary member={member} />
       <Text style={s.meta}>{member.spec_id}</Text>
       {member.estimate ? <Text style={s.meta}>Median {member.estimate.median}h</Text> : null}
       <Text style={s.meta}>Observed · {member.observation?.observed_at || 'unknown'}</Text>
       <Text style={s.meta}>Changed · {member.source_changed_at || 'unknown'}</Text>
+    </View>
     </ScrollView>
   </View>;
 }

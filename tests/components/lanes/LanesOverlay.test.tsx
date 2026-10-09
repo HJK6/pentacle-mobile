@@ -6,7 +6,7 @@ jest.mock('../../../src/services/pentacleStream', () => ({
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import React from 'react';
-import { StyleSheet } from 'react-native';
+import { ScrollView, StyleSheet } from 'react-native';
 import { act, fireEvent, render, within } from '@testing-library/react-native';
 import {
   applyWorkLanesInventory, initialPentacleStreamState, parseWorkLaneShow,
@@ -296,6 +296,66 @@ test.each(['stale', 'error'] as const)('an open detail reflects live %s quality 
   if (quality === 'error') expect(view.getByText('Sample source is unreadable')).toBeTruthy();
   fireEvent.press(view.getByTestId('member-detail-back'));
   expect(view.getByTestId(`lane-card-toggle-${baseLane.lane_id}`).props.accessibilityState.expanded).toBe(true);
+});
+
+test('an unrelated inventory change cannot replace a fetched detail with semantically unchanged older inline facts', async () => {
+  const members = Array.from({ length: 9 }, (_, index) => ({ ...baseLane.members![0],
+    spec_id: `spec_equal_revision_${index}`, title: `Old inline ${index}` }));
+  const lane = { ...baseLane, members: members.slice(0, 8), members_total: 9 };
+  const fetched = members.map((member) => ({ ...member, title: member.title.replace('Old inline', 'New fetched'), status: 'completed' }));
+  const readShow = jest.fn().mockResolvedValue(show(lane, fetched));
+  const view = render(<LanesOverlay {...propsFor(frameFor(lane), { readShow })} />);
+  fireEvent.press(view.getByTestId(`lane-card-toggle-${lane.lane_id}`));
+  fireEvent.press(view.getByTestId(`lane-card-show-all-${lane.lane_id}`));
+  await act(async () => {});
+  fireEvent.press(view.getByTestId('lane-members-row-spec_equal_revision_0'));
+  expect(view.getByText('New fetched 0')).toBeTruthy();
+  expect(view.getByText('COMPLETED')).toBeTruthy();
+  const unrelated = JSON.parse(JSON.stringify(frameFor({ ...lane, title: 'Changed lane title only' })));
+  view.rerender(<LanesOverlay {...propsFor(unrelated, { readShow })} />);
+  expect(view.getByText('New fetched 0')).toBeTruthy();
+  expect(view.getByText('COMPLETED')).toBeTruthy();
+  expect(view.queryByText('Old inline 0')).toBeNull();
+  expect(readShow).toHaveBeenCalledTimes(1);
+});
+
+test('long titles keep two-line headers, full accessible Back labels and scrollable subview content at narrow large-text settings', async () => {
+  const dimensions = require('react-native/Libraries/Utilities/useWindowDimensions');
+  const spy = jest.spyOn(dimensions, 'default').mockReturnValue({ width: 320, height: 640, scale: 1, fontScale: 3 });
+  try {
+    const title = 'Long sample lane title '.repeat(6).slice(0, 120);
+    const assistantName = 'Long sample guide name '.repeat(6).slice(0, 120);
+    const members = Array.from({ length: 9 }, (_, index) => ({ ...baseLane.members![0], spec_id: `spec_long_${index}` }));
+    const lane = { ...baseLane, title, members: members.slice(0, 8), members_total: 9 };
+    const readShow = jest.fn().mockResolvedValue(show(lane, members));
+    const view = render(<LanesOverlay {...propsFor(frameFor(lane), { readShow, assistantName })} />);
+    expect(view.getByLabelText(assistantName).props.numberOfLines).toBe(2);
+    fireEvent.press(view.getByTestId('lanes-view-map'));
+    fireEvent(view.getByTestId('lanes-map'), 'layout', { nativeEvent: { layout: { width: 320, height: 640, x: 0, y: 0 } } });
+    fireEvent.press(view.getByTestId(`lanes-map-lane-${lane.lane_id}`));
+    fireEvent.press(view.getByTestId(`lanes-map-more-${lane.lane_id}`));
+    await act(async () => {});
+    const checkHeader = (backId: string, rootId: string) => {
+      const back = view.getByTestId(backId);
+      expect(back.props.accessibilityLabel).toBe(`Back to ${title}`);
+      expect(back.props.accessibilityRole).toBe('button');
+      expect(within(back).getByText(`‹ ${title}`).props.numberOfLines).toBe(2);
+      expect(within(view.getByTestId(rootId)).UNSAFE_getByType(ScrollView)).toBeTruthy();
+    };
+    checkHeader('lane-members-back', `lane-members-${lane.lane_id}`);
+    expect(view.getAllByTestId(/^lane-members-row-/)).toHaveLength(9);
+    fireEvent.press(view.getByTestId('lane-members-row-spec_long_8'));
+    checkHeader('member-detail-back', 'member-detail-spec_long_8');
+    expect(view.getByText('Next · Inspect the paper span.')).toBeTruthy();
+    fireEvent.press(view.getByTestId('member-detail-back'));
+    fireEvent.press(view.getByTestId('lane-members-back'));
+    fireEvent.press(view.getByTestId(`lanes-map-log-${lane.lane_id}`));
+    await act(async () => {});
+    checkHeader('lane-log-back', `lane-log-${lane.lane_id}`);
+    expect(view.getByTestId('lane-log-empty')).toBeTruthy();
+    fireEvent.press(view.getByTestId('lane-log-back'));
+    expect(view.getByTestId(`lanes-map-lane-${lane.lane_id}`).props.accessibilityState.selected).toBe(true);
+  } finally { spy.mockRestore(); }
 });
 
 test.each(['resolve', 'reject'] as const)('Back from loading log ignores late %s and leaves the expanded card intact', async (settle) => {

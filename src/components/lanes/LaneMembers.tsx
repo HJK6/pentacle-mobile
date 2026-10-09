@@ -29,13 +29,14 @@ export default function LaneMembers({ model, connected, onBack, onOpenMember, re
     });
   }, [ready, members, model.lane.lane_id]);
   return <View testID={`lane-members-${model.lane.lane_id}`} style={s.root}>
+    <ScrollView contentContainerStyle={{ paddingBottom: bottom }}>
     <View style={s.header}>
       <Pressable testID="lane-members-back" accessibilityRole="button" accessibilityLabel={`Back to ${model.lane.title}`} onPress={onBack} style={s.button}>
         <Text numberOfLines={2} style={s.buttonText}>‹ {model.lane.title}</Text>
       </Pressable>
       <Text style={s.title}>All {total} specs</Text>
     </View>
-    <ScrollView contentContainerStyle={[s.body, { paddingBottom: bottom }]}>
+    <View style={s.body}>
       {loading ? <ActivityIndicator testID="lane-members-loading" color={Tokens.palette.green} /> : null}
       {failure ? <View testID="lane-members-error" style={s.panel}>
         <Text style={s.error}>{failure}</Text>
@@ -46,6 +47,7 @@ export default function LaneMembers({ model, connected, onBack, onOpenMember, re
       {ready ? members.map((member) => <Pressable key={member.spec_id} testID={`lane-members-row-${member.spec_id}`}
         accessibilityRole="button" accessibilityLabel={`${memberTitle(member)}, ${member.status || 'unknown'}`}
         style={s.panel} onPress={() => onOpenMember(member)}><LaneMemberSummary member={member} /></Pressable>) : null}
+    </View>
     </ScrollView>
   </View>;
 }
