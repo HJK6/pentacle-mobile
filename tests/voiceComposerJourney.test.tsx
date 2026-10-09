@@ -82,7 +82,7 @@ test('shared composer swaps empty draft to mic, records while destination change
   expect(voiceDelivery.snapshot().takes[0].streamId).toBe('hosta:origin');
   await act(async () => resolveTranscript({ text: 'Hello Juniper', model: 'large-v3', vocabulary_version: 'fleet-v1', duration_s: 3 }));
   expect(mockSend).toHaveBeenCalledTimes(1);
-  expect(mockSend).toHaveBeenCalledWith({ host: 'hosta', sessionName: 'origin', text: 'Hello Juniper', optimisticId: 'optimistic-voice', originGeneration: null, meta: { voice: { duration_s: 3 } } });
+  expect(mockSend).toHaveBeenCalledWith({ streamId: 'hosta:origin', text: 'Hello Juniper', optimisticId: 'optimistic-voice', originGeneration: null, meta: { voice: { duration_s: 3 } } });
   expect(mockDelete).toHaveBeenCalledTimes(1);
   expect(telemetry.filter(e => e.message === 'chat.voice.send_outcome').map(e => e.data.outcome)).toEqual(['landed']);
 });
@@ -120,7 +120,7 @@ test('unified real composer pins selected destination through closing/reselectin
   fireEvent.press(view.getByTestId('unified-reply-hosta:origin'));
   await act(async () => fireEvent.press(view.getByTestId('composer-mic-button')));
   await act(async () => resolveTranscript({ text: 'origin unified', model: 'large-v3', vocabulary_version: 'v1' }));
-  expect(mockSend).toHaveBeenCalledWith(expect.objectContaining({ sessionName: 'origin', text: 'origin unified', meta: { voice: { duration_s: 3 } } }));
+  expect(mockSend).toHaveBeenCalledWith(expect.objectContaining({ streamId: 'hosta:origin', text: 'origin unified', meta: { voice: { duration_s: 3 } } }));
   expect(mockSend).toHaveBeenCalledTimes(1);
 });
 
