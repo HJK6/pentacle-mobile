@@ -70,7 +70,8 @@ export default function LaneLog({ model, connected, updates = [], onBack, readSh
       </View> : null}
       {!connected ? <Text style={s.muted}>Waiting for connection…</Text> : null}
       {data && !loading && !error && rows.length === 0 ? <Text testID="lane-log-empty" style={s.muted}>No {TABS.find((item) => item.id === tab)?.label.toLowerCase()}</Text> : null}
-      {shown.map((row, index) => <View key={row.key} testID={`lane-log-row-${currentPage * LANE_LOG_PAGE_SIZE + index}`} style={s.panel}>
+      {shown.map((row, index) => <View key={row.key} testID={`lane-log-row-${currentPage * LANE_LOG_PAGE_SIZE + index}`}
+        accessible accessibilityLabel={`${row.label}, ${row.text}`} style={s.panel}>
         <Text style={s.label}>{row.label}</Text><Text style={s.meta}>{row.at}</Text><Text style={s.text}>{row.text}</Text>
       </View>)}
       {currentPage + 1 < pageCount ? <Pressable testID="lane-log-older" accessibilityRole="button" accessibilityLabel="Load older lane log rows"
