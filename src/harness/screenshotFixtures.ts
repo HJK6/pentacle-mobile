@@ -1016,6 +1016,49 @@ const BART_LANE_UPDATES_SNAPSHOT: HarnessSnapshot = {
   })),
 };
 
+// Work lanes, shared-fixture replay (supplemental to the contained real-daemon
+// native scenario; never its proof). Frames come only from the shared wire
+// fixture: the v1 `inventory_frame`, the merged increment-1 `progress_v2`
+// frames, and a 9-lane x 32-member overflow derived inline from the first case.
+type LaneFrame = { type: string; lanes: Array<Record<string, unknown>>; counts?: unknown; truncated?: boolean;
+  generated_at?: string; work_index?: unknown };
+type SharedLaneFixture = { inventory_frame: LaneFrame;
+  progress_v2?: Array<{ name: string; frame: LaneFrame }> };
+const SHARED_LANES = require('../../pentacle-chat-core/tests/fixtures/work-lanes-inventory.json') as SharedLaneFixture;
+
+function laneCounts(lanes: Array<Record<string, unknown>>) {
+  const count = (state: string) => lanes.filter((lane) => lane.state === state).length;
+  return { open: lanes.length, active: count('active'), paused: count('paused'), blocked: count('blocked') };
+}
+
+function laneFrame(lanes: Array<Record<string, unknown>>, workIndex?: unknown): LaneFrame {
+  return { type: 'work_lanes.inventory', lanes, counts: laneCounts(lanes), truncated: false, generated_at: T0,
+    ...(workIndex === undefined ? {} : { work_index: workIndex }) };
+}
+
+function lanesScene(frame: LaneFrame): HarnessFixture {
+  return { snapshot: { ...EMPTY_SNAPSHOT, work_lanes: frame }, opts: SEEDED };
+}
+
+const PROGRESS_CASES = SHARED_LANES.progress_v2 ?? [];
+const INC1_CASES_FRAME = laneFrame(
+  PROGRESS_CASES.flatMap((item) => item.frame.lanes),
+  PROGRESS_CASES.find((item) => item.name === 'index_unavailable')?.frame.work_index,
+);
+
+function overflowFrame(): LaneFrame {
+  const template = PROGRESS_CASES[0]?.frame.lanes[0];
+  if (!template) return laneFrame([]);
+  const members = (template.members as Array<Record<string, unknown>> | undefined) ?? [];
+  const member = members[0] ?? {};
+  const all = Array.from({ length: 32 }, (_, index) => ({ ...member,
+    spec_id: `spec_demo__overflow_${String(index + 1).padStart(2, '0')}`, title: `Overflow item ${index + 1}` }));
+  const lanes = Array.from({ length: 9 }, (_, index) => ({ ...template,
+    lane_id: `wl-${'0'.repeat(22)}${(0x90 + index).toString(16)}`, title: `Overflow lane ${index + 1}`,
+    members: all.slice(0, 8), members_total: all.length, items_total: all.length }));
+  return laneFrame(lanes, PROGRESS_CASES[0]?.frame.work_index);
+}
+
 export const FIXTURES: Record<string, HarnessFixture> = {
   "enroll:default": { snapshot: POPULATED_SNAPSHOT, opts: SEEDED },
   'chats:populated': { snapshot: POPULATED_SNAPSHOT, opts: SEEDED },
@@ -1027,6 +1070,9 @@ export const FIXTURES: Record<string, HarnessFixture> = {
   'lanes:populated': { snapshot: LANES_SNAPSHOT, opts: SEEDED },
   'lanes:empty': { snapshot: { ...EMPTY_SNAPSHOT, work_lanes: { type: 'work_lanes.inventory', lanes: [], counts: { open: 0, active: 0, paused: 0, blocked: 0 }, truncated: false, generated_at: T0 } }, opts: SEEDED },
   'bart:lane_updates': { snapshot: BART_LANE_UPDATES_SNAPSHOT, opts: SEEDED },
+  'lanes:v1_wire': lanesScene(SHARED_LANES.inventory_frame),
+  'lanes:inc1_cases': lanesScene(INC1_CASES_FRAME),
+  'lanes:overflow': lanesScene(overflowFrame()),
   'chats:loading': { snapshot: {}, opts: LOADING },
   'chats:error': { snapshot: { hosts: POPULATED_HOSTS, hosts_stats: POPULATED_MACHINE_STATS, sessions: [] }, opts: ERRORED },
 

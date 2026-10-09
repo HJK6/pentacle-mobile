@@ -51,6 +51,7 @@ import {
   applyPentacleSessionSummary,
   applyPentacleSessionInventory,
   applyWorkLanesInventory,
+  parseWorkLaneShow,
   applySnapshotWithOptimisticReconciliation,
   applyPentacleWorkingState,
   clearPentacleStreamDraft,
@@ -3529,6 +3530,30 @@ function handleMessageInner(raw: string) {
   emitHarnessSpawnRpcInboundCadence(message);
   emitHarnessSpawnRpcResponseMetadata('inbound-response', message);
 
+  if (message.type === 'work_lanes.show.ok' && typeof message.request_id === 'string') {
+    const pending = pendingRequests.get(message.request_id);
+    if (pending?.requestPrefix === 'work_lanes_show') {
+      settlePendingRequest(message.request_id);
+      pending.resolve(message);
+    }
+    return;
+  }
+
+  if (message.type === 'work_lanes.show.error' && typeof message.request_id === 'string') {
+    const pending = pendingRequests.get(message.request_id);
+    if (pending?.requestPrefix === 'work_lanes_show') {
+      settlePendingRequest(message.request_id);
+      const errorCode = String(message.error_code || 'work_lanes_show_failed');
+      pending.reject(Object.assign(new Error(String(message.error || errorCode)), { errorCode }));
+    }
+    return;
+  }
+
+  // Only the typed show replies above may settle this RPC. Other reply handlers
+  // retain their existing behavior, but cannot consume a colliding show id.
+  if (typeof message.request_id === 'string'
+    && pendingRequests.get(message.request_id)?.requestPrefix === 'work_lanes_show') return;
+
   if (message.type === 'specs.capabilities.ok') {
     if (Array.isArray(message.statuses)) {
       updateState({
@@ -5188,6 +5213,38 @@ export function requestLaneHistory(
   };
   if (typeof options.beforeDaemonSeq === 'number') payload.before_daemon_seq = options.beforeDaemonSeq;
   return sendCommand<PentacleEvent[]>(payload, LANE_HISTORY_REQUEST_PREFIX);
+}
+
+/** Read-only full lane projection and audit log; never writes chat or session state. */
+export function requestWorkLaneShow(laneId: string): Promise<import('pentacle-chat-core').WorkLaneShow> {
+  const lane_id = String(laneId || '').trim();
+  if (!lane_id) return Promise.reject(Object.assign(new Error('Lane details need a lane id'), { errorCode: 'invalid_lane_id' }));
+  return sendCommand<Record<string, unknown>>({ type: 'work_lanes.show', lane_id }, 'work_lanes_show')
+    .then((reply) => {
+      const result = parseWorkLaneShow(reply);
+      if (!result || result.lane_id !== lane_id) {
+        throw Object.assign(new Error('Invalid lane details response'), { errorCode: 'invalid_response' });
+      }
+      emitHarnessUiTrace('work_lanes_show', {
+        lane_id,
+        status: 'ok',
+        members: result.members.length,
+        events: Array.isArray(reply.events) ? reply.events.length : 0,
+        updates: result.updates.length,
+      });
+      return result;
+    })
+    .catch((failure: unknown) => {
+      const error = failure instanceof Error ? failure : new Error(String(failure));
+      const timeout = error.message === 'Pentacle command timed out';
+      const errorCode = (error as Error & { errorCode?: string }).errorCode
+        ?? (timeout ? 'request_timeout' : 'work_lanes_show_failed');
+      emitHarnessUiTrace('work_lanes_show', {
+        lane_id, status: timeout ? 'timeout' : 'error', error_code: errorCode,
+        members: 0, events: 0, updates: 0,
+      });
+      throw Object.assign(error, { errorCode });
+    });
 }
 
 type OptimisticReplyMetadata = {

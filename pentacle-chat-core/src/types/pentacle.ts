@@ -695,7 +695,61 @@ export interface WorkLaneVisibleChat {
   available: WorkLaneChatAvailability;
 }
 
-export interface WorkLane {
+/** Coarse work estimate in hours, never a remaining-time forecast. */
+export interface WorkLaneEstimate {
+  p25: number;
+  p75: number;
+  median: number;
+  provisional?: boolean;
+}
+
+export type WorkLaneObservationQuality = 'fresh' | 'stale' | 'error' | 'missing' | 'ambiguous';
+
+export interface WorkLaneObservation {
+  quality: WorkLaneObservationQuality;
+  observed_at?: string | null;
+  error?: string | null;
+}
+
+/** Optional facts stay absent when an older or malformed projection omits them. */
+export interface WorkLaneMember {
+  spec_id: string;
+  title?: string | null;
+  status?: string;
+  terminal?: 'completed' | 'deprecated' | null;
+  ac_checked?: number | null;
+  ac_total?: number | null;
+  estimate?: WorkLaneEstimate | null;
+  status_text?: string | null;
+  next_action_text?: string | null;
+  source_changed_at?: string | null;
+  observation?: WorkLaneObservation;
+  obs_rev?: number;
+}
+
+export interface WorkLaneAggregates {
+  items_total?: number;
+  items_completed?: number;
+  items_dropped?: number;
+  items_open?: number;
+  items_unresolved?: number;
+  ac_checked?: number | null;
+  ac_total?: number | null;
+  ac_members?: number;
+  open_estimate_h?: WorkLaneEstimate | null;
+  open_estimated?: number;
+  estimate_complete?: boolean;
+}
+
+export interface WorkIndex {
+  available: boolean;
+  root_configured?: boolean;
+  snapshot_at?: string | null;
+  last_sweep_at?: string | null;
+  error?: string | null;
+}
+
+export interface WorkLane extends WorkLaneAggregates {
   lane_id: string;
   title: string;
   summary: string;
@@ -711,6 +765,10 @@ export interface WorkLane {
   lead: WorkLaneLead | null;
   visible_chat: WorkLaneVisibleChat;
   last_update: { update_id: string; kind: WorkLaneUpdateKind; event_id: number; ts: string } | null;
+  members?: WorkLaneMember[];
+  members_total?: number;
+  no_spec_reason?: string | null;
+  freshness_at?: string | null;
 }
 
 export interface WorkLanesInventory {
@@ -718,6 +776,46 @@ export interface WorkLanesInventory {
   counts: { open: number; active: number; paused: number; blocked: number };
   truncated: boolean;
   generated_at: string;
+  work_index?: WorkIndex;
+}
+
+export interface WorkLaneLogUpdate {
+  update_id: string;
+  kind: WorkLaneUpdateKind;
+  event_id: string | number | null;
+  created_at: string;
+  ts: string;
+  /** Null means the view must use kind/time metadata, not invented prose. */
+  summary: string | null;
+}
+
+export interface WorkLaneLogEvent {
+  event_id: string;
+  created_at: string;
+  operation: string;
+  summary: string | null;
+}
+
+export interface WorkLaneSpecChange {
+  event_id: string;
+  created_at: string;
+  spec_id: string;
+  title: string;
+  field: 'status' | 'ac' | 'estimate';
+  before: string;
+  after: string;
+  obs_rev?: number;
+}
+
+export interface WorkLaneShow {
+  lane_id: string;
+  projection: WorkLane | null;
+  members: WorkLaneMember[];
+  work_index?: WorkIndex;
+  updates: WorkLaneLogUpdate[];
+  spec_changes: WorkLaneSpecChange[];
+  /** Other audit events; item_change events are expanded in spec_changes. */
+  events: WorkLaneLogEvent[];
 }
 
 export interface WorkLaneUpdate {
