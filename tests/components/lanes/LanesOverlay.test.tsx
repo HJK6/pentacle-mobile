@@ -870,3 +870,108 @@ test("last-update enrichment caches failures until update identity changes", asy
   await act(async () => {});
   expect(read).toHaveBeenCalledTimes(props.lanes.length * 2);
 });
+
+function publication(laneId = baseLane.lane_id): Props["updates"][number] {
+  return {
+    event: fixture.lane_update_events[0],
+    update: {
+      update_id: "global-navigation-update",
+      lane_id: laneId,
+      kind: "milestone",
+      summary: "Published lane milestone",
+      source: { type: "transition", id: "global-navigation-update" },
+      state: "active",
+      prior_state: null,
+      owner_kind: "operator",
+      title: baseLane.title,
+      ts: "2026-01-02T00:00:00.000Z",
+    },
+  };
+}
+
+test.each(["list", "map"] as const)(
+  "global publication row opens its lane log and Back preserves the global feed from %s",
+  async (origin) => {
+    const readShow = jest.fn().mockResolvedValue(show());
+    const props = propsFor(baseFrame, {
+      updates: [publication()],
+      readShow,
+      listVariant: "compact",
+    });
+    const view = render(<LanesOverlay {...props} />);
+    if (origin === "map") fireEvent.press(view.getByTestId("lanes-view-map"));
+    fireEvent.press(
+      view.getByTestId(
+        origin === "list" ? "lanes-all-updates" : "lanes-latest-update",
+      ),
+    );
+    const globalLog = within(view.getByTestId("lanes-update-log"));
+    fireEvent.press(globalLog.getByRole("button"));
+    await act(async () => {});
+    expect(view.getByTestId(`lane-log-${baseLane.lane_id}`)).toBeTruthy();
+    expect(readShow).toHaveBeenCalledWith(baseLane.lane_id);
+    fireEvent.press(view.getByTestId("lane-log-back"));
+    expect(
+      within(view.getByTestId("lanes-update-log")).getByText(
+        "Published lane milestone",
+      ),
+    ).toBeTruthy();
+    expect(props.onClose).not.toHaveBeenCalled();
+  },
+);
+
+test.each([
+  ["list", "Back"],
+  ["map", "Back"],
+  ["list", "Close lanes"],
+  ["map", "Close lanes"],
+] as const)(
+  "global log %s origin is restored by %s without exiting the overlay",
+  (origin, control) => {
+    const props = propsFor(baseFrame, {
+      updates: [publication()],
+      listVariant: "compact",
+    });
+    const view = render(<LanesOverlay {...props} />);
+    if (origin === "map") fireEvent.press(view.getByTestId("lanes-view-map"));
+    else
+      fireEvent.press(view.getByTestId(`lane-card-toggle-${baseLane.lane_id}`));
+    fireEvent.press(
+      view.getByTestId(
+        origin === "list" ? "lanes-all-updates" : "lanes-latest-update",
+      ),
+    );
+    fireEvent.press(view.getByLabelText(control));
+    expect(props.onClose).not.toHaveBeenCalled();
+    expect(view.queryByTestId("lanes-update-log")).toBeNull();
+    expect(
+      view.getByTestId("lanes-view-toggle").props.accessibilityValue.text,
+    ).toBe(origin);
+    if (origin === "list")
+      expect(
+        view.getByTestId(`lane-card-toggle-${baseLane.lane_id}`).props
+          .accessibilityState.expanded,
+      ).toBe(true);
+  },
+);
+
+test("global publication for a lane absent from the projection reports unavailability without redirecting", () => {
+  const readShow = jest.fn();
+  const view = render(
+    <LanesOverlay
+      {...propsFor(baseFrame, {
+        updates: [publication("lane-absent")],
+        readShow,
+      })}
+    />,
+  );
+  fireEvent.press(view.getByTestId("lanes-all-updates"));
+  fireEvent.press(
+    within(view.getByTestId("lanes-update-log")).getByRole("button"),
+  );
+  expect(view.getByTestId("lanes-update-log-unavailable")).toHaveTextContent(
+    "Lane log unavailable: lane-absent is not in the current open lanes",
+  );
+  expect(readShow).not.toHaveBeenCalled();
+  expect(view.queryAllByTestId(/^lane-log-/)).toHaveLength(0);
+});

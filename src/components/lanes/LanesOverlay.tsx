@@ -146,7 +146,8 @@ export default function LanesOverlay({
   const [view, setView] = useState<"list" | "map">("list"),
     [focus, setFocus] = useState<string | null>(null),
     [logId, setLogId] = useState<string | null>(null),
-    [allUpdates, setAllUpdates] = useState(false);
+    [allUpdates, setAllUpdates] = useState(false),
+    [unavailableLog, setUnavailableLog] = useState<string | null>(null);
   const mapBack = useRef<() => void>(() => setFocus(null));
   const focused =
     view === "map" ? lanes.find((m) => m.lane.lane_id === focus) : undefined;
@@ -173,6 +174,17 @@ export default function LanesOverlay({
     if (!logId) emitHarnessUiTrace("work_lanes_view", { view });
   }, [view, logId]);
   const openLog = (model: LaneCardViewModel) => setLogId(model.lane.lane_id);
+  const closeGlobalLog = () => {
+    setAllUpdates(false);
+    setUnavailableLog(null);
+  };
+  const openPublicationLog = (entry: LaneUpdateEntry) => {
+    const model = lanes.find(
+      (lane) => lane.lane.lane_id === entry.update.lane_id,
+    );
+    setUnavailableLog(model ? null : entry.update.lane_id);
+    if (model) openLog(model);
+  };
   const hidden = !!log || allUpdates;
   return (
     <View testID="lanes-overlay" style={{ flex: 1, backgroundColor: p.ink }}>
@@ -207,7 +219,7 @@ export default function LanesOverlay({
               <Pressable
                 accessibilityRole="button"
                 accessibilityLabel="Back"
-                onPress={() => setAllUpdates(false)}
+                onPress={closeGlobalLog}
                 style={styles.round}
               >
                 <Icon kind="back" />
@@ -304,7 +316,7 @@ export default function LanesOverlay({
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="Close lanes"
-              onPress={onClose}
+              onPress={allUpdates ? closeGlobalLog : onClose}
               style={styles.round}
             >
               <Icon kind="close" />
@@ -411,8 +423,22 @@ export default function LanesOverlay({
             contentContainerStyle={{ padding: 16, gap: 14 }}
           >
             <Text style={label}>Update log</Text>
+            {unavailableLog ? (
+              <LeafText
+                id="lanes-update-log-unavailable"
+                text={`Lane log unavailable: ${unavailableLog} is not in the current open lanes`}
+                style={{ ...body, color: p.amber }}
+              />
+            ) : null}
             {updates.map((entry, i) => (
-              <View key={entry.update.update_id} style={{ gap: 5 }}>
+              <Pressable
+                key={entry.update.update_id}
+                testID={`lanes-update-log-row-${entry.update.update_id}`}
+                accessibilityRole="button"
+                accessibilityLabel={`Open lane log: ${entry.update.summary}`}
+                onPress={() => openPublicationLog(entry)}
+                style={{ gap: 5 }}
+              >
                 <Text style={{ ...mono, color: i === 0 ? p.green : p.muted }}>
                   {laneTime(entry.update.ts)}
                 </Text>
@@ -429,7 +455,7 @@ export default function LanesOverlay({
                 >
                   {entry.update.summary}
                 </Text>
-              </View>
+              </Pressable>
             ))}
           </ScrollView>
         ) : null}
