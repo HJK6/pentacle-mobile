@@ -86,7 +86,7 @@ export function MemberContent({
         <>
           <View style={{ flexDirection: "row", gap: 7, alignItems: "center" }}>
             <SpecGlyph member={member} model={model} />
-            <Text style={{ ...label, fontSize: 9.5 }}>
+            <Text style={{ ...label, fontSize: 9.5, color: member.status === "missing" ? p.red : label.color }}>
               {(member.status || "unknown").replace(/_/g, " ").toUpperCase()}
             </Text>
             <Text

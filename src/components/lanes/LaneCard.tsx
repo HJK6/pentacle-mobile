@@ -317,8 +317,8 @@ export default function LaneCard({
             style={{ gap: 5 }}
           >
             <Segments model={model} height={compact ? 7 : 5} />
-            <View style={{ flexDirection: "row", gap: 6 }}>
-              <Text style={{ ...mono, flex: 1, letterSpacing: 0.5 }}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+              <Text numberOfLines={1} style={{ ...mono, flex: 1, letterSpacing: 0.5 }}>
                 {model.completed}/{model.total} SPECS DONE
                 {compact && current.length
                   ? ` · ${current.length} IN PROGRESS`
@@ -327,7 +327,7 @@ export default function LaneCard({
                   ? ` · ${lane.items_unresolved} UNRESOLVED`
                   : ""}
               </Text>
-              <Text style={mono}>
+              <Text numberOfLines={1} style={{ ...mono, letterSpacing: 0.5 }}>
                 AC {lane.ac_checked ?? "—"}/{lane.ac_total ?? "—"}
               </Text>
               {compact ? (

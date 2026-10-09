@@ -996,3 +996,24 @@ test.each(["compact", "current", "bars"] as const)(
     expect(view.queryByText("Waiting on you: 1 question")).toBeNull();
   },
 );
+
+
+test.each(["compact", "current", "bars"] as const)(
+  "full counts remain on one baseline with mock metrics in %s",
+  (listVariant) => {
+    const props = propsFor(frameFor({ items_completed: 1, items_total: 3, items_unresolved: 1, ac_checked: 8, ac_total: 11 }), { listVariant });
+    const view = render(<LanesOverlay {...props} />);
+    const counts = view.getByText(/1\/3 SPECS DONE/);
+    expect(counts).toHaveTextContent(listVariant === "compact"
+      ? "1/3 SPECS DONE · 1 IN PROGRESS · 1 UNRESOLVED"
+      : "1/3 SPECS DONE · 1 UNRESOLVED");
+    expect(counts.props.numberOfLines).toBe(1);
+    expect(StyleSheet.flatten(counts.props.style)).toMatchObject({ fontSize: 9.5, letterSpacing: 0.5, flex: 1 });
+    let row = counts.parent;
+    while (row && StyleSheet.flatten(row.props.style)?.flexDirection !== "row") row = row.parent;
+    expect(StyleSheet.flatten(row!.props.style)).toMatchObject({ flexDirection: "row", alignItems: "center", gap: 6 });
+    const ac = view.getByText("AC 8/11");
+    expect(ac.props.numberOfLines).toBe(1);
+    expect(StyleSheet.flatten(ac.props.style)).toMatchObject({ fontSize: 9.5, letterSpacing: 0.5 });
+  },
+);

@@ -187,6 +187,7 @@ export function selectLaneCardViewModels(state: PentacleStreamState, now = Date.
     const waitingOnYou = questionCounts.get(lane.visible_chat.stream_id) ?? 0;
     const waitingOnYouLabel = waitingOnYou > 0
       ? `Waiting on you · ${waitingOnYou} ${waitingOnYou === 1 ? 'question' : 'questions'}` : null;
+    const questionPrompt = questionPrompts.get(lane.visible_chat.stream_id);
     const lastUpdate = lane.last_update ? updates.get(lane.last_update.update_id) : undefined;
     const lastUpdateText = lastUpdate?.lane_id === lane.lane_id && lastUpdate.summary
       ? lastUpdate.summary : lane.last_update ? `${lane.last_update.kind} · ${lane.last_update.ts}` : null;
@@ -206,7 +207,7 @@ export function selectLaneCardViewModels(state: PentacleStreamState, now = Date.
       waitingOnYou,
       waitingOnYouLabel,
       blockerLabel: waitingOnYou === 1
-        ? lane.blocker || `Waiting on you: ${questionPrompts.get(lane.visible_chat.stream_id)}`
+        ? lane.blocker || (questionPrompt?.trim() ? `Waiting on you: ${questionPrompt}` : waitingOnYouLabel)
         : waitingOnYouLabel ?? lane.blocker,
       lastUpdateText,
       freshnessLabel: formatLaneFreshness(lane.freshness_at ?? lane.updated_at, now),

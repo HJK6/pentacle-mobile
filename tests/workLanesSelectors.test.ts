@@ -8,6 +8,7 @@ import {
   formatLaneCardProgress, formatLaneFreshness, formatWorkLaneEstimate,
   laneCardStateLabel, selectLaneCardViewModels,
 } from '../src/services/workLanes';
+import * as questionSelectors from '../src/components/questions/questionSelectors';
 import { selectPendingQuestionCount, selectQuestionDeck } from '../src/components/questions/questionSelectors';
 import {
   HOSTS_CONFIG, SESSION_C, HIDDEN_SEAT, fixtureState, optimisticAnswer, twoItemQuestion,
@@ -222,4 +223,20 @@ test('single question uses its prompt when the lane has no blocker', () => {
   const entry = selectQuestionDeck(state).find(item => item.streamId === COMPOSITE_STREAM)!;
   const withLane = applyWorkLanesInventory(state, {lanes: [{...base(), blocker: null, visible_chat: {...base().visible_chat, stream_id: entry.streamId}}]});
   expect(selectLaneCardViewModels(withLane, NOW)[0].blockerLabel).toBe(`Waiting on you: ${entry.question.prompt}`);
+});
+
+
+test.each(['', '   ', '\t\n'])('single blank prompt %j falls back to the count and preserves a lane blocker', (prompt) => {
+  const state = fixtureState();
+  const entry = selectQuestionDeck(state).find(item => item.streamId === COMPOSITE_STREAM)!;
+  const deck = jest.spyOn(questionSelectors, 'selectQuestionDeck').mockReturnValue([{ ...entry, question: { ...entry.question, prompt } }]);
+  try {
+    const lane = { ...base(), blocker: null, visible_chat: { ...base().visible_chat, stream_id: entry.streamId } };
+    const withLane = applyWorkLanesInventory(state, { lanes: [lane] });
+    const model = selectLaneCardViewModels(withLane, NOW)[0];
+    expect(model.waitingOnYou).toBe(1);
+    expect(model.blockerLabel).toBe('Waiting on you · 1 question');
+    const blocked = applyWorkLanesInventory(state, { lanes: [{ ...lane, blocker: 'Review the estimate.' }] });
+    expect(selectLaneCardViewModels(blocked, NOW)[0].blockerLabel).toBe('Review the estimate.');
+  } finally { deck.mockRestore(); }
 });
