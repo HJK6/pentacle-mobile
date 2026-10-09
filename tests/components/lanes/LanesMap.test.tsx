@@ -278,7 +278,7 @@ test("Pending and Done stacks expand in place and spec back restores its origina
       const close = view.getByTestId("lanes-map-stack-close");
       expect(StyleSheet.flatten(close.props.style)).toMatchObject({
         borderStyle: "solid",
-        borderColor: Tokens.palette.green,
+        borderColor: `${Tokens.palette.green}88`,
       });
       expect(
         StyleSheet.flatten(view.getByText("DONE · 2").props.style).color,

@@ -952,7 +952,7 @@ export default function LanesMap({
                 gap: 6,
                 borderWidth: 1,
                 borderStyle: stack === "done" ? "solid" : "dashed",
-                borderColor: stack === "done" ? p.green : p.dim,
+                borderColor: stack === "done" ? `${p.green}88` : p.dim,
                 borderRadius: 14,
                 paddingVertical: 5,
                 paddingHorizontal: 10,
@@ -969,11 +969,7 @@ export default function LanesMap({
               >
                 {stack.toUpperCase()} · {stackList?.length}
               </Text>
-              <Icon
-                kind="close"
-                size={12}
-                color={stack === "done" ? p.green : p.dim}
-              />
+              <Icon kind="close" size={12} />
             </Pressable>
           ) : null}
         </View>
