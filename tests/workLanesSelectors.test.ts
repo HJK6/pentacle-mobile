@@ -10,8 +10,10 @@ import {
 } from '../src/services/workLanes';
 import { selectPendingQuestionCount, selectQuestionDeck } from '../src/components/questions/questionSelectors';
 import {
-  HOSTS_CONFIG, SESSION_C, BART, HIDDEN_SEAT, fixtureState, optimisticAnswer, twoItemQuestion,
+  HOSTS_CONFIG, SESSION_C, HIDDEN_SEAT, fixtureState, optimisticAnswer, twoItemQuestion,
 } from './questions/fixtures';
+// The shared question fixture lists the assistant composite session first.
+const COMPOSITE_STREAM = fixtureState().sessions[0].stream_id;
 
 jest.mock('expo-constants', () => require('./helpers/stubs/expoConstants.cjs'));
 
@@ -173,7 +175,7 @@ describe('waiting on you uses the actual Questions deck', () => {
     expect(models.find((model) => model.lane.visible_chat.stream_id === SESSION_C)).toMatchObject({
       waitingOnYou: 2, blockerLabel: 'Waiting on you · 2 questions', stateLabel: 'BLOCKED',
     });
-    expect(models.find((model) => model.lane.visible_chat.stream_id === BART)?.waitingOnYou).toBe(1);
+    expect(models.find((model) => model.lane.visible_chat.stream_id === COMPOSITE_STREAM)?.waitingOnYou).toBe(1);
     for (const model of models) {
       expect(model.waitingOnYou).toBe(selectQuestionDeck(state).filter((entry) => entry.streamId === model.lane.visible_chat.stream_id).length);
     }
@@ -190,13 +192,13 @@ describe('waiting on you uses the actual Questions deck', () => {
   test('a hidden producer routed to the visible composite counts on that composite lane', () => {
     const state = fixtureState();
     state.notifications = state.notifications.map((entry: { notification_id: string }) => entry.notification_id === 'n-hidden'
-      ? { ...entry, surfaced_to_stream_id: BART } : entry);
+      ? { ...entry, surfaced_to_stream_id: COMPOSITE_STREAM } : entry);
     const lanes = applyWorkLanesInventory(state, { lanes: [{
       ...base(), lead: { ...base().lead!, stream_id: HIDDEN_SEAT },
-      visible_chat: { ...base().visible_chat, stream_id: BART, kind: 'composite' },
+      visible_chat: { ...base().visible_chat, stream_id: COMPOSITE_STREAM, kind: 'composite' },
     }] });
     const deck = selectQuestionDeck(lanes);
-    expect(deck.filter((entry) => entry.streamId === BART)).toHaveLength(2);
+    expect(deck.filter((entry) => entry.streamId === COMPOSITE_STREAM)).toHaveLength(2);
     expect(deck.filter((entry) => entry.streamId === HIDDEN_SEAT)).toHaveLength(0);
     expect(selectLaneCardViewModels(lanes, NOW)[0].waitingOnYou).toBe(2);
   });
