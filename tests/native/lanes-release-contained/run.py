@@ -10,8 +10,9 @@ owned scratch store:
      `work_lanes.show` lane log.
   C  stop A, upgrade the SAME store offline with the increment-1 code (the
      daemon's own forward migration), start B on the same port; the running
-     app reconnects through the unchanged loopback proxy (same PID, no
-     reinstall) and members appear.
+     app reconnects through the unchanged loopback proxy (same app process
+     PID, no reinstall; the daemon is a new process on the same store and
+     port) and members appear.
   B  increment-1 daemon: list -> expand -> map (paged orbit) -> focus ->
      `+N` -> all 32 members via a real `work_lanes.show` -> member detail ->
      lane log (Updates / Spec changes / Events) -> back; missing, ambiguous,
@@ -736,7 +737,8 @@ class Run:
                 raise AssertFail("v1 pending notes remain after the increment-1 inventory arrived")
             time.sleep(1)
         ui.screenshot("c-reconnected-list")
-        self.result["checks"]["run_c_reconnect"] = {"same_pid": self.app_pid,
+        self.result["checks"]["run_c_reconnect"] = {"app_pid_unchanged": self.app_pid,
+                                                    "daemon_b_pid": self.processes["daemon"]["pid"],
                                                     "connections": connections_with_snapshot(self.wire(), since)}
 
     def spec_edit(self) -> None:

@@ -8,7 +8,7 @@ tree or credential.
 | Run | Daemon | Proves |
 |---|---|---|
 | A | public `HJK6/pentacle` `3dc10e240a163ca4a36a0886326af0b2da09f595` (last main commit before the increment-1 merge; v1 lanes wire) | graceful list and map without members (pending note), real `work_lanes.show` lane log |
-| C | A stopped → same store upgraded offline by the increment-1 code (the daemon's own forward migration) → B on the same port | the running app reconnects through the unchanged `ws://127.0.0.1:17896` proxy, same PID, no reinstall; members appear |
+| C | A stopped → same store upgraded offline by the increment-1 code (the daemon's own forward migration) → B on the same port | the running app (same app process PID) reconnects through the unchanged `ws://127.0.0.1:17896` proxy, no reinstall; the daemon is a new process on the same owned store and port; members appear |
 | B | `56ca05bc27fac2faf7cf369974cad785ca4129be` (increment 1) | list → expand → map (paged orbit, 9 lanes) → focus (≤ 8 member nodes + `+N`) → all 32 members via a real `work_lanes.show` → member detail → lane log Updates / Spec changes (real `item_change` after a scratch spec edit) / Events → back; missing, ambiguous, no-spec and index-unavailable on real data; accessibility extra-extra-extra-large text recheck |
 
 Assertions use the native accessibility tree (`idb ui describe-all`, testIDs
