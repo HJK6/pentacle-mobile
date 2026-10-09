@@ -116,7 +116,8 @@ Reduced modes (the production path only; same admission, daemon, proxy and teard
   - open the lanes view: the assistant header status button (`<name> status, N open lanes`) when rendered,
     otherwise the `pentacle://pentacle/lanes` deep link through the exact-match `Open` confirmation. No lanes
     view within 30 s stops the run with SETUP_FAIL and a dump;
-  - the list in daemon order (big lane expanded);
+  - the list in daemon order (big lane expanded). Cards are found by their `lane-card-log-<lane>` button: on iOS
+    only accessible pressables expose a testID, so Text ids such as `lane-card-progress-` are not in the tree;
   - one real `work_lanes.show` round-trip: "show all" opens the 32-member list, paired by `request_id` on
     the proxy;
   - map orbit page 1 in daemon order.
@@ -124,7 +125,8 @@ Reduced modes (the production path only; same admission, daemon, proxy and teard
 iOS system alerts are pressed only when they match exactly: `Open in “Pentacle”?` → **Open** (the deep-link
 confirmation) and `“Pentacle” Would Like to Send You Notifications` → **Don’t Allow**. Each press saves an
 accessibility dump under `evidence/ax/`. A known alert without its exact button stops the run with
-SETUP_FAIL. Other alerts are never pressed: the step times out with a dump.
+SETUP_FAIL. Other alerts are never pressed: the step times out with a dump. Every failed step saves a screenshot and an
+accessibility dump (`ax/*-failure-<step>.json`).
 
 Exit codes: `0` PASS, `1` FAIL (product assertion), `4` SETUP_FAIL
 (precondition, tool or owned-resource failure, including incomplete teardown).

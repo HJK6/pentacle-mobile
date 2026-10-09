@@ -276,6 +276,11 @@ def home_state(elements: list[dict[str, Any]]) -> dict[str, Any] | None:
     return None
 
 
+# A list card is found by its "Lane log" button: one per card, carrying the lane id. On iOS only accessible
+# elements (pressables with a role) expose their testID; the card's Text ids (e.g. `lane-card-progress-`) are not.
+LIST_CARD = "lane-card-log-"
+
+
 def lanes_status_button(elements: list[dict[str, Any]]) -> dict[str, Any] | None:
     """The assistant header status button (`<name> status, N open lanes…`), which opens the lanes view in-app."""
     for element in elements:
@@ -530,10 +535,11 @@ class Run:
         except Exception as exc:
             record.update(status="error", seconds=round(time.time() - started, 2), error=str(exc)[:500])
             if self.ui and self.udid:
-                try:
-                    self.ui.screenshot("failure-" + name)
-                except Exception:
-                    pass
+                for capture in (self.ui.screenshot, self.ui.dump):  # screen and accessibility tree, every failure
+                    try:
+                        capture("failure-" + name)
+                    except Exception:
+                        pass
             raise
 
     def sh(self, argv: list[str], *, timeout: float = 60, check: bool = True, env: dict[str, str] | None = None,
@@ -850,7 +856,7 @@ class Run:
                 time.sleep(0.3)
         else:
             deadline = time.monotonic() + 20
-            while not self.ui.ids("lane-card-progress-"):
+            while not self.ui.ids(LIST_CARD):
                 if time.monotonic() > deadline:
                     raise AssertFail("list view did not render")
                 time.sleep(0.3)
@@ -934,7 +940,7 @@ class Run:
 
     def run_a_list(self) -> None:
         ui = self.ui
-        visible = self.visible_order("lane-card-progress-")
+        visible = self.visible_order(LIST_CARD)
         self.assert_prefix_order(visible, "run A list")
         for lane in visible:
             ui.find(f"lane-card-members-pending-{lane}", 5)
@@ -1026,13 +1032,13 @@ class Run:
 
     def run_b_list(self) -> None:
         ui, big = self.ui, sd.big_lane_id()
-        visible = self.visible_order("lane-card-progress-")
+        visible = self.visible_order(LIST_CARD)
         self.assert_prefix_order(visible, "run B list")
         ui.tap(f"lane-card-toggle-{big}")
         for spec in sd.BIG[:8]:
             ui.find(f"lane-card-member-{big}-{spec}", 10)
         ui.find(f"lane-card-show-all-{big}")
-        ui.find(f"lane-card-progress-{big}")
+        ui.find(f"{LIST_CARD}{big}")
         ui.screenshot("b-list-expanded")
         ui.tap(f"lane-card-toggle-{big}")
         self.result["checks"]["run_b_list"] = {"visible_lanes": visible, "expanded_members": 8}
@@ -1232,7 +1238,7 @@ class Run:
         self.result["checks"]["run_b_large_text"] = {"content_size": LARGE_TEXT}
 
     def run_b_final(self) -> None:
-        self.ui.find("lane-card-progress-" + sd.big_lane_id())
+        self.ui.find(LIST_CARD + sd.big_lane_id())
         self.ui.screenshot("b-final-list")
         if self.app_pids() != [self.app_pid]:
             raise AssertFail("app process did not survive the journey")
@@ -1390,8 +1396,8 @@ class Run:
 
 SUPPLEMENTAL_SCENES = {
     "lanes:v1_wire": {"expect": ["lanes-view-list"], "prefix_present": "lane-card-members-pending-"},
-    "lanes:inc1_cases": {"expect": ["lanes-view-list", "lanes-index-banner"], "prefix_present": "lane-card-progress-"},
-    "lanes:overflow": {"expect": ["lanes-view-list"], "prefix_present": "lane-card-progress-"},
+    "lanes:inc1_cases": {"expect": ["lanes-view-list", "lanes-index-banner"], "prefix_present": LIST_CARD},
+    "lanes:overflow": {"expect": ["lanes-view-list"], "prefix_present": LIST_CARD},
 }
 
 

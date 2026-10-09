@@ -942,6 +942,59 @@ def test_open_lanes_deep_link_waits_for_the_lanes_view(tmp_path, monkeypatch):
     assert owned.result["lanes_entry"] == "deep link" and dumps == [] and len(opened) == 1
 
 
+def _r2_list_screen():
+    # reduced-1 (14:03Z) companion log: the cards' Texts are StaticText without an identifier; only the
+    # role=button pressables (toggle / log / chat, the view toggles) expose their testID.
+    lanes = ["wl-4abf858209848e516dccde25", "wl-298430ea76b6dc262400bbec", "wl-29130385f0ef26863b99a771"]
+    screen = [{"AXIdentifier": f"lanes-view-{v}", "AXLabel": v.title(), "type": "Button",
+               "frame": {"x": 40 + 140 * i, "y": 266, "width": 90, "height": 80}} for i, v in enumerate(["list", "map"])]
+    for i, lane in enumerate(lanes):
+        y = 510 + 760 * i
+        screen += [_el("Clay tile batch", "StaticText", 74, y), _el("1 unresolved", "StaticText", 74, y + 330),
+                   {**_el("View log for Clay tile batch", "Button", 74, y + 590), "AXIdentifier": f"lane-card-log-{lane}"},
+                   {**_el("See chat for Clay tile batch", "Button", 282, y + 590), "AXIdentifier": f"lane-card-chat-{lane}"}]
+    return lanes, screen
+
+
+def test_list_view_is_found_by_exposed_card_buttons_not_text_ids(tmp_path, monkeypatch):
+    lanes, screen = _r2_list_screen()
+    owned = _owned_scratch(tmp_path)
+
+    class FakeUi:
+        def tap(self, identifier, timeout_s=20):
+            return {}
+
+        def ids(self, prefix=""):
+            return [e for e in screen if run.Ui.ident(e).startswith(prefix)]
+
+    owned.ui = FakeUi()
+    monkeypatch.setattr(run.time, "sleep", lambda s: None)
+    owned.show_view("list")   # RED before: waited for lane-card-progress-, which iOS never exposes
+    assert owned.visible_order(run.LIST_CARD) == lanes
+
+
+def test_every_step_failure_saves_a_screenshot_and_an_accessibility_dump(tmp_path):
+    owned = _owned_scratch(tmp_path)
+    owned.udid, captured = "U-1", []
+
+    class FakeUi:
+        def screenshot(self, name):
+            captured.append(("screenshot", name))
+
+        def dump(self, name, elements=None):
+            captured.append(("dump", name))
+
+    owned.ui = FakeUi()
+    for error in (run.AssertFail("list view did not render"), run.SetupFail("lanes view did not open")):
+        captured.clear()
+
+        def fail():
+            raise error
+        with pytest.raises(type(error)):
+            owned.step("open_lanes", fail)
+        assert captured == [("screenshot", "failure-open_lanes"), ("dump", "failure-open_lanes")]
+
+
 def test_smoke_and_reduced_plans_are_inc1_only_and_bounded():
     assert run.SMOKE_STEPS == ["admission", "seed_inc1", "proxy_start", "daemon_b_start", "probe_b",
                                "simulator_activate", "app_launch", "enroll", "home_enrolled"]
