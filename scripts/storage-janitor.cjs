@@ -179,7 +179,7 @@ function discardVerifiedEvidence(run) {
   return detachAndDiscard('evidence', run.id, run.evidence_seal);
 }
 
-function applyRunHeld(id, decision, now, manual) {
+function applyRunHeld(id, decision, now, manual, smokeBinding = null) {
   let run = readRecord('runs', id);
   const currentDecision = runDecision(run, now, manual);
   if (currentDecision.action !== decision.action || currentDecision.reason !== decision.reason) throw new Error('JANITOR_AUTHORIZATION_DRIFT');
@@ -192,7 +192,9 @@ function applyRunHeld(id, decision, now, manual) {
     return replaceRecord('runs', id, run.revision, { ...run, revision: run.revision + 1, first_dead_at: new Date(now).toISOString() });
   }
   if (decision.action === 'observe-dead') {
-    return replaceRecord('runs', id, run.revision, { ...run, revision: run.revision + 1, first_dead_at: new Date(now).toISOString() });
+    const next = { ...run, revision: run.revision + 1, first_dead_at: new Date(now).toISOString() };
+    if (smokeBinding) return state.bind(mutationCapability).observeDeadForUpdateSmoke(id, run.revision, next, smokeBinding);
+    return replaceRecord('runs', id, run.revision, next);
   }
   if (decision.action === 'discard-scratch' || decision.action === 'recover-scratch') {
     return withVerifiedEvidence(run, () => {
@@ -262,8 +264,8 @@ function rotateReports(now = Date.now()) {
   fsyncDirectory(directory);
 }
 
-function applyRun(id, decision, now, manual) {
-  return withRecordMutation('runs', id, () => applyRunHeld(id, decision, now, manual));
+function applyRun(id, decision, now, manual, smokeBinding = null) {
+  return withRecordMutation('runs', id, () => applyRunHeld(id, decision, now, manual, smokeBinding));
 }
 
 // `recoverDeadHostLock` is fail-closed: it throws HOST_LOCK_RECOVERY_MISMATCH unless the lock PROVABLY
@@ -290,13 +292,20 @@ function tryRecoverDeadHostLock(id, report) {
 }
 
 function runJanitor(mode, now = Date.now()) {
+  const updating = mode === 'dry-run' && state.readAuthorityState().state === 'updating';
+  const context = updating ? state.validateUpdateSmokeAuthority() : null;
+  const smokeBinding = context?.binding || null;
   recoverAtomicTemps();
-  const authority = validateInstalledAuthority();
+  const authority = smokeBinding ? state.validateUpdateSmokeAuthority(smokeBinding).authority : validateInstalledAuthority();
   const release = acquireJanitor(authority);
   const reportId = generatedId();
-  const active = mode === 'dry-run' ? listRecords('scheduler').filter((entry) => entry.state === 'candidate_installed') : [];
-  if (active.length > 1) throw new Error('SCHEDULER_SMOKE_TRANSACTION_CARDINALITY');
-  const binding = active.length === 1 ? { transaction_id: active[0].id, generation: active[0].generation, candidate_digest: active[0].candidate_digest } : {};
+  const binding = smokeBinding ? { transaction_id: smokeBinding.transaction_id, generation: smokeBinding.generation, candidate_digest: smokeBinding.candidate_digest } : {};
+  // Installed install-smoke retains the existing report binding; it gains no updating authority.
+  if (!smokeBinding && mode === 'dry-run') {
+    const active = listRecords('scheduler').filter((entry) => entry.state === 'candidate_installed');
+    if (active.length > 1) { release(); throw new Error('SCHEDULER_SMOKE_TRANSACTION_CARDINALITY'); }
+    if (active.length === 1) Object.assign(binding, { transaction_id: active[0].id, generation: active[0].generation, candidate_digest: active[0].candidate_digest });
+  }
   const report = { schema: 1, report_id: reportId, mode, entries: [], errors: [], completed_at: null, ...binding };
   try {
     const disabled = path.join(fixedLayout().state, 'disabled');
@@ -370,7 +379,7 @@ function runJanitor(mode, now = Date.now()) {
       // cannot recover, discard, retire, or otherwise delete. applyRun re-reads and re-authorizes the
       // decision under the record-mutation lock, so a liveness or identity change still refuses.
       if ((mode === 'apply' && decision.action !== 'retain') || (mode === 'dry-run' && decision.action === 'observe-dead')) {
-        try { applyRun(run.id, decision, now); }
+        try { applyRun(run.id, decision, now, undefined, smokeBinding); }
         catch (error) { report.errors.push({ kind: 'run', id: run.id, error: String(error.message || error) }); }
       }
     }
@@ -385,6 +394,7 @@ function runJanitor(mode, now = Date.now()) {
     if (mode === 'apply') { rotateTerminal('runs', now); rotateTerminal('tickets', now); }
   } finally {
     try {
+      if (smokeBinding) state.validateUpdateSmokeAuthority(smokeBinding);
       report.completed_at = new Date(now).toISOString();
       atomicJson(path.join(fixedLayout().state, 'reports', `${reportId}.json`), report);
       rotateReports(now);

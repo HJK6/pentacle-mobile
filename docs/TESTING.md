@@ -102,6 +102,28 @@ other roots are refused before any change. Prepare it with `git clone`, `npm ci 
 and `git fetch` before updating. Admission is checked at install/update only; scheduled runs
 execute whatever that checkout contains, so keep it clean and on public `main`. The update
 is transactional and rolls back to the prior plist.
+
+The update's real scheduled dry-run runs while authority is `updating`. Only its
+single `candidate_installed` update transaction may use that exception: the
+scheduler lock records the original live process start epoch and binds the
+transaction before entering `updating`; generation, roots and actual candidate
+plist digest must match. The janitor rechecks those bindings at an observe-dead
+journal write, and the updater rechecks them when accepting the immutable report
+and committing. Ordinary validation and `apply` remain installed-only.
+
+An occupied legacy scheduler lock cannot grant this exception. New acquisition
+refuses an unavailable process epoch. Recovery of an interrupted version-2 lock
+refuses with `SCHEDULER_LOCK_RECOVERY_UNSUPPORTED`; stop and retain the transaction
+and preimages for the deployment owner, without takeover or a retry.
+
+The source regression suite is `node scripts/storage-scheduled-janitor.test.cjs`.
+Use `node --test --test-name-pattern='actual update CLI'
+scripts/storage-scheduled-janitor.test.cjs` for the focused combined path. Its
+owned fixture executes the actual update CLI, rendered wrapper and real janitor;
+only launchctl and capacity are modelled. It covers genuine report success,
+real janitor error/no-report rollback, binding refusals and durable observation/
+report-acceptance races. These fixtures prove source behavior, not installed
+launchd acceptance.
 Admission catches ordinary accidents: a wrong or private root, a plainly dirty tree, an
 unmerged commit, a redirected worktree or a remapped origin refspec. It does not detect every
 dirty state and does not authenticate the source against an actor running as the same user.

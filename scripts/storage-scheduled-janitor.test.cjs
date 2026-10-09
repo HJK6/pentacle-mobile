@@ -16,7 +16,12 @@ function temporary(prefix) {
   roots.push(root);
   return root;
 }
-after(() => { for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true }); });
+after(() => {
+  for (const root of roots.splice(0)) {
+    fs.rmSync(root, { recursive: true, force: true });
+    if (process.env.STORAGE_FIXTURE_CLEANUP_RECEIPT) fs.appendFileSync(process.env.STORAGE_FIXTURE_CLEANUP_RECEIPT, `${JSON.stringify({ root, absent: !fs.existsSync(root) })}\n`);
+  }
+});
 
 function git(cwd, ...args) {
   return execFileSync('/usr/bin/git', ['-c', 'user.name=fixture', '-c', 'user.email=fixture@example.invalid', ...args], { cwd, encoding: 'utf8', env: { PATH: '/usr/bin:/bin', HOME: cwd, LC_ALL: 'C' }, timeout: FIXTURE_TIMEOUT_MS });
@@ -348,20 +353,22 @@ transactional('failed smoke rolls the prior plist back byte for byte and leaves 
   assert.equal(evidence.sealsUnchanged, true);
 });
 
-transactional('an update interrupted before the candidate lands recovers to the prior plist', 'interrupt-before-candidate', (result) => {
+transactional('an update interrupted before the candidate refuses unsupported new-lock recovery', 'interrupt-before-candidate', (result) => {
   const evidence = ok(result);
   assert.equal(evidence.crashed, true);
+  assert.equal(evidence.recoveryError, 'SCHEDULER_LOCK_RECOVERY_UNSUPPORTED');
+  assert.equal(evidence.transactionState, 'prepared');
   assert.equal(evidence.plistRestored, true);
-  assert.equal(evidence.transactionState, 'restored');
-  assert.equal(evidence.authorityState, 'installed');
+  assert.equal(evidence.authorityState, 'updating');
 });
 
-transactional('an update interrupted after the candidate lands recovers forward to a committed wrapper plist', 'interrupt-after-candidate', (result) => {
+transactional('an update interrupted after the candidate refuses unsupported new-lock recovery', 'interrupt-after-candidate', (result) => {
   const evidence = ok(result);
   assert.equal(evidence.crashed, true);
-  assert.equal(evidence.transactionState, 'committed');
+  assert.equal(evidence.recoveryError, 'SCHEDULER_LOCK_RECOVERY_UNSUPPORTED');
+  assert.equal(evidence.transactionState, 'candidate_installed');
   assert.equal(evidence.plistRunsWrapper, true);
-  assert.equal(evidence.authorityState, 'installed');
+  assert.equal(evidence.authorityState, 'updating');
   assert.equal(evidence.sealsUnchanged, true);
 });
 
@@ -388,4 +395,185 @@ test('wrapper closes the stdout log when the stderr log cannot be opened', async
   try { assert.equal(await run({ state, command: process.execPath, args: ['-e', 'process.exit(0)'] }), 0); }
   finally { process.stderr.write = write; }
   assert.ok(descriptors() <= before, 'no descriptor outlives the failed open');
+});
+
+
+transactional('actual update CLI to rendered wrapper to real janitor succeeds', 'real-update', (result) => {
+  const evidence = ok(result);
+  assert.equal(evidence.observations.length, 1, 'actual janitor child started');
+  assert.equal(evidence.observations[0].authority.state, 'updating');
+  assert.equal(evidence.update.status, 0, JSON.stringify(evidence));
+  assert.equal(evidence.wrapper.status, 0);
+  assert.equal(evidence.reports.length, 1);
+  assert.deepEqual(evidence.reports[0].errors, []);
+  assert.equal(evidence.reports[0].transaction_id, evidence.transaction.id);
+  assert.equal(evidence.transaction.state, 'committed');
+  assert.equal(evidence.authority.state, 'installed');
+  assert.equal(evidence.retainedUnchanged, true);
+  assert.equal(evidence.retainedImagesUnchanged, true);
+  assert.equal(evidence.observations[0].lock.schema, 2);
+  assert.equal(evidence.observations[0].lock.transaction_id, evidence.transaction.id);
+  assert.ok(evidence.observations[0].lock.startToken);
+  assert.deepEqual(evidence.authority.roots, evidence.observations[0].authority.roots);
+  assert.equal(evidence.authority.generation, evidence.observations[0].authority.generation);
+  assert.equal(evidence.loadedModel.cwd, evidence.wrapper.model.cwd);
+  assert.deepEqual(evidence.loadedModel.argv, evidence.wrapper.model.argv);
+  assert.deepEqual(evidence.locks, []);
+});
+
+
+for (const scenario of ['real-error', 'real-no-report']) {
+  transactional(`real janitor ${scenario} triggers exact automatic rollback`, scenario, (result) => {
+    const evidence = ok(result);
+    assert.equal(evidence.observations.length, 1);
+    assert.equal(evidence.wrapper.status, 1, evidence.janitorLog);
+    assert.equal(evidence.update.status, 1);
+    assert.match(evidence.update.stderr, /SCHEDULER_SMOKE_REPORT_(INVALID|TIMEOUT)/);
+    if (scenario === 'real-error') {
+      assert.equal(evidence.reports.length, 1);
+      assert.ok(evidence.reports[0].errors.some((entry) => entry.error.includes('AUTHORITY_RECORD_UNREADABLE')));
+      assert.equal(evidence.reports[0].transaction_id, evidence.transaction.id);
+    } else { assert.equal(evidence.reports.length, 0); assert.match(evidence.janitorLog, /STATE_QUOTA_EXCEEDED/); }
+    assert.equal(evidence.transaction.state, 'restored');
+    assert.match(evidence.transaction.failure, /SCHEDULER_SMOKE_REPORT/);
+    assert.equal(evidence.authority.state, 'installed');
+    assert.equal(evidence.plistRestored, true);
+    assert.deepEqual(evidence.loadedModel, evidence.priorModel);
+    assert.equal(evidence.retainedUnchanged, true);
+    assert.equal(evidence.retainedImagesUnchanged, true);
+    assert.deepEqual(evidence.locks, []);
+  });
+}
+
+transactional('real janitor updating smoke writes the actual observe-dead journal clock', 'real-observe', (result) => {
+  const evidence = ok(result);
+  assert.equal(evidence.update.status, 0, JSON.stringify(evidence));
+  assert.equal(evidence.wrapper.status, 0);
+  assert.equal(evidence.observedRunBefore.state, 'allocated');
+  assert.equal(evidence.observedRunBefore.first_dead_at, null);
+  assert.ok(evidence.observedRunAfter.first_dead_at);
+  assert.equal(evidence.observedRunAfter.revision, evidence.observedRunBefore.revision + 1);
+  assert.equal(evidence.observedRunAfter.state, 'allocated');
+  assert.deepEqual(evidence.observedRunAfter.scratch_seal, evidence.observedRunBefore.scratch_seal);
+  assert.deepEqual(evidence.observedRunAfter.evidence_seal, evidence.observedRunBefore.evidence_seal);
+  assert.ok(evidence.reports[0].entries.some((entry) => entry.id === evidence.observedRunBefore.id && entry.action === 'observe-dead'));
+  assert.equal(evidence.retainedImagesUnchanged, true);
+  assert.equal(evidence.authority.state, 'installed');
+  assert.equal(evidence.transaction.state, 'committed');
+  assert.deepEqual(evidence.locks, []);
+});
+
+for (const scenario of ['real-observe-owner-race', 'real-observe-state-race']) {
+  transactional(`real janitor ${scenario} refuses at observe-dead durable write`, scenario, (result) => {
+    const evidence = ok(result);
+    assert.equal(evidence.wrapper.status, 1);
+    assert.equal(evidence.update.status, 1);
+    assert.ok(evidence.controls.some((entry) => entry.boundary === 'observe-dead'));
+    assert.deepEqual(evidence.observedRunAfter, evidence.observedRunBefore, 'no first-dead write may commit after binding changes');
+    assert.equal(evidence.retainedUnchanged, true);
+    assert.equal(evidence.retainedImagesUnchanged, true);
+    assert.equal(evidence.transaction.state, 'restored');
+  });
+}
+
+for (const scenario of ['real-report-owner-race', 'real-report-state-race', 'real-report-content-race', 'real-report-commit-race']) {
+  transactional(`real janitor ${scenario} refuses at updater report acceptance`, scenario, (result) => {
+    const evidence = ok(result);
+    assert.equal(evidence.wrapper.status, 0, evidence.janitorLog);
+    assert.equal(evidence.update.status, 1);
+    assert.ok(evidence.controls.some((entry) => entry.boundary === 'report-acceptance'));
+    assert.equal(evidence.transaction.state, 'restored');
+    assert.match(evidence.transaction.failure, /SCHEDULER_SMOKE_(BINDING_DRIFT|REPORT_DRIFT)|AUTHORITY_IDENTITY_INVALID/);
+    assert.equal(evidence.plistRestored, true);
+    assert.deepEqual(evidence.loadedModel, evidence.priorModel);
+    assert.equal(evidence.retainedUnchanged, true);
+    assert.equal(evidence.retainedImagesUnchanged, true);
+  });
+}
+
+const refusalPatterns = {
+  'owner-epoch': /SCHEDULER_SMOKE_OWNER_EPOCH/,
+  'owner-live-wrong': /SCHEDULER_SMOKE_OWNER_EPOCH/,
+  'owner-dead': /SCHEDULER_SMOKE_OWNER_EPOCH|SCHEDULER_SMOKE_OWNER_DEAD/,
+  'epoch-unavailable': /SCHEDULER_SMOKE_OWNER_EPOCH/,
+  'lock-missing': /ENOENT/,
+  'legacy-lock': /SCHEDULER_SMOKE_OWNER_INVALID/,
+  'unknown-lock': /SCHEDULER_LOCK_INVALID/,
+  'transaction-missing': /SCHEDULER_SMOKE_TRANSACTION_CARDINALITY/,
+  'transaction-wrong': /SCHEDULER_SMOKE_TRANSACTION_INVALID/,
+  generation: /SCHEDULER_SMOKE_OWNER_INVALID/,
+  digest: /SCHEDULER_SMOKE_PLIST_DRIFT/,
+  'transaction-state': /SCHEDULER_SMOKE_TRANSACTION_INVALID/,
+  multiple: /SCHEDULER_SMOKE_TRANSACTION_CARDINALITY/,
+  root: /AUTHORITY_ROOT_DRIFT/,
+  host: /AUTHORITY_IDENTITY_INVALID/,
+  uid: /AUTHORITY_IDENTITY_INVALID/,
+  seal: /AUTHORITY_ROOT_DRIFT/,
+};
+for (const [control, pattern] of Object.entries(refusalPatterns)) {
+  transactional(`real janitor admission refuses ${control}`, `real-negative-${control}`, (result) => {
+    const evidence = ok(result);
+    assert.equal(evidence.observations.length, 1, 'the actual child must run');
+    assert.equal(evidence.wrapper.status, 1);
+    assert.equal(evidence.update.status, 1);
+    assert.match(evidence.janitorLog, pattern);
+    assert.equal(evidence.reports.length, 0);
+    assert.equal(evidence.retainedUnchanged, true);
+    assert.equal(evidence.retainedImagesUnchanged, true);
+    assert.notEqual(evidence.transaction?.state, 'committed');
+  });
+}
+
+transactional('scheduler acquisition without observable epoch refuses before mutation', 'real-acquisition-epoch', (result) => {
+  const evidence = ok(result);
+  assert.equal(evidence.update.status, 1);
+  assert.match(evidence.update.stderr, /SCHEDULER_OWNER_EPOCH_UNAVAILABLE/);
+  assert.equal(evidence.observations.length, 0);
+  assert.equal(evidence.transaction, undefined);
+  assert.equal(evidence.authority.state, 'installed');
+  assert.equal(evidence.plistRestored, true);
+  assert.deepEqual(evidence.loadedModel, evidence.priorModel);
+  assert.deepEqual(evidence.locks, []);
+});
+
+transactional('scheduler new update conservatively refuses an occupied legacy lock', 'real-occupied-legacy', (result) => {
+  const evidence = ok(result);
+  assert.equal(evidence.update.status, 1);
+  assert.match(evidence.update.stderr, /SCHEDULER_SINGLETON_HELD/);
+  assert.equal(evidence.transaction, undefined);
+  assert.equal(evidence.observations.length, 0);
+  assert.equal(evidence.authority.state, 'installed');
+  assert.equal(evidence.plistRestored, true);
+  assert.deepEqual(evidence.loadedModel, evidence.priorModel);
+  assert.deepEqual(evidence.locks, ['scheduler.lock']);
+});
+
+transactional('ordinary installed predicate and actual apply remain refused under updating', 'real-ordinary', (result) => {
+  const evidence = ok(result);
+  const control = evidence.controls.find((entry) => entry.ordinary);
+  assert.equal(control.ordinary.status, 1);
+  assert.match(control.ordinary.stderr, /AUTHORITY_IDENTITY_INVALID/);
+  assert.equal(control.apply.status, 1);
+  assert.match(control.apply.stderr, /AUTHORITY_IDENTITY_INVALID/);
+  assert.equal(evidence.update.status, 0);
+  assert.equal(evidence.reports.length, 1);
+  assert.deepEqual(evidence.reports[0].errors, []);
+  assert.equal(evidence.authority.state, 'installed');
+});
+
+transactional('ordinary installed dry-run remains compatible with a legacy scheduler lock', 'normal-legacy', (result) => {
+  const evidence = ok(result);
+  assert.equal(evidence.status, 0, evidence.stderr);
+  assert.equal(evidence.reportCount, 1);
+  assert.deepEqual(evidence.errors, []);
+});
+
+test('scheduler lock old and new representations validate strictly', () => {
+  const { validateSchedulerLock } = require('./storage-state.cjs');
+  const legacy = { schema: 1, token: '00000000-0000-4000-8000-000000000001', generation: '00000000-0000-4000-8000-000000000002', host: 'fixture', uid: 1000, pid: 123, created_at: '2026-10-01T00:00:00.000Z' };
+  const current = { ...legacy, schema: 2, startToken: 'original epoch', transaction_id: null };
+  assert.deepEqual(validateSchedulerLock(legacy), legacy);
+  assert.deepEqual(validateSchedulerLock(current), current);
+  assert.doesNotThrow(() => validateSchedulerLock({ ...current, transaction_id: legacy.token }));
+  for (const invalid of [{ ...legacy, startToken: 'epoch' }, { ...current, extra: true }, { ...current, startToken: '' }, { ...current, transaction_id: 'invalid' }, { ...current, schema: 3 }]) assert.throws(() => validateSchedulerLock(invalid), /SCHEDULER_LOCK_INVALID/);
 });

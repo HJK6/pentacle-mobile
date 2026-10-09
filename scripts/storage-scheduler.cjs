@@ -9,7 +9,7 @@ const { assertPublicRoot, assertToolchainSafeLayout, fixedLayout, generatedId } 
 const state = require('./storage-state.cjs');
 const stateMutations = state.bind(mutationCapability);
 const { createRecord, replaceRecord } = stateMutations;
-const { readRecord, validateInstalledAuthority } = state;
+const { readRecord, validateInstalledAuthority, validateSchedulerLock, processStartToken } = state;
 const containerMutations = require('./storage-containers.cjs').bind(mutationCapability);
 const gateMutations = require('./storage-gate.cjs').bind(mutationCapability);
 
@@ -17,10 +17,12 @@ const LABEL = 'com.pentacle.mobile.storage-janitor';
 const BASELINE = 'scheduler-baseline.json';
 
 function fsyncDirectory(directory) { const descriptor = fs.openSync(directory, fs.constants.O_RDONLY); try { fs.fsyncSync(descriptor); } finally { fs.closeSync(descriptor); } }
-function atomicJson(target, value) {
+function atomicJson(target, value, authorize = null) {
   const temporary = path.join(path.dirname(target), `.${path.basename(target)}.${crypto.randomUUID()}.tmp`);
   const descriptor = fs.openSync(temporary, fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_WRONLY, 0o600);
   try { fs.writeFileSync(descriptor, `${JSON.stringify(value)}\n`); fs.fsyncSync(descriptor); } finally { fs.closeSync(descriptor); }
+  try { if (authorize) authorize(); }
+  catch (error) { fs.unlinkSync(temporary); throw error; }
   fs.renameSync(temporary, target);
   fsyncDirectory(path.dirname(target));
 }
@@ -28,28 +30,35 @@ function atomicJson(target, value) {
 function acquireScheduler(authority, recover = false) {
   const target = path.join(fixedLayout().state, 'scheduler.lock');
   const token = crypto.randomUUID();
-  const value = { schema: 1, token, generation: authority.generation, host: require('node:os').hostname(), uid: process.getuid(), pid: process.pid, created_at: new Date().toISOString() };
+  const startToken = processStartToken(process.pid);
+  if (startToken === null) throw new Error('SCHEDULER_OWNER_EPOCH_UNAVAILABLE');
+  const value = { schema: 2, startToken, transaction_id: null, token, generation: authority.generation, host: require('node:os').hostname(), uid: process.getuid(), pid: process.pid, created_at: new Date().toISOString() };
   try { fs.writeFileSync(target, `${JSON.stringify(value)}\n`, { flag: 'wx', mode: 0o600 }); fsyncDirectory(path.dirname(target)); }
   catch (error) {
     if (error.code !== 'EEXIST' || !recover) throw new Error('SCHEDULER_SINGLETON_HELD');
     const held = validateSchedulerLock(JSON.parse(fs.readFileSync(target, 'utf8')));
+    if (held.schema === 2) throw new Error('SCHEDULER_LOCK_RECOVERY_UNSUPPORTED');
     if (held.schema !== 1 || held.generation !== authority.generation || held.host !== value.host || held.uid !== value.uid || !Number.isInteger(held.pid)) throw new Error('SCHEDULER_LOCK_INVALID');
     try { process.kill(held.pid, 0); throw new Error('SCHEDULER_SINGLETON_HELD'); } catch (probe) { if (probe.message === 'SCHEDULER_SINGLETON_HELD' || probe.code === 'EPERM') throw probe; if (probe.code !== 'ESRCH') throw probe; }
     fs.unlinkSync(target); fsyncDirectory(path.dirname(target));
     fs.writeFileSync(target, `${JSON.stringify(value)}\n`, { flag: 'wx', mode: 0o600 }); fsyncDirectory(path.dirname(target));
   }
-  return () => {
+  const assertOwner = () => {
     const held = validateSchedulerLock(JSON.parse(fs.readFileSync(target, 'utf8')));
-    if (held.token !== token || held.generation !== authority.generation) throw new Error('SCHEDULER_LOCK_DRIFT');
-    fs.unlinkSync(target); fsyncDirectory(path.dirname(target));
+    if (JSON.stringify(held) !== JSON.stringify(value) || processStartToken(process.pid) !== startToken) throw new Error('SCHEDULER_LOCK_DRIFT');
+    return held;
   };
-}
-
-function validateSchedulerLock(value) {
-  const keys = ['created_at', 'generation', 'host', 'pid', 'schema', 'token', 'uid'];
-  const exactClock = (clock) => typeof clock === 'string' && Number.isFinite(Date.parse(clock)) && new Date(clock).toISOString() === clock;
-  if (!value || JSON.stringify(Object.keys(value).sort()) !== JSON.stringify(keys) || value.schema !== 1 || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(value.generation) || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(value.token) || typeof value.host !== 'string' || !Number.isInteger(value.uid) || !Number.isInteger(value.pid) || value.pid <= 0 || !exactClock(value.created_at)) throw new Error('SCHEDULER_LOCK_INVALID');
-  return value;
+  const release = () => { assertOwner(); fs.unlinkSync(target); fsyncDirectory(path.dirname(target)); };
+  release.bindTransaction = (id) => {
+    assertOwner();
+    if (value.transaction_id !== null) throw new Error('SCHEDULER_TRANSACTION_ALREADY_BOUND');
+    const next = { ...value, transaction_id: id };
+    atomicJson(target, next, assertOwner);
+    Object.assign(value, next);
+    assertOwner();
+  };
+  release.binding = (transaction) => ({ transaction_id: transaction.id, generation: transaction.generation, candidate_digest: transaction.candidate_digest, scheduler_token: token, scheduler_pid: process.pid, scheduler_start_token: startToken });
+  return release;
 }
 
 function xml(value) { return String(value).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;'); }
@@ -104,9 +113,10 @@ function prepareBaseline() {
   return baseline;
 }
 
-function schedulerTransition(transaction, nextState, patch = {}) {
+function schedulerTransition(transaction, nextState, patch = {}, binding = null) {
   require('./storage-authority.cjs').transition('scheduler', transaction.state, nextState);
   const next = { ...transaction, ...patch, state: nextState, revision: transaction.revision + 1 };
+  if (binding) return stateMutations.replaceSchedulerForUpdate(transaction.id, transaction.revision, next, binding);
   return replaceRecord('scheduler', transaction.id, transaction.revision, next);
 }
 
@@ -124,7 +134,8 @@ function finishRollbackAuthority(action) {
   }
 }
 
-function smokeReport(transaction) {
+function smokeReport(transaction, binding = null) {
+  if (binding) state.validateUpdateSmokeAuthority(binding);
   const directory = path.join(fixedLayout().state, 'reports');
   fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
   const prior = new Set(fs.readdirSync(directory));
@@ -140,6 +151,7 @@ function smokeReport(transaction) {
   if (!report) throw new Error('SCHEDULER_SMOKE_REPORT_TIMEOUT');
   const value = JSON.parse(fs.readFileSync(report, 'utf8'));
   validateSmokeReport(value, path.basename(report), started, { transaction_id: transaction.id, generation: transaction.generation, candidate_digest: transaction.candidate_digest });
+  if (binding) state.validateUpdateSmokeAuthority(binding);
   return value;
 }
 
@@ -203,7 +215,6 @@ function installOrUpdate(action) {
   }
   if (action === 'update') authority = validateInstalledAuthority();
   const release = acquireScheduler(authority);
-  if (action === 'update') authority = stateMutations.transitionInstalledAuthority('installed', 'updating');
   try {
     prepareBaseline();
     const target = fixedLayout().launchAgent;
@@ -215,14 +226,19 @@ function installOrUpdate(action) {
     const id = generatedId();
     let transaction = createRecord('scheduler', { schema: 1, id, revision: 0, state: 'absent', action, generation: authority.generation, prior_owned: plistOwned(target, committedDigest), prior_content: priorText, prior_loaded: priorLoaded, created_at: new Date().toISOString() });
     transaction = schedulerTransition(transaction, 'prepared', { candidate_digest: crypto.createHash('sha256').update(renderPlist()).digest('hex') });
+    release.bindTransaction(transaction.id);
+    const binding = action === 'update' ? release.binding(transaction) : null;
+    if (action === 'update') authority = stateMutations.transitionInstalledAuthority('installed', 'updating');
     try {
       if (action === 'update' && priorLoaded) bootoutIfLoaded();
       atomicText(target, renderPlist());
       transaction = schedulerTransition(transaction, 'candidate_installed');
       bootstrapAndVerify(target);
-      const smoke = smokeReport(transaction);
-      transaction = schedulerTransition(transaction, 'smoke_verified', { smoke_report_id: smoke.report_id, smoke_report_digest: crypto.createHash('sha256').update(JSON.stringify(smoke)).digest('hex') });
-      transaction = schedulerTransition(transaction, 'committed', { committed_at: new Date().toISOString() });
+      const smoke = smokeReport(transaction, binding);
+      if (binding) state.validateUpdateSmokeAuthority(binding);
+      transaction = schedulerTransition(transaction, 'smoke_verified', { smoke_report_id: smoke.report_id, smoke_report_digest: crypto.createHash('sha256').update(JSON.stringify(smoke)).digest('hex') }, binding);
+      if (binding) state.validateUpdateCommitAuthority(binding);
+      transaction = schedulerTransition(transaction, 'committed', { committed_at: new Date().toISOString() }, binding);
       if (action === 'update') stateMutations.transitionInstalledAuthority('updating', 'installed');
       return transaction;
     } catch (error) {
