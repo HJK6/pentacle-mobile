@@ -768,3 +768,55 @@ def test_probe_a_reads_show_as_operator_and_proves_anonymous_reads_are_refused(t
     owned.probe_a()
     assert calls == [owned.probe_auth, None]
     assert owned.result["checks"]["probe_a"]["anonymous_show_error_code"] == "work_lanes_unauthorized"
+
+
+def test_load_probe_auth_executes_a_real_postponed_annotation_dataclass_module(tmp_path):
+    # Shape of the pinned services/_shared/operator_auth.py: future annotations + @dataclass.
+    shared = tmp_path / "checkout" / "services" / "_shared"
+    shared.mkdir(parents=True)
+    (shared / "operator_auth.py").write_text(
+        "from __future__ import annotations\n"
+        "from dataclasses import dataclass\n"
+        "AUTH_SCHEME = 'hmac-sha256-v2'\n"
+        "@dataclass(frozen=True)\n"
+        "class ConnectionTrust:\n"
+        "    credential_id: str\n"
+        "    client_kind: str\n"
+        "def decode_envelope(value):\n"
+        "    return {'credential_id': value, 'client_kind': 'pentacle', 'proof_key': b'k' * 32}\n")
+    token = sd.operator_token_path(tmp_path / "scratch")
+    token.parent.mkdir(parents=True)
+    token.write_text("envelope-value\n")
+    auth = sd.load_probe_auth(tmp_path / "checkout", tmp_path / "scratch")
+    assert auth["envelope"] == "envelope-value"
+    assert auth["module"].ConnectionTrust("c", "pentacle").client_kind == "pentacle"
+    assert auth["module"].AUTH_SCHEME == "hmac-sha256-v2"
+
+
+_PINNED = [Path(p) for p in __import__("os").environ.get("LANES_PINNED_DAEMON_CHECKOUTS", "").split(":") if p]
+
+
+@pytest.mark.skipif(not _PINNED, reason="set LANES_PINNED_DAEMON_CHECKOUTS to the pinned daemon checkouts")
+@pytest.mark.parametrize("checkout", _PINNED, ids=[p.name for p in _PINNED])
+def test_load_probe_auth_loads_the_real_pinned_operator_auth(checkout, tmp_path):
+    # Real pinned module + a real envelope it encodes itself; the proof must verify with the module's own transcript.
+    token = sd.operator_token_path(tmp_path)
+    token.parent.mkdir(parents=True)
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("envelope_maker", checkout / "services" / "_shared" / "operator_auth.py")
+    maker = importlib.util.module_from_spec(spec)
+    sys.modules["envelope_maker"] = maker
+    try:
+        spec.loader.exec_module(maker)
+        envelope = maker.encode_envelope("11111111-2222-4333-8444-555555555555", "pentacle", b"k" * maker.AUTH_PROOF_BYTES)
+    finally:
+        sys.modules.pop("envelope_maker", None)
+    token.write_text(envelope)
+    auth = sd.load_probe_auth(checkout, tmp_path)
+    nonce = auth["module"].encode_b64url(b"n" * auth["module"].AUTH_NONCE_BYTES)
+    hello = sd.probe_hello({"type": "welcome", "auth": {"operator": {"nonce": nonce}}}, auth)
+    assert hello["client"] == "pentacle" and hello["auth_v2"]["scheme"] == auth["module"].AUTH_SCHEME
+    import hashlib, hmac
+    expected = hmac.new(b"k" * 32, auth["module"].proof_transcript(nonce, hello["auth_v2"]["credential_id"], "pentacle"),
+                        hashlib.sha256).digest()
+    assert hello["auth_v2"]["proof"] == auth["module"].encode_b64url(expected)

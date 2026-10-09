@@ -462,7 +462,7 @@ def public_receipt(receipt: dict[str, Any]) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
-# Loopback probes (direct to the daemon port; loopback reads need no credential)
+# Loopback probes (direct to the daemon port; show reads authenticate as the scratch operator)
 # ---------------------------------------------------------------------------
 
 def issue_argv(python: str, checkout: Path, scratch: Path) -> list[str]:
@@ -478,9 +478,17 @@ def load_probe_auth(checkout: Path, scratch: Path) -> dict[str, Any]:
     """The pinned checkout's own operator-auth client helpers plus the issued envelope (never logged)."""
     import importlib.util
 
-    spec = importlib.util.spec_from_file_location("pinned_operator_auth", checkout / "services" / "_shared" / "operator_auth.py")
+    source = checkout / "services" / "_shared" / "operator_auth.py"
+    name = "pinned_operator_auth_" + hashlib.sha256(str(source.resolve()).encode()).hexdigest()[:12]
+    spec = importlib.util.spec_from_file_location(name, source)
     module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    # Registered before exec: its dataclasses resolve postponed annotations through sys.modules.
+    sys.modules[name] = module
+    try:
+        spec.loader.exec_module(module)
+    except BaseException:
+        sys.modules.pop(name, None)
+        raise
     return {"envelope": operator_token_path(scratch).read_text(encoding="utf-8").strip(), "module": module}
 
 
