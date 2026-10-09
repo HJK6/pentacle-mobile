@@ -1617,6 +1617,15 @@ function settlePendingRequest(requestId: string) {
   return pending;
 }
 
+// Upload frames and application pings share the native socket's send queue.
+// Its existing RPC phase deadline owns progress while that queue drains.
+function hasPendingUpload(generation: number, socket: WebSocket): boolean {
+  return Array.from(pendingRequests.values()).some(request => (
+    request.requestPrefix === 'upload_blob'
+    && request.generation === generation && request.socket === socket
+  ));
+}
+
 function armPendingRequestTimeout(requestId: string, pending: PendingRequest) {
   if (pending.timeout) {
     clearTimeout(pending.timeout);
@@ -1651,6 +1660,7 @@ function armPendingRequestTimeout(requestId: string, pending: PendingRequest) {
 // reference before finalizing the reason, mirroring the reschedule in
 // sendLivenessPing.
 function closeSocketAfterCommandTimeout(generation: number, socket: WebSocket) {
+  if (hasPendingUpload(generation, socket)) return;
   const stalledForMs = monotonicNowMs() - lastFrameReceivedAt;
   if (stalledForMs >= WATCHDOG_NO_FRAME_MS) {
     forceCloseSocketForLiveness(generation, socket, 'watchdog_no_inbound_frame');
@@ -1660,6 +1670,7 @@ function closeSocketAfterCommandTimeout(generation: number, socket: WebSocket) {
   setTimeout(() => {
     if (!socketGenerationMatches(generation) || socket !== ws) return;
     if (socket.readyState !== WebSocket.OPEN) return;
+    if (hasPendingUpload(generation, socket)) return;
     forceCloseSocketForLiveness(
       generation,
       socket,
@@ -2457,6 +2468,11 @@ function sendLivenessPing(
   if (!socketGenerationMatches(generation) || socket !== ws) return;
   if (socket.readyState !== WebSocket.OPEN) return;
   if (requiresFocusedForeground && !isFocusedForeground()) return;
+  if (hasPendingUpload(generation, socket)) {
+    clearForegroundProbeTimer();
+    awaitingPongSince = null;
+    return;
+  }
   const probeStartedAt = monotonicNowMs();
   try {
     socket.send(JSON.stringify({ type: 'ping' }));
@@ -2472,7 +2488,7 @@ function sendLivenessPing(
     if (!socketGenerationMatches(generation) || socket !== ws) return;
     if (socket.readyState !== WebSocket.OPEN) return;
     if (requiresFocusedForeground && !isFocusedForeground()) return;
-    if (usesLenientFocusedProbeWindow(generation, socket)) {
+    if (hasPendingUpload(generation, socket) || usesLenientFocusedProbeWindow(generation, socket)) {
       if (awaitingPongSince === probeStartedAt) awaitingPongSince = null;
       return;
     }
@@ -5927,13 +5943,56 @@ export interface TranscribeBlobResult {
 export async function transcribeBlob(
   blobSha: string,
   mime: string,
-  options: { requestId?: string } = {},
+  options: { requestId?: string; isCancelled?: () => boolean } = {},
 ): Promise<TranscribeBlobResult> {
-  return sendCommand<TranscribeBlobResult>(
-    { type: 'transcribe_blob', blob_sha: blobSha, mime },
-    'transcribe',
-    { requestId: options.requestId },
-  );
+  const guardCancellation = () => {
+    if (options.isCancelled?.()) throw Object.assign(new Error('voice_cancelled'), { code: 'voice_cancelled' });
+  };
+  const id = options.requestId || requestId('transcribe');
+  const attempt = () => {
+    guardCancellation();
+    return sendCommand<TranscribeBlobResult>(
+      { type: 'transcribe_blob', blob_sha: blobSha, mime }, 'transcribe', { requestId: id },
+    );
+  };
+  try {
+    return await attempt();
+  } catch (error) {
+    guardCancellation();
+    // Daemon/domain failures carry a code. A command's own phase timeout is
+    // also terminal; only loss of the transport gets this one replay.
+    if (!(error instanceof Error) || 'code' in error || ![
+      'Pentacle stream disconnected', 'Pentacle stream is not connected',
+    ].includes(error.message)) throw error;
+    const ready = await waitForTranscriptionConnection(options.isCancelled);
+    guardCancellation();
+    if (!ready) throw error;
+    return attempt();
+  }
+}
+
+function waitForTranscriptionConnection(isCancelled?: () => boolean): Promise<boolean> {
+  return new Promise(resolve => {
+    let settled = false;
+    const finish = (ready: boolean) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      listeners.delete(observe);
+      resolve(ready);
+    };
+    const observe = () => {
+      if (!subscribers || isCancelled?.()) finish(false);
+      // Fresh inventory proves this socket's hello was admitted by the daemon;
+      // OPEN alone is earlier than the authenticated handshake response.
+      else if (state.connected && ws?.readyState === WebSocket.OPEN
+        && sendInventoryGeneration === currentSocketGeneration) finish(true);
+    };
+    const timeout = setTimeout(() => finish(false), 15_000);
+    listeners.add(observe);
+    connect(); // The existing connection owner retains all sockets/backoff.
+    observe();
+  });
 }
 
 /**

@@ -38,7 +38,7 @@ export interface VoiceUnitIO {
   transcribe: (
     blobSha: string,
     mime: string,
-    options: { requestId: string },
+    options: { requestId: string; isCancelled?: () => boolean },
   ) => Promise<TranscribeBlobResult>;
 }
 
@@ -100,6 +100,7 @@ export async function runVoiceUploadTranscribe(args: {
   try {
     const transcript = await io.transcribe(blobSha, recording.mime, {
       requestId: transcribeRequestId,
+      ...(args.isCancelled ? { isCancelled: args.isCancelled } : {}),
     });
     guardCancellation();
     logTelemetry(TELEMETRY_EVENTS.CHAT_VOICE_TRANSCRIBE_OK, {
