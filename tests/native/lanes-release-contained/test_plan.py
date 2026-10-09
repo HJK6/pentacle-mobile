@@ -243,6 +243,35 @@ def test_target_and_overlap_guards():
     assert run.overlapping([big, {"AXIdentifier": "d", "frame": {"x": 20, "y": 20, "width": 44, "height": 44}}]) == [("a", "d")]
 
 
+class _FakeMapUi:
+    def __init__(self, elements):
+        self.elements = elements
+
+    def ids(self, prefix=""):
+        return [e for e in self.elements if e["AXIdentifier"].startswith(prefix)]
+
+    def find(self, ident, timeout_s=0):
+        return next(e for e in self.elements if e["AXIdentifier"] == ident)
+
+
+@pytest.mark.parametrize("count", [8, 3])
+def test_map_order_follows_the_clockwise_orbit_slots(count):
+    # LanesMap geometry: 3x3 grid of slot-sized nodes, hub in the centre, lanes on clockwise perimeter slots.
+    slots = [(1, 0), (2, 0), (2, 1), (2, 2), (1, 2), (0, 2), (0, 1), (0, 0)]
+    width, height, gap = 109.0, 118.0, 8.0
+
+    def node(ident, column, row):
+        return {"AXIdentifier": ident, "frame": {"x": 12 + column * (width + gap), "y": 200 + row * (height + gap),
+                                                 "width": width, "height": height}}
+
+    lanes = [f"wl-{index:024x}" for index in range(count)]
+    elements = [node("lanes-map-assistant", 1, 1)]
+    elements += [node(f"lanes-map-lane-{lane}", *slots[index * 8 // count]) for index, lane in enumerate(lanes)]
+    scenario = run.Run.__new__(run.Run)
+    scenario.ui = _FakeMapUi(list(reversed(elements)))
+    assert scenario.visible_order("lanes-map-lane-") == lanes
+
+
 def test_owned_stop_refuses_a_changed_identity_and_stops_its_own(tmp_path):
     env = {"PATH": "/usr/bin:/bin"}
     receipt = sd.start_owned("sleeper", [sys.executable, "-c", "import time; time.sleep(60)"], env=env, cwd=tmp_path,

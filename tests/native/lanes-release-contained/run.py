@@ -363,6 +363,22 @@ def overlapping(elements: list[dict[str, Any]]) -> list[tuple[str, str]]:
 # The run
 # ---------------------------------------------------------------------------
 
+# LanesMap places a page's nodes on clockwise perimeter slots (column, row) of a 3x3 grid around the hub.
+ORBIT_SLOTS = [(1, 0), (2, 0), (2, 1), (2, 2), (1, 2), (0, 2), (0, 1), (0, 0)]
+
+
+def orbit_order(nodes: list[dict[str, Any]], hub: dict[str, float]) -> list[dict[str, Any]]:
+    """Map nodes in slot order; every grid cell is the hub's size, so the cell is the rounded offset from the hub."""
+    def slot(element: dict[str, Any]) -> int:
+        frame = Ui.frame(element)
+        cell = (round((frame["x"] - hub["x"]) / hub["width"]) + 1, round((frame["y"] - hub["y"]) / hub["height"]) + 1)
+        if cell not in ORBIT_SLOTS:
+            raise AssertFail(f"map node is not on an orbit slot: {Ui.ident(element)} at {cell}")
+        return ORBIT_SLOTS.index(cell)
+
+    return sorted(nodes, key=slot)
+
+
 class Run:
     def __init__(self, args: argparse.Namespace):
         self.args = args
@@ -680,8 +696,11 @@ class Run:
         raise AssertFail("could not return the orbit to page 1")
 
     def visible_order(self, prefix: str) -> list[str]:
-        cards = sorted((e for e in self.ui.ids(prefix) if re.fullmatch(re.escape(prefix) + r"wl-[0-9a-f]{24}", Ui.ident(e))),
-                       key=lambda e: Ui.frame(e)["y"])
+        cards = [e for e in self.ui.ids(prefix) if re.fullmatch(re.escape(prefix) + r"wl-[0-9a-f]{24}", Ui.ident(e))]
+        if prefix == "lanes-map-lane-":
+            cards = orbit_order(cards, Ui.frame(self.ui.find("lanes-map-assistant")))
+        else:
+            cards.sort(key=lambda e: Ui.frame(e)["y"])
         return [Ui.ident(e)[len(prefix):] for e in cards]
 
     def assert_prefix_order(self, visible: list[str], label: str) -> None:
