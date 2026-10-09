@@ -1008,6 +1008,8 @@ test.each(["compact", "current", "bars"] as const)(
       ? "1/3 SPECS DONE · 1 IN PROGRESS · 1 UNRESOLVED"
       : "1/3 SPECS DONE · 1 UNRESOLVED");
     expect(counts.props.numberOfLines).toBe(1);
+    expect(counts.props.adjustsFontSizeToFit).toBe(true);
+    expect(counts.props.minimumFontScale).toBe(0.9);
     expect(StyleSheet.flatten(counts.props.style)).toMatchObject({ fontSize: 9.5, letterSpacing: 0.5, flex: 1 });
     let row = counts.parent;
     while (row && StyleSheet.flatten(row.props.style)?.flexDirection !== "row") row = row.parent;

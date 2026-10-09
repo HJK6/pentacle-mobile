@@ -318,7 +318,12 @@ export default function LaneCard({
           >
             <Segments model={model} height={compact ? 7 : 5} />
             <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-              <Text numberOfLines={1} style={{ ...mono, flex: 1, letterSpacing: 0.5 }}>
+              <Text
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.9}
+                style={{ ...mono, flex: 1, letterSpacing: 0.5 }}
+              >
                 {model.completed}/{model.total} SPECS DONE
                 {compact && current.length
                   ? ` · ${current.length} IN PROGRESS`
