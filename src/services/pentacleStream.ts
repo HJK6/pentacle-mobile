@@ -5728,8 +5728,6 @@ export function replaceOptimisticAttachments(
 export async function sendPentacleMessage(args: {
   originGeneration?: string | null;
   meta?: PentacleEvent['meta'];
-  host: string;
-  sessionName: string;
   text: string;
   optimisticId?: string;
   replyToMessageId?: string;
@@ -5738,10 +5736,17 @@ export async function sendPentacleMessage(args: {
   // opaque `key`s travel on the send payload; image bytes already went phone→daemon
   // through the blob RPC, and `localPath` is daemon-side only.
   attachments?: ChatAttachment[];
-}) {
-  const session = state.sessions.find((candidate) => (
-    candidate.host === args.host && candidate.session_name === args.sessionName
-  ));
+} & ({ streamId: string; host?: never; sessionName?: never } | { streamId?: never; host: string; sessionName: string })) {
+  // Voice keeps its originating route across transcript/optimistic updates,
+  // which can replace the projected host/name. Resolve it at dispatch time.
+  const session = state.sessions.find((candidate) => args.streamId !== undefined
+    ? candidate.stream_id === args.streamId
+    : candidate.host === args.host && candidate.session_name === args.sessionName);
+  if (args.streamId !== undefined && (!session || !session.stream_id || (
+    !isPentacleAssistantCompositeSession(session) && (!session.host || !session.session_name)
+  ))) {
+    throw new Error('Originating chat is unavailable or has been replaced.');
+  }
   const streamId = session?.stream_id;
   const trimmed = String(args.text || '').trim();
   const explicitOptimistic = args.optimisticId ? state.optimisticSends?.[args.optimisticId] : undefined;
