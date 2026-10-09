@@ -148,3 +148,205 @@ test('requestLaneHistory rejects on daemon error and without a generation', asyn
   await expect(promise).rejects.toThrow('unknown_session');
   unsubscribe();
 });
+
+function showReply(lane = fixture.progress_v2[0].frame.lanes[0]) {
+  return {
+    type: 'work_lanes.show.ok', lane: { lane_id: lane.lane_id }, projection: lane,
+    members: lane.members ?? [], events: [], updates: [],
+    work_index: fixture.progress_v2[0].work_index,
+  };
+}
+
+test('requestWorkLaneShow sends the existing verb and settles only its typed matching reply', async () => {
+  const { stream, core } = loadStream();
+  const { unsubscribe, socket } = connect(stream);
+  socket.message({ type: 'snapshot', sessions: [], events: [], work_lanes: fixture.hello_field.work_lanes });
+  const before = stream.getPentacleStreamState();
+  const reply = showReply();
+  const promise = stream.requestWorkLaneShow(reply.lane.lane_id);
+  const request = frames(socket, 'work_lanes.show').at(-1)!;
+  expect(request).toEqual({ type: 'work_lanes.show', lane_id: reply.lane.lane_id, request_id: expect.stringMatching(/^work_lanes_show/) });
+  let settled = false;
+  void promise.then(() => { settled = true; });
+  socket.message({ ...reply, request_id: 'unrelated-request' });
+  await Promise.resolve();
+  expect(settled).toBe(false);
+  socket.message({ ...reply, request_id: request.request_id });
+  await expect(promise).resolves.toEqual(core.parseWorkLaneShow(reply));
+  const after = stream.getPentacleStreamState();
+  expect(after.workLanes).toBe(before.workLanes);
+  expect(after.sessions).toBe(before.sessions);
+  expect(after.events).toBe(before.events);
+  socket.message({ type: 'work_lanes.show.error', request_id: request.request_id, error_code: 'late', error: 'Late error' });
+  await expect(promise).resolves.toMatchObject({ lane_id: reply.lane.lane_id });
+  unsubscribe();
+});
+
+test('requestWorkLaneShow returns all members in membership order, beyond the inline preview', async () => {
+  const { stream } = loadStream();
+  const { unsubscribe, socket } = connect(stream);
+  socket.message({ type: 'snapshot', sessions: [], events: [] });
+  const reply = showReply();
+  reply.members = Array.from({ length: 32 }, (_, index) => ({ ...reply.members[0], spec_id: `spec-${index}` }));
+  reply.projection = { ...reply.projection, members: reply.members.slice(0, 8), members_total: 32 };
+  const promise = stream.requestWorkLaneShow(reply.lane.lane_id);
+  const request = frames(socket, 'work_lanes.show').at(-1)!;
+  socket.message({ ...reply, request_id: request.request_id });
+  const result = await promise;
+  expect(result.members.map((member) => member.spec_id)).toEqual(reply.members.map((member: { spec_id: string }) => member.spec_id));
+  expect(result.projection?.members).toHaveLength(8);
+  unsubscribe();
+});
+
+test('requestWorkLaneShow preserves daemon error codes and a retry can succeed', async () => {
+  const { stream } = loadStream();
+  const { unsubscribe, socket } = connect(stream);
+  socket.message({ type: 'snapshot', sessions: [], events: [] });
+  const reply = showReply();
+  const rejected = stream.requestWorkLaneShow(reply.lane.lane_id);
+  const firstRequest = frames(socket, 'work_lanes.show').at(-1)!;
+  const assertion = expect(rejected).rejects.toMatchObject({ message: 'Lane cannot be read.', errorCode: 'lane_unavailable' });
+  socket.message({ type: 'work_lanes.show.error', request_id: firstRequest.request_id, error_code: 'lane_unavailable', error: 'Lane cannot be read.' });
+  await assertion;
+  const retried = stream.requestWorkLaneShow(reply.lane.lane_id);
+  const secondRequest = frames(socket, 'work_lanes.show').at(-1)!;
+  expect(secondRequest.request_id).not.toBe(firstRequest.request_id);
+  socket.message({ ...reply, request_id: firstRequest.request_id });
+  socket.message({ ...reply, request_id: secondRequest.request_id });
+  await expect(retried).resolves.toMatchObject({ lane_id: reply.lane.lane_id });
+  unsubscribe();
+});
+
+test('requestWorkLaneShow rejects at the standard 30-second deadline with a typed timeout', async () => {
+  const { stream } = loadStream();
+  const { unsubscribe, socket } = connect(stream);
+  socket.message({ type: 'snapshot', sessions: [], events: [] });
+  const promise = stream.requestWorkLaneShow(showReply().lane.lane_id);
+  const assertion = expect(promise).rejects.toMatchObject({ message: 'Pentacle command timed out', errorCode: 'request_timeout' });
+  let settled = false;
+  void promise.catch(() => { settled = true; });
+  for (let index = 0; index < 2; index += 1) {
+    jest.advanceTimersByTime(10_000);
+    socket.message({ type: 'pong' });
+  }
+  jest.advanceTimersByTime(9_999);
+  socket.message({ type: 'pong' });
+  await Promise.resolve();
+  expect(settled).toBe(false);
+  jest.advanceTimersByTime(1);
+  await assertion;
+  unsubscribe();
+});
+
+test('requestWorkLaneShow rejects malformed and wrong-lane success frames', async () => {
+  const { stream } = loadStream();
+  const { unsubscribe, socket } = connect(stream);
+  socket.message({ type: 'snapshot', sessions: [], events: [] });
+  for (const reply of [{ type: 'work_lanes.show.ok' }, showReply({ ...showReply().projection, lane_id: 'wrong-lane' })]) {
+    const promise = stream.requestWorkLaneShow('requested-lane');
+    const request = frames(socket, 'work_lanes.show').at(-1)!;
+    const assertion = expect(promise).rejects.toMatchObject({ errorCode: 'invalid_response' });
+    socket.message({ ...reply, request_id: request.request_id });
+    await assertion;
+  }
+  unsubscribe();
+});
+
+test('requestWorkLaneShow requires an id and a live connection and fails on disconnect without replay', async () => {
+  const { stream } = loadStream();
+  await expect(stream.requestWorkLaneShow('')).rejects.toMatchObject({ errorCode: 'invalid_lane_id' });
+  await expect(stream.requestWorkLaneShow('lane-1')).rejects.toThrow('not connected');
+  expect(MockWebSocket.instances).toHaveLength(0);
+  const { unsubscribe, socket } = connect(stream);
+  socket.message({ type: 'snapshot', sessions: [], events: [] });
+  const promise = stream.requestWorkLaneShow('lane-1');
+  const assertion = expect(promise).rejects.toThrow('disconnected');
+  unsubscribe();
+  await assertion;
+  const second = connect(stream);
+  expect(frames(second.socket, 'work_lanes.show')).toHaveLength(0);
+  second.unsubscribe();
+});
+
+test('show replies cannot settle a different RPC, even with a matching request id', async () => {
+  const { stream } = loadStream();
+  const { unsubscribe, socket } = connect(stream);
+  socket.message({ type: 'snapshot', sessions: [], events: [] });
+  const history = stream.requestLaneHistory('fixture-host:lead', 'generation-1');
+  const request = frames(socket, 'request_stream_events').at(-1)!;
+  let settled = false;
+  void history.then(() => { settled = true; });
+  socket.message({ ...showReply(), request_id: request.request_id });
+  socket.message({ type: 'work_lanes.show.error', request_id: request.request_id, error: 'Unrelated error' });
+  await Promise.resolve();
+  expect(settled).toBe(false);
+  socket.message({ type: 'request_stream_events.ok', request_id: request.request_id, stream_id: 'fixture-host:lead', events: [] });
+  await expect(history).resolves.toEqual([]);
+  unsubscribe();
+});
+
+test('v1 snapshot upgrades to increment-one inventory on reconnect without changing the header contract', () => {
+  const { stream, core } = loadStream();
+  const first = connect(stream);
+  first.socket.message({ type: 'snapshot', sessions: [], events: [], work_lanes: fixture.hello_field.work_lanes });
+  expect(core.selectOpenLaneCount(stream.getPentacleStreamState())).toBe(fixture.expected.header_count);
+  expect(core.selectWorkLanes(stream.getPentacleStreamState())[0].members).toBeUndefined();
+  first.unsubscribe();
+  const second = connect(stream);
+  const frame = fixture.progress_v2[0].frame;
+  second.socket.message({ type: 'snapshot', sessions: [], events: [], work_lanes: frame });
+  expect(core.selectOpenLaneCount(stream.getPentacleStreamState())).toBe(frame.counts.open);
+  expect(core.selectWorkLanes(stream.getPentacleStreamState())[0].members).toHaveLength(2);
+  second.unsubscribe();
+});
+
+test('show telemetry is harness-only and reports ids, counts and settlement status without content', async () => {
+  const { stream, core } = loadStream();
+  const { unsubscribe, socket } = connect(stream);
+  socket.message({ type: 'snapshot', sessions: [], events: [] });
+  const telemetry = jest.fn();
+  core.setTelemetrySink(telemetry);
+  const runtime = require('../../src/utils/harnessRuntime') as typeof import('../../src/utils/harnessRuntime');
+  const armed = jest.spyOn(runtime, 'isArmed').mockReturnValue(true);
+  const reply = showReply();
+  const traces = () => telemetry.mock.calls.map(([payload]) => payload.data).filter((data) => data.kind === 'work_lanes_show');
+  const resolveShow = async () => {
+    const promise = stream.requestWorkLaneShow(reply.lane.lane_id);
+    const request = frames(socket, 'work_lanes.show').at(-1)!;
+    socket.message({ ...reply, request_id: request.request_id });
+    await promise;
+  };
+  await resolveShow();
+  expect(traces()).toEqual([]);
+  process.env.EXPO_PUBLIC_HARNESS = '1';
+  armed.mockReturnValue(false);
+  await resolveShow();
+  expect(traces()).toEqual([]);
+  armed.mockReturnValue(true);
+  await resolveShow();
+  expect(traces()).toEqual([{
+    kind: 'work_lanes_show', timestamp_emitter_wall: expect.any(Number), lane_id: reply.lane.lane_id,
+    status: 'ok', members: 2, events: 0, updates: 0,
+  }]);
+  const failed = stream.requestWorkLaneShow(reply.lane.lane_id);
+  const request = frames(socket, 'work_lanes.show').at(-1)!;
+  const failedAssertion = expect(failed).rejects.toMatchObject({ errorCode: 'lane_unavailable' });
+  socket.message({ type: 'work_lanes.show.error', request_id: request.request_id, error_code: 'lane_unavailable', error: 'Do not copy this error text into telemetry.' });
+  await failedAssertion;
+  const timedOut = stream.requestWorkLaneShow(reply.lane.lane_id);
+  const timeoutAssertion = expect(timedOut).rejects.toMatchObject({ errorCode: 'request_timeout' });
+  for (let index = 0; index < 3; index += 1) {
+    jest.advanceTimersByTime(10_000);
+    socket.message({ type: 'pong' });
+  }
+  await timeoutAssertion;
+  expect(traces().map((entry) => entry.status)).toEqual(['ok', 'error', 'timeout']);
+  expect(traces()[1]).toMatchObject({ error_code: 'lane_unavailable', members: 0, events: 0, updates: 0 });
+  expect(traces()[2]).toMatchObject({ error_code: 'request_timeout', members: 0, events: 0, updates: 0 });
+  expect(JSON.stringify(traces())).not.toContain(reply.projection.title);
+  expect(JSON.stringify(traces())).not.toContain('Do not copy');
+  armed.mockRestore();
+  core.setTelemetrySink(null);
+  unsubscribe();
+  delete process.env.EXPO_PUBLIC_HARNESS;
+});
