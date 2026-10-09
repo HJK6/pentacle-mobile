@@ -109,10 +109,13 @@ Reduced modes (the production path only; same admission, daemon, proxy and teard
 
 - `run.py smoke ...` (same arguments as `run`): an enroll-only check. It seeds the increment-1 daemon on a
   fresh scratch (no v1 store, no upgrade), launches the app, opens the enrollment link and waits for the
-  daemon snapshot through the loopback proxy. It ends on the unlocked home screen. About 2–3 minutes.
+  daemon snapshot through the loopback proxy. It ends on the unlocked, hydrated assistant tab (tab bar, no lock
+  text). The scratch daemon's assistant is `local:web-gate-assistant`, not the app's fixed assistant stream id,
+  so the assistant header is not rendered; the result records whether it was. About 2–3 minutes.
 - `run.py reduced ...`: the smoke, then:
-  - open the lanes view in-app through the assistant header status button (`<name> status, N open lanes`), so
-    there is no second deep link;
+  - open the lanes view: the assistant header status button (`<name> status, N open lanes`) when rendered,
+    otherwise the `pentacle://pentacle/lanes` deep link through the exact-match `Open` confirmation. No lanes
+    view within 30 s stops the run with SETUP_FAIL and a dump;
   - the list in daemon order (big lane expanded);
   - one real `work_lanes.show` round-trip: "show all" opens the 32-member list, paired by `request_id` on
     the proxy;

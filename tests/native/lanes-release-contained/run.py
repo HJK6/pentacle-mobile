@@ -252,6 +252,30 @@ def known_system_alert(elements: list[dict[str, Any]]) -> tuple[str, dict[str, A
     return None
 
 
+# The assistant tab's session screen before it is usable (`app/pentacle/session/[streamId].tsx`).
+LOCK_TEXTS = ("Unlocking Pentacle…", "Pentacle access is unavailable on this device.")
+# Hydrated with a credential but no session under the app's fixed assistant stream id: the scratch daemon's
+# assistant composite is `local:web-gate-assistant` (pinned wrapper), so the header and its lanes button are
+# not rendered.
+NO_ASSISTANT_TEXT = "Returning to chats..."
+
+
+def home_state(elements: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """Enrolled and unlocked home: the assistant tab bar, no lock text, and the hydrated session screen."""
+    labels = {_norm(element.get("AXLabel")) for element in elements}
+    if not any(str(element.get("type") or "") == "Button" and str(element.get("AXLabel") or "").startswith("ASSISTANT, tab, ")
+               for element in elements):
+        return None
+    if any(_norm(text) in labels for text in LOCK_TEXTS):
+        return None
+    button = lanes_status_button(elements)
+    if button is not None:
+        return {"header": "present", "lanes_button": button.get("AXLabel")}
+    if _norm(NO_ASSISTANT_TEXT) in labels:
+        return {"header": "absent: no assistant session under the app's stream id (fixture composite local:web-gate-assistant)"}
+    return None
+
+
 def lanes_status_button(elements: list[dict[str, Any]]) -> dict[str, Any] | None:
     """The assistant header status button (`<name> status, N open lanes…`), which opens the lanes view in-app."""
     for element in elements:
@@ -766,25 +790,26 @@ class Run:
                                      "endpoint": sd.APP_WS_URL, "code_retained": False}
 
     def home_enrolled(self) -> None:
-        """After enrollment: the home screen (assistant tab) is unlocked; its header proves the in-app lanes entry."""
+        """After enrollment: the assistant tab is unlocked and hydrated; the header is recorded when rendered."""
         alerts = self.result.setdefault("system_alerts", [])
         deadline = time.monotonic() + 30
         while True:
             alerts.extend(self.ui.clear_system_alerts())
             elements = self.ui.elements()
-            button = lanes_status_button(elements)
-            if button is not None:
+            state = home_state(elements)
+            if state is not None:
                 break
             if time.monotonic() > deadline:
-                self.ui.dump("home-without-lanes-header", elements)
-                raise SetupFail("enrolled home screen shows no lanes status button")
+                self.ui.dump("home-not-unlocked", elements)
+                raise SetupFail("enrolled home screen is not unlocked and hydrated")
             time.sleep(1)
         self.ui.dump("home-enrolled", elements)
         self.ui.screenshot("home-enrolled")
-        self.result["checks"]["home_enrolled"] = {"lanes_button": button.get("AXLabel"), "system_alerts": list(alerts)}
+        self.result["checks"]["home_enrolled"] = {**state, "system_alerts": list(alerts)}
 
     def open_lanes(self) -> None:
-        """In-app: the assistant header status button (no second deep link, so no second system confirmation)."""
+        """The assistant header status button when rendered; otherwise the route's deep link through the exact-match
+        `Open` confirmation. Either entry must reach the lanes view within 30 s, or the run stops with a dump."""
         alerts = self.result.setdefault("system_alerts", [])
         alerts.extend(self.ui.clear_system_alerts())
         button = lanes_status_button(self.ui.elements())
@@ -796,10 +821,17 @@ class Run:
                                     capture_output=True, text=True, timeout=60, check=False)
             if opened.returncode:
                 raise SetupFail("lanes route deep link did not open")
-            time.sleep(1)
-            alerts.extend(self.ui.clear_system_alerts())
             self.result["lanes_entry"] = "deep link"
-        self.ui.find("lanes-view-list", 30)
+        deadline = time.monotonic() + 30
+        while True:
+            alerts.extend(self.ui.clear_system_alerts())
+            elements = self.ui.elements()
+            if any(Ui.ident(element) == "lanes-view-list" for element in elements):
+                break
+            if time.monotonic() > deadline:
+                self.ui.dump("lanes-not-open", elements)
+                raise SetupFail("lanes view did not open from the " + self.result["lanes_entry"])
+            time.sleep(1)
         self.ui.find("lanes-view-map")
         self.show_view("list")
 

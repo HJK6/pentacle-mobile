@@ -881,6 +881,67 @@ def test_lanes_status_button_is_the_assistant_header_label():
     assert run.lanes_status_button([_el("Assistant status, 9 open lanes", "StaticText")]) is None
 
 
+_TABS = [_el(f"{name}, tab, {i} of 7", "Button")
+         for i, name in enumerate(["ASSISTANT", "PERSONAL", "DASHBOARDS", "SETTINGS"], 1)]
+
+
+def test_home_state_accepts_the_hydrated_tab_without_the_fixture_assistant_header():
+    # smoke-1 ax/02: hydrated with a credential, no session under the app's assistant stream id, so no header.
+    no_header = [_el("Pentacle", "Application"), _el("In progress", "GenericElement"),
+                 _el("Returning to chats...", "StaticText"), *_TABS]
+    assert run.home_state(no_header)["header"].startswith("absent: no assistant session")
+    header = [_el("Assistant status, 9 open lanes, 1 blocked", "Button"), *_TABS]
+    assert run.home_state(header) == {"header": "present", "lanes_button": "Assistant status, 9 open lanes, 1 blocked"}
+    assert run.home_state([_el("Unlocking Pentacle…", "StaticText"), *_TABS]) is None
+    assert run.home_state([_el("Pentacle access is unavailable on this device.", "StaticText"),
+                           _el("Returning to chats...", "StaticText"), *_TABS]) is None
+    assert run.home_state([_el("LOADING CHAT…", "StaticText"), *_TABS]) is None   # not hydrated yet
+    assert run.home_state([_el("Returning to chats...", "StaticText")]) is None   # no tab bar
+    assert run.home_state([_el("Returning to chats...", "StaticText"), *_TABS[1:]]) is None   # no assistant tab
+
+
+def _lanes_run(tmp_path, monkeypatch, screens):
+    owned = _owned_scratch(tmp_path)
+    owned.udid = "U-1"
+    frames, opened, dumps = iter(screens), [], []
+
+    class FakeUi:
+        def clear_system_alerts(self):
+            return []
+
+        def elements(self):
+            return next(frames)
+
+        def dump(self, name, elements=None):
+            dumps.append(name)
+
+    owned.ui = FakeUi()
+    monkeypatch.setattr(run.subprocess, "run", lambda argv, **k: opened.append(argv) or subprocess.CompletedProcess(argv, 0, "", ""))
+    monkeypatch.setattr(run.time, "sleep", lambda s: None)
+    return owned, opened, dumps
+
+
+def test_open_lanes_without_header_uses_the_route_deep_link_and_fails_closed(tmp_path, monkeypatch):
+    home = [_el("Returning to chats...", "StaticText"), *_TABS]
+    owned, opened, dumps = _lanes_run(tmp_path, monkeypatch, [home] * 3)
+    clock = iter([0, 0, 31])
+    monkeypatch.setattr(run.time, "monotonic", lambda: next(clock))
+    with pytest.raises(run.SetupFail, match="lanes view did not open from the deep link"):
+        owned.open_lanes()
+    assert opened == [["xcrun", "simctl", "openurl", "U-1", "pentacle://pentacle/lanes"]]
+    assert dumps == ["lanes-not-open"] and owned.result["lanes_entry"] == "deep link"
+
+
+def test_open_lanes_deep_link_waits_for_the_lanes_view(tmp_path, monkeypatch):
+    home = [_el("Returning to chats...", "StaticText"), *_TABS]
+    lanes = [{"AXIdentifier": "lanes-view-list", "type": "Button"}]
+    owned, opened, dumps = _lanes_run(tmp_path, monkeypatch, [home, home, lanes])
+    monkeypatch.setattr(owned, "show_view", lambda view: None)
+    monkeypatch.setattr(owned.ui, "find", lambda *a, **k: {}, raising=False)
+    owned.open_lanes()
+    assert owned.result["lanes_entry"] == "deep link" and dumps == [] and len(opened) == 1
+
+
 def test_smoke_and_reduced_plans_are_inc1_only_and_bounded():
     assert run.SMOKE_STEPS == ["admission", "seed_inc1", "proxy_start", "daemon_b_start", "probe_b",
                                "simulator_activate", "app_launch", "enroll", "home_enrolled"]
