@@ -73,7 +73,7 @@ test("an open session lane navigates to that session", () => {
 test("a lane whose visible chat is the assistant composite returns to the assistant thread, not a session route", () => {
   render(<LanesRoute />);
   fireEvent.press(screen.getByTestId("lane-card-chat-wl-active-0002"));
-  expect(router().replace).toHaveBeenCalledWith("/(tabs)/bart");
+  expect(router().replace).toHaveBeenCalledWith('/(tabs)/bart');
   expect(router().push).not.toHaveBeenCalled();
 });
 

@@ -9,9 +9,10 @@ import {
   type TextStyle,
 } from "react-native";
 import Svg, { Circle, Path } from "react-native-svg";
-import { Fonts, Tokens } from "@/constants/Colors";
+import { Fonts, Tokens, MACHINES } from "@/constants/Colors";
 import { getHostMachineName } from "../../config/local";
-import MachineMark from "../bart/MachineMark";
+import ArcaneRingFrame from "../ArcaneRingFrame";
+import MachineSigil from "../MachineSigil";
 import { Spinner } from "../ArcaneAtoms";
 import type { LaneCardViewModel } from "../../services/workLanes";
 import type { WorkLaneMember } from "pentacle-chat-core";
@@ -78,11 +79,25 @@ export function LaneMark({
   model: LaneCardViewModel;
   size?: number;
 }) {
+  const meta = MACHINES[getHostMachineName(model.leadHost || "")];
+  const monogram = meta.kind === "djinni";
+  const color = monogram ? p.muted : meta.accent;
   return (
-    <MachineMark
-      machine={getHostMachineName(model.leadHost || "")}
-      size={size}
-    />
+    <ArcaneRingFrame size={size} color={color} identity>
+      {monogram ? (
+        <Text
+          style={{
+            fontFamily: Fonts.cinzel.bold,
+            fontSize: size * 0.38,
+            color: p.dim,
+          }}
+        >
+          B
+        </Text>
+      ) : (
+        <MachineSigil kind={meta.kind} size={size * 0.62} color={color} />
+      )}
+    </ArcaneRingFrame>
   );
 }
 export function Icon({
