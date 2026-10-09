@@ -123,7 +123,7 @@ function fsyncDirectory(directory) {
   try { fs.fsyncSync(descriptor); } finally { fs.closeSync(descriptor); }
 }
 
-function atomicJson(target, value) {
+function atomicJson(target, value, authorize = null) {
   const directory = path.dirname(target);
   fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
   const temporary = path.join(directory, `.${path.basename(target)}.${crypto.randomUUID()}.tmp`);
@@ -136,6 +136,8 @@ function atomicJson(target, value) {
   // This is the point the atomicity of every journal write turns on, and it was previously only
   // arguable - the rename is one syscall away and there was no seam between them.
   require('./storage-crash-points.cjs').crashPoint('journal-durability');
+  try { if (authorize) authorize(temporary); }
+  catch (error) { fs.unlinkSync(temporary); throw error; }
   fs.renameSync(temporary, target);
   fsyncDirectory(directory);
 }
@@ -225,10 +227,12 @@ function createInstalledAuthority() {
   return transitionInstalledAuthority('prepared', 'installed');
 }
 
-function validateInstalledAuthority() {
+function validateInstalledAuthority() { return validateAuthorityForStates(['installed']); }
+
+function validateAuthorityForStates(allowedStates, pendingWrite = null) {
   const layout = fixedLayout();
   const authority = readExactJson(path.join(layout.state, 'authority.json'));
-  validateAuthorityShape(authority, { host: os.hostname(), uid: process.getuid(), roots: expectedRoots(layout) });
+  validateAuthorityShape(authority, { host: os.hostname(), uid: process.getuid(), roots: expectedRoots(layout) }, allowedStates);
   const expected = expectedRoots(layout);
   const backingDevice = canonicalIdentity(layout.support).device;
   if (canonicalIdentity(layout.scratchImages).device !== backingDevice || canonicalIdentity(layout.evidenceImages).device !== backingDevice || canonicalIdentity(layout.stateImage).device !== backingDevice) throw new Error('AUTHORITY_CROSS_DEVICE_BACKING');
@@ -239,8 +243,89 @@ function validateInstalledAuthority() {
   }
   const stateFs = fs.statfsSync(layout.state, { bigint: true });
   if (stateFs.blocks * stateFs.bsize > BigInt(STATE_LIMIT) || directoryBytes(layout.state) > STATE_LIMIT) throw new Error('STATE_QUOTA_EXCEEDED');
-  validateStateLayout(layout.state);
+  validateStateLayoutEntries(layout.state, pendingWrite);
   return authority;
+}
+
+// The only updating admission is a real dry-run for one candidate owned by the original updater.
+// These read-only validators never broaden the ordinary installed-only authority predicate.
+function validateSchedulerLock(value) {
+  const legacyKeys = ['created_at', 'generation', 'host', 'pid', 'schema', 'token', 'uid'];
+  const keys = value?.schema === 2 ? [...legacyKeys, 'startToken', 'transaction_id'].sort() : legacyKeys;
+  if (!value || JSON.stringify(Object.keys(value).sort()) !== JSON.stringify(keys) || ![1, 2].includes(value.schema)
+    || !UUID.test(value.generation) || !UUID.test(value.token) || typeof value.host !== 'string' || !value.host
+    || !Number.isSafeInteger(value.uid) || value.uid < 0 || !Number.isSafeInteger(value.pid) || value.pid <= 0
+    || !exactIso(value.created_at)) throw new Error('SCHEDULER_LOCK_INVALID');
+  if (value.schema === 2 && (typeof value.startToken !== 'string' || !value.startToken.trim()
+    || !(value.transaction_id === null || UUID.test(value.transaction_id)))) throw new Error('SCHEDULER_LOCK_INVALID');
+  return value;
+}
+
+function validateSchedulerUpdateBinding(states, expected, pendingWrite = null) {
+  const authority = validateAuthorityForStates(['updating'], pendingWrite);
+  const layout = fixedLayout();
+  const target = path.join(layout.state, 'scheduler.lock');
+  const stat = fs.lstatSync(target);
+  if (!stat.isFile() || stat.isSymbolicLink() || stat.uid !== authority.uid || (stat.mode & 0o777) !== 0o600) throw new Error('SCHEDULER_LOCK_INVALID');
+  const owner = validateSchedulerLock(readExactJson(target));
+  if (owner.schema !== 2 || owner.generation !== authority.generation || owner.host !== authority.host
+    || owner.uid !== authority.uid || owner.transaction_id === null) throw new Error('SCHEDULER_SMOKE_OWNER_INVALID');
+  const epoch = processStartToken(owner.pid);
+  if (epoch === null || epoch !== owner.startToken) throw new Error('SCHEDULER_SMOKE_OWNER_EPOCH');
+  try { process.kill(owner.pid, 0); } catch { throw new Error('SCHEDULER_SMOKE_OWNER_DEAD'); }
+  const active = listRecords('scheduler').filter((entry) => !['committed', 'restored'].includes(entry.state));
+  if (active.length !== 1) throw new Error('SCHEDULER_SMOKE_TRANSACTION_CARDINALITY');
+  const transaction = active[0];
+  if (transaction.action !== 'update' || !states.includes(transaction.state) || transaction.id !== owner.transaction_id
+    || transaction.generation !== authority.generation) throw new Error('SCHEDULER_SMOKE_TRANSACTION_INVALID');
+  const plistStat = fs.lstatSync(layout.launchAgent);
+  if (!plistStat.isFile() || plistStat.isSymbolicLink() || plistStat.uid !== authority.uid
+    || (plistStat.mode & 0o022) !== 0) throw new Error('SCHEDULER_SMOKE_PLIST_INVALID');
+  const digest = crypto.createHash('sha256').update(fs.readFileSync(layout.launchAgent)).digest('hex');
+  if (digest !== transaction.candidate_digest) throw new Error('SCHEDULER_SMOKE_PLIST_DRIFT');
+  const binding = { transaction_id: transaction.id, generation: transaction.generation, candidate_digest: digest,
+    scheduler_token: owner.token, scheduler_pid: owner.pid, scheduler_start_token: owner.startToken };
+  if (expected && (JSON.stringify(Object.keys(expected).sort()) !== JSON.stringify(Object.keys(binding).sort())
+    || Object.keys(binding).some((key) => expected[key] !== binding[key]))) throw new Error('SCHEDULER_SMOKE_BINDING_DRIFT');
+  return { authority, binding };
+}
+
+function validateUpdateSmokeAuthority(expected) { return validateSchedulerUpdateBinding(['candidate_installed'], expected); }
+function validateUpdateCommitAuthority(expected) { return validateSchedulerUpdateBinding(['smoke_verified'], expected); }
+
+function observeDeadForUpdateSmoke(id, expectedRevision, next, binding) {
+  if (!binding) throw new Error('SCHEDULER_SMOKE_BINDING_REQUIRED');
+  return withRecordMutation('runs', id, () => {
+    const current = readRecord('runs', id);
+    if (current.first_dead_at || !['allocated', 'running', 'sealing', 'blocked_unclassified'].includes(current.state)
+      || JSON.stringify(next) !== JSON.stringify({ ...current, revision: expectedRevision + 1, first_dead_at: next.first_dead_at })
+      || !exactIso(next.first_dead_at)) throw new Error('SCHEDULER_SMOKE_OBSERVATION_INVALID');
+    const authorize = (pendingWrite) => {
+      const { authority } = validateSchedulerUpdateBinding(['candidate_installed'], binding, pendingWrite);
+      if (current.generation !== authority.generation) throw new Error('AUTHORITY_GENERATION_DRIFT');
+      if (current.owner.host !== authority.host || current.owner.uid !== authority.uid) throw new Error('SCHEDULER_SMOKE_OBSERVATION_OWNER');
+      try { process.kill(current.owner.pid, 0); throw new Error('JANITOR_AUTHORIZATION_DRIFT'); }
+      catch (error) { if (error.code !== 'ESRCH') throw error; }
+    };
+    authorize();
+    return replaceRecordHeld('runs', id, expectedRevision, next, authorize);
+  });
+}
+
+function replaceSchedulerForUpdate(id, expectedRevision, next, binding) {
+  if (!['smoke_verified', 'committed'].includes(next.state)) throw new Error('SCHEDULER_SMOKE_COMMIT_INVALID');
+  return withRecordMutation('scheduler', id, () => {
+    const authorize = (pendingWrite) => {
+      validateSchedulerUpdateBinding(next.state === 'smoke_verified' ? ['candidate_installed'] : ['smoke_verified'], binding, pendingWrite);
+      const target = path.join(fixedLayout().state, 'reports', `${next.smoke_report_id}.json`);
+      const report = readExactJson(target);
+      require('./storage-scheduler.cjs').validateSmokeReport(report, path.basename(target), Date.parse(next.created_at),
+        { transaction_id: binding.transaction_id, generation: binding.generation, candidate_digest: binding.candidate_digest });
+      if (crypto.createHash('sha256').update(JSON.stringify(report)).digest('hex') !== next.smoke_report_digest) throw new Error('SCHEDULER_SMOKE_REPORT_DRIFT');
+    };
+    authorize();
+    return replaceRecordHeld('scheduler', id, expectedRevision, next, authorize);
+  });
 }
 
 const MUTATION_CLAIM = /^\.mutation-([a-f0-9]{64})\.claim$/;
@@ -263,7 +348,11 @@ function validateMutationClaim(kind, directory, name, expectedId = null) {
   return owner;
 }
 
-function validateStateLayout(root) {
+function validateStateLayout(root) { return validateStateLayoutEntries(root); }
+
+// A boundary recheck can see its own still-invisible durable journal payload. Only the private
+// atomic writer supplies this exact temporary path; ordinary layout admission allows no temp files.
+function validateStateLayoutEntries(root, pendingWrite = null) {
   const topFiles = new Set(['authority.json', 'gate.lock', 'janitor.lock', 'scheduler.lock', 'worktree.lock', 'scheduler-baseline.json', 'disabled']);
   const topDirectories = new Set(['runs', 'tickets', 'scheduler', 'reports', 'logs', '.fseventsd', '.Spotlight-V100', '.Trashes']);
   for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
@@ -280,6 +369,13 @@ function validateStateLayout(root) {
       }
       if (['runs', 'tickets', 'scheduler', 'reports'].includes(entry.name)) {
         for (const child of fs.readdirSync(path.join(root, entry.name), { withFileTypes: true })) {
+          const childPath = path.join(root, entry.name, child.name);
+          if (pendingWrite === childPath && ['runs', 'scheduler'].includes(entry.name)) {
+            const stat = fs.lstatSync(childPath);
+            if (!child.isFile() || child.isSymbolicLink() || stat.uid !== process.getuid() || stat.nlink !== 1
+              || (stat.mode & 0o777) !== 0o600 || !/^\.[0-9a-f-]{36}\.json\.[0-9a-f-]{36}\.tmp$/.test(child.name)) throw new Error('STATE_TEMP_INVALID');
+            continue;
+          }
           if (validateMutationClaim(entry.name, path.join(root, entry.name), child.name)) continue;
           if (!child.isFile() || child.isSymbolicLink() || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.json$/.test(child.name)) throw new Error(`STATE_LAYOUT_UNKNOWN:${entry.name}/${child.name}`);
         }
@@ -801,14 +897,14 @@ function withRecordMutation(kind, id, action) {
   }
 }
 
-function replaceRecordHeld(kind, id, expectedRevision, next) {
+function replaceRecordHeld(kind, id, expectedRevision, next, authorize = null) {
   const current = readRecord(kind, id);
   if (kind === 'runs' && current.quiet_start === undefined && next.quiet_start !== undefined) throw new Error('AUTHORITY_QUIET_CLAIM_LATE');
   if (current.revision !== expectedRevision || next.id !== id || next.revision !== expectedRevision + 1) throw new Error('AUTHORITY_REVISION_RACE');
   for (const field of IMMUTABLE_FIELDS[kind]) if (current[field] !== undefined && current[field] !== null && JSON.stringify(current[field]) !== JSON.stringify(next[field])) throw new Error(`AUTHORITY_IMMUTABLE_FIELD:${field}`);
   validateRecord(kind, next);
   assertWriteTimeRunInvariants(kind, next, current);
-  atomicJson(recordFile(kind, id), next);
+  atomicJson(recordFile(kind, id), next, authorize);
   return Object.freeze(next);
 }
 
@@ -876,7 +972,7 @@ module.exports = {
   RECORD_LIMIT,
   SCHEMA,
   STATE_LIMIT,
-  bind: (token) => require('./storage-capability.cjs').bind(token, { createPreparedAuthority, createInstalledAuthority, createRecord, recoverAtomicTemps, replaceRecord, withRecordMutation, rotateTerminal, transitionInstalledAuthority, transitionRun }),
+  bind: (token) => require('./storage-capability.cjs').bind(token, { createPreparedAuthority, createInstalledAuthority, createRecord, observeDeadForUpdateSmoke, recoverAtomicTemps, replaceRecord, replaceSchedulerForUpdate, withRecordMutation, rotateTerminal, transitionInstalledAuthority, transitionRun }),
   canonicalIdentity,
   directoryBytes,
   // Exported so the container layer can validate a marker's seal against the SAME contract that
@@ -889,5 +985,9 @@ module.exports = {
   validateRecord,
   validateAuthorityShape,
   validateInstalledAuthority,
+  processStartToken,
+  validateSchedulerLock,
+  validateUpdateSmokeAuthority,
+  validateUpdateCommitAuthority,
   validateStateLayout,
 };

@@ -63,7 +63,7 @@ test('public mutation surface and state models are closed', () => {
 
 test('actual CommonJS and package surfaces expose no unbound mutation helper', () => {
   const expected = {
-    'storage-state.cjs': ['RECORD_LIMIT', 'SCHEMA', 'STATE_LIMIT', 'bind', 'canonicalIdentity', 'directoryBytes', 'exactSeal', 'listRecords', 'readAuthorityState', 'readRecord', 'validateAuthorityShape', 'validateInstalledAuthority', 'validateRecord', 'validateStateLayout'],
+    'storage-state.cjs': ['RECORD_LIMIT', 'SCHEMA', 'STATE_LIMIT', 'bind', 'canonicalIdentity', 'directoryBytes', 'exactSeal', 'listRecords', 'processStartToken', 'readAuthorityState', 'readRecord', 'validateAuthorityShape', 'validateInstalledAuthority', 'validateRecord', 'validateSchedulerLock', 'validateStateLayout', 'validateUpdateCommitAuthority', 'validateUpdateSmokeAuthority'],
     'storage-containers.cjs': ['GiB', 'LIMITS', 'MiB', 'assertImageDetached', 'attachedImageAt', 'bind', 'createCapacityGuard', 'enforceCap', 'enforceImageBacking', 'exactDirectoryBytes', 'freeBytes', 'imagePath', 'mountPath', 'requireCapacity', 'requireSeal', 'resolveMounted', 'withinCap'],
     'storage-system-scratch.cjs': ['bind', 'buildOwnership', 'evaluateRecovery'],
     'storage-crash-points.cjs': ['CRASH_EXIT_STATUS', 'CRASH_POINTS', 'armedCrashPoint', 'bind', 'crashPoint'],
@@ -76,7 +76,7 @@ test('actual CommonJS and package surfaces expose no unbound mutation helper', (
     'storage-surface-trigger.cjs': ['bind', 'createCaseCompletionTrigger', 'reportViewerResultCount', 'resolveSimulatorSurfaceApp'],
   };
   const banned = {
-    'storage-state.cjs': ['createPreparedAuthority', 'createInstalledAuthority', 'createRecord', 'replaceRecord', 'rotateTerminal', 'recoverAtomicTemps', 'transitionRun', 'transitionInstalledAuthority'],
+    'storage-state.cjs': ['observeDeadForUpdateSmoke', 'replaceSchedulerForUpdate', 'createPreparedAuthority', 'createInstalledAuthority', 'createRecord', 'replaceRecord', 'rotateTerminal', 'recoverAtomicTemps', 'transitionRun', 'transitionInstalledAuthority'],
     'storage-containers.cjs': ['attachExisting', 'createImage', 'detachAndDiscard', 'detachRetain', 'ensureStateImage', 'forceDiscardFailedScratch', 'recoverDiscarding', 'recoverOrCreate'],
     'storage-system-scratch.cjs': ['recover'],
     // Arming a crash point terminates the process at the next crossing, so it belongs to the bound
