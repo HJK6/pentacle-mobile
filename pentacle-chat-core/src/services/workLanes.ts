@@ -7,13 +7,21 @@ import type {
   PentacleStreamState,
   WorkLane,
   WorkLaneLead,
+  WorkLaneEstimate,
+  WorkLaneLogEvent,
+  WorkLaneLogUpdate,
+  WorkLaneMember,
+  WorkLaneObservation,
   WorkLaneOwnerKind,
+  WorkLaneShow,
+  WorkLaneSpecChange,
   WorkLaneState,
   WorkLaneTap,
   WorkLaneUpdate,
   WorkLaneUpdateKind,
   WorkLaneVisibleChat,
   WorkLanesInventory,
+  WorkIndex,
 } from '../types/pentacle';
 
 const LANE_STATES: readonly WorkLaneState[] = ['active', 'paused', 'blocked', 'done'];
@@ -34,6 +42,108 @@ function obj(value: unknown): Obj | null {
 
 function str(value: unknown): string | null {
   return typeof value === 'string' ? value : null;
+}
+
+function count(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
+}
+
+function nullableString(value: unknown): value is string | null {
+  return value === null || typeof value === 'string';
+}
+
+function nullableCount(value: unknown): value is number | null {
+  return value === null || count(value);
+}
+
+function normalizeEstimate(value: unknown): WorkLaneEstimate | null | undefined {
+  if (value === null) return null;
+  const raw = obj(value);
+  const hours = (n: unknown): n is number => typeof n === 'number' && Number.isFinite(n) && n >= 0;
+  if (!raw || !hours(raw.p25) || !hours(raw.p75) || !hours(raw.median)
+    || raw.p25 > raw.median || raw.median > raw.p75) return undefined;
+  return {
+    p25: raw.p25, p75: raw.p75, median: raw.median,
+    ...(typeof raw.provisional === 'boolean' ? { provisional: raw.provisional } : {}),
+  };
+}
+
+function normalizeObservation(value: unknown): WorkLaneObservation | undefined {
+  const raw = obj(value);
+  const qualities: readonly WorkLaneObservation['quality'][] = ['fresh', 'stale', 'error', 'missing', 'ambiguous'];
+  const quality = qualities.find((item) => item === raw?.quality);
+  if (!raw || !quality) return undefined;
+  return {
+    quality,
+    ...(nullableString(raw.observed_at) ? { observed_at: raw.observed_at } : {}),
+    ...(nullableString(raw.error) ? { error: raw.error } : {}),
+  };
+}
+
+function normalizeMember(value: unknown): WorkLaneMember | null {
+  const raw = obj(value);
+  const specId = str(raw?.spec_id);
+  if (!raw || !specId) return null;
+  const member: WorkLaneMember = { spec_id: specId };
+  for (const key of ['title', 'status_text', 'next_action_text', 'source_changed_at'] as const) {
+    if (nullableString(raw[key])) member[key] = raw[key];
+  }
+  if (str(raw.status)) member.status = String(raw.status);
+  if (raw.terminal === null || raw.terminal === 'completed' || raw.terminal === 'deprecated') member.terminal = raw.terminal;
+  for (const key of ['ac_checked', 'ac_total'] as const) {
+    if (nullableCount(raw[key])) member[key] = raw[key];
+  }
+  const estimate = normalizeEstimate(raw.estimate);
+  if (estimate !== undefined) member.estimate = estimate;
+  const observation = normalizeObservation(raw.observation);
+  if (observation !== undefined) member.observation = observation;
+  if (count(raw.obs_rev) && raw.obs_rev > 0) member.obs_rev = raw.obs_rev;
+  return member;
+}
+
+function normalizeMembers(value: unknown): WorkLaneMember[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const members: WorkLaneMember[] = [];
+  const seen = new Set<string>();
+  for (const item of value) {
+    const member = normalizeMember(item);
+    // An invalid membership list is absent, not a deceptively complete subset.
+    if (!member || seen.has(member.spec_id)) return undefined;
+    seen.add(member.spec_id);
+    members.push(member);
+  }
+  return members;
+}
+
+function normalizeWorkIndex(value: unknown): WorkIndex | undefined {
+  const raw = obj(value);
+  if (!raw || typeof raw.available !== 'boolean') return undefined;
+  const index: WorkIndex = { available: raw.available };
+  if (typeof raw.root_configured === 'boolean') index.root_configured = raw.root_configured;
+  for (const key of ['snapshot_at', 'last_sweep_at', 'error'] as const) {
+    if (nullableString(raw[key])) index[key] = raw[key];
+  }
+  return index;
+}
+
+function normalizeProgress(raw: Obj): Partial<WorkLane> {
+  const progress: Partial<WorkLane> = {};
+  const members = normalizeMembers(raw.members);
+  if (members !== undefined) progress.members = members;
+  for (const key of ['members_total', 'items_total', 'items_completed', 'items_dropped',
+    'items_open', 'items_unresolved', 'ac_members', 'open_estimated'] as const) {
+    if (count(raw[key])) progress[key] = raw[key];
+  }
+  for (const key of ['ac_checked', 'ac_total'] as const) {
+    if (nullableCount(raw[key])) progress[key] = raw[key];
+  }
+  for (const key of ['no_spec_reason', 'freshness_at'] as const) {
+    if (nullableString(raw[key])) progress[key] = raw[key];
+  }
+  const estimate = normalizeEstimate(raw.open_estimate_h);
+  if (estimate !== undefined) progress.open_estimate_h = estimate;
+  if (typeof raw.estimate_complete === 'boolean') progress.estimate_complete = raw.estimate_complete;
+  return progress;
 }
 
 function normalizeLead(value: unknown): WorkLaneLead | null {
@@ -123,13 +233,14 @@ function normalizeLane(value: unknown): WorkLane | null {
         ts: str(lastRaw.ts) ?? '',
       }
       : null,
+    ...normalizeProgress(raw),
   };
 }
 
 export function normalizeWorkLanesInventory(value: unknown): WorkLanesInventory | null {
   const raw = obj(value);
   if (!raw || !Array.isArray(raw.lanes)) return null;
-  // Every present top-level field must be well formed; a malformed projection is
+  // Existing top-level fields must be well formed; a malformed v1 projection is
   // rejected whole so the previous inventory is kept rather than showing a bad
   // count, state or truncation flag. Absent counts/flags derive from the lanes.
   if (raw.truncated !== undefined && typeof raw.truncated !== 'boolean') return null;
@@ -151,11 +262,13 @@ export function normalizeWorkLanesInventory(value: unknown): WorkLanesInventory 
   const active = counts ? Number(counts.active) : tally('active');
   const paused = counts ? Number(counts.paused) : tally('paused');
   const blocked = counts ? Number(counts.blocked) : tally('blocked');
+  const workIndex = normalizeWorkIndex(raw.work_index);
   return {
     lanes,
     counts: { open: counts ? Number(counts.open) : active + paused + blocked, active, paused, blocked },
     truncated: raw.truncated === true,
     generated_at: typeof raw.generated_at === 'string' ? raw.generated_at : '',
+    ...(workIndex ? { work_index: workIndex } : {}),
   };
 }
 
@@ -226,5 +339,148 @@ export function parseLaneUpdateEvent(event: Pick<PentacleEvent, 'publish_kind' |
     owner_kind: owner,
     title: str(raw.title) ?? '',
     ts: str(raw.ts) ?? '',
+  };
+}
+
+type AuditEvent = WorkLaneLogEvent & {
+  payload: Obj;
+  update_id: string | null;
+  publication_event_id: number | null;
+};
+
+function normalizeAuditEvent(value: unknown, laneId: string): AuditEvent | null {
+  const raw = obj(value);
+  if (!raw || (typeof raw.event_id !== 'string' && !count(raw.event_id))
+    || !str(raw.operation) || !str(raw.created_at)
+    || (raw.lane_id !== undefined && raw.lane_id !== laneId)) return null;
+  const eventId = String(raw.event_id);
+  if (!eventId) return null;
+  const payload = obj(raw.payload) ?? {};
+  return {
+    event_id: eventId,
+    operation: String(raw.operation),
+    created_at: String(raw.created_at),
+    summary: str(payload.summary) || null,
+    payload,
+    update_id: str(raw.update_id),
+    publication_event_id: count(raw.publication_event_id) ? raw.publication_event_id : null,
+  };
+}
+
+function compareEventIds(a: string | number | null, b: string | number | null): number {
+  if (typeof a === 'number' && typeof b === 'number') return b - a;
+  const left = String(a ?? '');
+  const right = String(b ?? '');
+  if (/^\d+$/.test(left) && /^\d+$/.test(right)) {
+    const leftNumber = BigInt(left);
+    const rightNumber = BigInt(right);
+    return leftNumber < rightNumber ? 1 : leftNumber > rightNumber ? -1 : 0;
+  }
+  return left < right ? 1 : left > right ? -1 : 0;
+}
+
+function newestFirst<T extends { created_at: string; event_id: string | number | null }>(rows: T[]): T[] {
+  const time = (stamp: string) => {
+    const parsed = Date.parse(stamp);
+    return Number.isFinite(parsed) ? parsed : 0;
+  };
+  return rows.sort((a, b) => time(b.created_at) - time(a.created_at) || compareEventIds(a.event_id, b.event_id));
+}
+
+function displayEstimate(estimate: WorkLaneEstimate | null): string {
+  if (estimate === null) return '—';
+  return `${estimate.p25}–${estimate.p75} h (median ${estimate.median}${estimate.provisional ? '; provisional' : ''})`;
+}
+
+function specChanges(event: AuditEvent, members: Map<string, WorkLaneMember>): WorkLaneSpecChange[] {
+  const payload = event.payload;
+  const specId = str(payload.spec_id);
+  const prior = obj(payload.prior);
+  const next = obj(payload.next);
+  if (!specId || !prior || !next) return [];
+  const base = {
+    event_id: event.event_id,
+    created_at: event.created_at,
+    spec_id: specId,
+    title: members.get(specId)?.title || specId,
+    ...(count(payload.obs_rev) && payload.obs_rev > 0 ? { obs_rev: payload.obs_rev } : {}),
+  };
+  const rows: WorkLaneSpecChange[] = [];
+  if (nullableString(prior.status) && nullableString(next.status) && prior.status !== next.status) {
+    rows.push({ ...base, field: 'status', before: prior.status ?? '—', after: next.status ?? '—' });
+  }
+  if (nullableCount(prior.ac_checked) && nullableCount(prior.ac_total)
+    && nullableCount(next.ac_checked) && nullableCount(next.ac_total)
+    && (prior.ac_checked !== next.ac_checked || prior.ac_total !== next.ac_total)) {
+    rows.push({
+      ...base, field: 'ac',
+      before: `${prior.ac_checked ?? '—'}/${prior.ac_total ?? '—'}`,
+      after: `${next.ac_checked ?? '—'}/${next.ac_total ?? '—'}`,
+    });
+  }
+  const before = normalizeEstimate(prior.estimate);
+  const after = normalizeEstimate(next.estimate);
+  if (before !== undefined && after !== undefined && JSON.stringify(before) !== JSON.stringify(after)) {
+    rows.push({ ...base, field: 'estimate', before: displayEstimate(before), after: displayEstimate(after) });
+  }
+  return rows;
+}
+
+/**
+ * Read the existing show reply without storing audit data in the session model.
+ * Membership order is retained; log rows alone are sorted newest first. Views
+ * page these complete arrays locally rather than requesting an invented cursor.
+ */
+export function parseWorkLaneShow(value: unknown): WorkLaneShow | null {
+  const raw = obj(value);
+  if (!raw || (raw.type !== undefined && raw.type !== 'work_lanes.show.ok')) return null;
+  const lane = obj(raw.lane);
+  const projection = normalizeLane(raw.projection);
+  const laneId = str(lane?.lane_id) || projection?.lane_id;
+  if (!laneId || (projection && projection.lane_id !== laneId)) return null;
+  const members = normalizeMembers(raw.members) ?? projection?.members ?? [];
+  const membersById = new Map(members.map((member) => [member.spec_id, member]));
+  const audit = newestFirst((Array.isArray(raw.events) ? raw.events : [])
+    .map((event) => normalizeAuditEvent(event, laneId))
+    .filter((event): event is AuditEvent => event !== null));
+  const byUpdate = new Map<string, AuditEvent>();
+  const byPublication = new Map<number, AuditEvent>();
+  for (const event of audit) {
+    if (event.update_id && !byUpdate.has(event.update_id)) byUpdate.set(event.update_id, event);
+    if (event.publication_event_id !== null && !byPublication.has(event.publication_event_id)) {
+      byPublication.set(event.publication_event_id, event);
+    }
+  }
+  const updates: WorkLaneLogUpdate[] = [];
+  const seenUpdates = new Set<string>();
+  const rawUpdates: unknown[] = Array.isArray(raw.updates) ? [...raw.updates] : [];
+  if (projection?.last_update) rawUpdates.push(projection.last_update);
+  for (const value of rawUpdates) {
+    const update = obj(value);
+    const updateId = str(update?.update_id);
+    const kind = UPDATE_KINDS.find((item) => item === update?.kind);
+    if (!update || !updateId || !kind || seenUpdates.has(updateId)) continue;
+    seenUpdates.add(updateId);
+    const linked = byUpdate.get(updateId) ?? (count(update.event_id) ? byPublication.get(update.event_id) : undefined);
+    const stamp = linked?.created_at ?? str(update.ts) ?? '';
+    updates.push({
+      update_id: updateId, kind,
+      event_id: linked?.event_id ?? (typeof update.event_id === 'string' || count(update.event_id) ? update.event_id : null),
+      created_at: stamp,
+      ts: stamp,
+      summary: linked?.summary ?? null,
+    });
+  }
+  const workIndex = normalizeWorkIndex(raw.work_index);
+  return {
+    lane_id: laneId,
+    projection,
+    members,
+    ...(workIndex ? { work_index: workIndex } : {}),
+    updates: newestFirst(updates),
+    spec_changes: newestFirst(audit.filter((event) => event.operation === 'item_change')
+      .flatMap((event) => specChanges(event, membersById))),
+    events: audit.filter((event) => event.operation !== 'item_change')
+      .map(({ event_id, created_at, operation, summary }) => ({ event_id, created_at, operation, summary })),
   };
 }
