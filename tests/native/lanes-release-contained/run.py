@@ -1168,6 +1168,35 @@ SUPPLEMENTAL_SCENES = {
 }
 
 
+def supplemental_teardown(udid: str, runner: Callable[..., subprocess.CompletedProcess] = subprocess.run) -> dict[str, Any]:
+    """Shut down and delete the simulator this run created; verify it is gone. Never raises."""
+    record: dict[str, Any] = {"udid": udid}
+    for verb in ("shutdown", "delete"):
+        try:
+            result = runner(["xcrun", "simctl", verb, udid], capture_output=True, text=True, check=False, timeout=120)
+            record[f"{verb}_rc"], record[f"{verb}_stderr"] = result.returncode, (result.stderr or "")[-300:]
+        except Exception as exc:  # timeout or missing tool: still check the postcondition
+            record[f"{verb}_rc"], record[f"{verb}_stderr"] = None, str(exc)[:300]
+    try:
+        listed = runner(["xcrun", "simctl", "list", "devices", "-j"], capture_output=True, text=True, check=False, timeout=60)
+        devices = json.loads(listed.stdout or "{}").get("devices", {}) if listed.returncode == 0 else None
+        record["udid_absent"] = devices is not None and not any(
+            device.get("udid") == udid for group in devices.values() for device in group)
+    except Exception as exc:
+        record.update(udid_absent=False, list_error=str(exc)[:300])
+    record["complete"] = record["udid_absent"] is True
+    return record
+
+
+def finalize_supplemental(record: dict[str, Any], teardown: dict[str, Any]) -> dict[str, Any]:
+    """Incomplete teardown is a SETUP_FAIL; the scene's own verdict is kept separately."""
+    record["scene_verdict"] = record.get("verdict")
+    if not teardown.get("complete"):
+        record["verdict"] = "SETUP_FAIL"
+        record.setdefault("error", "supplemental simulator teardown incomplete")
+    return record
+
+
 def supplemental(args: argparse.Namespace) -> int:
     """Install one screenshot-harness build (scene baked by EXPO_PUBLIC_SCREENSHOT_HARNESS_DEFAULT),
     capture its lanes overlay and the offline lane-log state. Labelled harness-rendered."""
@@ -1209,8 +1238,8 @@ def supplemental(args: argparse.Namespace) -> int:
         record.update(verdict="FAIL" if isinstance(exc, AssertFail) else "SETUP_FAIL", error=str(exc)[:300])
     finally:
         if udid:
-            for argv in (["shutdown", udid], ["delete", udid]):
-                subprocess.run(["xcrun", "simctl", *argv], capture_output=True, text=True, check=False, timeout=120)
+            record["teardown"] = supplemental_teardown(udid)
+            record = finalize_supplemental(record, record["teardown"])
     (out / "supplemental.json").write_text(json.dumps(record, indent=2, default=str) + "\n", encoding="utf-8")
     print(json.dumps({"scenario": SCENARIO + ":supplemental", "verdict": record["verdict"], "result": str(out)}))
     return {"PASS": 0, "FAIL": 1}.get(record["verdict"], 4)

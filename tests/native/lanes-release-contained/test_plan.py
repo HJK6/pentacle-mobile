@@ -14,6 +14,7 @@ import hashlib
 import json
 from pathlib import Path
 import re
+import subprocess
 import sys
 import time
 
@@ -404,3 +405,40 @@ def test_orchestration_verdicts(tmp_path, capsys, fail_at, error, code, verdict)
     assert owned.execute() == code
     result = json.loads((owned.evidence / "result.json").read_text())
     assert result["verdict"] == verdict and calls[-1] == fail_at
+
+
+# ---------------------------------------------------------------------------
+# Checked supplemental teardown.
+# ---------------------------------------------------------------------------
+
+class _FakeSimctl:
+    def __init__(self, shutdown_rc=0, delete_rc=0, still_listed=False):
+        self.calls, self.rc, self.listed = [], {"shutdown": shutdown_rc, "delete": delete_rc}, still_listed
+
+    def __call__(self, argv, **_kwargs):
+        self.calls.append(argv[2:])
+        verb = argv[2]
+        stdout = ""
+        if verb == "list":
+            devices = [{"udid": "U-1", "name": "x"}] if self.listed else []
+            stdout = json.dumps({"devices": {"runtime": devices}})
+        return subprocess.CompletedProcess(argv, self.rc.get(verb, 0), stdout, "boom" if self.rc.get(verb) else "")
+
+
+@pytest.mark.parametrize("fake, complete", [
+    (_FakeSimctl(), True),
+    (_FakeSimctl(shutdown_rc=1), True),          # already-shutdown is fine if delete removes it
+    (_FakeSimctl(delete_rc=1, still_listed=True), False),
+    (_FakeSimctl(still_listed=True), False),
+])
+def test_supplemental_teardown_is_checked(fake, complete):
+    record = run.supplemental_teardown("U-1", runner=fake)
+    assert record["udid_absent"] is complete and record["complete"] is complete
+    assert [c[0] for c in fake.calls] == ["shutdown", "delete", "list"]
+    assert set(record) >= {"shutdown_rc", "delete_rc", "udid_absent", "complete"}
+
+
+def test_incomplete_supplemental_teardown_makes_setup_fail_and_keeps_scene_verdict():
+    record = run.finalize_supplemental({"verdict": "PASS"}, {"complete": False})
+    assert record["verdict"] == "SETUP_FAIL" and record["scene_verdict"] == "PASS"
+    assert run.finalize_supplemental({"verdict": "FAIL"}, {"complete": True})["verdict"] == "FAIL"
