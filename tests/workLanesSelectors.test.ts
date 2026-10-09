@@ -31,7 +31,7 @@ describe('lane progress truth precedence', () => {
   test.each<[string, Partial<WorkLane>, string]>([
     ['empty', { items_total: 0, items_open: 0, items_completed: 0, items_dropped: 0 }, 'No specs'],
     ['empty with reason', { items_total: 0, no_spec_reason: 'Exploratory conversation.' }, 'Exploratory conversation.'],
-    ['unresolved', { items_total: 3, items_unresolved: 1, items_open: 0, items_completed: 3 }, '1 unresolved'],
+    ['unresolved with terminal predicate', { items_total: 3, items_unresolved: 1, items_open: 0, items_completed: 3 }, 'All specs done'],
     ['open', { items_total: 3, items_open: 2 }, 'est. open work 2–4h'],
     ['all completed', { items_total: 3, items_open: 0, items_completed: 3, items_dropped: 0 }, 'All specs done'],
     ['all dropped', { items_total: 3, items_open: 0, items_completed: 0, items_dropped: 3 }, 'All specs dropped'],
@@ -54,8 +54,8 @@ describe('lane progress truth precedence', () => {
     ['active_progress', 'est. open work 2–4h'],
     ['paused_leadless', 'est. open work 2–4h'],
     ['blocked', 'est. open work 2–4h'],
-    ['missing_member', '1 unresolved'],
-    ['ambiguous_member', '1 unresolved'],
+    ['missing_member', '—'],
+    ['ambiguous_member', '—'],
     ['missing_estimate', 'est. open work —'],
     ['no_spec', 'Exploratory conversation.'],
     ['index_unavailable', 'est. open work 2–4h'],
@@ -207,4 +207,19 @@ describe('waiting on you uses the actual Questions deck', () => {
     const state = applyWorkLanesInventory(fixtureState(), { lanes: [{ ...base(), blocker: 'Waiting on you: check the model.', visible_chat: { ...base().visible_chat, stream_id: 'other:chat' } }] });
     expect(selectLaneCardViewModels(state, NOW)[0].waitingOnYou).toBe(0);
   });
+});
+
+test.each([
+  [{}, 'est. open work 2–4h'],
+  [{estimate_complete: false}, 'est. open work 2–4h+'],
+  [{open_estimate_h: null}, 'est. open work —'],
+])('unresolved count preserves estimate rules %j', (patch, expected) => {
+  expect(formatLaneCardProgress({...base(), items_unresolved: 1, ...patch})).toBe(expected);
+});
+
+test('single question uses its prompt when the lane has no blocker', () => {
+  const state = fixtureState();
+  const entry = selectQuestionDeck(state).find(item => item.streamId === COMPOSITE_STREAM)!;
+  const withLane = applyWorkLanesInventory(state, {lanes: [{...base(), blocker: null, visible_chat: {...base().visible_chat, stream_id: entry.streamId}}]});
+  expect(selectLaneCardViewModels(withLane, NOW)[0].blockerLabel).toBe(`Waiting on you: ${entry.question.prompt}`);
 });

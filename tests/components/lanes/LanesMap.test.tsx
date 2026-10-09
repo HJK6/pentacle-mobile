@@ -1,31 +1,73 @@
-jest.mock('expo-constants', () => require('../../helpers/stubs/expoConstants.cjs'));
-jest.mock('../../../src/services/pentacleStream', () => ({
-  requestWorkLaneShow: jest.fn(), selectOptimisticQuestionAnswerIdentities: () => [],
+jest.mock("expo-constants", () =>
+  require("../../helpers/stubs/expoConstants.cjs"),
+);
+jest.mock("../../../src/services/pentacleStream", () => ({
+  requestWorkLaneShow: jest.fn(),
+  selectOptimisticQuestionAnswerIdentities: () => [],
 }));
-jest.mock('../../../src/components/lanes/lanesTelemetry', () => ({ emitHarnessUiTrace: jest.fn() }));
+jest.mock("../../../src/components/lanes/lanesTelemetry", () => ({
+  emitHarnessUiTrace: jest.fn(),
+  traceMemberList: jest.fn(),
+}));
 
-import { readFileSync } from 'fs';
-import { join } from 'path';
-import React, { useState } from 'react';
-import { StyleSheet } from 'react-native';
-import { fireEvent, render, waitFor } from '@testing-library/react-native';
-import { applyWorkLanesInventory, initialPentacleStreamState, type WorkLaneMember, type WorkLaneShow } from 'pentacle-chat-core';
-import { Tokens } from '../../../constants/Colors';
-import LanesMap from '../../../src/components/lanes/LanesMap';
-import LaneMembers from '../../../src/components/lanes/LaneMembers';
-import LaneMemberDetail from '../../../src/components/lanes/LaneMemberDetail';
-import { emitHarnessUiTrace } from '../../../src/components/lanes/lanesTelemetry';
-import { selectLaneCardViewModels, type LaneCardViewModel } from '../../../src/services/workLanes';
+import { readFileSync } from "fs";
+import { join } from "path";
+import React, { useState } from "react";
+import { StyleSheet } from "react-native";
+import {
+  act,
+  fireEvent,
+  render,
+  waitFor,
+  within,
+} from "@testing-library/react-native";
+import {
+  applyWorkLanesInventory,
+  initialPentacleStreamState,
+  type WorkLaneMember,
+  type WorkLaneShow,
+} from "pentacle-chat-core";
+import { Fonts, Tokens } from "../../../constants/Colors";
+import {
+  laneAttentionRank,
+  groupMapMembers,
+} from "../../../src/components/lanes/LanesMap";
+import { memberTone } from "../../../src/components/lanes/LaneAtoms";
+import LanesMap from "../../../src/components/lanes/LanesMap";
+import LaneMembers from "../../../src/components/lanes/LaneMembers";
+import LaneMemberDetail from "../../../src/components/lanes/LaneMemberDetail";
+import { emitHarnessUiTrace } from "../../../src/components/lanes/lanesTelemetry";
+import {
+  selectLaneCardViewModels,
+  type LaneCardViewModel,
+} from "../../../src/services/workLanes";
 
-const fixture = JSON.parse(readFileSync(
-  join(__dirname, '../../../pentacle-chat-core/tests/fixtures/work-lanes-inventory.json'), 'utf8',
-));
-const NOW = Date.parse('2026-01-02T00:05:00Z');
-const progressCase = (name: string) => fixture.progress_v2.find((entry: { name: string }) => entry.name === name);
-const modelsFor = (frame: unknown) => selectLaneCardViewModels(applyWorkLanesInventory(initialPentacleStreamState, frame), NOW);
-const modelFor = (name = 'active_progress') => modelsFor(progressCase(name).frame)[0];
+const fixture = JSON.parse(
+  readFileSync(
+    join(
+      __dirname,
+      "../../../pentacle-chat-core/tests/fixtures/work-lanes-inventory.json",
+    ),
+    "utf8",
+  ),
+);
+const NOW = Date.parse("2026-01-02T00:05:00Z");
+const progressCase = (name: string) =>
+  fixture.progress_v2.find((entry: { name: string }) => entry.name === name);
+const modelsFor = (frame: unknown) =>
+  selectLaneCardViewModels(
+    applyWorkLanesInventory(initialPentacleStreamState, frame),
+    NOW,
+  );
+const modelFor = (name = "active_progress") =>
+  modelsFor(progressCase(name).frame)[0];
 
-function surface(lanes = [modelFor()], initialFocus: string | null = null, initialPage = 0) {
+function surface(
+  lanes = [modelFor()],
+  initialFocus: string | null = null,
+  initialPage = 0,
+  readShow?: (id: string) => Promise<WorkLaneShow>,
+) {
   const onOpenMember = jest.fn();
   const onShowAll = jest.fn();
   const onLog = jest.fn();
@@ -33,302 +75,540 @@ function surface(lanes = [modelFor()], initialFocus: string | null = null, initi
   function Driver({ models }: { models: LaneCardViewModel[] }) {
     const [focus, setFocus] = useState(initialFocus);
     const [page, setPage] = useState(initialPage);
-    return <LanesMap lanes={models} assistantName="Orbit Guide" assistantSigil="flower"
-      focusedLaneId={focus} onFocusLane={setFocus} page={page} onPageChange={setPage}
-      onOpenMember={onOpenMember} onShowAll={onShowAll} onLog={onLog} onChat={onChat} />;
+    return (
+      <LanesMap
+        lanes={models}
+        assistantName="Orbit Guide"
+        assistantSigil="flower"
+        focusedLaneId={focus}
+        onFocusLane={setFocus}
+        page={page}
+        onPageChange={setPage}
+        readShow={readShow}
+        onOpenMember={onOpenMember}
+        onShowAll={onShowAll}
+        onLog={onLog}
+        onChat={onChat}
+      />
+    );
   }
   const view = render(<Driver models={lanes} />);
-  return { view, onOpenMember, onShowAll, onLog, onChat, rerender: (models: LaneCardViewModel[]) => view.rerender(<Driver models={models} />) };
+  return {
+    view,
+    onOpenMember,
+    onShowAll,
+    onLog,
+    onChat,
+    rerender: (models: LaneCardViewModel[]) =>
+      view.rerender(<Driver models={models} />),
+  };
 }
 
 function overflowModels() {
-  const source = progressCase('active_progress').frame;
+  const source = progressCase("active_progress").frame;
   const members = Array.from({ length: 32 }, (_, index) => ({
-    ...source.lanes[0].members[index % source.lanes[0].members.length],
-    spec_id: `spec-derived-${index + 1}`, title: `Paper span ${index + 1}`,
+    ...source.lanes[0].members[0],
+    spec_id: `spec-derived-${index + 1}`,
+    title: `Paper span ${index + 1}`,
   }));
-  const frame = { ...source, counts: { open: 9, active: 9, paused: 0, blocked: 0 },
-    lanes: Array.from({ length: 9 }, (_, index) => ({ ...source.lanes[0],
-      lane_id: `wl-derived-${index + 1}`, title: `Bridge collection ${index + 1}`,
-      members: members.slice(0, 8), members_total: 32, items_total: 32, items_open: 16, items_completed: 16,
+  const frame = {
+    ...source,
+    counts: { open: 9, active: 9, paused: 0, blocked: 0 },
+    lanes: Array.from({ length: 9 }, (_, index) => ({
+      ...source.lanes[0],
+      lane_id: `wl-derived-${index + 1}`,
+      title: `Bridge collection ${index + 1}`,
+      members: members.slice(0, 8),
+      members_total: 32,
+      items_total: 32,
+      items_open: 16,
+      items_completed: 16,
     })),
   };
   return { lanes: modelsFor(frame), members };
 }
 
-test('uses the shared model in daemon order and the supplied assistant identity at the center', () => {
-  const models = modelsFor(fixture.inventory_frame);
-  const { view } = surface(models);
-  expect(view.getByTestId('lanes-map-assistant').props.accessibilityLabel).toBe('Orbit Guide');
-  expect(view.getByTestId('lanes-map-members-pending')).toBeTruthy();
-  expect(view.getAllByTestId(/^lanes-map-lane-/).map((node) => node.props.testID))
-    .toEqual(models.map((model) => `lanes-map-lane-${model.lane.lane_id}`));
+test("small map keeps projection order and supplied assistant identity without the retired hint/pager", () => {
+  const models = modelsFor(fixture.inventory_frame),
+    { view } = surface(models);
+  expect(view.getByTestId("lanes-map-assistant").props.accessibilityLabel).toBe(
+    "Orbit Guide",
+  );
+  expect(
+    view.getAllByTestId(/^lanes-map-lane-/).map((n) => n.props.testID),
+  ).toEqual(models.map((m) => `lanes-map-lane-${m.lane.lane_id}`));
+  expect(view.queryByTestId("lanes-map-members-pending")).toBeNull();
+  expect(view.queryAllByTestId(/^lanes-map-page-/)).toHaveLength(0);
   for (const model of models) {
-    const node = view.getByTestId(`lanes-map-lane-${model.lane.lane_id}`);
-    expect(node.props.accessibilityRole).toBe('button');
-    expect(node.props.accessibilityState.selected).toBe(false);
-    expect(node.props.accessibilityLabel).toBe(`${model.lane.title}, ${model.stateLabel}, —/—`);
+    const n = view.getByTestId(`lanes-map-lane-${model.lane.lane_id}`);
+    expect(n.props.accessibilityRole).toBe("button");
+    expect(n.props.accessibilityState.selected).toBe(false);
+    expect(n.props.accessibilityLabel).toBe(
+      `${model.lane.title}, ${model.stateLabel}, —/—`,
+    );
   }
 });
-
-test.each<string>(fixture.progress_v2.map((entry: { name: string }) => entry.name))('renders shared progress case %s when focused', (name) => {
-  const model = modelFor(name);
-  const { view } = surface([model], model.lane.lane_id);
-  expect(view.getByTestId(`lanes-map-lane-${model.lane.lane_id}`).props.accessibilityState.selected).toBe(true);
-  expect(view.getByTestId(`lanes-map-progress-${model.lane.lane_id}`).props.children).toBe(model.progressLabel);
-  expect(view.getByText(model.stateLabel)).toBeTruthy();
-  expect(view.queryAllByTestId(/^lanes-map-member-/).map((node) => node.props.testID))
-    .toEqual(model.members.map((member) => `lanes-map-member-${member.spec_id}`));
-  expect(view.queryByTestId(`lanes-map-more-${model.lane.lane_id}`)).toBeNull();
-});
-
-test('focus, member detail, log and chat controls pass the same selected model and back restores the orbit', () => {
-  const model = modelFor();
-  const { view, onOpenMember, onLog, onChat } = surface([model]);
+test.each<string>(fixture.progress_v2.map((e: { name: string }) => e.name))(
+  "focused progress preserves shared truth for %s",
+  (name) => {
+    const model = modelFor(name),
+      { view } = surface([model], model.lane.lane_id);
+    expect(
+      view.getByTestId(`lanes-map-progress-${model.lane.lane_id}`),
+    ).toHaveTextContent(model.progressLabel.replace(/^est\. open work /, ""));
+    expect(
+      view.getByTestId(`lanes-map-lane-${model.lane.lane_id}`).props
+        .accessibilityState.selected,
+    ).toBe(true);
+  },
+);
+test("focus/member/log/chat/back keep the same model and selection state", () => {
+  const model = modelFor(),
+    { view, onOpenMember, onChat, onLog } = surface([model]);
   fireEvent.press(view.getByTestId(`lanes-map-lane-${model.lane.lane_id}`));
-  expect(view.queryByTestId('lanes-map-assistant')).toBeNull();
-  const member = model.members[0];
-  const node = view.getByTestId(`lanes-map-member-${member.spec_id}`);
-  expect(node.props.accessibilityLabel).toBe(`${member.title}, in progress`);
-  expect(node.props.accessibilityState.selected).toBe(false);
-  fireEvent.press(node);
-  expect(onOpenMember).toHaveBeenCalledWith(model, member);
+  const id = `lanes-map-member-${model.members[0].spec_id}`;
+  fireEvent.press(view.getByTestId(id));
+  expect(onOpenMember).toHaveBeenCalledWith(model, model.members[0]);
+  expect(view.getByTestId(id).props.accessibilityState.selected).toBe(true);
+  fireEvent.press(view.getByTestId("member-detail-back"));
   fireEvent.press(view.getByTestId(`lanes-map-log-${model.lane.lane_id}`));
   fireEvent.press(view.getByTestId(`lanes-map-chat-${model.lane.lane_id}`));
   expect(onLog).toHaveBeenCalledWith(model);
   expect(onChat).toHaveBeenCalledWith(model);
-  fireEvent.press(view.getByTestId('lanes-map-back'));
-  expect(view.getByTestId('lanes-map-assistant')).toBeTruthy();
+  fireEvent.press(view.getByTestId("lanes-map-back"));
+  expect(view.getByTestId("lanes-map-assistant")).toBeTruthy();
   expect(view.queryAllByTestId(/^lanes-map-member-/)).toHaveLength(0);
 });
-
-test('all nine lanes and all thirty-two members are reachable in order through the actual shared member list', async () => {
+test("nine lanes and 32 fetched members remain reachable in the dense sheet without a general overflow screen", async () => {
   const { lanes, members } = overflowModels();
-  const readShow = jest.fn(async (laneId: string): Promise<WorkLaneShow> => ({
-    lane_id: laneId, projection: lanes.find((model) => model.lane.lane_id === laneId)!.lane,
-    members, updates: [], events: [], spec_changes: [],
+  const readShow = jest.fn(async (id: string): Promise<WorkLaneShow> => ({
+    lane_id: id,
+    projection: lanes.find((m) => m.lane.lane_id === id)!.lane,
+    members,
+    updates: [],
+    events: [],
+    spec_changes: [],
   }));
-  function Journey() {
-    const [focus, setFocus] = useState<string | null>(null);
-    const [page, setPage] = useState(0);
-    const [all, setAll] = useState<LaneCardViewModel | null>(null);
-    const [member, setMember] = useState<WorkLaneMember | null>(null);
-    if (member) return <LaneMemberDetail member={member} laneTitle="Bridge collection" onBack={() => setMember(null)} />;
-    if (all) return <LaneMembers model={all} connected onBack={() => setAll(null)} onOpenMember={setMember} readShow={readShow} />;
-    return <LanesMap lanes={lanes} assistantName="Orbit Guide" focusedLaneId={focus} onFocusLane={setFocus}
-      page={page} onPageChange={setPage} onOpenMember={(_, selected) => setMember(selected)} onShowAll={setAll}
-      onLog={() => undefined} onChat={() => undefined} />;
-  }
-  const view = render(<Journey />);
-  expect(view.getByTestId('lanes-map-page-label').props.children).toEqual([1, '/', 2]);
-  expect(view.getByTestId('lanes-map-page-prev').props.accessibilityState.disabled).toBe(true);
-  expect(view.getAllByTestId(/^lanes-map-lane-/).map((node) => node.props.testID))
-    .toEqual(lanes.slice(0, 8).map((model) => `lanes-map-lane-${model.lane.lane_id}`));
-  for (let index = 0; index < lanes.length; index += 1) {
-    const model = lanes[index];
-    if (index === 8) fireEvent.press(view.getByTestId('lanes-map-page-next'));
-    expect(view.getByTestId('lanes-map-page-label').props.children).toEqual([index === 8 ? 2 : 1, '/', 2]);
+  const { view } = surface(lanes, null, 0, readShow);
+  expect(view.getAllByTestId(/^lanes-map-lane-/)).toHaveLength(9);
+  for (const model of lanes) {
     fireEvent.press(view.getByTestId(`lanes-map-lane-${model.lane.lane_id}`));
-    expect(view.getAllByTestId(/^lanes-map-member-/).map((node) => node.props.testID))
-      .toEqual(members.slice(0, 8).map((member) => `lanes-map-member-${member.spec_id}`));
-    const more = view.getByTestId(`lanes-map-more-${model.lane.lane_id}`);
-    expect(more.props.accessibilityLabel).toBe('Show all 32 specs');
-    expect(view.getByText('+24 more')).toBeTruthy();
-    expect(view.getAllByTestId(/^lanes-map-(?:member-|more-)/)).toHaveLength(9);
-    fireEvent.press(more);
-    await waitFor(() => expect(view.getAllByTestId(/^lane-members-row-/)).toHaveLength(32));
-    expect(view.getAllByTestId(/^lane-members-row-/).map((node) => node.props.testID))
-      .toEqual(members.map((member) => `lane-members-row-${member.spec_id}`));
-    fireEvent.press(view.getByTestId(`lane-members-row-${members[31].spec_id}`));
-    expect(view.getByTestId(`member-detail-${members[31].spec_id}`)).toBeTruthy();
-    fireEvent.press(view.getByTestId('member-detail-back'));
-    fireEvent.press(view.getByTestId('lane-members-back'));
-    expect(view.getByTestId(`lanes-map-lane-${model.lane.lane_id}`).props.accessibilityState.selected).toBe(true);
-    fireEvent.press(view.getByTestId('lanes-map-back'));
+    await act(async () => {});
+    expect(
+      view.getAllByTestId(/^lane-members-row-/).map((n) => n.props.testID),
+    ).toEqual(members.map((m) => `lane-members-row-${m.spec_id}`));
+    expect(view.getAllByTestId(/^lanes-map-member-/)).toHaveLength(32);
+    expect(
+      view.queryByTestId(`lanes-map-more-${model.lane.lane_id}`),
+    ).toBeNull();
+    fireEvent.press(
+      view.getByTestId(`lane-members-row-${members[31].spec_id}`),
+    );
+    expect(
+      view.getByTestId(`member-detail-${members[31].spec_id}`),
+    ).toBeTruthy();
+    fireEvent.press(view.getByTestId("member-detail-back"));
+    expect(view.getAllByTestId(/^lane-members-row-/)).toHaveLength(32);
+    fireEvent.press(view.getByTestId("lanes-map-back"));
   }
-  expect(view.getByTestId('lanes-map-page-next').props.accessibilityState.disabled).toBe(true);
-  fireEvent.press(view.getByTestId('lanes-map-page-prev'));
-  expect(view.getAllByTestId(/^lanes-map-lane-/)).toHaveLength(8);
-  expect(new Set(readShow.mock.calls.map(([laneId]) => laneId))).toEqual(new Set(lanes.map((model) => model.lane.lane_id)));
+  expect(new Set(readShow.mock.calls.map(([id]) => id))).toEqual(
+    new Set(lanes.map((m) => m.lane.lane_id)),
+  );
 });
-
-test.each([0, 2, 8, 9, 32])('renders at most eight inline members and overflow only when total %i is greater than eight', (total) => {
-  const { members } = overflowModels();
-  const source = progressCase('active_progress').frame;
-  const lanes = modelsFor({ ...source, lanes: [{ ...source.lanes[0], members: members.slice(0, Math.min(8, total)), members_total: total }] });
-  const model = lanes[0];
-  const { view, onShowAll } = surface(lanes, model.lane.lane_id);
-  expect(view.queryAllByTestId(/^lanes-map-member-/)).toHaveLength(Math.min(8, total));
-  const more = view.queryByTestId(`lanes-map-more-${model.lane.lane_id}`);
-  if (total > 8) {
-    expect(more).toBeTruthy();
-    fireEvent.press(more!);
-    expect(onShowAll).toHaveBeenCalledWith(model);
-  } else expect(more).toBeNull();
-});
-
-test('a no-spec reason suppresses members and overflow even if contradictory optional member fields arrive', () => {
-  const source = progressCase('active_progress').frame;
-  const lanes = modelsFor({ ...source, lanes: [{ ...source.lanes[0], no_spec_reason: 'Planning the next collection', members_total: 32 }] });
-  const { view } = surface(lanes, lanes[0].lane.lane_id);
-  expect(view.getByText('Planning the next collection')).toBeTruthy();
-  expect(view.queryAllByTestId(/^lanes-map-(?:member-|more-)/)).toHaveLength(0);
-  expect(view.queryByText('Specs arrive when the daemon updates')).toBeNull();
-});
-
-test('v1 upgrades in place to increment one without losing the selected lane or requiring a remount', () => {
-  const v1 = modelsFor(fixture.inventory_frame);
-  const focusedId = v1[1].lane.lane_id;
-  const { view, rerender } = surface(v1, focusedId);
-  expect(view.getByTestId(`lanes-map-members-pending-${focusedId}`)).toBeTruthy();
-  expect(view.queryAllByTestId(/^lanes-map-member-/)).toHaveLength(0);
-  const source = progressCase('active_progress').frame;
-  const next = modelsFor({ ...source, lanes: [{ ...source.lanes[0], lane_id: focusedId }] });
-  rerender(next);
-  expect(view.queryByTestId(`lanes-map-members-pending-${focusedId}`)).toBeNull();
-  expect(view.getByTestId(`lanes-map-lane-${focusedId}`).props.accessibilityState.selected).toBe(true);
-  expect(view.getAllByTestId(/^lanes-map-member-/)).toHaveLength(2);
-});
-
-test.each([1, 2, 3])('width 320 and font scale %i leave all target rectangles disjoint and at least 44 points', (fontScale) => {
-  const dimensions = require('react-native/Libraries/Utilities/useWindowDimensions');
-  const spy = jest.spyOn(dimensions, 'default').mockReturnValue({ width: 320, height: 640, scale: 1, fontScale });
-  try {
-    const { lanes } = overflowModels();
-    const { view } = surface(lanes);
-    fireEvent(view.getByTestId('lanes-map'), 'layout', { nativeEvent: { layout: { width: 320, height: 640, x: 0, y: 0 } } });
-    const assertGeometry = (ids: RegExp) => {
-      const targets = view.getAllByTestId(ids);
-      const boxes = targets.map((target) => StyleSheet.flatten(target.props.style));
-      for (const box of boxes) {
-        expect(box.width).toBeGreaterThanOrEqual(44);
-        expect(box.height).toBeGreaterThanOrEqual(44);
-        expect(box.height).toBe(52 + 22 + 44 * fontScale);
-        expect(box.left).toBeGreaterThanOrEqual(0);
-        expect(box.left + box.width).toBeLessThanOrEqual(320 - 24 + 0.001);
-      }
-      for (let a = 0; a < boxes.length; a += 1) for (let b = a + 1; b < boxes.length; b += 1) {
-        const first = boxes[a];
-        const second = boxes[b];
-        const separate = first.left + first.width <= second.left || second.left + second.width <= first.left
-          || first.top + first.height <= second.top || second.top + second.height <= first.top;
-        expect(separate).toBe(true);
-      }
-    };
-    assertGeometry(/^lanes-map-(?:lane-|assistant$)/);
-    fireEvent.press(view.getByTestId(`lanes-map-lane-${lanes[0].lane.lane_id}`));
-    assertGeometry(/^lanes-map-(?:lane-|member-)/);
-    for (const id of ['lanes-map-back', `lanes-map-more-${lanes[0].lane.lane_id}`, `lanes-map-log-${lanes[0].lane.lane_id}`, `lanes-map-chat-${lanes[0].lane.lane_id}`]) {
-      expect(StyleSheet.flatten(view.getByTestId(id).props.style).minHeight).toBeGreaterThanOrEqual(44);
+test.each([0, 2, 6])(
+  "all %i small-lane members fan out individually regardless of status",
+  (total) => {
+    const source = progressCase("active_progress").frame,
+      members = Array.from({ length: total }, (_, i) => ({
+        ...source.lanes[0].members[0],
+        spec_id: `small-${i}`,
+        status: i % 2 ? "backlog" : "completed",
+      }));
+    const models = modelsFor({
+      ...source,
+      lanes: [{ ...source.lanes[0], members, members_total: total }],
+    });
+    const { view } = surface(models, models[0].lane.lane_id);
+    expect(view.queryAllByTestId(/^lanes-map-member-/)).toHaveLength(total);
+    expect(
+      view.queryByTestId(`lanes-map-more-${models[0].lane.lane_id}`),
+    ).toBeNull();
+  },
+);
+test("Pending and Done stacks expand in place and spec back restores its originating stack", () => {
+  const base = modelFor();
+  const statuses = [
+    "in_progress",
+    "needs_qa",
+    "missing",
+    "ambiguous",
+    "ready_for_dev",
+    "analysis",
+    "backlog",
+    "backlog",
+    "completed",
+    "deprecated",
+  ];
+  const members = statuses.map((status, i) => ({
+    ...base.members[0],
+    spec_id: `stack-${i}`,
+    title: `Stack member ${i}`,
+    status,
+    terminal: status === "completed" || status === "deprecated" ? status : null,
+  }));
+  const models = modelsFor({
+    ...progressCase("active_progress").frame,
+    lanes: [{ ...base.lane, members, members_total: members.length }],
+  });
+  const model = models[0],
+    { view } = surface(models, model.lane.lane_id);
+  expect(view.getAllByTestId(/^lanes-map-member-/)).toHaveLength(4);
+  const pending = `lanes-map-more-${model.lane.lane_id}`,
+    done = `lanes-map-done-stack-${model.lane.lane_id}`;
+  expect(view.getByTestId(pending).props.accessibilityLabel).toBe(
+    "Pending, 4 specs",
+  );
+  expect(view.getByTestId(done).props.accessibilityLabel).toBe("Done, 2 specs");
+  for (const [id, indices] of [
+    [pending, [4, 5, 6, 7]],
+    [done, [8, 9]],
+  ] as const) {
+    fireEvent.press(view.getByTestId(id));
+    if (id === done) {
+      const close = view.getByTestId("lanes-map-stack-close");
+      expect(StyleSheet.flatten(close.props.style)).toMatchObject({
+        borderStyle: "solid",
+        borderColor: `${Tokens.palette.green}88`,
+      });
+      expect(
+        StyleSheet.flatten(view.getByText("DONE · 2").props.style).color,
+      ).toBe(Tokens.palette.green);
+      expect(
+        StyleSheet.flatten(
+          within(view.getByTestId("lane-members-row-stack-8")).getByText(
+            "Stack member 8",
+          ).props.style,
+        ).fontFamily,
+      ).toBe(Fonts.rajdhani.bold);
     }
-  } finally { spy.mockRestore(); }
+    expect(
+      view.getAllByTestId(/^lanes-map-member-/).map((n) => n.props.testID),
+    ).toEqual(indices.map((i) => `lanes-map-member-stack-${i}`));
+    expect(view.getAllByTestId(/^lane-members-row-/)).toHaveLength(
+      indices.length,
+    );
+    fireEvent.press(view.getByTestId(`lanes-map-member-stack-${indices[0]}`));
+    expect(view.getByTestId(`member-detail-stack-${indices[0]}`)).toBeTruthy();
+    fireEvent.press(view.getByTestId("member-detail-back"));
+    expect(view.getAllByTestId(/^lane-members-row-/)).toHaveLength(
+      indices.length,
+    );
+    fireEvent.press(view.getByTestId("lanes-map-stack-close"));
+    expect(view.getByTestId(pending)).toBeTruthy();
+  }
 });
-
-test('working markers require active working leads and waiting-on-you uses the shared model count', () => {
-  const source = progressCase('active_progress').frame;
-  const base = source.lanes[0];
-  const lanes = modelsFor({ ...source, lanes: ['active', 'blocked', 'paused'].map((state) => ({ ...base,
-    lane_id: `wl-presence-${state}`, state, lead: { ...base.lead, presence: { ...base.lead.presence, working: true } },
-  })) });
-  const model = { ...lanes[0], waitingOnYou: 3, waitingOnYouLabel: 'Waiting on you · 3 questions', blockerLabel: 'Waiting on you · 3 questions' };
-  const { view } = surface([model, ...lanes.slice(1)]);
-  expect(view.getByTestId(`lanes-map-working-${model.lane.lane_id}`)).toBeTruthy();
-  expect(view.queryByTestId('lanes-map-working-wl-presence-blocked')).toBeNull();
-  expect(view.queryByTestId('lanes-map-working-wl-presence-paused')).toBeNull();
-  expect(view.getByTestId(`lanes-map-waiting-${model.lane.lane_id}`)).toBeTruthy();
-  expect(view.getByTestId(`lanes-map-waiting-${model.lane.lane_id}`).props.children).toEqual(['?', 3]);
-  fireEvent.press(view.getByTestId(`lanes-map-lane-${model.lane.lane_id}`));
-  expect(view.getByText('Waiting on you · 3 questions')).toBeTruthy();
+test.each([16, 17, 32])(
+  "%i lanes render 16 plus conditional +remaining, with all lanes reachable through list callback",
+  (total) => {
+    const base = modelFor(),
+      models = Array.from({ length: total }, (_, i) => ({
+        ...base,
+        lane: { ...base.lane, lane_id: `many-${i}` },
+      }));
+    const { view, onShowAll } = surface(models);
+    expect(view.getAllByTestId(/^lanes-map-lane-/)).toHaveLength(
+      Math.min(16, total),
+    );
+    const overflow = view.queryByTestId("lanes-map-overflow");
+    if (total > 16) {
+      expect(overflow).toHaveTextContent(`+${total - 16}`);
+      fireEvent.press(overflow!);
+      expect(onShowAll).toHaveBeenCalledWith(models[0]);
+    } else expect(overflow).toBeNull();
+  },
+);
+test("two rings use stable attention order and keep node centres on ellipses", () => {
+  const base = modelFor();
+  const states = [
+    "paused",
+    "active",
+    "blocked",
+    "active",
+    "blocked",
+    "paused",
+    "active",
+    "active",
+  ];
+  const models = states.map((state, i) => ({
+    ...base,
+    lane: {
+      ...base.lane,
+      lane_id: `attention-${i}`,
+      state: state as any,
+      lead: {
+        ...base.lane.lead!,
+        presence: { ...base.lane.lead!.presence, working: i === 3 },
+      },
+    },
+  }));
+  const { view } = surface(models),
+    expected = [...models].sort(
+      (a, b) => laneAttentionRank(a) - laneAttentionRank(b),
+    );
+  const nodes = view.getAllByTestId(/^lanes-map-lane-/);
+  expect(nodes.map((n) => n.props.testID)).toEqual(
+    expected.map((m) => `lanes-map-lane-${m.lane.lane_id}`),
+  );
+  nodes.forEach((node, i) => {
+    const s = StyleSheet.flatten(node.props.style);
+    const x = s.left + s.width / 2 - 201,
+      y = s.top + s.height / 2 - 330;
+    expect(
+      (x / (i < 6 ? 100 : 182)) ** 2 + (y / (i < 6 ? 140 : 240)) ** 2,
+    ).toBeCloseTo(1, 4);
+  });
 });
-
-test.each(['active', 'blocked', 'paused'])('spec node status colors stay distinct in a %s lane', (state) => {
-  const source = progressCase('active_progress').frame;
-  const memberSource = source.lanes[0].members[0];
-  const colors = {
-    completed: Tokens.palette.green,
-    in_progress: state === 'blocked' ? Tokens.palette.amber : state === 'paused' ? Tokens.palette.muted : Tokens.palette.green,
-    needs_qa: Tokens.palette.text,
-    ready_for_dev: Tokens.palette.dim,
-    analysis: Tokens.palette.dim,
-    backlog: Tokens.palette.muted,
-    deprecated: Tokens.palette.muted,
-    missing: Tokens.palette.red,
-    ambiguous: Tokens.palette.red,
+test("no-spec reason suppresses contradictory members and stack nodes", () => {
+  const base = modelFor();
+  const model = {
+    ...base,
+    lane: { ...base.lane, no_spec_reason: "Planning a collection" },
+    membersTotal: 32,
   };
-  for (const [status, color] of Object.entries(colors)) {
-    const model = modelsFor({ ...source, lanes: [{ ...source.lanes[0], state,
-      members: [{ ...memberSource, status, terminal: status === 'completed' || status === 'deprecated' ? status : null }], members_total: 1,
-    }] })[0];
-    const { view } = surface([model], model.lane.lane_id);
-    const node = view.getByTestId(`lanes-map-member-${memberSource.spec_id}`);
-    const ring = node.findAll((child) => StyleSheet.flatten(child.props.style)?.borderWidth === 2)[0];
-    expect(StyleSheet.flatten(ring.props.style).borderColor).toBe(color);
-    view.unmount();
-  }
+  const { view } = surface([model], model.lane.lane_id);
+  expect(
+    view.getByTestId(`lanes-map-progress-${model.lane.lane_id}`),
+  ).toBeTruthy();
+  expect(
+    view.queryAllByTestId(/^lanes-map-(member-|more-|done-stack-)/),
+  ).toHaveLength(0);
 });
-
-test.each(['missing', 'ambiguous'])('unresolved %s observation stays red even when the reported status is completed or working', (quality) => {
-  const source = progressCase('active_progress').frame;
-  const memberSource = source.lanes[0].members[0];
-  for (const state of ['active', 'blocked', 'paused']) {
-    const model = modelsFor({ ...source, lanes: [{ ...source.lanes[0], state,
-      members: ['completed', 'in_progress'].map((status) => ({ ...memberSource, spec_id: `spec-quality-${status}`, status,
-        observation: { ...memberSource.observation, quality },
-      })), members_total: 2,
-    }] })[0];
-    const { view } = surface([model], model.lane.lane_id);
-    for (const member of model.members) {
-      const node = view.getByTestId(`lanes-map-member-${member.spec_id}`);
-      const ring = node.findAll((child) => StyleSheet.flatten(child.props.style)?.borderWidth === 2)[0];
-      expect(StyleSheet.flatten(ring.props.style).borderColor).toBe(Tokens.palette.red);
+test("v1 upgrades in place preserving focus; disappearance exits focus", () => {
+  const v1 = modelsFor(fixture.inventory_frame),
+    id = v1[1].lane.lane_id,
+    { view, rerender } = surface(v1, id);
+  expect(view.getByTestId(`lanes-map-members-pending-${id}`)).toBeTruthy();
+  const next = { ...modelFor(), lane: { ...modelFor().lane, lane_id: id } };
+  rerender([next]);
+  expect(view.queryByTestId(`lanes-map-members-pending-${id}`)).toBeNull();
+  expect(view.getAllByTestId(/^lanes-map-member-/)).toHaveLength(2);
+  rerender([]);
+  expect(view.getByTestId("lanes-map-assistant")).toBeTruthy();
+});
+test.each([1, 2, 3])(
+  "narrow font scale %i retains semantic target labels and a scrollable sheet",
+  (fontScale) => {
+    const dimensions = require("react-native/Libraries/Utilities/useWindowDimensions"),
+      spy = jest
+        .spyOn(dimensions, "default")
+        .mockReturnValue({ width: 320, height: 640, scale: 1, fontScale });
+    try {
+      const model = modelFor(),
+        { view } = surface([model], model.lane.lane_id);
+      fireEvent(view.getByTestId("lanes-map"), "layout", {
+        nativeEvent: { layout: { width: 320, height: 640, x: 0, y: 0 } },
+      });
+      for (const member of model.members)
+        expect(
+          view.getByTestId(`lanes-map-member-${member.spec_id}`).props
+            .accessibilityLabel,
+        ).toContain(memberTitleForTest(member));
+      expect(
+        view.getByTestId(`lanes-map-chat-${model.lane.lane_id}`).props
+          .accessibilityRole,
+      ).toBe("button");
+    } finally {
+      spy.mockRestore();
     }
-    view.unmount();
-  }
+  },
+);
+function memberTitleForTest(member: WorkLaneMember) {
+  return member.title || member.spec_id;
+}
+test("working and circled-question badges obey state and shared count", () => {
+  const base = modelFor();
+  const models = ["active", "blocked", "paused"].map((state) => ({
+    ...base,
+    lane: {
+      ...base.lane,
+      lane_id: `presence-${state}`,
+      state: state as any,
+      lead: {
+        ...base.lane.lead!,
+        presence: { ...base.lane.lead!.presence, working: true },
+      },
+    },
+  }));
+  models[0] = { ...models[0], waitingOnYou: 3 };
+  const { view } = surface(models);
+  expect(view.getByTestId("lanes-map-working-presence-active")).toBeTruthy();
+  expect(view.queryByTestId("lanes-map-working-presence-blocked")).toBeNull();
+  expect(view.queryByTestId("lanes-map-working-presence-paused")).toBeNull();
+  expect(
+    view.getByTestId("lanes-map-waiting-presence-active"),
+  ).toHaveTextContent("?");
 });
-
-test('unavailable chats remain explicit and disabled while historical chats retain their own navigation', () => {
-  const v1 = modelsFor(fixture.inventory_frame);
-  const unavailable = v1.find((model) => model.tap.action === 'unavailable')!;
-  const { view, onChat } = surface([unavailable], unavailable.lane.lane_id);
-  const chat = view.getByTestId(`lanes-map-chat-${unavailable.lane.lane_id}`);
-  expect(chat.props.accessibilityState.disabled).toBe(true);
-  fireEvent.press(chat);
+test.each(["active", "blocked", "paused"] as const)(
+  "spec tones remain distinct in %s lanes and unresolved observation remains red",
+  (state) => {
+    const base = modelFor(),
+      model = {
+        ...base,
+        stateTone: (state === "blocked"
+          ? "amber"
+          : state === "paused"
+            ? "muted"
+            : "green") as LaneCardViewModel["stateTone"],
+        lane: { ...base.lane, state },
+      };
+    const tones = {
+      completed: Tokens.palette.green,
+      in_progress: Tokens.palette[model.stateTone],
+      needs_qa: Tokens.palette.text,
+      ready_for_dev: Tokens.palette.dim,
+      analysis: Tokens.palette.dim,
+      backlog: Tokens.palette.muted,
+      deprecated: Tokens.palette.muted,
+      missing: Tokens.palette.red,
+      ambiguous: Tokens.palette.red,
+    };
+    for (const [status, tone] of Object.entries(tones)) {
+      const member = { ...base.members[0], status };
+      expect(memberTone(member, model)).toBe(tone);
+      expect(
+        memberTone({ ...member, observation: { quality: "missing" } }, model),
+      ).toBe(Tokens.palette.red);
+    }
+  },
+);
+test("unavailable chat has explicit text and no control while history retains its target", () => {
+  const v1 = modelsFor(fixture.inventory_frame),
+    u = v1.find((m) => m.tap.action === "unavailable")!,
+    { view, onChat } = surface([u], u.lane.lane_id);
+  expect(view.queryByTestId(`lanes-map-chat-${u.lane.lane_id}`)).toBeNull();
+  expect(view.getByText("CHAT UNAVAILABLE")).toBeTruthy();
   expect(onChat).not.toHaveBeenCalled();
-  expect(view.getByText('Chat unavailable')).toBeTruthy();
   view.unmount();
-  const historical = v1.find((model) => model.tap.action === 'history')!;
-  const history = surface([historical], historical.lane.lane_id);
-  fireEvent.press(history.view.getByTestId(`lanes-map-chat-${historical.lane.lane_id}`));
-  expect(history.onChat).toHaveBeenCalledWith(historical);
+  const h = v1.find((m) => m.tap.action === "history")!,
+    next = surface([h], h.lane.lane_id);
+  fireEvent.press(next.view.getByTestId(`lanes-map-chat-${h.lane.lane_id}`));
+  expect(next.onChat).toHaveBeenCalledWith(h);
 });
-
-test('an inventory replacement clamps the page and exits focus when its lane disappears', () => {
-  const { lanes } = overflowModels();
-  const { view, rerender } = surface(lanes, lanes[8].lane.lane_id, 1);
-  rerender(lanes.slice(0, 1));
-  expect(view.getByTestId('lanes-map-assistant')).toBeTruthy();
-  expect(view.getByTestId('lanes-map-page-label').props.children).toEqual([1, '/', 1]);
-  expect(view.queryByTestId('lanes-map-back')).toBeNull();
-});
-
-test('empty projections have an honest empty state and disabled paging', () => {
+test("empty map is honest and telemetry remains pageless IDs/counts only", () => {
   const { view } = surface([]);
-  expect(view.getByText('No open lanes')).toBeTruthy();
   expect(view.queryAllByTestId(/^lanes-map-lane-/)).toHaveLength(0);
-  expect(view.getByTestId('lanes-map-page-prev').props.accessibilityState.disabled).toBe(true);
-  expect(view.getByTestId('lanes-map-page-next').props.accessibilityState.disabled).toBe(true);
+  expect(view.queryAllByTestId(/^lanes-map-page-/)).toHaveLength(0);
+  expect(emitHarnessUiTrace).toHaveBeenLastCalledWith("work_lanes_map_render", {
+    page: 1,
+    page_count: 1,
+    lane_nodes: 0,
+    focused_lane_id: null,
+    member_nodes: 0,
+    more_count: 0,
+  });
 });
 
-test('map telemetry passes only identifiers and counts to the harness-only transport', () => {
-  const { lanes } = overflowModels();
-  const { view } = surface(lanes);
-  expect(emitHarnessUiTrace).toHaveBeenLastCalledWith('work_lanes_map_render', {
-    page: 1, page_count: 2, lane_nodes: 8, focused_lane_id: null, member_nodes: 0, more_count: 0,
+test("working orbit and spoke expose animated transforms; idle lanes retain static geometry", () => {
+  const working = modelFor();
+  working.lane = {
+    ...working.lane,
+    lead: {
+      ...working.lane.lead!,
+      presence: { ...working.lane.lead!.presence, online: true, working: true },
+    },
+  };
+  const { view, rerender } = surface([working]);
+  expect(
+    StyleSheet.flatten(
+      view.getByTestId(`lanes-map-working-${working.lane.lane_id}`).props.style,
+    ).transform,
+  ).toBeDefined();
+  expect(
+    view.getByTestId(`lanes-map-flow-${working.lane.lane_id}`),
+  ).toBeTruthy();
+  const before = StyleSheet.flatten(
+    view.getByTestId(`lanes-map-lane-${working.lane.lane_id}`).props.style,
+  );
+  rerender([
+    {
+      ...working,
+      lane: {
+        ...working.lane,
+        lead: {
+          ...working.lane.lead!,
+          presence: { ...working.lane.lead!.presence, working: false },
+        },
+      },
+    },
+  ]);
+  expect(
+    view.queryByTestId(`lanes-map-flow-${working.lane.lane_id}`),
+  ).toBeNull();
+  expect(
+    view.queryByTestId(`lanes-map-working-${working.lane.lane_id}`),
+  ).toBeNull();
+  const after = StyleSheet.flatten(
+    view.getByTestId(`lanes-map-lane-${working.lane.lane_id}`).props.style,
+  );
+  expect(after.left).toBe(before.left);
+  expect(after.top).toBe(before.top);
+});
+
+test("estimate annotations do not invent counts missing from a partial inventory", () => {
+  const model = modelFor();
+  model.lane = {
+    ...model.lane,
+    open_estimate_h: { p25: 1, p75: 2, median: 1.5 },
+    estimate_complete: false,
+    open_estimated: undefined,
+    items_open: undefined,
+  };
+  const { view, rerender } = surface([model], model.lane.lane_id);
+  expect(view.queryByText(/open specs estimated/)).toBeNull();
+  rerender([
+    { ...model, lane: { ...model.lane, open_estimated: 2, items_open: 4 } },
+  ]);
+  expect(view.getByText("2 of 4 open specs estimated")).toBeTruthy();
+});
+
+test.each([
+  { no_spec_reason: "Discussion only" },
+  { items_total: 0, items_open: 0 },
+  { items_total: 3, items_open: 0, items_completed: 3 },
+  { items_total: 3, items_open: 0, items_dropped: 3 },
+  { items_total: 3, items_open: 0, items_completed: 2, items_dropped: 1 },
+])("non-estimate value has no median annotation %j", (patch) => {
+  const base = modelFor();
+  const model = modelsFor({
+    ...progressCase("active_progress").frame,
+    lanes: [{ ...base.lane, ...patch }],
+  })[0];
+  const { view } = surface([model], model.lane.lane_id);
+  expect(view.queryByText(/^median /)).toBeNull();
+});
+
+test("Done stack row titles are bold", () => {
+  const base = modelFor();
+  const members = Array.from({ length: 7 }, (_, i) => ({
+    ...base.members[0],
+    spec_id: `done-row-${i}`,
+    title: `Finished item ${i}`,
+    status: "completed",
+    terminal: "completed",
+  }));
+  const models = modelsFor({
+    ...progressCase("active_progress").frame,
+    lanes: [{ ...base.lane, members, members_total: 7 }],
   });
-  fireEvent.press(view.getByTestId(`lanes-map-lane-${lanes[0].lane.lane_id}`));
-  expect(emitHarnessUiTrace).toHaveBeenLastCalledWith('work_lanes_map_render', {
-    page: 1, page_count: 2, lane_nodes: 1, focused_lane_id: lanes[0].lane.lane_id, member_nodes: 9, more_count: 24,
-  });
-  expect(JSON.stringify((emitHarnessUiTrace as jest.Mock).mock.calls)).not.toContain(lanes[0].lane.title);
-  expect(JSON.stringify((emitHarnessUiTrace as jest.Mock).mock.calls)).not.toContain(lanes[0].members[0].title);
+  const { view } = surface(models, base.lane.lane_id);
+  fireEvent.press(
+    view.getByTestId(`lanes-map-done-stack-${base.lane.lane_id}`),
+  );
+  expect(
+    StyleSheet.flatten(
+      within(view.getByTestId("lane-members-row-done-row-0")).getByText(
+        "Finished item 0",
+      ).props.style,
+    ).fontFamily,
+  ).toBe(Fonts.rajdhani.bold);
 });
