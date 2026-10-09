@@ -683,3 +683,88 @@ def test_every_supplemental_scene_runs_the_shared_path(tmp_path, monkeypatch):
         assert record["admission"]["problems"] == [] and record["build_identity"] == spec["build"], name
         assert (code, record["verdict"], record["scene_verdict"]) == (4, "SETUP_FAIL", "PASS"), name
         assert record["companion_stopped"] is False and record["teardown"]["complete"] is True, name
+
+
+# Real-run fixes: macOS venv python re-execs (identity), and operator-authenticated probes.
+
+def test_same_process_ignores_the_interpreter_path_only():
+    start = "Fri Oct 9 07:59:37 2026"
+    recorded = {"start": start, "command": "/run/venv/bin/python /d/web_gate_daemon.py /s --port 17893"}
+    reexec = {"start": start, "command": "/opt/Python.app/Contents/MacOS/Python /d/web_gate_daemon.py /s --port 17893"}
+    assert sd.same_process(recorded, reexec)
+    assert not sd.same_process(recorded, {**reexec, "start": "Fri Oct 9 08:00:00 2026"})
+    assert not sd.same_process(recorded, {**reexec, "command": "/opt/Python /d/other.py /s --port 17893"})
+    assert not sd.same_process({"start": start, "command": "/run/venv/bin/python"}, {"start": start, "command": "/opt/Python"})
+
+
+def test_owned_stop_accepts_its_own_reexeced_interpreter(tmp_path):
+    env = {"PATH": "/usr/bin:/bin"}
+    receipt = sd.start_owned("sleeper", [sys.executable, "-c", "import time; time.sleep(60)"], env=env, cwd=tmp_path,
+                             log=tmp_path / "sleeper.log", port=None)
+    current = sd.process_identity(receipt["pid"])
+    _, _, tail = current["command"].partition(" ")
+    reexec = {**receipt, "identity": {"start": current["start"], "command": "/elsewhere/bin/python " + tail}}
+    outcome = sd.stop_owned(reexec)
+    assert outcome["absent"] is True and not outcome.get("identity_changed")
+
+
+class _FakeOperatorAuth:
+    AUTH_SCHEME = "hmac-sha256-v2"
+
+    @staticmethod
+    def decode_envelope(value):
+        assert value == "pentacle-auth-v2:fake"
+        return {"version": 2, "credential_id": "11111111-2222-3333-4444-555555555555", "client_kind": "pentacle",
+                "proof_key": b"k" * 32}
+
+    @staticmethod
+    def make_proof(key, nonce, credential_id, client_kind):
+        return f"proof({len(key)},{nonce},{credential_id},{client_kind})"
+
+
+def test_probe_hello_is_anonymous_or_an_operator_proof_over_the_welcome_nonce():
+    welcome = {"type": "welcome", "auth": {"operator": {"scheme": "hmac-sha256-v2", "nonce": "N0"}}}
+    anonymous = sd.probe_hello(welcome, None)
+    assert "auth_v2" not in anonymous and anonymous["client"] == "lanes-release-contained-probe"
+    hello = sd.probe_hello(welcome, {"envelope": "pentacle-auth-v2:fake", "module": _FakeOperatorAuth})
+    assert hello["client"] == "pentacle"
+    assert hello["auth_v2"] == {"scheme": "hmac-sha256-v2", "credential_id": "11111111-2222-3333-4444-555555555555",
+                                "proof": "proof(32,N0,11111111-2222-3333-4444-555555555555,pentacle)"}
+    with pytest.raises(RuntimeError, match="nonce"):
+        sd.probe_hello({"type": "welcome"}, {"envelope": "pentacle-auth-v2:fake", "module": _FakeOperatorAuth})
+
+
+def test_operator_credential_is_issued_by_the_pinned_wrapper_inside_scratch(tmp_path):
+    argv = sd.issue_argv("/venv/python", tmp_path / "checkout", tmp_path / "scratch")
+    assert argv == ["/venv/python", str(tmp_path / "checkout" / sd.WRAPPER_PATH), str(tmp_path / "scratch"), "--issue"]
+    assert sd.operator_token_path(tmp_path / "scratch") == tmp_path / "scratch" / "operator-auth" / "token"
+
+
+def test_scratch_hashes_never_include_operator_auth_material(tmp_path):
+    owned = _owned_scratch(tmp_path)
+    (owned.scratch / "operator-auth").mkdir()
+    (owned.scratch / "operator-auth" / "token").write_text("pentacle-auth-v2:secret")
+    (owned.scratch / "operator-auth" / "registry.json").write_text("{}")
+    (owned.scratch / "sessions.db").write_text("x")
+    owned.hash_evidence()
+    assert set(owned.result["scratch_file_sha256"]) == {"sessions.db"}
+
+
+def test_probe_a_reads_show_as_operator_and_proves_anonymous_reads_are_refused(tmp_path, monkeypatch):
+    owned = _owned_scratch(tmp_path)
+    owned.probe_auth = {"envelope": "e", "module": _FakeOperatorAuth}
+    v1_inventory = json.loads((Path(run.__file__).resolve().parents[3] / sd.FIXTURE_PATH).read_text())["inventory_frame"]
+    calls = []
+
+    def fake_probe(port, lane_id=None, timeout_s=20, auth=None):
+        calls.append(auth)
+        if auth is None:
+            return {"inventory": v1_inventory, "show": {"type": "work_lanes.show.error", "error_code": "work_lanes_unauthorized"}}
+        return {"inventory": v1_inventory, "show": {"type": "work_lanes.show.ok", "lane": {"lane_id": lane_id}}}
+
+    monkeypatch.setattr(run.sd, "probe", fake_probe)
+    monkeypatch.setattr(run.v1, "check_v1_inventory", lambda *a: [])
+    monkeypatch.setattr(run.v1, "check_v1_show", lambda frame, lane: [] if frame["type"].endswith(".ok") else ["no show.ok"])
+    owned.probe_a()
+    assert calls == [owned.probe_auth, None]
+    assert owned.result["checks"]["probe_a"]["anonymous_show_error_code"] == "work_lanes_unauthorized"

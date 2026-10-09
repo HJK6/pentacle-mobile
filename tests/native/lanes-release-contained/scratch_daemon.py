@@ -382,6 +382,18 @@ def process_identity(pid: int) -> dict[str, str] | None:
     return {"start": " ".join(parts[:5]), "command": " ".join(parts[5:])}
 
 
+def same_process(recorded: dict[str, str] | None, current: dict[str, str] | None) -> bool:
+    """Same start time and the same arguments after the interpreter. A macOS framework venv python re-execs
+    into the framework's Python.app, so only argv[0] of the recorded command may differ."""
+    if not recorded or not current or recorded.get("start") != current.get("start"):
+        return False
+    if recorded.get("command") == current.get("command"):
+        return True
+    _, _, recorded_tail = str(recorded.get("command", "")).partition(" ")
+    _, _, current_tail = str(current.get("command", "")).partition(" ")
+    return bool(recorded_tail) and recorded_tail == current_tail
+
+
 def start_owned(label: str, argv: list[str], *, env: dict[str, str], cwd: Path, log: Path,
                 port: int | None, ready_timeout_s: float = 60) -> dict[str, Any]:
     if port is not None and not port_free(port):
@@ -399,6 +411,12 @@ def start_owned(label: str, argv: list[str], *, env: dict[str, str], cwd: Path, 
             receipt["exit"] = proc.poll()
             stop_owned(receipt)
             raise RuntimeError(f"{label} did not listen on {port} (exit={receipt['exit']})") from None
+        # Re-read once the listener is up, after any interpreter re-exec; it must still be the same process.
+        settled = process_identity(proc.pid)
+        if not same_process(receipt["identity"], settled):
+            stop_owned(receipt)
+            raise RuntimeError(f"{label}: process identity changed during start")
+        receipt["identity"] = settled
     receipt["_proc"] = proc
     return receipt
 
@@ -411,7 +429,7 @@ def stop_owned(receipt: dict[str, Any], grace_s: float = 10) -> dict[str, Any]:
     proc = receipt.get("_proc")
     if current is None:
         outcome["already_absent"] = True
-    elif receipt.get("identity") and current != receipt["identity"]:
+    elif receipt.get("identity") and not same_process(receipt["identity"], current):
         outcome["identity_changed"] = True
         raise RuntimeError(f"{receipt['label']}: pid {pid} identity changed; not signalling")
     else:
@@ -447,15 +465,52 @@ def public_receipt(receipt: dict[str, Any]) -> dict[str, Any]:
 # Loopback probes (direct to the daemon port; loopback reads need no credential)
 # ---------------------------------------------------------------------------
 
-async def _probe(port: int, lane_id: str | None, timeout_s: float) -> dict[str, Any]:
+def issue_argv(python: str, checkout: Path, scratch: Path) -> list[str]:
+    """The pinned wrapper's own credential step: a registry and a 0600 operator envelope inside scratch."""
+    return [python, str(checkout / WRAPPER_PATH), str(scratch), "--issue"]
+
+
+def operator_token_path(scratch: Path) -> Path:
+    return scratch / "operator-auth" / "token"
+
+
+def load_probe_auth(checkout: Path, scratch: Path) -> dict[str, Any]:
+    """The pinned checkout's own operator-auth client helpers plus the issued envelope (never logged)."""
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("pinned_operator_auth", checkout / "services" / "_shared" / "operator_auth.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return {"envelope": operator_token_path(scratch).read_text(encoding="utf-8").strip(), "module": module}
+
+
+def probe_hello(welcome: dict[str, Any], auth: dict[str, Any] | None) -> dict[str, Any]:
+    """Anonymous hello, or an operator hello proving the issued credential over the welcome nonce."""
+    hello: dict[str, Any] = {"type": "hello", "client": "lanes-release-contained-probe",
+                             "capabilities": {"work_lanes_v1": True},
+                             "subscribe": {"snapshot": True, "events_mode": "summary"}}
+    if auth is None:
+        return hello
+    nonce = ((welcome.get("auth") or {}).get("operator") or {}).get("nonce")
+    if not isinstance(nonce, str) or not nonce:
+        raise RuntimeError("daemon welcome carried no operator auth nonce")
+    module = auth["module"]
+    credential = module.decode_envelope(auth["envelope"])
+    proof = module.make_proof(credential["proof_key"], nonce, credential["credential_id"], credential["client_kind"])
+    return {**hello, "client": credential["client_kind"],
+            "auth_v2": {"scheme": module.AUTH_SCHEME, "credential_id": credential["credential_id"], "proof": proof}}
+
+
+async def _probe(port: int, lane_id: str | None, timeout_s: float, auth: dict[str, Any] | None = None) -> dict[str, Any]:
     import websockets  # daemon venv dependency
 
     out: dict[str, Any] = {"inventory": None, "show": None}
     async with websockets.connect(f"ws://{HOST}:{port}", open_timeout=timeout_s, max_size=None) as ws:
-        hello = {"type": "hello", "client": "lanes-release-contained-probe",
-                 "capabilities": {"work_lanes_v1": True},
-                 "subscribe": {"snapshot": True, "events_mode": "summary"}}
-        await ws.send(json.dumps(hello))
+        # The daemon speaks first: its welcome carries the operator auth nonce.
+        welcome = json.loads(await asyncio.wait_for(ws.recv(), timeout=timeout_s))
+        if welcome.get("type") != "welcome":
+            raise RuntimeError("daemon did not open with a welcome frame")
+        await ws.send(json.dumps(probe_hello(welcome, auth)))
         request_id = "lanes-contained-probe-" + hashlib.sha256(str(time.time()).encode()).hexdigest()[:12]
         sent_show = False
         deadline = time.monotonic() + timeout_s
@@ -479,8 +534,8 @@ async def _probe(port: int, lane_id: str | None, timeout_s: float) -> dict[str, 
     raise TimeoutError("loopback probe did not receive inventory/show")
 
 
-def probe(port: int, lane_id: str | None = None, timeout_s: float = 20) -> dict[str, Any]:
-    return asyncio.run(_probe(port, lane_id, timeout_s))
+def probe(port: int, lane_id: str | None = None, timeout_s: float = 20, auth: dict[str, Any] | None = None) -> dict[str, Any]:
+    return asyncio.run(_probe(port, lane_id, timeout_s, auth))
 
 
 def summarize_frame(frame: dict[str, Any] | None) -> dict[str, Any]:

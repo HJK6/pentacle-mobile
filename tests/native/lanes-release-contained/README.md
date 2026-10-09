@@ -132,6 +132,14 @@ Exit codes: `0` PASS, `1` FAIL (product assertion), `4` SETUP_FAIL
   `work_lane.*` operations (adopt; `set_members` after the upgrade), using the
   wrapper's existing synthetic composite identity whose provider wake-up is
   suppressed (labelled boundary). Synthetic work items only.
+- Operator registry: before the first daemon start, the pinned wrapper's own
+  `web_gate_daemon.py <scratch> --issue` creates the scratch registry and a
+  0600 operator envelope in `<scratch>/operator-auth/`. `work_lanes.show`
+  needs operator authority at both pins (the loopback allowance does not
+  reach it), so loopback probes authenticate with that envelope through the
+  pinned checkout's own `_shared/operator_auth` proof. Probe A also checks
+  that an anonymous show is refused (`work_lanes_unauthorized`). The envelope
+  is never logged and `operator-auth/` is excluded from the scratch hashes.
 - Enrollment: one normal enrollment deep link on a fresh simulator against the
   scratch registry; the one-time code is never written to evidence.
 
@@ -154,7 +162,9 @@ bodies), `trace.jsonl`, `screenshots/` + `screenshots.sha256`, `result.json`
 
 Restore content size → terminate and uninstall the app → stop the companion,
 daemon and proxy by their recorded PID after re-verifying process identity
-(never a broad kill) and confirm listeners cleared → shut down and delete the
+(start time plus the arguments after the interpreter, re-read once the
+listener is up because a macOS venv python re-execs into its framework
+interpreter; never a broad kill) and confirm listeners cleared → shut down and delete the
 simulator this run created (identity checked) → copy the proxy log and hash
 every scratch file into the result → remove only the scratch root carrying
 this run's ownership marker, and only if every owned stop succeeded (a failed

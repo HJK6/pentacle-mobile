@@ -398,6 +398,7 @@ class Run:
                                        "steps": [], "checks": {}, "supplemental_real_checks": {}}
         self.processes: dict[str, dict[str, Any]] = {}
         self.stop_failed = False  # any failed owned stop preserves the scratch for recovery
+        self.probe_auth: dict[str, Any] | None = None  # operator credential for loopback probes (never logged)
         self.udid: str | None = None
         self.app_pid: str | None = None
         self.content_size: str | None = None
@@ -528,6 +529,12 @@ class Run:
 
     def start_daemon(self, label: str, checkout: Path) -> None:
         env = sd.child_env(self.scratch)
+        if not sd.operator_token_path(self.scratch).is_file():
+            # work_lanes.show needs operator authority; the pinned wrapper issues the scratch credential.
+            self.sh(sd.issue_argv(self.python, checkout, self.scratch), env=env, cwd=checkout, timeout=60)
+            if not sd.operator_token_path(self.scratch).is_file():
+                raise SetupFail("pinned wrapper did not issue the scratch operator credential")
+        self.probe_auth = sd.load_probe_auth(checkout, self.scratch)
         self.result.setdefault("daemon_child_env", {key: ("" if key == "MIC_API" else value)
                                                     for key, value in env.items() if key != "PATH"})
         self.processes["daemon"] = sd.start_owned(label, sd.daemon_argv(self.python, checkout, self.scratch),
@@ -548,11 +555,21 @@ class Run:
     def stop_daemon(self) -> None:
         self.result.setdefault("stops", []).append(self.stop_owned("daemon"))
 
+    def probe(self, lane_id: str | None = None) -> dict[str, Any]:
+        """Loopback probe as the scratch operator (work_lanes.show requires operator authority)."""
+        return sd.probe(sd.DAEMON_PORT, lane_id, auth=self.probe_auth)
+
     def probe_a(self) -> None:
-        got = sd.probe(sd.DAEMON_PORT, sd.big_lane_id())
+        got = self.probe(sd.big_lane_id())
         problems = v1.check_v1_inventory(got["inventory"], sd.v1_lane_ids()) + v1.check_v1_show(got["show"], sd.big_lane_id())
+        # Negative control: the same read without operator authority is refused by the daemon.
+        anonymous = sd.probe(sd.DAEMON_PORT, sd.big_lane_id())
+        refused = (anonymous["show"] or {}).get("error_code")
+        if refused != "work_lanes_unauthorized":
+            problems.append(f"anonymous show was not refused as unauthorized (got {refused or (anonymous['show'] or {}).get('type')})")
         self.result["checks"]["probe_a"] = {"inventory": sd.summarize_frame(got["inventory"]),
-                                            "show": sd.summarize_frame(got["show"]), "problems": problems}
+                                            "show": sd.summarize_frame(got["show"]), "problems": problems,
+                                            "anonymous_show_error_code": refused}
         if problems:
             raise SetupFail("run A daemon is not serving the v1 wire: " + "; ".join(problems))
         self.inventory_order = [lane["lane_id"] for lane in got["inventory"]["lanes"]]
@@ -561,7 +578,7 @@ class Run:
         last: dict[str, Any] = {}
 
         def ready() -> bool:
-            got = sd.probe(sd.DAEMON_PORT, sd.big_lane_id())
+            got = self.probe(sd.big_lane_id())
             problems = v1.check_inc1_inventory(got["inventory"], sd.all_lane_ids(), sd.big_lane_id())
             problems += v1.check_inc1_show(got["show"], sd.big_lane_id(), sd.BIG)
             lanes = {lane["lane_id"]: lane for lane in got["inventory"].get("lanes", [])} if got["inventory"] else {}
@@ -838,7 +855,7 @@ class Run:
         sd.tick_edited_spec(self.scratch / "memory")
 
         def changed() -> bool:
-            got = sd.probe(sd.DAEMON_PORT, sd.big_lane_id())
+            got = self.probe(sd.big_lane_id())
             return any(e.get("operation") == "item_change" for e in (got["show"] or {}).get("events", []))
 
         try:
@@ -982,13 +999,13 @@ class Run:
         memory = self.scratch / "memory"
         sd.hide_memory_root(memory)
         try:
-            sd.wait_for(lambda: (sd.probe(sd.DAEMON_PORT)["inventory"] or {}).get("work_index", {}).get("available") is False,
+            sd.wait_for(lambda: (self.probe()["inventory"] or {}).get("work_index", {}).get("available") is False,
                         90, "work_index unavailable", interval=3)
             self.ui.find("lanes-index-banner", 60)
             self.ui.screenshot("b-index-unavailable")
         finally:
             sd.restore_memory_root(memory)
-        sd.wait_for(lambda: (sd.probe(sd.DAEMON_PORT)["inventory"] or {}).get("work_index", {}).get("available") is True,
+        sd.wait_for(lambda: (self.probe()["inventory"] or {}).get("work_index", {}).get("available") is True,
                     90, "work_index restored", interval=3)
         deadline = time.monotonic() + 60
         while self.ui.ids("lanes-index-banner"):
@@ -1138,7 +1155,7 @@ class Run:
         if self.scratch.is_dir():
             sd.assert_scratch_paths(self.scratch)
             for path in sorted(self.scratch.rglob("*")):
-                if path.is_file() and path.name != OWNER_MARKER:
+                if path.is_file() and path.name != OWNER_MARKER and "operator-auth" not in path.relative_to(self.scratch).parts:
                     scratch_hashes[str(path.relative_to(self.scratch))] = sd.sha256_file(path)
         self.result["scratch_file_sha256"] = scratch_hashes
         return {"scratch_files": len(scratch_hashes)}
