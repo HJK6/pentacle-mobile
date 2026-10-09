@@ -40,16 +40,26 @@ of the daemon. The normal Release build has no harness telemetry.
    with the shared fixture's v1 inventory. Scenes:
    - `lanes:show_error`: the app's real `work_lanes.show` gets a typed
      `work_lanes.show.error`; asserts "Lane details unavailable" and
-     `lane-log-retry`, then that Retry sends a new request.
+     `lane-log-retry`, then that Retry sends a fresh request id for the lane.
    - `lanes:show_timeout`: the request is never answered while pings are
      (so the connection stays live); the client's own 30 s RPC timeout settles
-     it; asserts the pending state first, "Request timed out" no earlier than
-     the timeout, `lane-log-retry`, and a new request on Retry.
+     it; asserts the pending state first (`lane-log-loading`, no Retry), "Request
+     timed out" no earlier than the timeout, `lane-log-retry`, and a Retry
+     request with a fresh, non-empty request id for the same lane.
    Product settlement is not altered and no component state is injected. Each
    scene writes its own `supplemental.json` (stub receipts: request ids,
    replies, settle time) and screenshots, labelled `harness_rendered_state`.
 
-Neither identity certifies the production signed device artifact, the
+Every supplemental scene, of either build, takes one shared path: compiled
+admission before any simulator exists (the proof build's loopback scan over the
+embedded bundle and `app.config`, every `--production-config` operational URL
+absent, and the declared build identity; the show failure build must be the
+armed "Pentacle Harness" app), then the scene's own check, then its verdict is
+frozen as `scene_verdict` before teardown. So both supplemental builds are
+compiled with `EXPO_PUBLIC_PENTACLE_WS_URL=ws://127.0.0.1:17896` and every
+reachable config host/backend URL set to that endpoint, like the proof build.
+
+None of the identities certifies the production signed device artifact, the
 production endpoint or a physical installation.
 
 ## Prerequisites (macOS simulator host)
@@ -88,11 +98,11 @@ prints the step plan without acting. Supplemental scenes:
 ```sh
 python3 tests/native/lanes-release-contained/run.py supplemental \
   --run-dir <root> --app <screenshot-harness .app> --scene lanes:inc1_cases \
-  --device-type <id> --runtime <id>
+  --device-type <id> --runtime <id> --production-config <production public config .json>
 # show failure scenes: the harness build, port 17896 free, owned venv Python
 python3 tests/native/lanes-release-contained/run.py supplemental \
   --run-dir <root> --app <harness .app> --scene lanes:show_timeout \
-  --device-type <id> --runtime <id>
+  --device-type <id> --runtime <id> --production-config <production public config .json>
 ```
 
 Exit codes: `0` PASS, `1` FAIL (product assertion), `4` SETUP_FAIL
@@ -161,8 +171,9 @@ scratch root. Any teardown failure makes the verdict `SETUP_FAIL`.
   connection", no request sent) as a non-blocking supplemental check.
 - Supplemental teardown is checked: simulator shutdown and delete results are
   recorded, the owned UDID must be absent afterwards, and an incomplete
-  teardown (or a stub still listening) makes the verdict `SETUP_FAIL` with the
-  scene's own result kept as `scene_verdict`.
+  teardown (a stub still listening or a failed companion stop included) makes
+  the verdict `SETUP_FAIL` with the scene's own frozen result kept as
+  `scene_verdict`.
 - Assertions use only accessibility elements (buttons, text). Plain container
   views (`lane-card-<id>`, `lane-log-<id>`, `lane-members-<id>`,
   `member-detail-<id>`, `lanes-overlay`, `lanes-map`) are not read.

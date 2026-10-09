@@ -439,7 +439,7 @@ def test_show_failure_scenes_are_declared_and_selectable():
     assert scenes["lanes:show_timeout"]["expect_text"] == "Request timed out"
     assert scenes["lanes:show_timeout"]["min_wait_s"] >= 30  # client RPC timeout
     args = run.parse(["supplemental", "--run-dir", "/tmp/x", "--app", "/tmp/a.app", "--scene", "lanes:show_timeout",
-                      "--device-type", "d", "--runtime", "r"])
+                      "--device-type", "d", "--runtime", "r", "--production-config", "/tmp/p.json"])
     assert args.scene == "lanes:show_timeout"
 
 
@@ -519,3 +519,167 @@ def test_incomplete_supplemental_teardown_makes_setup_fail_and_keeps_scene_verdi
     record = run.finalize_supplemental({"verdict": "PASS"}, {"complete": False})
     assert record["verdict"] == "SETUP_FAIL" and record["scene_verdict"] == "PASS"
     assert run.finalize_supplemental({"verdict": "FAIL"}, {"complete": True})["verdict"] == "FAIL"
+
+
+class _FakeSceneUi:
+    """Modelled lane log: tapping the log or Retry sends a show request through the stub."""
+
+    def __init__(self, stub, spinner=True, retry_id=None):
+        self.stub, self.spinner, self.retry_id, self.screenshots = stub, spinner, retry_id, []
+
+    def find(self, ident, timeout_s=0):
+        return {"AXIdentifier": ident}
+
+    def ids(self, prefix=""):
+        if prefix == "lane-log-loading" and self.spinner:
+            return [{"AXIdentifier": prefix}]
+        return []
+
+    def find_label(self, text, timeout_s=0):
+        return {"AXLabel": text}
+
+    def screenshot(self, name):
+        self.screenshots.append(name)
+
+    def tap(self, ident):
+        number = len(self.stub.receipts) + 1
+        request_id = self.retry_id if ident == "lane-log-retry" and self.retry_id is not None else f"req-{number}"
+        self.stub.receipts.append({"at": time.time(), "request_id": request_id, "lane_id": "wl-1", "reply": None})
+
+
+class _FakeStub:
+    def __init__(self):
+        self.receipts = []
+
+
+_NO_REPLY = {"mode": "no_reply", "expect_text": "Request timed out", "min_wait_s": 0}
+
+
+def test_show_failure_scene_accepts_a_pending_state_and_a_fresh_retry():
+    stub, record = _FakeStub(), {}
+    run.run_show_failure_scene(_NO_REPLY, _FakeSceneUi(stub), stub, record, "wl-1")
+    assert record["show_failure"]["pending_spinner_visible"] is True
+    assert [r["request_id"] for r in record["show_failure"]["requests"]] == ["req-1", "req-2"]
+
+
+@pytest.mark.parametrize("ui_kwargs, fragment", [
+    ({"spinner": False}, "pending"),
+    ({"retry_id": "req-1"}, "fresh request id"),
+    ({"retry_id": ""}, "fresh request id"),
+])
+def test_show_failure_scene_rejects_missing_pending_state_and_reused_retry_ids(ui_kwargs, fragment):
+    stub = _FakeStub()
+    with pytest.raises(run.AssertFail, match=fragment):
+        run.run_show_failure_scene(_NO_REPLY, _FakeSceneUi(stub, **ui_kwargs), stub, {}, "wl-1")
+
+
+def _harness_config(ws=sd.APP_WS_URL, name="Pentacle Harness", **extra):
+    return {"name": name, "extra": {"wsUrl": ws, **extra}}
+
+
+def test_supplemental_admission_requires_a_loopback_build_of_the_declared_identity():
+    bundle = b"\x00hermes " + sd.APP_WS_URL.encode()
+    production = run.operational_urls(PROD)
+    show = run.SHOW_FAILURE_BUILD
+    assert run.admit_supplemental_app(bundle, _harness_config(), production, show)["problems"] == []
+    assert run.admit_supplemental_app(bundle, _harness_config(name="Pentacle"), production,
+                                      run.SUPPLEMENTAL_BUILD)["problems"] == []
+    with pytest.raises(run.SetupFail, match="non-loopback operational"):
+        run.admit_supplemental_app(bundle, _harness_config(hosts=[{"url": "https://unowned.example.org"}]),
+                                   production, run.SUPPLEMENTAL_BUILD)
+    for config, fragment in [
+        (_harness_config(dashboardHubUrl="https://unowned.example.org"), "non-loopback operational"),
+        (_harness_config(name="Pentacle"), "armed harness build"),
+        (_harness_config(ws="ws://127.0.0.1:7791"), "extra.wsUrl"),
+    ]:
+        with pytest.raises(run.SetupFail, match=fragment):
+            run.admit_supplemental_app(bundle, config, production, show)
+    with pytest.raises(run.SetupFail, match="production"):
+        run.admit_supplemental_app(bundle, _harness_config(), [], show)
+
+
+def test_companion_stop_failure_keeps_the_scene_verdict():
+    def failing(_receipt):
+        raise RuntimeError("owned stop incomplete")
+
+    record = {"verdict": "PASS"}
+    run.stop_supplemental_companion(record, {"label": "ui-companion"}, stopper=failing)
+    assert record["verdict"] == "PASS" and record["companion_stopped"] is False
+    record = run.finalize_supplemental(record, {"complete": True})
+    assert record["verdict"] == "SETUP_FAIL" and record["scene_verdict"] == "PASS"
+
+
+# Structural self-check: every declared scene takes the one shared path (admission before any simulator,
+# its own check, verdict frozen before teardown, companion-stop failure recorded without overwriting it).
+
+def _fake_app(tmp_path, app_config):
+    import plistlib
+    app = tmp_path / "Fake.app"
+    (app / "EXConstants.bundle").mkdir(parents=True)
+    (app / "Info.plist").write_bytes(plistlib.dumps({"CFBundleIdentifier": "dev.example.lanes", "CFBundleExecutable": "Fake"}))
+    (app / "main.jsbundle").write_bytes(b"\x00hermes " + sd.APP_WS_URL.encode())
+    (app / "EXConstants.bundle" / "app.config").write_text(json.dumps(app_config))
+    return app
+
+
+class _RecordingSimctl:
+    def __init__(self):
+        self.verbs = []
+
+    def __call__(self, argv, **_kwargs):
+        verb = argv[2] if argv[:2] == ["xcrun", "simctl"] else argv[0]
+        self.verbs.append(verb)
+        stdout = "11111111-2222-3333-4444-555555555555" if verb == "create" else ""
+        if verb == "list":
+            stdout = json.dumps({"devices": {}})
+        return subprocess.CompletedProcess(argv, 0, stdout, "")
+
+
+def _supplemental(tmp_path, monkeypatch, scene, app_config, check):
+    tmp_path.mkdir(parents=True)
+    simctl = _RecordingSimctl()
+    monkeypatch.setattr(run.subprocess, "run", simctl)
+    monkeypatch.setattr(run.sd, "start_owned", lambda label, *a, **k: {"label": label})
+
+    def failing_stop(receipt):
+        raise RuntimeError("owned stop incomplete")
+
+    monkeypatch.setattr(run.sd, "stop_owned", failing_stop)
+    monkeypatch.setattr(run, "Ui", lambda *a, **k: type("U", (), {"screenshots": []})())
+    monkeypatch.setattr(run, "LaneShowStub", lambda mode, inventory: _FakeStub())
+    monkeypatch.setattr(run, "start_stub", lambda stub, port: (lambda: None))
+    monkeypatch.setitem(run.SCENES[scene], "check", check)
+    production = tmp_path / "production.json"
+    production.write_text(json.dumps(PROD))
+    run_dir = tmp_path / "runs"
+    run_dir.mkdir(exist_ok=True)
+    args = run.parse(["supplemental", "--run-dir", str(run_dir), "--app", str(_fake_app(tmp_path, app_config)),
+                      "--scene", scene, "--device-type", "d", "--runtime", "r", "--production-config", str(production)])
+    code = run.supplemental(args)
+    [result] = sorted(run_dir.glob("supplemental-*/supplemental.json"))
+    record = json.loads(result.read_text())
+    result.unlink()
+    return code, record, simctl.verbs
+
+
+def test_every_supplemental_scene_runs_the_shared_path(tmp_path, monkeypatch):
+    assert set(run.SCENES) == set(run.SUPPLEMENTAL_SCENES) | set(run.SHOW_FAILURE_SCENES)
+    assert {spec["check"] for spec in run.SCENES.values()} == {run.check_seeded_scene, run.run_show_failure_scene}
+    for name, spec in run.SCENES.items():
+        good = _harness_config(name=run.HARNESS_APP_NAME if spec["build"] == run.SHOW_FAILURE_BUILD else "Pentacle")
+        checked = []
+
+        def check(scene, ui, stub, record, lane_id, name=name):
+            checked.append(name)
+
+        # 1) refused admission: the scene never reaches a simulator or its check
+        bad = {**good, "extra": {**good["extra"], "dashboardHubUrl": "https://unowned.example.org"}}
+        code, record, verbs = _supplemental(tmp_path / name.replace(":", "-") / "bad", monkeypatch, name, bad, check)
+        assert (code, record["verdict"], record["scene_verdict"]) == (4, "SETUP_FAIL", "SETUP_FAIL"), name
+        assert verbs == [] and checked == [], name
+        # 2) admitted: check runs, its PASS is frozen, the failed companion stop is recorded separately
+        code, record, verbs = _supplemental(tmp_path / name.replace(":", "-") / "good", monkeypatch, name, good, check)
+        assert checked == [name] and verbs[0] == "create", name
+        assert record["admission"]["problems"] == [] and record["build_identity"] == spec["build"], name
+        assert (code, record["verdict"], record["scene_verdict"]) == (4, "SETUP_FAIL", "PASS"), name
+        assert record["companion_stopped"] is False and record["teardown"]["complete"] is True, name

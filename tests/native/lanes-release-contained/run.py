@@ -1274,9 +1274,11 @@ def run_show_failure_scene(scene: dict[str, Any], ui: "Ui", stub: LaneShowStub, 
         time.sleep(0.3)
     pending_visible = None
     if scene["mode"] == "no_reply":
-        pending_visible = bool(ui.ids("lane-log-loading")) and not ui.ids("lane-log-retry")
         if ui.ids("lane-log-retry"):
             raise AssertFail("the unanswered request settled before the client timeout")
+        if not ui.ids("lane-log-loading"):
+            raise AssertFail("no pending state (lane-log-loading) while the request is unanswered")
+        pending_visible = True
         ui.screenshot("show-pending")
     ui.find_label(scene["expect_text"], scene["min_wait_s"] + 30)
     settled = time.time()
@@ -1286,20 +1288,25 @@ def run_show_failure_scene(scene: dict[str, Any], ui: "Ui", stub: LaneShowStub, 
         raise AssertFail(f"{scene['expect_text']} appeared after {waited:.1f}s, before the client timeout")
     ui.screenshot("show-settled")
     before = len(stub.receipts)
+    earlier = {receipt["request_id"] for receipt in stub.receipts}
     ui.tap("lane-log-retry")
     deadline = time.monotonic() + 20
     while len(stub.receipts) == before:
         if time.monotonic() > deadline:
             raise AssertFail("Retry did not send a new work_lanes.show")
         time.sleep(0.3)
+    for receipt in stub.receipts[before:]:
+        if not receipt["request_id"] or receipt["request_id"] in earlier or receipt["lane_id"] != lane_id:
+            raise AssertFail("Retry did not send a fresh request id for the same lane")
     record["show_failure"] = {"mode": scene["mode"], "expect_text": scene["expect_text"], "tapped_at": tapped,
                               "pending_spinner_visible": pending_visible,
                               "settled_after_request_s": round(waited, 1), "retry_requests": len(stub.receipts) - before,
                               "requests": [{k: r[k] for k in ("request_id", "lane_id", "reply")} for r in stub.receipts]}
 
 
-def supplemental_teardown(udid: str, runner: Callable[..., subprocess.CompletedProcess] = subprocess.run) -> dict[str, Any]:
+def supplemental_teardown(udid: str, runner: Callable[..., subprocess.CompletedProcess] | None = None) -> dict[str, Any]:
     """Shut down and delete the simulator this run created; verify it is gone. Never raises."""
+    runner = runner or subprocess.run
     record: dict[str, Any] = {"udid": udid}
     for verb in ("shutdown", "delete"):
         try:
@@ -1318,45 +1325,107 @@ def supplemental_teardown(udid: str, runner: Callable[..., subprocess.CompletedP
     return record
 
 
+def stop_supplemental_companion(record: dict[str, Any], companion: dict[str, Any],
+                                stopper: Callable[[dict[str, Any]], Any] | None = None) -> None:
+    """Record the companion stop separately; a failure never touches the frozen scene verdict."""
+    try:
+        record["companion_stop"] = (stopper or sd.stop_owned)(companion)
+        record["companion_stopped"] = True
+    except Exception as exc:
+        record.update(companion_stopped=False, companion_stop_error=str(exc)[:200])
+
+
 def finalize_supplemental(record: dict[str, Any], teardown: dict[str, Any]) -> dict[str, Any]:
-    """Incomplete teardown is a SETUP_FAIL; the scene's own verdict is kept separately."""
-    record["scene_verdict"] = record.get("verdict")
-    if not teardown.get("complete"):
-        record["verdict"] = "SETUP_FAIL"
-        record.setdefault("error", "supplemental simulator teardown incomplete")
+    """The scene verdict is frozen before teardown; incomplete cleanup makes the run SETUP_FAIL without
+    overwriting it."""
+    record.setdefault("scene_verdict", record.get("verdict"))
+    cleaned = (teardown.get("complete") is True and record.get("companion_stopped") is not False
+               and record.get("stub_stopped") is not False)
+    record["verdict"] = record["scene_verdict"] if cleaned else "SETUP_FAIL"
+    if not cleaned:
+        record.setdefault("error", "supplemental cleanup incomplete")
     return record
 
 
+HARNESS_APP_NAME = "Pentacle Harness"  # app.config.ts names the armed (EXPO_PUBLIC_HARNESS=1) build
+
+
+def admit_supplemental_app(bundle: bytes, app_config: dict[str, Any], production: list[str], build: str) -> dict[str, Any]:
+    """Shared admission for every supplemental scene, before any simulator exists: the same compiled loopback
+    scan as the proof build, every production operational URL absent, and the scene's declared build identity."""
+    if not production:
+        raise SetupFail("production public config yielded no operational URLs to reject")
+    scan = scan_compiled(bundle, app_config, production)
+    if scan["problems"]:
+        raise SetupFail("compiled configuration admission failed: " + "; ".join(scan["problems"]))
+    if build == SHOW_FAILURE_BUILD and app_config.get("name") != HARNESS_APP_NAME:
+        raise SetupFail("show failure scenes need the armed harness build (app name " + HARNESS_APP_NAME + ")")
+    return scan
+
+
+def check_seeded_scene(scene: dict[str, Any], ui: "Ui", stub: Any, record: dict[str, Any], lane_id: str | None) -> None:
+    """Screenshot-harness scene: the overlay renders the seeded frame; the lane log shows its offline state."""
+    for identifier in scene["expect"]:
+        ui.find(identifier, 30)
+    if not ui.ids(scene["prefix_present"]):
+        raise AssertFail("scene lacks " + scene["prefix_present"])
+    ui.screenshot("scene")
+    first = sorted((e for e in ui.ids("lane-card-log-")), key=lambda e: Ui.frame(e)["y"])
+    if first:
+        ui.tap(Ui.ident(first[0]))
+        # Seeded scenes report connected with no socket: the real request path rejects at once.
+        for text in ("Lane details unavailable", "Waiting for connection"):
+            if any(text.lower() in Ui.label(e).lower() for e in ui.elements()):
+                record["offline_log_state"] = text
+                break
+        else:
+            ui.find_label("Lane details unavailable", 20)
+            record["offline_log_state"] = "Lane details unavailable"
+        ui.screenshot("offline-log")
+
+
+# Every supplemental scene, with its build identity and its own check. supplemental() is the one path all of
+# them take: shared admission -> simulator -> check -> verdict frozen -> companion stop -> checked teardown.
+SCENES: dict[str, dict[str, Any]] = {
+    **{name: {**spec, "build": SUPPLEMENTAL_BUILD, "check": check_seeded_scene}
+       for name, spec in SUPPLEMENTAL_SCENES.items()},
+    **{name: {**spec, "build": SHOW_FAILURE_BUILD, "check": run_show_failure_scene}
+       for name, spec in SHOW_FAILURE_SCENES.items()},
+}
+
+
 def supplemental(args: argparse.Namespace) -> int:
-    """Install one screenshot-harness build (scene baked by EXPO_PUBLIC_SCREENSHOT_HARNESS_DEFAULT),
-    capture its lanes overlay and the offline lane-log state. Labelled harness-rendered."""
-    show_failure = SHOW_FAILURE_SCENES.get(args.scene)
-    scene = show_failure or SUPPLEMENTAL_SCENES[args.scene]
+    """One supplemental scene (separate build identity, labelled harness-rendered) through the shared path."""
+    scene = SCENES[args.scene]
     out = args.run_dir.resolve() / ("supplemental-" + args.scene.replace(":", "-") + "-" + uuid.uuid4().hex[:6])
     out.mkdir(parents=True)
-    record: dict[str, Any] = {"label": "harness_rendered_state",
-                              "build_identity": SHOW_FAILURE_BUILD if show_failure else SUPPLEMENTAL_BUILD,
+    record: dict[str, Any] = {"label": "harness_rendered_state", "build_identity": scene["build"],
                               "scene": args.scene, "not_proof_of": "real daemon request/reply"}
-    udid, stop_stub, stub = None, None, None
+    udid, stop_stub, stub, lane_id = None, None, None, None
     try:
-        identity = app_identity(args.app.resolve())
-        record["app"] = identity
+        app = args.app.resolve()
+        record["app"] = identity = app_identity(app)
+        record["admission"] = admit_supplemental_app(
+            (app / "main.jsbundle").read_bytes(),
+            json.loads((app / "EXConstants.bundle" / "app.config").read_text(encoding="utf-8")),
+            operational_urls(json.loads(args.production_config.read_text(encoding="utf-8"))), scene["build"])
         udid = subprocess.run(["xcrun", "simctl", "create", f"{SCENARIO}-supplemental-{out.name}", args.device_type,
                                args.runtime], capture_output=True, text=True, check=True, timeout=120).stdout.strip()
-        for argv in (["boot", udid], ["bootstatus", udid, "-b"], ["install", udid, str(args.app.resolve())]):
+        for argv in (["boot", udid], ["bootstatus", udid, "-b"], ["install", udid, str(app)]):
             subprocess.run(["xcrun", "simctl", *argv], capture_output=True, text=True, check=True, timeout=300)
         launch = ["launch", udid, identity["bundle_id"]]
         launch_env = None
-        if show_failure:
+        if scene["build"] == SHOW_FAILURE_BUILD:
             inventory = json.loads((Path(__file__).resolve().parents[3] / sd.FIXTURE_PATH).read_text(encoding="utf-8"))["inventory_frame"]
-            stub = LaneShowStub(show_failure["mode"], inventory)
+            lane_id = inventory["lanes"][0]["lane_id"]
+            stub = LaneShowStub(scene["mode"], inventory)
             stop_stub = start_stub(stub, sd.PROXY_PORT)
             query = {"scenario": "lanes-show-failure", "scenario_run_id": out.name, "actions": "disable_pentacle_auth",
                      "ws_url": sd.APP_WS_URL}
             launch += ["-HarnessUrl", "pentacle://harness?" + urlencode(query)]
             launch_env = {**os.environ, "SIMCTL_CHILD_PENTACLE_ALLOW_HARNESS_LAUNCH_ARG": "1"}
             record["stub"] = {"endpoint": sd.APP_WS_URL, "inventory": "shared fixture inventory_frame",
-                              "mode": show_failure["mode"]}
+                              "mode": scene["mode"]}
         subprocess.run(["xcrun", "simctl", *launch], capture_output=True, text=True, check=True, timeout=300, env=launch_env)
         companion = sd.start_owned("ui-companion", [args.idb_companion, "--udid", udid, "--grpc-port", str(sd.COMPANION_PORT)],
                                    env={k: os.environ[k] for k in ("PATH", "HOME", "TMPDIR", "LANG") if k in os.environ},
@@ -1364,50 +1433,22 @@ def supplemental(args: argparse.Namespace) -> int:
         try:
             ui = Ui(udid, args.idb, lambda *_: None, out)
             subprocess.run(["xcrun", "simctl", "openurl", udid, "pentacle://pentacle/lanes"], check=True, timeout=60)
-            if show_failure:
-                run_show_failure_scene(show_failure, ui, stub, record, inventory["lanes"][0]["lane_id"])
-                record.update(verdict="PASS", screenshots=ui.screenshots)
-                return_early = True
-            else:
-                return_early = False
-            for identifier in ([] if return_early else scene["expect"]):
-                ui.find(identifier, 30)
-            if not return_early and not ui.ids(scene["prefix_present"]):
-                raise AssertFail("scene lacks " + scene["prefix_present"])
-            if not return_early:
-                ui.screenshot("scene")
-            first = [] if return_early else sorted((e for e in ui.ids("lane-card-log-")), key=lambda e: Ui.frame(e)["y"])
-            if first:
-                ui.tap(Ui.ident(first[0]))
-                # Seeded scenes report connected with no socket: the real request path rejects at once.
-                for text in ("Lane details unavailable", "Waiting for connection"):
-                    if any(text.lower() in Ui.label(e).lower() for e in ui.elements()):
-                        record["offline_log_state"] = text
-                        break
-                else:
-                    ui.find_label("Lane details unavailable", 20)
-                    record["offline_log_state"] = "Lane details unavailable"
-                ui.screenshot("offline-log")
-            if not return_early:
-                record.update(verdict="PASS", screenshots=ui.screenshots)
+            scene["check"](scene, ui, stub, record, lane_id)
+            record.update(scene_verdict="PASS", screenshots=ui.screenshots)
         finally:
-            sd.stop_owned(companion)
+            stop_supplemental_companion(record, companion)
     except Exception as exc:
-        record.pop("verdict", None)
-        record.update(verdict="FAIL" if isinstance(exc, AssertFail) else "SETUP_FAIL", error=str(exc)[:300])
+        record.setdefault("scene_verdict", "FAIL" if isinstance(exc, AssertFail) else "SETUP_FAIL")
+        record["error"] = str(exc)[:300]
     finally:
         if stop_stub:
             try:
                 stop_stub()
                 record["stub_stopped"] = True
             except Exception as exc:
-                record["stub_stopped"] = False
-                record["stub_stop_error"] = str(exc)[:200]
-        if udid:
-            record["teardown"] = supplemental_teardown(udid)
-            if stop_stub and not record.get("stub_stopped"):
-                record["teardown"]["complete"] = False
-            record = finalize_supplemental(record, record["teardown"])
+                record.update(stub_stopped=False, stub_stop_error=str(exc)[:200])
+        record["teardown"] = supplemental_teardown(udid) if udid else {"complete": True, "simulator_created": False}
+        record = finalize_supplemental(record, record["teardown"])
     (out / "supplemental.json").write_text(json.dumps(record, indent=2, default=str) + "\n", encoding="utf-8")
     print(json.dumps({"scenario": SCENARIO + ":supplemental", "verdict": record["verdict"], "result": str(out)}))
     return {"PASS": 0, "FAIL": 1}.get(record["verdict"], 4)
@@ -1433,9 +1474,11 @@ def parse(argv: list[str] | None) -> argparse.Namespace:
     proof.add_argument("--python", type=Path, required=True, help="owned venv python for both daemon pins")
     proof.add_argument("--proxy-source", type=Path, required=True, help="retained loopback proxy script")
     proof.add_argument("--run-id")
-    extra = sub.add_parser("supplemental", parents=[common], help="one screenshot-harness scene (separate build)")
+    extra = sub.add_parser("supplemental", parents=[common], help="one supplemental scene (separate build) through the shared admission path")
     extra.add_argument("--app", type=Path, required=True)
-    extra.add_argument("--scene", choices=sorted({**SUPPLEMENTAL_SCENES, **SHOW_FAILURE_SCENES}), required=True)
+    extra.add_argument("--scene", choices=sorted(SCENES), required=True)
+    extra.add_argument("--production-config", type=Path, required=True,
+                       help="production public config .json; its operational URLs must be absent (shared admission)")
     return parser.parse_args(argv)
 
 
