@@ -3530,6 +3530,30 @@ function handleMessageInner(raw: string) {
   emitHarnessSpawnRpcInboundCadence(message);
   emitHarnessSpawnRpcResponseMetadata('inbound-response', message);
 
+  if (message.type === 'work_lanes.show.ok' && typeof message.request_id === 'string') {
+    const pending = pendingRequests.get(message.request_id);
+    if (pending?.requestPrefix === 'work_lanes_show') {
+      settlePendingRequest(message.request_id);
+      pending.resolve(message);
+    }
+    return;
+  }
+
+  if (message.type === 'work_lanes.show.error' && typeof message.request_id === 'string') {
+    const pending = pendingRequests.get(message.request_id);
+    if (pending?.requestPrefix === 'work_lanes_show') {
+      settlePendingRequest(message.request_id);
+      const errorCode = String(message.error_code || 'work_lanes_show_failed');
+      pending.reject(Object.assign(new Error(String(message.error || errorCode)), { errorCode }));
+    }
+    return;
+  }
+
+  // Only the typed show replies above may settle this RPC. Other reply handlers
+  // retain their existing behavior, but cannot consume a colliding show id.
+  if (typeof message.request_id === 'string'
+    && pendingRequests.get(message.request_id)?.requestPrefix === 'work_lanes_show') return;
+
   if (message.type === 'specs.capabilities.ok') {
     if (Array.isArray(message.statuses)) {
       updateState({
@@ -3823,25 +3847,6 @@ function handleMessageInner(raw: string) {
     if (pending) {
       settlePendingRequest(message.request_id);
       pending.reject(new Error(String(message.error || message.error_code || 'blob upload failed')));
-    }
-    return;
-  }
-
-  if (message.type === 'work_lanes.show.ok' && typeof message.request_id === 'string') {
-    const pending = pendingRequests.get(message.request_id);
-    if (pending?.requestPrefix === 'work_lanes_show') {
-      settlePendingRequest(message.request_id);
-      pending.resolve(message);
-    }
-    return;
-  }
-
-  if (message.type === 'work_lanes.show.error' && typeof message.request_id === 'string') {
-    const pending = pendingRequests.get(message.request_id);
-    if (pending?.requestPrefix === 'work_lanes_show') {
-      settlePendingRequest(message.request_id);
-      const errorCode = String(message.error_code || 'work_lanes_show_failed');
-      pending.reject(Object.assign(new Error(String(message.error || errorCode)), { errorCode }));
     }
     return;
   }

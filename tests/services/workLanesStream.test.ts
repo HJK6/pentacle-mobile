@@ -285,6 +285,46 @@ test('show replies cannot settle a different RPC, even with a matching request i
   unsubscribe();
 });
 
+test.each([
+  'upload_blob.init.ok', 'upload_blob.ok', 'upload_blob.error',
+  'asset.read.ok', 'asset.error', 'household.list.ok', 'household.list.error',
+  'fetch_blob.ok', 'fetch_blob.error', 'send.ok', 'send.error',
+  'spawn.ok', 'spawn.error', 'rename.error', 'error',
+  'request_stream_events.chunk', 'request_stream_events.ok', 'request_stream_events.error',
+])('unrelated %s cannot settle, reject or refresh a pending show request', async (type) => {
+  const { stream } = loadStream();
+  const { unsubscribe, socket } = connect(stream);
+  socket.message({ type: 'snapshot', sessions: [], events: [] });
+  const reply = showReply();
+  const promise = stream.requestWorkLaneShow(reply.lane.lane_id);
+  const request = frames(socket, 'work_lanes.show').at(-1)!;
+  let settlement: 'pending' | 'resolved' | 'rejected' = 'pending';
+  void promise.then(() => { settlement = 'resolved'; }, () => { settlement = 'rejected'; });
+  socket.message({ type, request_id: request.request_id, error: 'Unrelated error.', events: [], blob_sha: 'unrelated-blob' });
+  await Promise.resolve();
+  await Promise.resolve();
+  expect(settlement).toBe('pending');
+  socket.message({ ...reply, request_id: request.request_id });
+  await expect(promise).resolves.toMatchObject({ lane_id: reply.lane.lane_id });
+  unsubscribe();
+});
+
+test('unrelated stream chunks do not postpone the show deadline', async () => {
+  const { stream } = loadStream();
+  const { unsubscribe, socket } = connect(stream);
+  socket.message({ type: 'snapshot', sessions: [], events: [] });
+  const promise = stream.requestWorkLaneShow(showReply().lane.lane_id);
+  const request = frames(socket, 'work_lanes.show').at(-1)!;
+  const assertion = expect(promise).rejects.toMatchObject({ errorCode: 'request_timeout' });
+  for (let index = 0; index < 2; index += 1) {
+    jest.advanceTimersByTime(10_000);
+    socket.message({ type: 'request_stream_events.chunk', request_id: request.request_id, events: [] });
+  }
+  jest.advanceTimersByTime(10_000);
+  await assertion;
+  unsubscribe();
+});
+
 test('v1 snapshot upgrades to increment-one inventory on reconnect without changing the header contract', () => {
   const { stream, core } = loadStream();
   const first = connect(stream);
