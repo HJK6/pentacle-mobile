@@ -296,3 +296,190 @@ test('user interaction probe still fast-fails a half-open send with a request pe
   unsubscribe();
 });
 
+
+test('a slow blob upload keeps the focused socket alive until its bounded upload result', async () => {
+  const stream = loadStream();
+  const { unregister, unsubscribe, socket, request } = openFocusedStream(stream);
+  deliverHistory(socket, request, 'settled history');
+  const upload = stream.uploadBlobBase64('YQ==', 1).catch(error => error);
+  const init = sentFrames(socket, 'upload_blob_init').at(-1)!;
+  socket.message({ type: 'upload_blob.init.ok', request_id: init.request_id });
+  await flushMicrotasks();
+  expect(sentFrames(socket, 'upload_blob_chunk')).toHaveLength(1);
+  jest.advanceTimersByTime(15_000);
+  expect(socket.readyState).toBe(MockWebSocket.OPEN);
+  socket.message({ type: 'upload_blob.ok', request_id: init.request_id, blob_sha: 'a'.repeat(64), size_bytes: 1 });
+  expect(await upload).toMatchObject({ blob_sha: 'a'.repeat(64) });
+  unregister(); unsubscribe();
+});
+
+test('transport-interrupted transcription retries once on authenticated reconnect with the same identity', async () => {
+  const stream = loadStream();
+  const { unregister, unsubscribe, socket, request } = openFocusedStream(stream);
+  deliverHistory(socket, request, 'settled history');
+  const identity = { type: 'transcribe_blob', blob_sha: 'b'.repeat(64), mime: 'audio/wav', request_id: 'transcribe-reconnect-red' };
+  const result = stream.transcribeBlob(identity.blob_sha, identity.mime, { requestId: identity.request_id }).catch(error => error);
+  expect(sentFrames(socket, 'transcribe_blob')).toEqual([identity]);
+  socket.close(1006, 'isolated transport interruption');
+  await flushMicrotasks();
+  jest.advanceTimersByTime(1_100);
+  const next = MockWebSocket.instances.at(-1)!;
+  expect(next).not.toBe(socket);
+  next.open();
+  expect(sentFrames(next, 'transcribe_blob')).toHaveLength(0);
+  next.message({ type: 'snapshot', sessions: [], events: [] });
+  await flushMicrotasks();
+  const retried = sentFrames(next, 'transcribe_blob');
+  if (retried.length) next.message({ type: 'transcribe_blob.ok', request_id: identity.request_id, text: 'same transcription' });
+  await flushMicrotasks();
+  const value = await result;
+  unregister(); unsubscribe();
+  expect(retried).toEqual([identity]);
+  expect(value).toMatchObject({ text: 'same transcription' });
+  expect(sentFrames(next, 'upload_blob_init')).toHaveLength(0);
+});
+
+async function startUpload(stream: StreamModule, socket: MockWebSocket) {
+  const result = stream.uploadBlobBase64('YQ==', 1).catch(error => error);
+  const init = sentFrames(socket, 'upload_blob_init').at(-1)!;
+  socket.message({ type: 'upload_blob.init.ok', request_id: init.request_id });
+  await flushMicrotasks();
+  return { result, id: init.request_id };
+}
+
+test('an armed focused probe yields to upload and ordinary focused liveness resumes afterward', async () => {
+  const stream = loadStream();
+  const { unregister, unsubscribe, socket, request } = openFocusedStream(stream);
+  deliverHistory(socket, request, 'settled');
+  jest.advanceTimersByTime(1_500);
+  expect(sentFrames(socket, 'ping')).toHaveLength(1);
+  const { result, id } = await startUpload(stream, socket);
+  jest.advanceTimersByTime(5_000);
+  expect(socket.readyState).toBe(MockWebSocket.OPEN);
+  expect(sentFrames(socket, 'ping')).toHaveLength(1);
+  socket.message({ type: 'upload_blob.ok', request_id: id, blob_sha: 'a'.repeat(64) });
+  await result;
+  jest.advanceTimersByTime(3_000);
+  expect(socket.readyState).toBe(MockWebSocket.CLOSED);
+  unregister(); unsubscribe();
+});
+
+test('an unrelated RPC rejects on its own clock without closing an active upload', async () => {
+  const stream = loadStream();
+  const { unregister, unsubscribe, socket, request } = openFocusedStream(stream);
+  deliverHistory(socket, request, 'settled'); unregister();
+  const unrelated = stream.transcribeBlob('other', 'audio/wav', { requestId: 'unrelated' }).catch(e => e);
+  jest.advanceTimersByTime(29_000);
+  const { result, id } = await startUpload(stream, socket);
+  jest.advanceTimersByTime(1_100);
+  expect(await unrelated).toMatchObject({ message: 'Pentacle command timed out' });
+  expect(socket.readyState).toBe(MockWebSocket.OPEN);
+  socket.message({ type: 'upload_blob.ok', request_id: id, blob_sha: 'a'.repeat(64) });
+  expect(await result).toHaveProperty('blob_sha'); unsubscribe();
+});
+
+test('a deferred RPC close callback also yields to a subsequently started upload', async () => {
+  const stream = loadStream();
+  const { unregister, unsubscribe, socket, request } = openFocusedStream(stream);
+  deliverHistory(socket, request, 'settled'); unregister();
+  const unrelated = stream.transcribeBlob('other', 'audio/wav').catch(e => e);
+  jest.advanceTimersByTime(29_000); socket.message({ type: 'pong' });
+  jest.advanceTimersByTime(1_000); await unrelated;
+  jest.advanceTimersByTime(28_000);
+  const { result, id } = await startUpload(stream, socket);
+  jest.advanceTimersByTime(1_100);
+  expect(socket.readyState).toBe(MockWebSocket.OPEN);
+  socket.message({ type: 'upload_blob.ok', request_id: id, blob_sha: 'a'.repeat(64) });
+  await result; unsubscribe();
+});
+
+test.each(['init', 'final'])('a hung upload retains its thirty-second %s phase deadline', async phase => {
+  const stream = loadStream();
+  const { unregister, unsubscribe, socket, request } = openFocusedStream(stream);
+  deliverHistory(socket, request, 'settled');
+  const result = stream.uploadBlobBase64('YQ==', 1).catch(e => e);
+  if (phase === 'final') {
+    jest.advanceTimersByTime(20_000);
+    socket.message({ type: 'upload_blob.init.ok', request_id: sentFrames(socket, 'upload_blob_init')[0].request_id });
+    await flushMicrotasks();
+  }
+  jest.advanceTimersByTime(29_999);
+  expect(socket.readyState).toBe(MockWebSocket.OPEN);
+  jest.advanceTimersByTime(1);
+  expect(await result).toMatchObject({ message: 'Pentacle command timed out' });
+  unregister(); unsubscribe();
+});
+
+test('old upload ownership and callbacks do not shield a replacement socket', async () => {
+  const stream = loadStream();
+  const { unregister, unsubscribe, socket, request } = openFocusedStream(stream);
+  deliverHistory(socket, request, 'settled');
+  const { result } = await startUpload(stream, socket);
+  socket.close(1006); expect(await result).toMatchObject({ message: 'Pentacle stream disconnected' });
+  jest.advanceTimersByTime(1_100);
+  const next = MockWebSocket.instances.at(-1)!; next.open();
+  const tail = sentFrames(next, 'request_stream_events').at(-1)!; deliverHistory(next, tail, 'fresh');
+  jest.advanceTimersByTime(2_501);
+  expect(next.readyState).toBe(MockWebSocket.CLOSED);
+  unregister(); unsubscribe();
+});
+
+test.each(['backend_unavailable', 'too_long'])('transcription domain error %s is never replayed', async code => {
+  const stream = loadStream();
+  const { unregister, unsubscribe, socket } = openFocusedStream(stream);
+  const result = stream.transcribeBlob('blob', 'audio/wav', { requestId: 'domain' }).catch(e => e);
+  socket.message({ type: 'transcribe_blob.error', request_id: 'domain', error_code: code });
+  expect(await result).toHaveProperty('code', code);
+  expect(sentFrames(socket, 'transcribe_blob')).toHaveLength(1);
+  unregister(); unsubscribe();
+});
+
+test.each(['cancel', 'exhaust', 'disconnect_again'])('transcription recovery is bounded for %s', async mode => {
+  const stream = loadStream();
+  const { unregister, unsubscribe, socket } = openFocusedStream(stream);
+  let cancelled = false;
+  const result = stream.transcribeBlob('blob', 'audio/wav', { requestId: 'bounded', isCancelled: () => cancelled }).catch(e => e);
+  socket.close(1006); await flushMicrotasks();
+  const next = MockWebSocket.instances.at(-1)!;
+  if (mode === 'exhaust') {
+    jest.advanceTimersByTime(15_000);
+    expect(await result).toHaveProperty('message', 'Pentacle stream disconnected');
+  } else {
+    cancelled = mode === 'cancel';
+    next.open(); next.message({ type: 'snapshot', sessions: [], events: [] });
+    await flushMicrotasks();
+    expect(sentFrames(next, 'transcribe_blob')).toHaveLength(cancelled ? 0 : 1);
+    if (!cancelled) next.close(1006);
+    expect(await result).toHaveProperty(cancelled ? 'code' : 'message', cancelled ? 'voice_cancelled' : 'Pentacle stream disconnected');
+  }
+  expect(MockWebSocket.instances.flatMap(s => sentFrames(s, 'transcribe_blob')).length).toBeLessThanOrEqual(2);
+  unregister(); unsubscribe();
+});
+
+test('a voice transcription recovered after reconnect cannot deliver to a replaced origin', async () => {
+  const stream = loadStream();
+  jest.doMock('../src/services/attachmentUpload', () => ({ readAttachmentBase64: jest.fn().mockResolvedValue('YQ=='), uploadStagedAttachments: jest.fn() }));
+  jest.doMock('expo-file-system/legacy', () => ({ deleteAsync: jest.fn().mockResolvedValue(undefined) }));
+  const { voiceDelivery } = require('../src/services/voiceDelivery');
+  const { unregister, unsubscribe, socket, request } = openFocusedStream(stream);
+  deliverHistory(socket, request, 'settled');
+  const session = { stream_id: STREAM_ID, host: 'hostc', provider: 'codex', session_name: 'slow-history', session_generation: 'original', working: false, online: true };
+  socket.message({ type: 'snapshot', sessions: [session], events: [] });
+  const work = voiceDelivery.accept({ streamId: STREAM_ID, recordingId: 'replacement-take', uri: 'file://synthetic.wav', mime: 'audio/wav', durationS: 4, levels: [], interrupted: false, draft: { originGeneration: 'original', originLabel: 'Fixture', textPrefix: '', images: [] } });
+  await flushMicrotasks(10);
+  const upload = sentFrames(socket, 'upload_blob_init')[0];
+  socket.message({ type: 'upload_blob.init.ok', request_id: upload.request_id }); await flushMicrotasks(10);
+  socket.message({ type: 'upload_blob.ok', request_id: upload.request_id, blob_sha: 'same-blob' }); await flushMicrotasks(10);
+  const transcription = sentFrames(socket, 'transcribe_blob')[0]; expect(transcription).toBeDefined();
+  socket.close(1006); await flushMicrotasks(10);
+  const next = MockWebSocket.instances.at(-1)!; next.open();
+  next.message({ type: 'snapshot', sessions: [{ ...session, session_generation: 'replacement' }], events: [] });
+  await flushMicrotasks(10);
+  expect(sentFrames(next, 'transcribe_blob')).toEqual([transcription]);
+  next.message({ type: 'transcribe_blob.ok', request_id: transcription.request_id, text: 'recovered voice' });
+  await work;
+  expect(sentFrames(next, 'send')).toHaveLength(0);
+  expect(voiceDelivery.snapshot().takes[0]).toMatchObject({ status: 'failed', error: 'Originating chat is unavailable or has been replaced.' });
+  voiceDelivery.discard('replacement-take'); unregister(); unsubscribe();
+  jest.dontMock('../src/services/attachmentUpload'); jest.dontMock('expo-file-system/legacy');
+});
