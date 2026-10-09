@@ -995,6 +995,83 @@ def test_every_step_failure_saves_a_screenshot_and_an_accessibility_dump(tmp_pat
         assert captured == [("screenshot", "failure-open_lanes"), ("dump", "failure-open_lanes")]
 
 
+class _ScrollWorld:
+    """A 393x852 screen whose scroll content moves with idb drags (reduced-2 frames); taps are recorded."""
+    BIG = "wl-298430ea76b6dc262400bbec"
+
+    def __init__(self):
+        self.offset, self.taps, self.swipes = 0.0, [], []
+        self.fixed = [{"type": "Application", "AXLabel": "Pentacle", "frame": {"x": 0, "y": 0, "width": 393, "height": 852}},
+                      {"AXLabel": "Close lanes", "type": "Button", "AXIdentifier": "lanes-close",
+                       "frame": {"x": 333, "y": 59, "width": 44, "height": 44}},
+                      {"AXIdentifier": "lanes-pinned-offscreen", "type": "Button", "frame": {"x": 31, "y": 900, "width": 331, "height": 44}}]
+        self.content = [{"AXIdentifier": f"lane-card-member-{self.BIG}-spec_example__span_01", "type": "Button",
+                         "frame": {"x": 31, "y": 757.7, "width": 331, "height": 111.7}},
+                        {"AXIdentifier": f"lane-card-show-all-{self.BIG}", "type": "Button",
+                         "frame": {"x": 31, "y": 1731.0, "width": 331, "height": 44}}]
+
+    def elements(self):
+        moved = [{**e, "frame": {**e["frame"], "y": e["frame"]["y"] - self.offset}} for e in self.content]
+        return self.fixed + moved
+
+    def idb(self, *args):
+        if args[:2] == ("ui", "swipe"):
+            self.swipes.append(args)
+            self.offset += float(args[3]) - float(args[5])
+        elif args[:2] == ("ui", "tap"):
+            self.taps.append((int(args[2]), int(args[3])))
+        return subprocess.CompletedProcess(args, 0, "", "")
+
+    def at(self, point):
+        x, y = point
+        return [run.Ui.ident(e) for e in self.elements()[1:]
+                if e["frame"]["x"] <= x <= e["frame"]["x"] + e["frame"]["width"]
+                and e["frame"]["y"] <= y <= e["frame"]["y"] + e["frame"]["height"]]
+
+
+def _world_ui(tmp_path, monkeypatch):
+    world = _ScrollWorld()
+    ui = run.Ui("U-1", "idb", lambda *a: None, tmp_path / "screenshots")
+    ui.elements, ui._idb = world.elements, world.idb
+    monkeypatch.setattr(run.time, "sleep", lambda s: None)
+    return ui, world
+
+
+def test_offscreen_show_all_is_scrolled_into_view_before_the_tap(tmp_path, monkeypatch):
+    # reduced-2: show-all at y1731 on an 852-pt screen; the unscrolled centre tap (196,1753) hit Span 01.
+    ui, world = _world_ui(tmp_path, monkeypatch)
+    ui.tap(f"lane-card-show-all-{world.BIG}")
+    assert world.swipes and len(world.taps) == 1
+    x, y = world.taps[0]
+    assert 8 <= y <= 852 - 60 and world.at((x, y)) == [f"lane-card-show-all-{world.BIG}"]
+
+
+def test_on_screen_targets_are_tapped_without_scrolling(tmp_path, monkeypatch):
+    ui, world = _world_ui(tmp_path, monkeypatch)
+    ui.tap_element(next(e for e in world.elements() if run.Ui.ident(e) == "lanes-close"), "close")
+    assert world.swipes == [] and world.taps == [(355, 81)]
+
+
+def test_a_row_cut_by_the_screen_edge_is_scrolled_clear_before_the_tap(tmp_path, monkeypatch):
+    # Span 01 (y757-869) crosses the 852 edge; its centre lies in the bottom margin, so it is moved up first.
+    ui, world = _world_ui(tmp_path, monkeypatch)
+    member = f"lane-card-member-{world.BIG}-spec_example__span_01"
+    ui.tap(member)
+    assert len(world.swipes) == 1 and world.at(world.taps[0]) == [member] and world.taps[0][1] <= 852 - 60
+
+
+def test_offscreen_target_that_does_not_scroll_fails_setup_without_a_tap(tmp_path, monkeypatch):
+    ui, world = _world_ui(tmp_path, monkeypatch)
+    with pytest.raises(run.SetupFail, match="does not scroll into view: lanes-pinned-offscreen"):
+        ui.tap("lanes-pinned-offscreen")
+    assert world.taps == [] and len(world.swipes) == 1
+
+
+def test_screen_is_the_application_frame_not_the_offscreen_content(tmp_path, monkeypatch):
+    ui, world = _world_ui(tmp_path, monkeypatch)
+    assert ui.screen() == {"x": 0, "y": 0, "width": 393, "height": 852}
+
+
 def test_smoke_and_reduced_plans_are_inc1_only_and_bounded():
     assert run.SMOKE_STEPS == ["admission", "seed_inc1", "proxy_start", "daemon_b_start", "probe_b",
                                "simulator_activate", "app_launch", "enroll", "home_enrolled"]

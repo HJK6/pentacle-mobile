@@ -128,6 +128,10 @@ accessibility dump under `evidence/ax/`. A known alert without its exact button 
 SETUP_FAIL. Other alerts are never pressed: the step times out with a dump. Every failed step saves a screenshot and an
 accessibility dump (`ax/*-failure-<step>.json`).
 
+Taps go to screen points, and the accessibility tree also lists off-screen scroll content. Every tap target whose
+centre is outside the screen (less the status bar and home-indicator margins) is first dragged into view and
+re-found by its id; a target that does not move, or has no id, stops the run with SETUP_FAIL instead of a blind tap.
+
 Exit codes: `0` PASS, `1` FAIL (product assertion), `4` SETUP_FAIL
 (precondition, tool or owned-resource failure, including incomplete teardown).
 

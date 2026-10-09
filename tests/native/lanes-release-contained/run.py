@@ -252,6 +252,9 @@ def known_system_alert(elements: list[dict[str, Any]]) -> tuple[str, dict[str, A
     return None
 
 
+# A tap target's centre must lie this far inside the screen (status bar / home indicator), else it is scrolled to.
+REVEAL_TOP, REVEAL_BOTTOM = 8, 60
+
 # The assistant tab's session screen before it is usable (`app/pentacle/session/[streamId].tsx`).
 LOCK_TEXTS = ("Unlocking Pentacle…", "Pentacle access is unavailable on this device.")
 # Hydrated with a credential but no session under the app's fixed assistant stream id: the scratch daemon's
@@ -294,6 +297,7 @@ class Ui:
         self.udid, self.idb, self.trace, self.shots = udid, idb, trace, shots
         self.env = {**os.environ, "IDB_COMPANION": f"{sd.HOST}:{sd.COMPANION_PORT}"}
         self.screenshots: list[dict[str, str]] = []
+        self.viewport: dict[str, float] | None = None
 
     def _idb(self, *args: str) -> subprocess.CompletedProcess:
         result = subprocess.run([self.idb, *args, "--udid", self.udid], capture_output=True, text=True,
@@ -349,6 +353,7 @@ class Ui:
         element = self.find(identifier, timeout_s)
         if element.get("AXEnabled") is False:
             raise AssertFail("disabled tap target: " + identifier)
+        element = self.reveal(element)
         frame = self.frame(element)
         result = self._idb("ui", "tap", str(int(frame["x"] + frame["width"] / 2)), str(int(frame["y"] + frame["height"] / 2)))
         if result.returncode:
@@ -357,11 +362,43 @@ class Ui:
         return element
 
     def tap_element(self, element: dict[str, Any], what: str) -> None:
-        frame = self.frame(element)
+        frame = self.frame(self.reveal(element))
         result = self._idb("ui", "tap", str(int(frame["x"] + frame["width"] / 2)), str(int(frame["y"] + frame["height"] / 2)))
         if result.returncode:
             raise SetupFail("native tap failed: " + what)
         time.sleep(0.4)
+
+    def reveal(self, element: dict[str, Any], max_drags: int = 10) -> dict[str, Any]:
+        """Scroll an off-screen tap target into view: drag within the screen, re-find it by its id, repeat. idb taps
+        screen points, and the tree lists off-screen scroll content, so tapping such a frame lands on whatever sits
+        at the screen edge. A target that does not move when dragged (not in a scroll view) or has no id to re-find
+        is a setup failure, never a blind tap."""
+        identifier = self.ident(element)
+        self.frame(element)  # a target without a usable frame fails as before, without inspecting the screen
+        view = self.screen() if self.viewport is None else self.viewport
+        self.viewport = view
+        for _ in range(max_drags + 1):
+            frame = self.frame(element)
+            centre = frame["y"] + frame["height"] / 2
+            if view["y"] + REVEAL_TOP <= centre <= view["y"] + view["height"] - REVEAL_BOTTOM:
+                return element
+            if not identifier:
+                raise SetupFail("off-screen tap target has no id to scroll to: " + self.label(element)[:60])
+            middle = view["y"] + view["height"] / 2
+            step = max(-0.4 * view["height"], min(0.4 * view["height"], centre - middle))
+            x = str(int(view["x"] + view["width"] / 2))
+            result = self._idb("ui", "swipe", x, str(int(middle + step / 2)), x, str(int(middle - step / 2)),
+                               "--duration", "1.0")
+            if result.returncode:
+                raise SetupFail("native swipe failed")
+            time.sleep(0.6)
+            moved = next((e for e in self.elements() if self.ident(e) == identifier), None)
+            if moved is None:
+                raise SetupFail("tap target disappeared while scrolling: " + identifier)
+            if abs(self.frame(moved)["y"] - frame["y"]) < 1:
+                raise SetupFail("off-screen tap target does not scroll into view: " + identifier)
+            element = moved
+        raise SetupFail("tap target not on screen after scrolling: " + identifier)
 
     def dump(self, name: str, elements: list[dict[str, Any]] | None = None) -> Path:
         """Accessibility dump kept as evidence (screen labels only; no credential is ever on screen)."""
@@ -406,8 +443,15 @@ class Ui:
         time.sleep(0.5)
 
     def screen(self) -> dict[str, float]:
-        """Screen bounds from the visible elements (container views are not accessibility elements)."""
-        frames = [element["frame"] for element in self.elements() if isinstance(element.get("frame"), dict)
+        """The visible screen: the Application element's frame. The tree also lists off-screen scroll content, so
+        element frames alone overstate it; they are only the fallback when no Application element is reported."""
+        elements = self.elements()
+        for element in elements:
+            if str(element.get("type") or "") == "Application":
+                frame = element.get("frame") or {}
+                if all(isinstance(frame.get(k), (int, float)) for k in ("x", "y", "width", "height")) and frame["height"] > 0:
+                    return {k: frame[k] for k in ("x", "y", "width", "height")}
+        frames = [element["frame"] for element in elements if isinstance(element.get("frame"), dict)
                   and all(isinstance(element["frame"].get(k), (int, float)) for k in ("x", "y", "width", "height"))]
         if not frames:
             raise SetupFail("no accessible elements on screen")
