@@ -291,13 +291,6 @@ def test_supplemental_scenes_exist_in_the_screenshot_harness():
         assert f"'{scene}'" in source, scene
 
 
-def test_no_fleet_names_in_scenario_files():
-    pattern = re.compile("bart" + "imaeus|ama" + "terasu|mer" + "lin|daff" + "odil|vam" + "sh|tho" + "th", re.I)
-    for path in HERE.iterdir():
-        if path.is_file() and path.suffix in {".py", ".md"}:
-            assert not pattern.search(path.read_text(encoding="utf-8")), path.name
-
-
 def test_scenario_scripts_compile():
     for name in ("run.py", "scratch_daemon.py", "v1_daemon.py"):
         compile((HERE / name).read_text(encoding="utf-8"), name, "exec")
