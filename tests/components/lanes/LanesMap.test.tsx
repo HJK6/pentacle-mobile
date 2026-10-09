@@ -484,3 +484,49 @@ test("empty map is honest and telemetry remains pageless IDs/counts only", () =>
     more_count: 0,
   });
 });
+
+test("working orbit and spoke expose animated transforms; idle lanes retain static geometry", () => {
+  const working = modelFor();
+  working.lane = {
+    ...working.lane,
+    lead: {
+      ...working.lane.lead!,
+      presence: { ...working.lane.lead!.presence, online: true, working: true },
+    },
+  };
+  const { view, rerender } = surface([working]);
+  expect(
+    StyleSheet.flatten(
+      view.getByTestId(`lanes-map-working-${working.lane.lane_id}`).props.style,
+    ).transform,
+  ).toBeDefined();
+  expect(
+    view.getByTestId(`lanes-map-flow-${working.lane.lane_id}`),
+  ).toBeTruthy();
+  const before = StyleSheet.flatten(
+    view.getByTestId(`lanes-map-lane-${working.lane.lane_id}`).props.style,
+  );
+  rerender([
+    {
+      ...working,
+      lane: {
+        ...working.lane,
+        lead: {
+          ...working.lane.lead!,
+          presence: { ...working.lane.lead!.presence, working: false },
+        },
+      },
+    },
+  ]);
+  expect(
+    view.queryByTestId(`lanes-map-flow-${working.lane.lane_id}`),
+  ).toBeNull();
+  expect(
+    view.queryByTestId(`lanes-map-working-${working.lane.lane_id}`),
+  ).toBeNull();
+  const after = StyleSheet.flatten(
+    view.getByTestId(`lanes-map-lane-${working.lane.lane_id}`).props.style,
+  );
+  expect(after.left).toBe(before.left);
+  expect(after.top).toBe(before.top);
+});

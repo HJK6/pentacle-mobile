@@ -94,7 +94,9 @@ export function StepRow({
           </Text>
         ) : !chevron && !terminal && member.status !== "in_progress" ? (
           <Text style={{ ...mono, fontSize: 9, letterSpacing: 0.6 }}>
-            {(member.status || "").replace(/_/g, " ").toUpperCase()}
+            {(member.status === "ready_for_dev" ? "ready" : member.status || "")
+              .replace(/_/g, " ")
+              .toUpperCase()}
           </Text>
         ) : null}
         {bars &&

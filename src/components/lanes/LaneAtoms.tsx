@@ -218,7 +218,12 @@ export function LaneGlyph({
   if (model.lane.state === "blocked") return <Bang size={size} />;
   if (model.lane.state === "paused") return <Pause size={size} />;
   return model.lane.lead?.presence.working ? (
-    <Spinner size={size} color={p.green} strokeWidth={2} />
+    <Spinner
+      size={size}
+      color={p.green}
+      strokeWidth={2}
+      segmentFraction={0.25}
+    />
   ) : (
     <View
       style={{
@@ -283,7 +288,14 @@ export function SpecGlyph({
       (model.lane.state === "paused" || !model.lane.lead?.presence.working)
     )
       return <Pause size={size} />;
-    return <Spinner size={size} color={p.green} strokeWidth={2} />;
+    return (
+      <Spinner
+        size={size}
+        color={p.green}
+        strokeWidth={2}
+        segmentFraction={0.25}
+      />
+    );
   }
   return (
     <View

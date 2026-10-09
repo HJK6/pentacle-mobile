@@ -1,6 +1,8 @@
 import { useLaneMembers } from "./useLaneMembers";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import {
+  Animated,
+  Easing,
   Pressable,
   ScrollView,
   Text,
@@ -44,6 +46,75 @@ import {
 } from "./LaneAtoms";
 import { emitHarnessUiTrace, traceMemberList } from "./lanesTelemetry";
 import { useWorkLaneShow, type ReadWorkLaneShow } from "./useWorkLaneShow";
+
+function useLoop(duration: number, native: boolean, enabled = true) {
+  const phase = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    if (!enabled) {
+      phase.setValue(0);
+      return;
+    }
+    const animation = Animated.loop(
+      Animated.timing(phase, {
+        toValue: 1,
+        duration,
+        easing: Easing.linear,
+        useNativeDriver: native,
+      }),
+    );
+    animation.start();
+    return () => animation.stop();
+  }, [duration, native, enabled, phase]);
+  return phase;
+}
+const AnimatedLine = Animated.createAnimatedComponent(Line);
+function FlowSpoke({
+  working,
+  id,
+  ...props
+}: React.ComponentProps<typeof Line> & { working: boolean; id: string }) {
+  const phase = useLoop(1800, false, working);
+  return working ? (
+    <AnimatedLine
+      {...props}
+      testID={id}
+      strokeDashoffset={phase.interpolate({
+        inputRange: [0, 1],
+        outputRange: [0, -36],
+      })}
+    />
+  ) : (
+    <Line {...props} />
+  );
+}
+function WorkingOrbit({ id, size }: { id: string; size: number }) {
+  const phase = useLoop(9000, true);
+  return (
+    <Animated.View
+      testID={id}
+      pointerEvents="none"
+      style={{
+        position: "absolute",
+        left: -7,
+        top: -7,
+        right: -7,
+        bottom: -7,
+        borderRadius: size,
+        borderWidth: 1,
+        borderStyle: "dashed",
+        borderColor: `${p.green}66`,
+        transform: [
+          {
+            rotate: phase.interpolate({
+              inputRange: [0, 1],
+              outputRange: ["0deg", "360deg"],
+            }),
+          },
+        ],
+      }}
+    />
+  );
+}
 
 type Props = {
   lanes: LaneCardViewModel[];
@@ -142,19 +213,9 @@ function LaneNode({
       }}
     >
       {working ? (
-        <View
-          testID={`lanes-map-working-${model.lane.lane_id}`}
-          style={{
-            position: "absolute",
-            left: -7,
-            top: -7,
-            right: -7,
-            bottom: -7,
-            borderRadius: size,
-            borderWidth: 1,
-            borderStyle: "dashed",
-            borderColor: `${p.green}66`,
-          }}
+        <WorkingOrbit
+          id={`lanes-map-working-${model.lane.lane_id}`}
+          size={size}
         />
       ) : null}
       {selected ? (
@@ -299,6 +360,7 @@ function SpecNode({
         width: size,
         height: size,
         zIndex: 4,
+        transform: [{ scale: selected ? 1.18 : 1 }],
       }}
     >
       {selected ? (
@@ -673,18 +735,25 @@ export default function LanesMap({
                 {visible.map((m) => {
                   const pt = positions.get(m.lane.lane_id)!;
                   return (
-                    <Line
+                    <FlowSpoke
                       key={m.lane.lane_id}
+                      id={`lanes-map-flow-${m.lane.lane_id}`}
+                      working={
+                        m.lane.state === "active" &&
+                        !!m.lane.lead?.presence.working
+                      }
                       x1={cx}
                       y1={cy}
                       x2={pt.x}
                       y2={pt.y}
                       stroke={p[m.stateTone]}
                       opacity={
-                        m.lane.lead?.presence.working?.valueOf() &&
-                        m.lane.state === "active"
-                          ? 0.55
-                          : 0.2
+                        pt.small
+                          ? 0.1
+                          : m.lane.state === "active" &&
+                              m.lane.lead?.presence.working
+                            ? 0.55
+                            : 0.2
                       }
                       strokeWidth={1.2}
                       strokeDasharray="3 6"
@@ -698,7 +767,9 @@ export default function LanesMap({
                   cx={fx}
                   cy={fy}
                   r={sr}
-                  stroke={color}
+                  stroke={
+                    stack ? (stack === "pending" ? p.dim : p.green) : color
+                  }
                   opacity={0.14}
                   strokeDasharray="2 5"
                   fill="none"
@@ -711,11 +782,18 @@ export default function LanesMap({
                     x2={nodePoints[i].x}
                     y2={nodePoints[i].y}
                     stroke={
-                      "member" in node
-                        ? memberTone(node.member, focused)
-                        : node.kind === "pending"
-                          ? p.dim
-                          : p.green
+                      "member" in node && node.member.spec_id === selected
+                        ? memberTone(node.member)
+                        : stack
+                          ? stack === "pending"
+                            ? p.dim
+                            : p.green
+                          : color
+                    }
+                    strokeDasharray={
+                      "member" in node && node.member.status === "in_progress"
+                        ? "3 5"
+                        : undefined
                     }
                     opacity={
                       "member" in node && node.member.spec_id === selected
@@ -824,6 +902,7 @@ export default function LanesMap({
                 borderWidth: 1,
                 borderColor: p.line,
                 borderRadius: 14,
+                maxWidth: 140,
                 paddingVertical: 5,
                 paddingHorizontal: 10,
                 backgroundColor: p.ink,
@@ -831,6 +910,7 @@ export default function LanesMap({
             >
               <Icon kind="back" size={13} />
               <Text
+                numberOfLines={1}
                 style={{
                   ...body,
                   fontSize: 12.5,
@@ -902,7 +982,12 @@ export default function LanesMap({
                 style={{ flexDirection: "row", alignItems: "center", gap: 5 }}
               >
                 {state === "active" ? (
-                  <Spinner size={10} color={p.green} strokeWidth={1.7} />
+                  <Spinner
+                    size={10}
+                    color={p.green}
+                    strokeWidth={1.7}
+                    segmentFraction={0.25}
+                  />
                 ) : state === "blocked" ? (
                   <Bang size={10} />
                 ) : (
@@ -994,6 +1079,7 @@ export default function LanesMap({
           >
             {selMember ? (
               <LaneMemberDetail
+                model={focused}
                 member={selMember}
                 laneTitle={focused.lane.title}
                 onBack={() => setSelected(null)}

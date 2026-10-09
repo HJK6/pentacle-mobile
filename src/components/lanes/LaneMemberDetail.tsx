@@ -1,5 +1,6 @@
 import React from "react";
 import { Pressable, Text, View } from "react-native";
+import type { LaneCardViewModel } from "../../services/workLanes";
 import type { WorkLaneMember } from "pentacle-chat-core";
 import { Fonts } from "@/constants/Colors";
 import { body, Icon, label, mono, p, SpecGlyph, laneTime } from "./LaneAtoms";
@@ -67,9 +68,11 @@ export function LaneMemberSummary({ member }: { member: WorkLaneMember }) {
 export function MemberContent({
   member,
   inline = false,
+  model,
 }: {
   member: WorkLaneMember;
   inline?: boolean;
+  model?: LaneCardViewModel;
 }) {
   const terminal =
     member.terminal ||
@@ -82,7 +85,7 @@ export function MemberContent({
       {!inline ? (
         <>
           <View style={{ flexDirection: "row", gap: 7, alignItems: "center" }}>
-            <SpecGlyph member={member} />
+            <SpecGlyph member={member} model={model} />
             <Text style={{ ...label, fontSize: 9.5 }}>
               {(member.status || "unknown").replace(/_/g, " ").toUpperCase()}
             </Text>
@@ -190,11 +193,13 @@ export default function LaneMemberDetail({
   laneTitle,
   onBack,
   bottom = 18,
+  model,
 }: {
   member: WorkLaneMember;
   laneTitle: string;
   onBack(): void;
   bottom?: number;
+  model?: LaneCardViewModel;
 }) {
   return (
     <View style={{ gap: 10, paddingBottom: bottom }}>
@@ -215,7 +220,7 @@ export default function LaneMemberDetail({
           {laneTitle}
         </Text>
       </Pressable>
-      <MemberContent member={member} />
+      <MemberContent member={member} model={model} />
     </View>
   );
 }
