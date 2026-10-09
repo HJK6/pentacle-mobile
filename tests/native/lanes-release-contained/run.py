@@ -397,6 +397,7 @@ class Run:
                                                          "physical installation"],
                                        "steps": [], "checks": {}, "supplemental_real_checks": {}}
         self.processes: dict[str, dict[str, Any]] = {}
+        self.stop_failed = False  # any failed owned stop preserves the scratch for recovery
         self.udid: str | None = None
         self.app_pid: str | None = None
         self.content_size: str | None = None
@@ -534,9 +535,18 @@ class Run:
                                                   port=sd.DAEMON_PORT, ready_timeout_s=90)
         self.result.setdefault("daemons", []).append(sd.public_receipt(self.processes["daemon"]))
 
+    def stop_owned(self, label: str) -> dict[str, Any]:
+        """Stop one owned process; its receipt is dropped only after the stop is verified."""
+        try:
+            outcome = sd.stop_owned(self.processes[label])
+        except Exception:
+            self.stop_failed = True
+            raise
+        del self.processes[label]
+        return outcome
+
     def stop_daemon(self) -> None:
-        receipt = self.processes.pop("daemon")
-        self.result.setdefault("stops", []).append(sd.stop_owned(receipt))
+        self.result.setdefault("stops", []).append(self.stop_owned("daemon"))
 
     def probe_a(self) -> None:
         got = sd.probe(sd.DAEMON_PORT, sd.big_lane_id())
@@ -1096,8 +1106,7 @@ class Run:
             attempt("app_uninstall", lambda: self.simctl("uninstall", self.udid, self.args.bundle_id, check=False) and None)
         for label in ("ui-companion", "daemon", "proxy"):
             if label in self.processes:
-                receipt = self.processes.pop(label)
-                attempt(f"{label}_stop", lambda receipt=receipt: sd.stop_owned(receipt))
+                attempt(f"{label}_stop", lambda label=label: self.stop_owned(label))
         if self.udid:
             attempt("simulator_shutdown", lambda: self.simctl("shutdown", self.udid, check=False) and None)
             def delete():
@@ -1142,6 +1151,8 @@ class Run:
             raise RuntimeError("scratch ownership marker missing or foreign; not removing")
         if self.processes:
             raise RuntimeError("owned processes still recorded; not removing scratch")
+        if self.stop_failed:
+            raise RuntimeError("an owned stop failed during the run; scratch kept for recovery")
         shutil.rmtree(self.scratch)
         return {"removed": str(self.scratch)}
 

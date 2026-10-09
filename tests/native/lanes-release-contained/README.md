@@ -127,7 +127,8 @@ daemon and proxy by their recorded PID after re-verifying process identity
 (never a broad kill) and confirm listeners cleared → shut down and delete the
 simulator this run created (identity checked) → copy the proxy log and hash
 every scratch file into the result → remove only the scratch root carrying
-this run's ownership marker. Logs, receipts and screenshots stay outside the
+this run's ownership marker, and only if every owned stop succeeded (a failed
+stop keeps its receipt and the scratch for recovery). Logs, receipts and screenshots stay outside the
 scratch root. Any teardown failure makes the verdict `SETUP_FAIL`.
 
 ## Known limits

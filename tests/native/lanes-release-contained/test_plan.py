@@ -316,6 +316,42 @@ def test_scratch_removal_requires_the_run_marker(tmp_path):
     assert not owned.scratch.exists()
 
 
+def _owned_scratch(tmp_path):
+    owned = _run(tmp_path)
+    owned.scratch.mkdir(parents=True)
+    (owned.scratch / run.OWNER_MARKER).write_text(owned.run_id)
+    owned.evidence.mkdir(parents=True, exist_ok=True)
+    return owned
+
+
+def _failing_stop(receipt):
+    raise RuntimeError(f"{receipt['label']}: owned stop incomplete")
+
+
+def test_failed_teardown_stop_keeps_its_receipt_and_the_scratch(tmp_path, monkeypatch):
+    owned = _owned_scratch(tmp_path)
+    owned.processes = {"daemon": {"label": "daemon"}}
+    monkeypatch.setattr(run.sd, "stop_owned", _failing_stop)
+    record = owned.teardown()
+    assert "daemon_stop" in record["failures"] and "scratch_remove" in record["failures"]
+    assert owned.processes == {"daemon": {"label": "daemon"}}
+    assert owned.scratch.is_dir()
+
+
+def test_failed_mid_run_stop_keeps_the_scratch_even_after_a_later_stop(tmp_path, monkeypatch):
+    owned = _owned_scratch(tmp_path)
+    owned.processes = {"daemon": {"label": "daemon"}}
+    monkeypatch.setattr(run.sd, "stop_owned", _failing_stop)
+    with pytest.raises(RuntimeError, match="incomplete"):
+        owned.stop_daemon()
+    assert owned.processes == {"daemon": {"label": "daemon"}}
+    monkeypatch.setattr(run.sd, "stop_owned", lambda receipt: {"label": receipt["label"], "absent": True})
+    record = owned.teardown()
+    assert owned.processes == {}
+    assert "scratch_remove" in record["failures"]
+    assert owned.scratch.is_dir()
+
+
 def test_supplemental_scenes_exist_in_the_screenshot_harness():
     source = (REPO / "src/harness/screenshotFixtures.ts").read_text(encoding="utf-8")
     for scene in run.SUPPLEMENTAL_SCENES:
