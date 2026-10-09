@@ -73,7 +73,10 @@ export function StepRow({
           numberOfLines={1}
           style={{
             ...body,
-            fontFamily: terminal ? Fonts.rajdhani.medium : Fonts.rajdhani.bold,
+            fontFamily:
+              terminal && !chevron
+                ? Fonts.rajdhani.medium
+                : Fonts.rajdhani.bold,
             color: terminal ? p.muted : p.text,
             flex: 1,
           }}

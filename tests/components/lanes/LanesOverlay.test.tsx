@@ -115,8 +115,8 @@ test.each([
   ["active_progress", "ACTIVE · IDLE", "2–4h"],
   ["paused_leadless", "PAUSED", "2–4h"],
   ["blocked", "BLOCKED", "2–4h"],
-  ["missing_member", "PAUSED", "1 unresolved"],
-  ["ambiguous_member", "PAUSED", "1 unresolved"],
+  ["missing_member", "PAUSED", "—"],
+  ["ambiguous_member", "PAUSED", "—"],
   ["missing_estimate", "PAUSED", "—"],
   ["no_spec", "PAUSED", "Exploratory conversation."],
   ["index_unavailable", "PAUSED", "2–4h"],
@@ -199,9 +199,9 @@ test.each<[string, Partial<WorkLane>, string]>([
     "Sample discussion only",
   ],
   [
-    "unresolved before open",
+    "unresolved stays in counts",
     { items_total: 3, items_unresolved: 1, items_open: 2 },
-    "1 unresolved",
+    "2–4h",
   ],
   ["positive open", { items_total: 3, items_open: 2 }, "2–4h"],
   ["unknown estimate", { open_estimate_h: null }, "—"],
@@ -975,3 +975,24 @@ test("global publication for a lane absent from the projection reports unavailab
   expect(readShow).not.toHaveBeenCalled();
   expect(view.queryAllByTestId(/^lane-log-/)).toHaveLength(0);
 });
+
+// A single question keeps the actionable text in every list variant.
+test.each(["compact", "current", "bars"] as const)(
+  "single waiting question preserves text in %s collapsed and expanded",
+  (listVariant) => {
+    const props = propsFor(
+      frameFor({ state: "blocked", blocker: "Waiting on you: which route?" }),
+      { listVariant },
+    );
+    props.lanes[0] = {
+      ...props.lanes[0],
+      waitingOnYou: 1,
+      blockerLabel: "Waiting on you · 1 question",
+    };
+    const view = render(<LanesOverlay {...props} />);
+    expect(view.getByText("Waiting on you: which route?")).toBeTruthy();
+    fireEvent.press(view.getByTestId(`lane-card-toggle-${baseLane.lane_id}`));
+    expect(view.getByText("Waiting on you: which route?")).toBeTruthy();
+    expect(view.queryByText("Waiting on you: 1 question")).toBeNull();
+  },
+);

@@ -405,9 +405,9 @@ export function Segments({
 export const progressValue = (model: LaneCardViewModel) =>
   model.progressLabel.replace(/^est\. open work /, "");
 export const blockerText = (model: LaneCardViewModel) =>
-  model.waitingOnYou
-    ? `Waiting on you: ${model.waitingOnYou} ${model.waitingOnYou === 1 ? "question" : "questions"}`
-    : model.blockerLabel;
+  model.waitingOnYou > 1
+    ? `Waiting on you: ${model.waitingOnYou} questions`
+    : model.lane.blocker || model.blockerLabel;
 export function TypeChip({ type }: { type: string }) {
   const color = ["blocked", "lane_blocked"].includes(type)
     ? p.amber

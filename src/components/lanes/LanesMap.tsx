@@ -952,17 +952,28 @@ export default function LanesMap({
                 gap: 6,
                 borderWidth: 1,
                 borderStyle: stack === "done" ? "solid" : "dashed",
-                borderColor: p.dim,
+                borderColor: stack === "done" ? p.green : p.dim,
                 borderRadius: 14,
                 paddingVertical: 5,
                 paddingHorizontal: 10,
                 backgroundColor: p.ink,
               }}
             >
-              <Text style={{ ...mono, fontSize: 10, letterSpacing: 1 }}>
+              <Text
+                style={{
+                  ...mono,
+                  fontSize: 10,
+                  letterSpacing: 1,
+                  color: stack === "done" ? p.green : p.dim,
+                }}
+              >
                 {stack.toUpperCase()} · {stackList?.length}
               </Text>
-              <Icon kind="close" size={12} />
+              <Icon
+                kind="close"
+                size={12}
+                color={stack === "done" ? p.green : p.dim}
+              />
             </Pressable>
           ) : null}
         </View>
@@ -1231,7 +1242,8 @@ export default function LanesMap({
                         lineHeight: 11,
                       }}
                     >
-                      {focused.lane.open_estimate_h
+                      {focused.progressLabel.startsWith("est. open work ") &&
+                      focused.lane.open_estimate_h
                         ? focused.lane.estimate_complete
                           ? `median ${focused.lane.open_estimate_h.median}h`
                           : focused.lane.open_estimated != null &&

@@ -133,7 +133,6 @@ export function formatWorkLaneEstimate(estimate: WorkLaneEstimate | null | undef
 /** Ordered truth precedence. Absent optional counts never imply terminal work. */
 export function formatLaneCardProgress(lane: WorkLane): string {
   if (lane.no_spec_reason) return lane.no_spec_reason;
-  if (lane.items_unresolved !== undefined && lane.items_unresolved > 0) return `${lane.items_unresolved} unresolved`;
   if (lane.items_total === 0) return 'No specs';
   if (lane.items_open !== undefined && lane.items_open > 0) {
     return `est. open work ${formatWorkLaneEstimate(lane.open_estimate_h, lane.estimate_complete !== false)}`;
@@ -173,8 +172,10 @@ function memberSegment(lane: WorkLane, member: WorkLaneMember): LaneProgressSegm
 
 export function selectLaneCardViewModels(state: PentacleStreamState, now = Date.now()): LaneCardViewModel[] {
   const questionCounts = new Map<string, number>();
+  const questionPrompts = new Map<string, string>();
   for (const entry of selectQuestionDeck(state)) {
     questionCounts.set(entry.streamId, (questionCounts.get(entry.streamId) ?? 0) + 1);
+    questionPrompts.set(entry.streamId, entry.question.prompt);
   }
   const updates = new Map<string, WorkLaneUpdate>();
   for (const entry of selectLaneUpdates(state)) {
@@ -204,7 +205,9 @@ export function selectLaneCardViewModels(state: PentacleStreamState, now = Date.
       membersPending: !lane.no_spec_reason && lane.members === undefined,
       waitingOnYou,
       waitingOnYouLabel,
-      blockerLabel: waitingOnYouLabel ?? lane.blocker,
+      blockerLabel: waitingOnYou === 1
+        ? lane.blocker || `Waiting on you: ${questionPrompts.get(lane.visible_chat.stream_id)}`
+        : waitingOnYouLabel ?? lane.blocker,
       lastUpdateText,
       freshnessLabel: formatLaneFreshness(lane.freshness_at ?? lane.updated_at, now),
       leadHost: lane.lead?.stream_id.split(':')[0] || null,

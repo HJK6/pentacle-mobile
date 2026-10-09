@@ -14,14 +14,20 @@ import { readFileSync } from "fs";
 import { join } from "path";
 import React, { useState } from "react";
 import { StyleSheet } from "react-native";
-import { act, fireEvent, render, waitFor } from "@testing-library/react-native";
+import {
+  act,
+  fireEvent,
+  render,
+  waitFor,
+  within,
+} from "@testing-library/react-native";
 import {
   applyWorkLanesInventory,
   initialPentacleStreamState,
   type WorkLaneMember,
   type WorkLaneShow,
 } from "pentacle-chat-core";
-import { Tokens } from "../../../constants/Colors";
+import { Fonts, Tokens } from "../../../constants/Colors";
 import {
   laneAttentionRank,
   groupMapMembers,
@@ -268,6 +274,23 @@ test("Pending and Done stacks expand in place and spec back restores its origina
     [done, [8, 9]],
   ] as const) {
     fireEvent.press(view.getByTestId(id));
+    if (id === done) {
+      const close = view.getByTestId("lanes-map-stack-close");
+      expect(StyleSheet.flatten(close.props.style)).toMatchObject({
+        borderStyle: "solid",
+        borderColor: Tokens.palette.green,
+      });
+      expect(
+        StyleSheet.flatten(view.getByText("DONE · 2").props.style).color,
+      ).toBe(Tokens.palette.green);
+      expect(
+        StyleSheet.flatten(
+          within(view.getByTestId("lane-members-row-stack-8")).getByText(
+            "Stack member 8",
+          ).props.style,
+        ).fontFamily,
+      ).toBe(Fonts.rajdhani.bold);
+    }
     expect(
       view.getAllByTestId(/^lanes-map-member-/).map((n) => n.props.testID),
     ).toEqual(indices.map((i) => `lanes-map-member-stack-${i}`));
@@ -546,4 +569,46 @@ test("estimate annotations do not invent counts missing from a partial inventory
     { ...model, lane: { ...model.lane, open_estimated: 2, items_open: 4 } },
   ]);
   expect(view.getByText("2 of 4 open specs estimated")).toBeTruthy();
+});
+
+test.each([
+  { no_spec_reason: "Discussion only" },
+  { items_total: 0, items_open: 0 },
+  { items_total: 3, items_open: 0, items_completed: 3 },
+  { items_total: 3, items_open: 0, items_dropped: 3 },
+  { items_total: 3, items_open: 0, items_completed: 2, items_dropped: 1 },
+])("non-estimate value has no median annotation %j", (patch) => {
+  const base = modelFor();
+  const model = modelsFor({
+    ...progressCase("active_progress").frame,
+    lanes: [{ ...base.lane, ...patch }],
+  })[0];
+  const { view } = surface([model], model.lane.lane_id);
+  expect(view.queryByText(/^median /)).toBeNull();
+});
+
+test("Done stack row titles are bold", () => {
+  const base = modelFor();
+  const members = Array.from({ length: 7 }, (_, i) => ({
+    ...base.members[0],
+    spec_id: `done-row-${i}`,
+    title: `Finished item ${i}`,
+    status: "completed",
+    terminal: "completed",
+  }));
+  const models = modelsFor({
+    ...progressCase("active_progress").frame,
+    lanes: [{ ...base.lane, members, members_total: 7 }],
+  });
+  const { view } = surface(models, base.lane.lane_id);
+  fireEvent.press(
+    view.getByTestId(`lanes-map-done-stack-${base.lane.lane_id}`),
+  );
+  expect(
+    StyleSheet.flatten(
+      within(view.getByTestId("lane-members-row-done-row-0")).getByText(
+        "Finished item 0",
+      ).props.style,
+    ).fontFamily,
+  ).toBe(Fonts.rajdhani.bold);
 });
