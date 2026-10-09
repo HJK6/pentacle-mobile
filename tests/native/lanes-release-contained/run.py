@@ -60,6 +60,10 @@ URL_RE = re.compile(rb"(?:wss?|https?)://[A-Za-z0-9._~%\-\[\]:]+(?:/[^\s\"'<>\\]
 LOOPBACK_HOSTS = {"127.0.0.1", "::1", "[::1]"}
 
 
+class _FlowDone(Exception):
+    """A smoke/reduced flow completed every one of its steps."""
+
+
 class SetupFail(RuntimeError):
     """Precondition or owned-resource failure; never a product verdict."""
 
@@ -88,6 +92,10 @@ STEPS = [
     "run_b_all_members", "run_b_member_detail", "run_b_log", "run_b_index_unavailable", "run_b_large_text",
     "run_b_final",
 ]
+# Reduced proof (production path only): the release app enrolls to an increment-1 daemon on a fresh scratch.
+SMOKE_STEPS = ["admission", "seed_inc1", "proxy_start", "daemon_b_start", "probe_b",
+               "simulator_activate", "app_launch", "enroll", "home_enrolled"]
+REDUCED_STEPS = SMOKE_STEPS + ["open_lanes", "reduced_list", "reduced_members", "reduced_map"]
 TEARDOWN = ["content_size_restore", "app_terminate", "app_uninstall", "ui-companion_stop", "daemon_stop",
             "proxy_stop", "simulator_shutdown", "simulator_delete", "evidence_hash", "scratch_remove"]
 
@@ -219,6 +227,39 @@ def connections_with_snapshot(rows: list[dict[str, Any]], since: float) -> list[
 # Native UI (idb accessibility tree, owned companion)
 # ---------------------------------------------------------------------------
 
+# iOS system alerts the run may meet, matched exactly: title -> the one button to press. Anything else stops the run.
+SYSTEM_ALERTS = {
+    "Open in “Pentacle”?": "Open",
+    "“Pentacle” Would Like to Send You Notifications": "Don’t Allow",
+}
+
+
+def _norm(text: Any) -> str:
+    return " ".join(str(text or "").replace("“", '"').replace("”", '"').replace("’", "'").split())
+
+
+def known_system_alert(elements: list[dict[str, Any]]) -> tuple[str, dict[str, Any]] | None:
+    """(title, button to press) for an allow-listed alert on screen; a known title without its exact button fails."""
+    labels = {_norm(element.get("AXLabel")) for element in elements}
+    for title, button in SYSTEM_ALERTS.items():
+        if _norm(title) not in labels:
+            continue
+        matches = [element for element in elements if _norm(element.get("AXLabel")) == _norm(button)
+                   and str(element.get("type") or element.get("role") or "") == "Button"]
+        if len(matches) != 1:
+            raise SetupFail(f"system alert {title!r} without exactly one {button!r} button")
+        return title, matches[0]
+    return None
+
+
+def lanes_status_button(elements: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """The assistant header status button (`<name> status, N open lanes…`), which opens the lanes view in-app."""
+    for element in elements:
+        if str(element.get("type") or "") == "Button" and re.search(r"\bstatus, \d+ open lanes", str(element.get("AXLabel") or "")):
+            return element
+    return None
+
+
 class Ui:
     def __init__(self, udid: str, idb: str, trace: Callable[[str, Any], None], shots: Path):
         self.udid, self.idb, self.trace, self.shots = udid, idb, trace, shots
@@ -285,6 +326,37 @@ class Ui:
             raise SetupFail("native tap failed: " + identifier)
         time.sleep(0.4)
         return element
+
+    def tap_element(self, element: dict[str, Any], what: str) -> None:
+        frame = self.frame(element)
+        result = self._idb("ui", "tap", str(int(frame["x"] + frame["width"] / 2)), str(int(frame["y"] + frame["height"] / 2)))
+        if result.returncode:
+            raise SetupFail("native tap failed: " + what)
+        time.sleep(0.4)
+
+    def dump(self, name: str, elements: list[dict[str, Any]] | None = None) -> Path:
+        """Accessibility dump kept as evidence (screen labels only; no credential is ever on screen)."""
+        folder = self.shots.parent / "ax"
+        folder.mkdir(exist_ok=True)
+        path = folder / f"{len(list(folder.iterdir())):02d}-{name}.json"
+        path.write_text(json.dumps(elements if elements is not None else self.elements(), indent=1), encoding="utf-8")
+        return path
+
+    def clear_system_alerts(self, limit: int = 3) -> list[str]:
+        """Press the allow-listed button of each known system alert on screen, dumping the screen first."""
+        handled: list[str] = []
+        for _ in range(limit):
+            elements = self.elements()
+            found = known_system_alert(elements)
+            if found is None:
+                return handled
+            title, button = found
+            self.dump("system-alert", elements)
+            self.tap_element(button, SYSTEM_ALERTS[title])
+            self.trace("system alert", {"title": title, "pressed": SYSTEM_ALERTS[title]})
+            handled.append(title)
+            time.sleep(1.0)
+        raise SetupFail("system alerts kept appearing: " + ", ".join(handled))
 
     def swipe_up(self, within: dict[str, float]) -> None:
         x = str(int(within["x"] + within["width"] / 2))
@@ -399,6 +471,7 @@ class Run:
         self.processes: dict[str, dict[str, Any]] = {}
         self.stop_failed = False  # any failed owned stop preserves the scratch for recovery
         self.probe_auth: dict[str, Any] | None = None  # operator credential for loopback probes (never logged)
+        self.enroll_checkout = self.v1_checkout  # the reduced proof enrolls against the increment-1 daemon
         self.udid: str | None = None
         self.app_pid: str | None = None
         self.content_size: str | None = None
@@ -520,6 +593,14 @@ class Run:
         (self.scratch / OWNER_MARKER).write_text(self.run_id, encoding="utf-8")
         self.write("memory-tree.json", sd.write_memory(layout["memory"]))
         self.seed("v1", self.v1_checkout)
+
+    def seed_inc1(self) -> None:
+        """Reduced proof: a fresh scratch seeded directly at the increment-1 pin (no v1 store, no upgrade)."""
+        layout = sd.make_scratch(self.scratch)
+        (self.scratch / OWNER_MARKER).write_text(self.run_id, encoding="utf-8")
+        self.write("memory-tree.json", sd.write_memory(layout["memory"]))
+        self.seed("inc1", self.inc1_checkout)
+        self.enroll_checkout = self.inc1_checkout
 
     def start_proxy(self) -> None:
         proxy = sd.copy_proxy(self.args.proxy_source.resolve(), self.run_dir)
@@ -650,9 +731,10 @@ class Run:
 
     def enroll(self) -> None:
         since = time.time()
+        checkout = self.enroll_checkout
         out = self.sh([self.python, str(Path(__file__).resolve().parent / "scratch_daemon.py"), "enroll-link",
-                       "--checkout", str(self.v1_checkout), "--scratch", str(self.scratch)],
-                      env=sd.child_env(self.scratch), cwd=self.v1_checkout)
+                       "--checkout", str(checkout), "--scratch", str(self.scratch)],
+                      env=sd.child_env(self.scratch), cwd=checkout)
         url = json.loads(out.stdout.strip().splitlines()[-1])["url"]
         opened = subprocess.run(["xcrun", "simctl", "openurl", self.udid, url], capture_output=True, text=True,
                                 timeout=60, check=False)
@@ -660,18 +742,53 @@ class Run:
         del url
         if opened.returncode:
             raise SetupFail("enrollment deep link did not open")
-        try:
-            sd.wait_for(lambda: bool(connections_with_snapshot(self.wire(), since)), 60, "enrolled snapshot")
-        except TimeoutError:
-            raise SetupFail("enrolled app did not receive a daemon snapshot through the loopback proxy") from None
+        # iOS may confirm the link ("Open in “Pentacle”?") or ask for notifications; only exact known alerts are pressed.
+        alerts = self.result.setdefault("system_alerts", [])
+        deadline = time.monotonic() + 60
+        while not connections_with_snapshot(self.wire(), since):
+            alerts.extend(self.ui.clear_system_alerts())
+            if time.monotonic() > deadline:
+                if hasattr(self.ui, "dump"):
+                    self.ui.dump("enroll-timeout")
+                raise SetupFail("enrolled app did not receive a daemon snapshot through the loopback proxy")
+            time.sleep(1)
         self.result["enrollment"] = {"mechanism": "normal enrollment deep link, fresh simulator, owned scratch registry",
                                      "endpoint": sd.APP_WS_URL, "code_retained": False}
 
+    def home_enrolled(self) -> None:
+        """After enrollment: the home screen (assistant tab) is unlocked; its header proves the in-app lanes entry."""
+        alerts = self.result.setdefault("system_alerts", [])
+        deadline = time.monotonic() + 30
+        while True:
+            alerts.extend(self.ui.clear_system_alerts())
+            elements = self.ui.elements()
+            button = lanes_status_button(elements)
+            if button is not None:
+                break
+            if time.monotonic() > deadline:
+                self.ui.dump("home-without-lanes-header", elements)
+                raise SetupFail("enrolled home screen shows no lanes status button")
+            time.sleep(1)
+        self.ui.dump("home-enrolled", elements)
+        self.ui.screenshot("home-enrolled")
+        self.result["checks"]["home_enrolled"] = {"lanes_button": button.get("AXLabel"), "system_alerts": list(alerts)}
+
     def open_lanes(self) -> None:
-        opened = subprocess.run(["xcrun", "simctl", "openurl", self.udid, "pentacle://pentacle/lanes"],
-                                capture_output=True, text=True, timeout=60, check=False)
-        if opened.returncode:
-            raise SetupFail("lanes route deep link did not open")
+        """In-app: the assistant header status button (no second deep link, so no second system confirmation)."""
+        alerts = self.result.setdefault("system_alerts", [])
+        alerts.extend(self.ui.clear_system_alerts())
+        button = lanes_status_button(self.ui.elements())
+        if button is not None:
+            self.ui.tap_element(button, "lanes status button")
+            self.result["lanes_entry"] = "assistant header status button"
+        else:
+            opened = subprocess.run(["xcrun", "simctl", "openurl", self.udid, "pentacle://pentacle/lanes"],
+                                    capture_output=True, text=True, timeout=60, check=False)
+            if opened.returncode:
+                raise SetupFail("lanes route deep link did not open")
+            time.sleep(1)
+            alerts.extend(self.ui.clear_system_alerts())
+            self.result["lanes_entry"] = "deep link"
         self.ui.find("lanes-view-list", 30)
         self.ui.find("lanes-view-map")
         self.show_view("list")
@@ -878,6 +995,40 @@ class Run:
         ui.tap(f"lane-card-toggle-{big}")
         self.result["checks"]["run_b_list"] = {"visible_lanes": visible, "expanded_members": 8}
 
+    def reduced_list(self) -> None:
+        self.run_b_list()
+        self.result["checks"]["reduced_list"] = self.result["checks"].pop("run_b_list")
+
+    def reduced_members(self) -> None:
+        """One real work_lanes.show round-trip from the list: the big lane's full member list."""
+        ui, big = self.ui, sd.big_lane_id()
+        ui.tap(f"lane-card-toggle-{big}")
+        since = time.time()
+        ui.tap(f"lane-card-show-all-{big}")
+        ui.find("lane-members-back", 30)
+        pair = self.show_after(since)
+        if pair["reply_type"] != "work_lanes.show.ok":
+            raise AssertFail("member list show did not succeed")
+        order = ui.collect_scrolling("lane-members-row-", 32)
+        got = [identifier[len("lane-members-row-"):] for identifier in order]
+        if got != sd.BIG:
+            raise AssertFail(f"member list shows {len(got)} rows, not all 32 in membership order")
+        ui.screenshot("reduced-members")
+        ui.tap("lane-members-back")
+        ui.find("lanes-view-list", 30)
+        self.result["checks"]["reduced_members"] = {"show": pair, "rows": len(got),
+                                                    "spec_ids_sha256": sha256_bytes("\n".join(got).encode())}
+
+    def reduced_map(self) -> None:
+        """The map renders orbit page 1 in daemon order."""
+        self.show_view("map")
+        page = self.visible_order("lanes-map-lane-")
+        expected = self.inventory_order[:min(8, len(self.inventory_order))]
+        if page != expected:
+            raise AssertFail(f"map page 1 shows {page}, not the first daemon lanes {expected}")
+        self.ui.screenshot("reduced-map")
+        self.result["checks"]["reduced_map"] = {"page_1": page}
+
     def run_b_precedence(self) -> None:
         ui, out = self.ui, {}
         cases = {"missing": sd.lane_id_for(sd.LANES[1]["key"]), "ambiguous": sd.lane_id_for(sd.LANES[2]["key"]),
@@ -1051,13 +1202,28 @@ class Run:
             raise AssertFail(f"crash reports during the run: {crashes}")
 
     # -- orchestration -----------------------------------------------------
-    def execute(self) -> int:
+    def flow(self, mode: str) -> list[tuple[str, Callable[[], Any]]]:
+        steps = {
+            "admission": self.admission, "seed_inc1": self.seed_inc1, "proxy_start": self.start_proxy,
+            "daemon_b_start": lambda: self.start_daemon("daemon-b-inc1", self.inc1_checkout), "probe_b": self.probe_b,
+            "simulator_activate": self.activate_simulator, "app_launch": self.launch, "enroll": self.enroll,
+            "home_enrolled": self.home_enrolled, "open_lanes": self.open_lanes, "reduced_list": self.reduced_list,
+            "reduced_members": self.reduced_members, "reduced_map": self.reduced_map,
+        }
+        return [(name, steps[name]) for name in (SMOKE_STEPS if mode == "smoke" else REDUCED_STEPS)]
+
+    def execute(self, mode: str = "run") -> int:
         self.run_dir.mkdir(parents=True, exist_ok=False)
         self.evidence.mkdir()
         self.shots.mkdir()
         self.trace_file = (self.evidence / "trace.jsonl").open("w", encoding="utf-8")
         verdict, error = "SETUP_FAIL", None
+        self.result["mode"] = mode
         try:
+            if mode in ("smoke", "reduced"):
+                for name, fn in self.flow(mode):
+                    self.step(name, fn)
+                raise _FlowDone()
             for name, fn in [
                 ("admission", self.admission), ("seed_v1", self.seed_v1), ("proxy_start", self.start_proxy),
                 ("daemon_a_start", lambda: self.start_daemon("daemon-a-v1", self.v1_checkout)),
@@ -1079,6 +1245,8 @@ class Run:
                 ("run_b_large_text", self.run_b_large_text), ("run_b_final", self.run_b_final),
             ]:
                 self.step(name, fn)
+            verdict = "PASS"
+        except _FlowDone:
             verdict = "PASS"
         except AssertFail as exc:
             verdict, error = "FAIL", str(exc)
@@ -1481,16 +1649,19 @@ def parse(argv: list[str] | None) -> argparse.Namespace:
     common.add_argument("--runtime", required=True)
     common.add_argument("--idb", default="idb")
     common.add_argument("--idb-companion", default="idb_companion")
-    proof = sub.add_parser("run", parents=[common], help="the contained A/C/B proof")
-    proof.add_argument("--app", type=Path, required=True, help="normal Release simulator .app (loopback config)")
-    proof.add_argument("--bundle-id", required=True)
-    proof.add_argument("--production-config", type=Path, required=True,
-                       help="`expo config --type public --json` of the production build (URLs to reject)")
-    proof.add_argument("--v1-checkout", type=Path, required=True)
-    proof.add_argument("--inc1-checkout", type=Path, required=True)
-    proof.add_argument("--python", type=Path, required=True, help="owned venv python for both daemon pins")
-    proof.add_argument("--proxy-source", type=Path, required=True, help="retained loopback proxy script")
-    proof.add_argument("--run-id")
+    for command, help_text in (("run", "the contained A/C/B proof"),
+                               ("smoke", "enroll-only smoke: inc1 daemon, launch, enroll, snapshot, teardown"),
+                               ("reduced", "reduced proof: smoke + list, one real show, member list, map page 1")):
+        proof = sub.add_parser(command, parents=[common], help=help_text)
+        proof.add_argument("--app", type=Path, required=True, help="normal Release simulator .app (loopback config)")
+        proof.add_argument("--bundle-id", required=True)
+        proof.add_argument("--production-config", type=Path, required=True,
+                           help="`expo config --type public --json` of the production build (URLs to reject)")
+        proof.add_argument("--v1-checkout", type=Path, required=True)
+        proof.add_argument("--inc1-checkout", type=Path, required=True)
+        proof.add_argument("--python", type=Path, required=True, help="owned venv python for both daemon pins")
+        proof.add_argument("--proxy-source", type=Path, required=True, help="retained loopback proxy script")
+        proof.add_argument("--run-id")
     extra = sub.add_parser("supplemental", parents=[common], help="one supplemental scene (separate build) through the shared admission path")
     extra.add_argument("--app", type=Path, required=True)
     extra.add_argument("--scene", choices=sorted(SCENES), required=True)
@@ -1506,7 +1677,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.command == "supplemental":
         return supplemental(args)
-    return Run(args).execute()
+    return Run(args).execute(args.command)
 
 
 if __name__ == "__main__":

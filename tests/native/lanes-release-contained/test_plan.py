@@ -820,3 +820,65 @@ def test_load_probe_auth_loads_the_real_pinned_operator_auth(checkout, tmp_path)
     expected = hmac.new(b"k" * 32, auth["module"].proof_transcript(nonce, hello["auth_v2"]["credential_id"], "pentacle"),
                         hashlib.sha256).digest()
     assert hello["auth_v2"]["proof"] == auth["module"].encode_b64url(expected)
+
+
+# Reduced proof: exact-label system alerts, in-app lanes navigation, smoke/reduced plans.
+
+def _el(label, kind, x=0, y=0):
+    return {"AXLabel": label, "type": kind, "frame": {"x": x, "y": y, "width": 140, "height": 48}}
+
+
+def test_known_system_alerts_match_exact_titles_and_buttons():
+    notifications = [_el("“Pentacle” Would Like to Send You Notifications", "StaticText"),
+                     _el("Notifications may include alerts, sounds, and icon badges.", "StaticText"),
+                     _el("Don’t Allow", "Button", 57, 494), _el("Allow", "Button", 205, 494)]
+    title, button = run.known_system_alert(notifications)
+    assert title.startswith("“Pentacle” Would Like") and button["AXLabel"] == "Don’t Allow"
+    opener = [_el('Open in "Pentacle"?', "StaticText"), _el("Cancel", "Button"), _el("Open", "Button", 300, 500)]
+    title, button = run.known_system_alert(opener)  # straight or curly quotes, same title
+    assert title == "Open in “Pentacle”?" and button["frame"]["x"] == 300
+    assert run.known_system_alert([_el("Cancel", "Button"), _el("Open session status", "Button")]) is None
+    with pytest.raises(run.SetupFail, match="exactly one"):
+        run.known_system_alert([_el("Open in “Pentacle”?", "StaticText"), _el("Cancel", "Button")])
+
+
+def test_lanes_status_button_is_the_assistant_header_label():
+    elements = [_el("Sessions, 0 need you", "Button"), _el("Assistant status, 9 open lanes, 1 blocked", "Button"),
+                _el("Questions, 0 pending", "Button")]
+    assert run.lanes_status_button(elements)["AXLabel"].startswith("Assistant status")
+    assert run.lanes_status_button([_el("Assistant status, 9 open lanes", "StaticText")]) is None
+
+
+def test_smoke_and_reduced_plans_are_inc1_only_and_bounded():
+    assert run.SMOKE_STEPS == ["admission", "seed_inc1", "proxy_start", "daemon_b_start", "probe_b",
+                               "simulator_activate", "app_launch", "enroll", "home_enrolled"]
+    assert run.REDUCED_STEPS == run.SMOKE_STEPS + ["open_lanes", "reduced_list", "reduced_members", "reduced_map"]
+    assert not {"seed_v1", "daemon_a_start", "probe_a", "run_c_reconnect"} & set(run.REDUCED_STEPS)
+    common = ["--run-dir", "/r", "--app", "/a.app", "--bundle-id", "b", "--production-config", "/p",
+              "--v1-checkout", "/v1", "--inc1-checkout", "/i", "--python", "/py", "--proxy-source", "/px",
+              "--device-type", "d", "--runtime", "r"]
+    assert run.parse(["smoke", *common]).command == "smoke"
+    assert run.parse(["reduced", *common]).command == "reduced"
+
+
+def test_enroll_presses_known_alerts_until_the_snapshot_arrives(tmp_path, monkeypatch):
+    owned = _owned_scratch(tmp_path)
+    owned.udid, owned.enroll_checkout = "U-1", tmp_path
+    pressed, snapshots = [], iter([False, False, True])
+
+    class FakeUi:
+        def clear_system_alerts(self):
+            if not pressed:
+                pressed.append("Open in “Pentacle”?")
+                return ["Open in “Pentacle”?"]
+            return []
+
+    owned.ui = FakeUi()
+    monkeypatch.setattr(owned, "sh", lambda *a, **k: subprocess.CompletedProcess(a, 0, json.dumps({"url": "pentacle://enroll?code=X"}), ""))
+    monkeypatch.setattr(run.subprocess, "run", lambda *a, **k: subprocess.CompletedProcess(a, 0, "", ""))
+    monkeypatch.setattr(owned, "wire", lambda: [])
+    monkeypatch.setattr(run, "connections_with_snapshot", lambda rows, since: next(snapshots))
+    monkeypatch.setattr(run.time, "sleep", lambda s: None)
+    owned.enroll()
+    assert owned.result["system_alerts"] == ["Open in “Pentacle”?"]
+    assert owned.result["enrollment"]["code_retained"] is False
