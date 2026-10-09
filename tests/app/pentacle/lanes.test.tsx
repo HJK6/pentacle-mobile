@@ -20,6 +20,8 @@ jest.mock('../../../src/services/pentacleStream', () => ({
   usePentacleStreamSelectorWhen: jest.fn((_enabled, selector) => selector(mockState)),
   LANE_HISTORY_PAGE_LIMIT: 60,
   requestLaneHistory: jest.fn(),
+  requestWorkLaneShow: jest.fn(),
+  selectOptimisticQuestionAnswerIdentities: () => [],
 }));
 
 const router = () => require('expo-router').useRouter();
@@ -34,26 +36,26 @@ beforeEach(() => {
 test('renders the daemon lanes in order with the open count', () => {
   render(<LanesRoute />);
   expect(screen.getByText('Open lanes · 4')).toBeTruthy();
-  expect(screen.getAllByTestId(/^lane-row-/).map((row) => row.props.testID))
-    .toEqual(fixture.expected.order.map((id: string) => `lane-row-${id}`));
+  expect(screen.getAllByTestId(/^lane-card-wl-/).map((row) => row.props.testID))
+    .toEqual(fixture.expected.order.map((id: string) => `lane-card-${id}`));
 });
 
 test('an open session lane navigates to that session', () => {
   render(<LanesRoute />);
-  fireEvent.press(screen.getByTestId('lane-row-wl-blocked-0001'));
+  fireEvent.press(screen.getByTestId('lane-card-chat-wl-blocked-0001'));
   expect(router().push).toHaveBeenCalledWith('/pentacle/session/fixture-host%3Av2-lead0001');
 });
 
 test("a lane whose visible chat is the assistant composite returns to the assistant thread, not a session route", () => {
   render(<LanesRoute />);
-  fireEvent.press(screen.getByTestId('lane-row-wl-active-0002'));
+  fireEvent.press(screen.getByTestId('lane-card-chat-wl-active-0002'));
   expect(router().replace).toHaveBeenCalledWith('/(tabs)/bart');
   expect(router().push).not.toHaveBeenCalled();
 });
 
 test('a closed chat opens the read-only history for its exact generation, never a session route', async () => {
   render(<LanesRoute />);
-  await act(async () => { fireEvent.press(screen.getByTestId('lane-row-wl-paused-0003')); });
+  await act(async () => { fireEvent.press(screen.getByTestId('lane-card-chat-wl-paused-0003')); });
   expect(screen.getByTestId('lane-history-screen')).toBeTruthy();
   expect(requestLaneHistory).toHaveBeenCalledWith('fixture-host:v2-lead0003', 'gen-lead-0003', expect.any(Object));
   expect(router().push).not.toHaveBeenCalled();
@@ -64,11 +66,11 @@ test('a closed chat opens the read-only history for its exact generation, never 
 
 test('an unavailable chat navigates nowhere and keeps the lane visible', () => {
   render(<LanesRoute />);
-  expect(screen.getByTestId('lane-unavailable-wl-paused-0004')).toBeTruthy();
-  fireEvent.press(screen.getByTestId('lane-row-wl-paused-0004'));
+  expect(screen.getByTestId('lane-card-chat-wl-paused-0004').props.accessibilityState.disabled).toBe(true);
+  fireEvent.press(screen.getByTestId('lane-card-chat-wl-paused-0004'));
   expect(router().push).not.toHaveBeenCalled();
   expect(router().replace).not.toHaveBeenCalled();
-  expect(screen.getByTestId('lane-row-wl-paused-0004')).toBeTruthy();
+  expect(screen.getByTestId('lane-card-chat-wl-paused-0004')).toBeTruthy();
 });
 
 test('close returns to the previous screen', () => {

@@ -5,13 +5,14 @@ import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { TOP_INSET, Tokens } from '@/constants/Colors';
 import Starfield from '../../src/components/Starfield';
-import LanesSurface from '../../src/components/lanes/LanesSurface';
+import LanesOverlay from '../../src/components/lanes/LanesOverlay';
+import { selectAssistantIdentity } from '../../src/services/assistantIdentity';
 import LaneHistoryScreen, { type LaneHistoryTarget } from '../../src/components/lanes/LaneHistoryScreen';
 import { BART_STREAM_ID } from '../../src/components/status/statusSelectors';
 import { performChatOpenNavigation } from '../../src/services/chatOpenNavigation';
 import { HOME_ROUTE } from '../../src/services/homeRoute';
 import { usePentacleStreamSelectorWhen } from '../../src/services/pentacleStream';
-import { selectLaneViewModels, selectWorkLaneCounts, type LaneViewModel } from '../../src/services/workLanes';
+import { selectLaneCardViewModels, selectLaneUpdates, type LaneCardViewModel } from '../../src/services/workLanes';
 
 // /pentacle/lanes — the daemon's open work lanes (header lanes tap). A tap goes to the lane's
 // visible chat: an open chat, Bart's own thread, a read-only retained history, or an honest
@@ -29,13 +30,14 @@ export default function LanesRoute() {
     const timer = setInterval(() => setNow(Date.now()), 15_000);
     return () => clearInterval(timer);
   }, [isFocused]);
-  const lanes = useMemo(() => selectLaneViewModels(state, now), [state, now]);
-  const counts = selectWorkLaneCounts(state);
+  const lanes = useMemo(() => selectLaneCardViewModels(state, now), [state, now]);
+  const updates = useMemo(() => selectLaneUpdates(state), [state]);
+  const identity = selectAssistantIdentity(state);
   const top = Math.max(insets.top, TOP_INSET);
   const bottom = Math.max(insets.bottom, 18);
 
   const close = useCallback(() => { router.back(); }, [router]);
-  const openLane = useCallback((model: LaneViewModel) => {
+  const openLane = useCallback((model: LaneCardViewModel) => {
     const tap = model.tap;
     if (tap.action === 'open_chat') {
       if (tap.stream_id === BART_STREAM_ID) router.replace(HOME_ROUTE as any);
@@ -44,12 +46,11 @@ export default function LanesRoute() {
       setHistory({ streamId: tap.stream_id, generation: tap.generation, title: model.lane.title });
     }
   }, [router]);
-  const openLead = useCallback((streamId: string) => { performChatOpenNavigation(streamId, router); }, [router]);
 
   return <View style={styles.root}>
     <Starfield />
-    <LanesSurface lanes={lanes} counts={counts} truncated={state.workLanes?.truncated === true} now={now}
-      top={top} bottom={bottom} onOpenLane={openLane} onOpenLead={openLead} onClose={close} />
+    <LanesOverlay lanes={lanes} inventory={state.workLanes} assistantName={identity.name} connected={state.connected} updates={updates}
+      top={top} bottom={bottom} onChat={openLane} onClose={close} />
     {history
       ? <View style={StyleSheet.absoluteFill}>
         <LaneHistoryScreen target={history} connected={state.connected} onClose={() => setHistory(null)} top={top} bottom={bottom} />
