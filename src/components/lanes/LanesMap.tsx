@@ -756,7 +756,12 @@ export default function LanesMap({
                             : 0.2
                       }
                       strokeWidth={1.2}
-                      strokeDasharray="3 6"
+                      strokeDasharray={
+                        m.lane.state === "active" &&
+                        m.lane.lead?.presence.working
+                          ? "3 6"
+                          : "2 4"
+                      }
                     />
                   );
                 })}
@@ -1229,7 +1234,10 @@ export default function LanesMap({
                       {focused.lane.open_estimate_h
                         ? focused.lane.estimate_complete
                           ? `median ${focused.lane.open_estimate_h.median}h`
-                          : `${focused.lane.open_estimated ?? 0} of ${focused.lane.items_open ?? 0} open specs estimated`
+                          : focused.lane.open_estimated != null &&
+                              focused.lane.items_open != null
+                            ? `${focused.lane.open_estimated} of ${focused.lane.items_open} open specs estimated`
+                            : ""
                         : ""}
                     </Text>
                   </View>

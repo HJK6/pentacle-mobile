@@ -530,3 +530,20 @@ test("working orbit and spoke expose animated transforms; idle lanes retain stat
   expect(after.left).toBe(before.left);
   expect(after.top).toBe(before.top);
 });
+
+test("estimate annotations do not invent counts missing from a partial inventory", () => {
+  const model = modelFor();
+  model.lane = {
+    ...model.lane,
+    open_estimate_h: { p25: 1, p75: 2, median: 1.5 },
+    estimate_complete: false,
+    open_estimated: undefined,
+    items_open: undefined,
+  };
+  const { view, rerender } = surface([model], model.lane.lane_id);
+  expect(view.queryByText(/open specs estimated/)).toBeNull();
+  rerender([
+    { ...model, lane: { ...model.lane, open_estimated: 2, items_open: 4 } },
+  ]);
+  expect(view.getByText("2 of 4 open specs estimated")).toBeTruthy();
+});
