@@ -42,6 +42,8 @@ The portable synthetic harness gate and retained private inputs are documented i
 
 ## Certified native gate and storage
 
+Select the scoped or full route using the [release validation matrix](PENTACLE_MOBILE_BUILD.md#release-validation). The certification commands below apply when full qualification is required; the USB installation controls apply to both routes.
+
 Use the clean, origin-advertised candidate with the installed storage authority:
 
 ```sh
@@ -65,7 +67,7 @@ copy their opaque lock token into shared logs or assemble a separate shell runne
 
 Pentacle Mobile delivery uses an Apple Development signed Release with an
 embedded bundle and an in-place USB `devicectl` install. TestFlight is reserved
-for the separate phone product. Certification supplies source and retained proof
+for the separate phone product. Full certification, when required, supplies source and retained proof
 to the existing release-build handoff; it never queries or installs on a physical
 phone. The release packet binds the app hash, source, version/build, operator-device
 profile check and first-screen proof before the operator is asked to plug in.
