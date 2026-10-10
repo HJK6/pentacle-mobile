@@ -17,6 +17,19 @@ const catalogCases = require('./fixtures/catalog_cases.json');
 // SHA256 ce4c8ec61ec42e2f8113310add075a2d73a71f3898ca8f102b9a20d58e9c0235
 const retrieval = require('./fixtures/report_retrieval_cases.json');
 const full = (): Catalog => JSON.parse(JSON.stringify(catalogCases.valid[0].catalog));
+test('lanes and navigate action names are accepted on unsupported web adapters', async () => {
+  const catalog = full();
+  const adapter = catalog.boards.find(b => b.kind === 'web-adapter')!;
+  (adapter as { actions: string[] }).actions = ['lanes', 'navigate'];
+  expect(validateCatalog(catalog)).toBe(catalog);
+  const loader = createCatalogLoader({
+    listReportsBySpec: async () => [meta],
+    getReportByOwner: async () => ({ ...meta, body: JSON.stringify(catalog) }),
+  });
+  const result = await loader.refresh('example__catalog');
+  expect(result.status).toBe('ready');
+  expect(result.catalog?.boards.find(b => b.id === adapter.id)).toEqual(adapter);
+});
 const meta = { asset_id: 'dashboard-catalog', content_type: 'dashboard-catalog', title: 'Example catalog', stream_id: 'hostx:example-catalog-owner' };
 function harness() {
   const records = new Map<string, string>();

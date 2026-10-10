@@ -142,7 +142,7 @@ export function validateCatalog(value: unknown): Catalog {
       if (own(b.web, 'css') || own(b.web, 'css_sha256')) { match(b.web, 'css', `${q}.web.css`, patterns.path); if (!b.web.css.endsWith('.css')) fail(`${q}.web.css`, 'must be a .css path'); match(b.web, 'css_sha256', `${q}.web.css_sha256`, patterns.hash); }
       if (own(b, 'actions')) {
         if (!Array.isArray(b.actions) || b.actions.some((a: unknown) => typeof a !== 'string')) fail(`${q}.actions`, 'must be a list of strings');
-        const bad = b.actions.filter((a: string) => !['household', 'assistantState', 'assetList', 'assetGet'].includes(a)); if (bad.length) fail(`${q}.actions`, `unknown host actions: ${bad.join(', ')}`);
+        const bad = b.actions.filter((a: string) => !['household', 'assistantState', 'assetList', 'assetGet', 'lanes', 'navigate'].includes(a)); if (bad.length) fail(`${q}.actions`, `unknown host actions: ${bad.join(', ')}`);
       }
       if (own(b, 'poll_interval_ms')) integer(b.poll_interval_ms, `${q}.poll_interval_ms`, 2000, 600000);
     } else if (b.kind === 'hosted-view') {
