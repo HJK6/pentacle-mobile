@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants from 'expo-constants';
+import type { HostedDashboardPolicy } from './types';
 import * as harnessRuntime from '../../utils/harnessRuntime';
 import type { listReportsBySpec, getReportByOwner, PentacleReport } from '../../services/pentacleAssets';
 
@@ -11,8 +12,9 @@ export type ReportDescriptor = {
   producer_stream_id?: string; writer_enforced: boolean; select: 'latest'; list: boolean;
   history_limit: number; title_template?: string;
 };
-type BoardCommon = { id: string; name: string; description?: string };
+type BoardCommon = { id: string; name: string; description?: string; visible?: boolean };
 export type CatalogBoard = BoardCommon & (
+  { kind: 'built-in' } |
   { kind: 'report'; report: ReportDescriptor } |
   { kind: 'web-adapter'; web: { script: string; sha256: string; css?: string; css_sha256?: string }; actions?: string[]; poll_interval_ms?: number } |
   { kind: 'hosted-view'; hosted: { url: string } }
@@ -24,7 +26,7 @@ export type Catalog = {
 class CatalogValidationError extends Error { unsupported = false; }
 const reason = (error: unknown): string => error instanceof Error ? error.message : String(error || 'unknown error');
 
-export const HOST_API = 1;
+export const HOST_API = 2;
 const own = (o: JsonRecord, k: string) => Object.prototype.hasOwnProperty.call(o, k);
 const object = (v: unknown, p: string) => { if (!v || typeof v !== 'object' || Array.isArray(v)) fail(p, 'must be an object'); };
 const fail = (p: string, m: string): never => { throw new Error(`${p}: ${m}`); };
@@ -61,6 +63,29 @@ export function plainHttpUrl(value: unknown): boolean {
     return ['http:', 'https:'].includes(url.protocol) && !!url.hostname && !url.username && !url.password && !authority.includes('@') && !authority.includes('\\');
   } catch { return false; }
 }
+// Structural validation stays policy-independent so unavailable hosted entries
+// remain in their catalog position. Every browser handoff also checks live policy.
+const dnsHost = /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/i;
+function staticHostedUrl(value: unknown): value is string {
+  return plainHttpUrl(value) && (value as string).startsWith('https://') && !/[\\?#]/.test(value as string) && dnsHost.test(new URL(value as string).hostname);
+}
+export function validateHostedDashboardUrl(value: unknown, input: unknown): string {
+  const policy = input as HostedDashboardPolicy | null;
+  if (!policy || typeof policy.tailnetSuffix !== 'string' || !dnsHost.test(policy.tailnetSuffix) || !policy.tailnetSuffix.toLowerCase().endsWith('.ts.net') || !staticHostedUrl(policy.pentacleOrigin)) {
+    throw new Error('Hosted dashboard configuration unavailable');
+  }
+  const origin = new URL(policy.pentacleOrigin);
+  if (!dnsHost.test(origin.hostname) || origin.pathname !== '/' || !origin.hostname.toLowerCase().endsWith(`.${policy.tailnetSuffix.toLowerCase()}`)) {
+    throw new Error('Hosted dashboard configuration unavailable');
+  }
+  if (!staticHostedUrl(value)) throw new Error('Dashboard URL must be credential-free HTTPS without query or fragment');
+  const url = new URL(value);
+  if (!dnsHost.test(url.hostname) || !url.hostname.toLowerCase().endsWith(`.${policy.tailnetSuffix.toLowerCase()}`) || url.hostname.toLowerCase() === origin.hostname.toLowerCase()) {
+    throw new Error('Dashboard URL is outside the permitted hosted origin policy');
+  }
+  return value;
+}
+
 // Python json.dumps uses a space after separators; measure the same UTF-8
 // representation rather than admitting oversized entries with compact JSON.
 function serializedBytes(value: unknown): number {
@@ -107,8 +132,10 @@ export function validateCatalog(value: unknown): Catalog {
     match(b, 'id', `${q}.id`, patterns.id); if (ids.has(b.id)) fail(`${q}.id`, `duplicate board id '${b.id}'`); ids.add(b.id);
     string(b, 'name', `${q}.name`, 64);
     if (own(b, 'description') && (typeof b.description !== 'string' || chars(b.description) > 200)) fail(`${q}.description`, 'must be a string of at most 200 characters');
-    const common = ['id', 'name', 'description', 'kind'];
-    if (b.kind === 'report') { unknown(b, q, [...common, 'report']); validateReport(b.report, `${q}.report`); }
+    const common = ['id', 'name', 'description', 'kind', 'visible'];
+    if (own(b, 'visible') && typeof b.visible !== 'boolean') fail(`${q}.visible`, 'must be a boolean');
+    if (b.kind === 'built-in') { unknown(b, q, common); }
+    else if (b.kind === 'report') { unknown(b, q, [...common, 'report']); validateReport(b.report, `${q}.report`); }
     else if (b.kind === 'web-adapter') {
       unknown(b, q, [...common, 'web', 'actions', 'poll_interval_ms']); unknown(b.web, `${q}.web`, ['script', 'sha256', 'css', 'css_sha256']);
       match(b.web, 'script', `${q}.web.script`, patterns.path); if (!b.web.script.endsWith('.js')) fail(`${q}.web.script`, 'must be a .js path'); match(b.web, 'sha256', `${q}.web.sha256`, patterns.hash);
@@ -120,8 +147,8 @@ export function validateCatalog(value: unknown): Catalog {
       if (own(b, 'poll_interval_ms')) integer(b.poll_interval_ms, `${q}.poll_interval_ms`, 2000, 600000);
     } else if (b.kind === 'hosted-view') {
       unknown(b, q, [...common, 'hosted']); unknown(b.hosted, `${q}.hosted`, ['url']); string(b.hosted, 'url', `${q}.hosted.url`);
-      if (!plainHttpUrl(b.hosted.url)) fail(`${q}.hosted.url`, 'must be an absolute http(s) URL with a host and no userinfo');
-    } else fail(`${q}.kind`, 'must be one of: hosted-view, report, web-adapter');
+      if (!staticHostedUrl(b.hosted.url)) fail(`${q}.hosted.url`, 'must be an absolute HTTPS URL with a host, no userinfo, query or fragment');
+    } else fail(`${q}.kind`, 'must be one of: built-in, hosted-view, report, web-adapter');
   });
   if (v.requires.host_api > HOST_API) { const error = new CatalogValidationError(`requires.host_api ${v.requires.host_api} exceeds ${HOST_API}`); error.unsupported = true; throw error; }
   return v as Catalog;

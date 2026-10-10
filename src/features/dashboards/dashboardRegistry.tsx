@@ -29,22 +29,23 @@ export const DASHBOARD_REGISTRY: Record<DashboardId, DashboardDefinition> = {};
 
 export const DASHBOARD_ORDER: DashboardId[] = [];
 
-// Never mutate the static registry: catalog entries use the app's asset connection,
-// not a dashboard-hub key, subscription or polling timer.
+// The registry only resolves code; catalog array order and visibility own the list.
+// Reports/adapters/hosted entries never activate the old dashboard hub.
 export function mergeCatalogBoards(catalog: Catalog) {
-  const registry = { ...DASHBOARD_REGISTRY };
-  const order = [...DASHBOARD_ORDER];
+  const registry: Record<DashboardId, DashboardDefinition> = {};
+  const order: DashboardId[] = [];
   for (const board of catalog.boards) {
-    const collision = Object.prototype.hasOwnProperty.call(registry, board.id);
-    const key = collision ? `catalog:${board.id}` : board.id;
-    registry[key] = {
+    if (board.visible === false) continue;
+    const builtIn = board.kind === 'built-in' && Object.prototype.hasOwnProperty.call(DASHBOARD_REGISTRY, board.id)
+      ? DASHBOARD_REGISTRY[board.id] : undefined;
+    registry[board.id] = builtIn ? { ...builtIn, label: board.name } : {
       id: board.id,
       hubKey: '',
       label: board.name,
       catalogBoard: board,
       resolve: () => null,
-      render: collision
-        ? () => <Text style={{ color: '#ff8b7c', padding: 16 }} testID="dashboard-board-error">Board failed to load: board id {board.id} conflicts with a built-in</Text>
+      render: board.kind === 'built-in'
+        ? () => <Text style={{ color: '#ff8b7c', padding: 16 }} testID="dashboard-board-error">Dashboard unavailable on this client: {board.name}</Text>
         : board.kind === 'report'
           ? ({ active, refreshKey }) => {
             // Defer asset/viewer imports until a configured report is selected.
@@ -53,7 +54,7 @@ export function mergeCatalogBoards(catalog: Catalog) {
           }
           : () => <UnsupportedBoard board={board} />,
     };
-    order.push(key);
+    order.push(board.id);
   }
   return { registry, order };
 }

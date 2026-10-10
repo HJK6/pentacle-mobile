@@ -41,3 +41,6 @@ export type DashboardGateResult = {
   device_id: string;
   updated_at: string;
 } | { ok: false; error: string };
+
+// Supplied only by the authenticated daemon connection, never the catalog/cache.
+export type HostedDashboardPolicy = { tailnetSuffix: string; pentacleOrigin: string };

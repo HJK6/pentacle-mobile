@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Linking, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useIsFocused } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { logTelemetry } from 'pentacle-chat-core';
@@ -7,10 +7,10 @@ import { MOBILE_TELEMETRY_EVENTS } from '../../src/services/mobileTelemetryEvent
 import { Fonts, TOP_INSET, Tokens } from '../../constants/Colors';
 import Starfield from '../../src/components/Starfield';
 import { mutateForeclosureGate } from '../../src/features/dashboards/dashboardHubControl';
-import { DASHBOARD_ORDER, DASHBOARD_REGISTRY, mergeCatalogBoards, type DashboardId } from '../../src/features/dashboards/dashboardRegistry';
+import { mergeCatalogBoards, type DashboardId } from '../../src/features/dashboards/dashboardRegistry';
 import { useDashboardHub } from '../../src/features/dashboards/useDashboardHub';
 import { logFocusedTab } from '../../src/services/mobileTabsTelemetry';
-import { createCatalogLoader, getCatalogSpecId } from '../../src/features/dashboards/catalogLoader';
+import { createCatalogLoader, getCatalogSpecId, validateHostedDashboardUrl, type CatalogBoard } from '../../src/features/dashboards/catalogLoader';
 import { getParam, useHarnessReady } from '../../src/utils/harnessRuntime';
 
 type CatalogResult = Awaited<ReturnType<ReturnType<typeof createCatalogLoader>['refresh']>>;
@@ -25,12 +25,14 @@ function cacheAge(milliseconds: number) {
 export default function DashboardsScreen() {
   const insets = useSafeAreaInsets();
   const isFocused = useIsFocused();
-  const [activeId, setActiveId] = useState<DashboardId | null>(DASHBOARD_ORDER[0] ?? null);
+  const [activeId, setActiveId] = useState<DashboardId | null>(null);
   const [foreclosureBatch, setForeclosureBatch] = useState('');
   const [refreshing, setRefreshing] = useState(false);
   const [catalogBusy, setCatalogBusy] = useState(false);
   const [catalogReadyForFocus, setCatalogReadyForFocus] = useState(false);
   const [catalogResult, setCatalogResult] = useState<CatalogResult>({ status: 'unset', catalog: null, cached: false });
+  const [hostedError, setHostedError] = useState<{ id: string; message: string } | null>(null);
+  const handoffGeneration = useRef(0);
   const [refreshKey, setRefreshKey] = useState(0);
   const catalogLoader = useRef<ReturnType<typeof createCatalogLoader> | null>(null);
   const catalogGeneration = useRef(0);
@@ -39,10 +41,11 @@ export default function DashboardsScreen() {
   const ready = process.env.EXPO_PUBLIC_HARNESS !== '1' || harnessReady;
   const { registry, order } = useMemo(() => catalogResult.catalog
     ? mergeCatalogBoards(catalogResult.catalog)
-    : { registry: DASHBOARD_REGISTRY, order: DASHBOARD_ORDER }, [catalogResult.catalog]);
+    : { registry: {}, order: [] }, [catalogResult.catalog]);
   const hasBoards = order.length > 0;
-  // Only actual static boards can use the old hub. Catalog boards never activate it.
-  const { client, connectionState, refresh } = useDashboardHub(isFocused && DASHBOARD_ORDER.length > 0);
+  // The catalog is the membership authority; only resolved native built-ins use the hub.
+  const hasHubBoards = order.some(id => !registry[id].catalogBoard);
+  const { client, connectionState, refresh } = useDashboardHub(isFocused && hasHubBoards);
   const selectedId = activeId && Object.prototype.hasOwnProperty.call(registry, activeId) ? activeId : order[0] ?? null;
   const definition = selectedId ? registry[selectedId] ?? null : null;
   const Renderer = definition?.render;
@@ -118,6 +121,7 @@ export default function DashboardsScreen() {
     if (isFocused && ready) void refreshCatalog();
     return () => {
       ++catalogGeneration.current;
+      ++handoffGeneration.current;
       catalogLoader.current?.cancel();
       setCatalogReadyForFocus(false);
       setCatalogBusy(false);
@@ -155,6 +159,31 @@ export default function DashboardsScreen() {
     }
   }, [definition, ready, refresh, refreshCatalog]);
 
+  const openHosted = useCallback(async (board: Extract<CatalogBoard, { kind: 'hosted-view' }>) => {
+    const generation = ++handoffGeneration.current;
+    setHostedError(null);
+    try {
+      // No await between live-policy admission and the sole opening side effect.
+      // Linking receives only the catalog URL: no app token, headers or session.
+      const { getHostedDashboardPolicy } = require('../../src/services/pentacleStream') as typeof import('../../src/services/pentacleStream');
+      const url = validateHostedDashboardUrl(board.hosted.url, getHostedDashboardPolicy());
+      await Linking.openURL(url);
+    } catch (error) {
+      if (generation === handoffGeneration.current) {
+        setHostedError({ id: board.id, message: `Could not open dashboard: ${error instanceof Error ? error.message : 'browser handoff failed'}` });
+      }
+    }
+  }, []);
+
+  const selectBoard = useCallback((id: string) => {
+    ++handoffGeneration.current;
+    setHostedError(null);
+    setActiveId(id);
+    const board = registry[id].catalogBoard;
+    if (board?.kind === 'hosted-view') void openHosted(board);
+  }, [registry, openHosted]);
+  const hostedBoard = definition?.catalogBoard?.kind === 'hosted-view' ? definition.catalogBoard : null;
+
   const selector = useMemo(() => order.map((id) => {
     const item = registry[id];
     const selected = selectedId === id;
@@ -163,14 +192,14 @@ export default function DashboardsScreen() {
         accessibilityRole="tab"
         accessibilityState={{ selected }}
         key={id}
-        onPress={() => setActiveId(id)}
+        onPress={() => selectBoard(id)}
         style={[styles.selectorButton, selected && styles.selectorButtonActive]}
         testID={`dashboard-selector-${id}`}
       >
         <Text style={[styles.selectorText, selected && styles.selectorTextActive]}>{item.label}</Text>
       </Pressable>
     );
-  }), [order, registry, selectedId]);
+  }), [order, registry, selectedId, selectBoard]);
 
   return (
     <View style={styles.container} testID="dashboards-tab-screen">
@@ -182,7 +211,7 @@ export default function DashboardsScreen() {
       >
         <View style={styles.topRow}>
           <Text style={styles.screenTitle}>DASHBOARDS</Text>
-          {DASHBOARD_ORDER.length ? <Text style={styles.connection}>{connectionState.toUpperCase()}</Text> : null}
+          {hasHubBoards ? <Text style={styles.connection}>{connectionState.toUpperCase()}</Text> : null}
         </View>
         {catalogResult.message ? <View style={styles.statusCard} testID={catalogResult.status === 'unavailable' ? 'dashboard-catalog-unavailable' : 'dashboard-catalog-error'}>
           <Text style={styles.statusText}>{catalogResult.message}</Text>
@@ -204,7 +233,14 @@ export default function DashboardsScreen() {
             <Text style={styles.emptyBody}>New dashboards will appear here when they are ready.</Text>
           </View>
         )}
-        {Renderer ? <Renderer key={selectedId} snapshot={snapshot} onSelectBatch={selectBatch} onMutateGate={mutateForeclosureGate} active={isFocused && !catalogBusy && catalogReadyForFocus} refreshKey={refreshKey} /> : null}
+        {hostedBoard ? <View style={styles.statusCard} testID={`dashboard-board-${hostedBoard.id}`}>
+          <Text style={styles.hostedTitle}>{hostedBoard.name}</Text>
+          <Text style={styles.catalogVersion}>Opens in your system browser.</Text>
+          {hostedError?.id === hostedBoard.id ? <Text style={styles.statusText} testID="dashboard-hosted-error">{hostedError.message}</Text> : null}
+          <Pressable accessibilityRole="button" testID="dashboard-hosted-open" onPress={() => void openHosted(hostedBoard)} style={styles.selectorButton}>
+            <Text style={styles.selectorText}>{hostedError?.id === hostedBoard.id ? 'Retry' : 'Open in browser'}</Text>
+          </Pressable>
+        </View> : Renderer ? <Renderer key={selectedId} snapshot={snapshot} onSelectBatch={selectBatch} onMutateGate={mutateForeclosureGate} active={isFocused && !catalogBusy && catalogReadyForFocus} refreshKey={refreshKey} /> : null}
       </ScrollView>
     </View>
   );
@@ -217,6 +253,7 @@ const styles = StyleSheet.create({
   screenTitle: { color: Tokens.palette.text, fontFamily: Fonts.jetBrainsMono.bold, fontSize: 12, letterSpacing: 1.7 },
   connection: { color: Tokens.palette.muted, fontFamily: Fonts.jetBrainsMono.regular, fontSize: 9 },
   statusCard: { backgroundColor: Tokens.palette.panel, borderColor: Tokens.palette.line, borderRadius: 8, borderWidth: 1, padding: 12, marginBottom: 12 },
+  hostedTitle: { color: Tokens.palette.text, fontFamily: Fonts.rajdhani.semiBold, fontSize: 20, marginBottom: 10 },
   statusText: { color: '#ff8b7c', fontFamily: Fonts.jetBrainsMono.regular, fontSize: 12 },
   catalogVersion: { color: Tokens.palette.muted, fontFamily: Fonts.jetBrainsMono.regular, fontSize: 10, marginBottom: 12 },
   selector: { gap: 8, paddingBottom: 14 },
