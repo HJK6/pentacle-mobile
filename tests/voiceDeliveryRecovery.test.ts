@@ -701,6 +701,44 @@ test('U3 a transient transport auth block clears to queued once the credential i
   expect(h.io.transcribe).not.toHaveBeenCalled();
   h.delivery.dispose();
 });
+test('U3 a persisted transport auth block is requeued after an offline restart with a current credential', async () => {
+  const h = harness();
+  await h.ready();
+  const t = await h.take();
+  h.io.transcribe = jest.fn();
+  h.transport.ready = false;
+  h.notify();
+  await flush();
+  await h.delivery.send(t.recordingId);
+  h.transport.authNeeded = true;
+  h.notify();
+  await flush();
+  expect(h.store.get(t.recordingId)?.delivery.phase).toBe('auth_needed');
+  // Relaunch offline: the credential is current again before any connection is ready.
+  h.transport.authNeeded = false;
+  await h.restart();
+  await flush();
+  expect(h.store.get(t.recordingId)?.delivery.phase).toBe('queued');
+  expect(h.store.get(t.recordingId)?.delivery.error).toBeUndefined();
+  expect(h.io.transcribe).not.toHaveBeenCalled();
+  h.delivery.dispose();
+});
+test('U3 a server credential rejection survives an offline restart until a renewed ready epoch', async () => {
+  const h = harness();
+  await h.ready();
+  const t = await h.take();
+  h.io.transcribe = jest
+    .fn()
+    .mockRejectedValue(Object.assign(Error('upload_forbidden'), { code: 'upload_forbidden' }));
+  await h.delivery.send(t.recordingId);
+  expect(h.store.get(t.recordingId)?.delivery.phase).toBe('auth_needed');
+  h.transport.ready = false;
+  await h.restart();
+  await flush();
+  expect(h.store.get(t.recordingId)?.delivery.phase).toBe('auth_needed');
+  expect(h.io.transcribe).toHaveBeenCalledTimes(1);
+  h.delivery.dispose();
+});
 test('U3 enqueue releases the capture command after durable Send while ASR remains pending', async () => {
   const h = harness();
   await h.ready();
