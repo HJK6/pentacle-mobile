@@ -183,11 +183,17 @@ The v1.2 sections remain unchanged. All additional test cases are derived inline
   red, blocked amber and paused muted. Observations disclose non-fresh quality, observation time
   and errors; the UI does not relabel stale/error data as fresh.
 - **Overlay.** `/pentacle/lanes` renders `LanesOverlay` with a list/map toggle, default list.
-  Last-view persistence is intentionally omitted. List cards expand inline members; “Show all”
-  opens `LaneMembers` when the projection is partial. The map pages ordered lanes eight at a time;
-  focus shows at most eight member nodes and a +N control only for `members_total > 8`. That
-  control opens the same all-member list. All controls have at least 44pt targets. Member detail,
-  all-member and log Back return to their originating view, retaining focus and card expansion.
+  Last-view persistence is intentionally omitted. The compact list starts collapsed, expands
+  members inline and omits the per-card last-update row; the shared Latest update card opens
+  the update log. Chat navigation remains a separate affordance.
+- **Map and overflow.** Up to six open lanes keep projection order on one ring. Above six,
+  the map stably orders blocked, working, active-idle and paused lanes into two rings,
+  showing at most sixteen; the +N control opens the list for the rest. Focusing a lane
+  fetches `work_lanes.show` when inline members are incomplete. Up to six members appear
+  individually. Larger sets keep live members individual, group backlog/analysis/ready items
+  in Pending and completed/deprecated items in Done, and expand a selected stack. More than
+  eight displayed nodes use dense sizing. Back unwinds detail, stack, lane and root;
+  switching views preserves the focused lane. The list remains the all-member alternative.
 - **Read-only show RPC.** `requestWorkLaneShow(laneId)` uses the existing `sendCommand` transport
   for `{type: 'work_lanes.show', lane_id}` with the normal RPC timeout. Typed `.ok` and `.error`
   frames settle by `request_id`; no separate connection, daemon or replay path is introduced.
@@ -205,21 +211,12 @@ The v1.2 sections remain unchanged. All additional test cases are derived inline
 - **Publications.** Typed `publish_kind: 'lane_update'` events in the assistant timeline keep
   `LaneUpdateCard` behavior and message-id deduplication. Supported kinds remain `major_decision`,
   `lane_started`, `lane_completed`, `lane_blocked`, `lane_unblocked` and `milestone`.
-- **Automation contract.** Frozen IDs: `lanes-overlay`, `lanes-view-toggle` (accessibility value
-  list/map), `lanes-view-list`, `lanes-view-map`, `lanes-index-banner`; `lane-card-<lane_id>`,
-  `lane-card-toggle-<lane_id>` (expanded), `lane-card-state-<lane_id>`,
-  `lane-card-progress-<lane_id>`, `lane-card-members-pending-<lane_id>`,
-  `lane-card-member-<lane_id>-<spec_id>`, `lane-card-show-all-<lane_id>`;
-  `lanes-map-lane-<lane_id>` (label title, state, done/total; selected), `lanes-map-page-prev`,
-  `lanes-map-page-next`, `lanes-map-page-label` (1/2), `lanes-map-member-<spec_id>`,
-  `lanes-map-more-<lane_id>` (Show all N specs), `lanes-map-back`;
-  `lane-members-<lane_id>`, `lane-members-row-<spec_id>`, `lane-members-loading`,
-  `lane-members-error`, `lane-members-back`; `member-detail-<spec_id>`, `member-detail-back`;
-  `lane-log-<lane_id>`, `lane-log-tab-updates`, `lane-log-tab-spec-changes`,
-  `lane-log-tab-events` (selected), `lane-log-row-<n>`, `lane-log-empty`, `lane-log-error`,
-  `lane-log-retry`, `lane-log-older`, `lane-log-back`. Log/chat entry IDs are
-  `lane-card-log-<lane_id>`, `lanes-map-log-<lane_id>`, `lane-card-chat-<lane_id>` and
-  `lanes-map-chat-<lane_id>`. Tappables have accessibility role button.
+- **Automation contract.** Stable entry points include `lanes-overlay`, `lanes-view-toggle`,
+  `lanes-view-list`, `lanes-view-map`, `lane-card-<lane_id>`, `lanes-map-lane-<lane_id>`,
+  `lanes-map-member-<spec_id>`, `lanes-map-overflow`, `lanes-map-back`,
+  `lanes-map-stack-close` and `lanes-latest-update`. Current detail/log/stack control IDs live
+  beside their handlers in `src/components/lanes/`; the native scene harness under
+  `tests/native/lanes-release-contained/` binds the visual journeys to those controls.
 - **Harness traces.** Only armed harness builds emit `work_lanes_inventory_applied`,
   `work_lanes_view`, `work_lanes_map_render`, `work_lanes_show`, `work_lanes_members_list`
   and `work_lanes_log_rendered`. Payloads contain IDs and counts, never titles or prose.
