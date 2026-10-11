@@ -221,9 +221,11 @@ private final class VoiceCaptureExecutor: NSObject, AVAudioRecorderDelegate {
       case .record:
         // Only start/resume completion calls execute(record), inside atRecordPoint.
         guard let recorder else { firstError = firstError ?? "resume_failed"; continue }
-        let remaining = (VoiceCapturePolicy.maximumCapturedMs - policy.capturedMs) / 1000
-        guard remaining > 0 else { firstError = firstError ?? "capped"; continue }
-        if !recorder.record(forDuration: remaining) || !recorder.isRecording {
+        guard VoiceCapturePolicy.maximumCapturedMs - policy.capturedMs > 0 else { firstError = firstError ?? "capped"; continue }
+        // forDuration is a limit on the recorder's own file timeline, not time added by this
+        // call: resuming at 60 s with 240 s stopped the file at 240 s total. Every start and
+        // resume therefore arms the absolute cap; the audio-clock tick cap stays the backstop.
+        if !recorder.record(forDuration: VoiceCapturePolicy.maximumCapturedMs / 1000) || !recorder.isRecording {
           firstError = firstError ?? "resume_failed"
         }
       case .pause:
