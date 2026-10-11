@@ -56,7 +56,7 @@ import { VoiceAnswersStatusNote, voiceAnswersItemCount } from '../../../src/comp
 import { DiscardGlyph, MicGlyph, VoiceRecordFace, VoiceSpinner, recordButtonStyle } from '../../../src/components/voice/VoiceGlyphs';
 import { voiceRecorder } from '../../../src/services/voiceRecordingEngine';
 import { useSharedVoiceControlsActive } from '../../../src/components/voice/VoiceRecordingOverlay';
-import { formatDuration, PermissionDeniedError, type RecordingSnapshot } from '../../../src/services/voiceRecording';
+import { formatDuration, PermissionDeniedError, CaptureUnsupportedError, type RecordingSnapshot } from '../../../src/services/voiceRecording';
 import { voiceDelivery, useVoiceDelivery, voiceTakeRow, retryVoiceMessage } from '../../../src/services/voiceDelivery';
 
 import { WandCastSendIcon } from '../../../src/components/SendGlyphs';
@@ -4874,7 +4874,8 @@ export function ComposerBar({
         });
       }
     } catch (error) {
-      if (error instanceof PermissionDeniedError) setMicrophoneDenied(true);
+      if (error instanceof CaptureUnsupportedError) onError(error.message);
+      else if (error instanceof PermissionDeniedError) setMicrophoneDenied(true);
       else onError(error instanceof Error && /storage|save|take_limit|origin|auth_needed/i.test(error.message) ? 'Could not safely save this recording. Check storage and the original signed-in chat.' : 'Could not record audio. Try again.');
     } finally { voiceBusyRef.current = false; setVoiceBusy(false); }
   };

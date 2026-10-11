@@ -1,0 +1,4840 @@
+{
+  "contract": "pentacle-voice-capture",
+  "revision": 1,
+  "maxCapturedMs": 300000,
+  "vectors": [
+    {
+      "name": "interruption_begin_end_between_samples_false",
+      "steps": [
+        {
+          "event": {
+            "type": "start",
+            "nowMs": 0,
+            "recordingId": "capture-a",
+            "admission": 0
+          },
+          "expect": {
+            "state": "starting",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 0,
+            "actions": [
+              "prepare",
+              "activateSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "startReady",
+            "nowMs": 0,
+            "sessionActive": true
+          },
+          "expect": {
+            "state": "recording",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 0,
+            "actions": [
+              "record"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "interruptionBegan",
+            "nowMs": 40
+          },
+          "expect": {
+            "state": "paused",
+            "reason": "interruption",
+            "pauseEpoch": 1,
+            "capturedMs": 40,
+            "actions": [
+              "pause",
+              "releaseSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "interruptionEnded",
+            "nowMs": 41,
+            "shouldResume": false
+          },
+          "expect": {
+            "state": "paused",
+            "reason": "interruption",
+            "pauseEpoch": 1,
+            "capturedMs": 40,
+            "actions": [],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "tick",
+            "nowMs": 90
+          },
+          "expect": {
+            "state": "paused",
+            "reason": "interruption",
+            "pauseEpoch": 1,
+            "capturedMs": 40,
+            "actions": [],
+            "error": null
+          }
+        }
+      ]
+    },
+    {
+      "name": "interruption_begin_end_between_samples_true",
+      "steps": [
+        {
+          "event": {
+            "type": "start",
+            "nowMs": 0,
+            "recordingId": "capture-a",
+            "admission": 0
+          },
+          "expect": {
+            "state": "starting",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 0,
+            "actions": [
+              "prepare",
+              "activateSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "startReady",
+            "nowMs": 0,
+            "sessionActive": true
+          },
+          "expect": {
+            "state": "recording",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 0,
+            "actions": [
+              "record"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "interruptionBegan",
+            "nowMs": 40
+          },
+          "expect": {
+            "state": "paused",
+            "reason": "interruption",
+            "pauseEpoch": 1,
+            "capturedMs": 40,
+            "actions": [
+              "pause",
+              "releaseSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "interruptionEnded",
+            "nowMs": 41,
+            "shouldResume": true
+          },
+          "expect": {
+            "state": "paused",
+            "reason": "interruption",
+            "pauseEpoch": 1,
+            "capturedMs": 40,
+            "actions": [],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "tick",
+            "nowMs": 90
+          },
+          "expect": {
+            "state": "paused",
+            "reason": "interruption",
+            "pauseEpoch": 1,
+            "capturedMs": 40,
+            "actions": [],
+            "error": null
+          }
+        }
+      ]
+    },
+    {
+      "name": "resign_active_alone_and_lock_without_passcode",
+      "steps": [
+        {
+          "event": {
+            "type": "start",
+            "nowMs": 0,
+            "recordingId": "capture-a",
+            "admission": 0
+          },
+          "expect": {
+            "state": "starting",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 0,
+            "actions": [
+              "prepare",
+              "activateSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "startReady",
+            "nowMs": 0,
+            "sessionActive": true
+          },
+          "expect": {
+            "state": "recording",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 0,
+            "actions": [
+              "record"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "resignActive",
+            "nowMs": 25,
+            "protectedData": true
+          },
+          "expect": {
+            "state": "paused",
+            "reason": "inactive",
+            "pauseEpoch": 1,
+            "capturedMs": 25,
+            "actions": [
+              "pause",
+              "releaseSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "becameActive",
+            "nowMs": 80
+          },
+          "expect": {
+            "state": "paused",
+            "reason": "inactive",
+            "pauseEpoch": 1,
+            "capturedMs": 25,
+            "actions": [],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "unlock",
+            "nowMs": 81
+          },
+          "expect": {
+            "state": "paused",
+            "reason": "inactive",
+            "pauseEpoch": 1,
+            "capturedMs": 25,
+            "actions": [],
+            "error": null
+          }
+        }
+      ]
+    },
+    {
+      "name": "background_foreground_is_sticky",
+      "steps": [
+        {
+          "event": {
+            "type": "start",
+            "nowMs": 0,
+            "recordingId": "capture-a",
+            "admission": 0
+          },
+          "expect": {
+            "state": "starting",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 0,
+            "actions": [
+              "prepare",
+              "activateSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "startReady",
+            "nowMs": 0,
+            "sessionActive": true
+          },
+          "expect": {
+            "state": "recording",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 0,
+            "actions": [
+              "record"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "background",
+            "nowMs": 100
+          },
+          "expect": {
+            "state": "paused",
+            "reason": "background",
+            "pauseEpoch": 1,
+            "capturedMs": 100,
+            "actions": [
+              "pause",
+              "releaseSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "foreground",
+            "nowMs": 1100
+          },
+          "expect": {
+            "state": "paused",
+            "reason": "background",
+            "pauseEpoch": 1,
+            "capturedMs": 100,
+            "actions": [],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "becameActive",
+            "nowMs": 1101
+          },
+          "expect": {
+            "state": "paused",
+            "reason": "background",
+            "pauseEpoch": 1,
+            "capturedMs": 100,
+            "actions": [],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "routeChanged",
+            "nowMs": 1102
+          },
+          "expect": {
+            "state": "paused",
+            "reason": "background",
+            "pauseEpoch": 1,
+            "capturedMs": 100,
+            "actions": [],
+            "error": null
+          }
+        }
+      ]
+    },
+    {
+      "name": "lock_unlock_is_sticky",
+      "steps": [
+        {
+          "event": {
+            "type": "start",
+            "nowMs": 0,
+            "recordingId": "capture-a",
+            "admission": 0
+          },
+          "expect": {
+            "state": "starting",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 0,
+            "actions": [
+              "prepare",
+              "activateSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "startReady",
+            "nowMs": 0,
+            "sessionActive": true
+          },
+          "expect": {
+            "state": "recording",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 0,
+            "actions": [
+              "record"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "lock",
+            "nowMs": 100
+          },
+          "expect": {
+            "state": "paused",
+            "reason": "locked",
+            "pauseEpoch": 1,
+            "capturedMs": 100,
+            "actions": [
+              "pause",
+              "releaseSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "unlock",
+            "nowMs": 200
+          },
+          "expect": {
+            "state": "paused",
+            "reason": "locked",
+            "pauseEpoch": 1,
+            "capturedMs": 100,
+            "actions": [],
+            "error": null
+          }
+        }
+      ]
+    },
+    {
+      "name": "unlock_alone_does_not_resume",
+      "steps": [
+        {
+          "event": {
+            "type": "start",
+            "nowMs": 0,
+            "recordingId": "capture-a",
+            "admission": 0
+          },
+          "expect": {
+            "state": "starting",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 0,
+            "actions": [
+              "prepare",
+              "activateSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "startReady",
+            "nowMs": 0,
+            "sessionActive": true
+          },
+          "expect": {
+            "state": "recording",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 0,
+            "actions": [
+              "record"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "revoke",
+            "nowMs": 100
+          },
+          "expect": {
+            "state": "recording",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 100,
+            "actions": [],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "pause",
+            "nowMs": 100,
+            "recordingId": "capture-a"
+          },
+          "expect": {
+            "state": "paused",
+            "reason": "user",
+            "pauseEpoch": 1,
+            "capturedMs": 100,
+            "actions": [
+              "pause",
+              "releaseSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "unlock",
+            "nowMs": 90000
+          },
+          "expect": {
+            "state": "paused",
+            "reason": "user",
+            "pauseEpoch": 1,
+            "capturedMs": 100,
+            "actions": [],
+            "error": null
+          }
+        }
+      ]
+    },
+    {
+      "name": "start_racing_background_before_record_point",
+      "steps": [
+        {
+          "event": {
+            "type": "start",
+            "nowMs": 0,
+            "recordingId": "capture-a",
+            "admission": 0
+          },
+          "expect": {
+            "state": "starting",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 0,
+            "actions": [
+              "prepare",
+              "activateSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "background",
+            "nowMs": 1
+          },
+          "expect": {
+            "state": "paused",
+            "reason": "background",
+            "pauseEpoch": 1,
+            "capturedMs": 0,
+            "actions": [
+              "pause",
+              "releaseSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "startReady",
+            "nowMs": 2,
+            "sessionActive": true
+          },
+          "expect": {
+            "state": "paused",
+            "reason": "background",
+            "pauseEpoch": 1,
+            "capturedMs": 0,
+            "actions": [],
+            "error": "cancelled"
+          }
+        },
+        {
+          "event": {
+            "type": "activationAborted",
+            "nowMs": 2
+          },
+          "expect": {
+            "state": "paused",
+            "reason": "background",
+            "pauseEpoch": 1,
+            "capturedMs": 0,
+            "actions": [
+              "pause",
+              "releaseSession"
+            ],
+            "error": null
+          }
+        }
+      ]
+    },
+    {
+      "name": "resume_stale_epoch",
+      "steps": [
+        {
+          "event": {
+            "type": "start",
+            "nowMs": 0,
+            "recordingId": "capture-a",
+            "admission": 0
+          },
+          "expect": {
+            "state": "starting",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 0,
+            "actions": [
+              "prepare",
+              "activateSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "startReady",
+            "nowMs": 0,
+            "sessionActive": true
+          },
+          "expect": {
+            "state": "recording",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 0,
+            "actions": [
+              "record"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "revoke",
+            "nowMs": 100
+          },
+          "expect": {
+            "state": "recording",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 100,
+            "actions": [],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "pause",
+            "nowMs": 100,
+            "recordingId": "capture-a"
+          },
+          "expect": {
+            "state": "paused",
+            "reason": "user",
+            "pauseEpoch": 1,
+            "capturedMs": 100,
+            "actions": [
+              "pause",
+              "releaseSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "resume",
+            "nowMs": 100,
+            "recordingId": "capture-a",
+            "admission": 1,
+            "pauseEpoch": 0
+          },
+          "expect": {
+            "state": "paused",
+            "reason": "user",
+            "pauseEpoch": 1,
+            "capturedMs": 100,
+            "actions": [],
+            "error": "stale_epoch"
+          }
+        }
+      ]
+    },
+    {
+      "name": "queued_start_revoked_by_Send",
+      "steps": [
+        {
+          "event": {
+            "type": "revoke",
+            "nowMs": 0
+          },
+          "expect": {
+            "state": "idle",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 0,
+            "actions": [],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "start",
+            "nowMs": 0,
+            "recordingId": "capture-a",
+            "admission": 0
+          },
+          "expect": {
+            "state": "idle",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 0,
+            "actions": [],
+            "error": "cancelled"
+          }
+        }
+      ]
+    },
+    {
+      "name": "activating_start_revoked_by_Send",
+      "steps": [
+        {
+          "event": {
+            "type": "start",
+            "nowMs": 0,
+            "recordingId": "capture-a",
+            "admission": 0
+          },
+          "expect": {
+            "state": "starting",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 0,
+            "actions": [
+              "prepare",
+              "activateSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "revoke",
+            "nowMs": 0
+          },
+          "expect": {
+            "state": "starting",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 0,
+            "actions": [],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "startReady",
+            "nowMs": 0,
+            "sessionActive": true
+          },
+          "expect": {
+            "state": "paused",
+            "reason": "cancelled",
+            "pauseEpoch": 1,
+            "capturedMs": 0,
+            "actions": [
+              "pause",
+              "releaseSession"
+            ],
+            "error": "cancelled"
+          }
+        }
+      ]
+    },
+    {
+      "name": "queued_resume_revoked_by_Send",
+      "steps": [
+        {
+          "event": {
+            "type": "start",
+            "nowMs": 0,
+            "recordingId": "capture-a",
+            "admission": 0
+          },
+          "expect": {
+            "state": "starting",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 0,
+            "actions": [
+              "prepare",
+              "activateSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "startReady",
+            "nowMs": 0,
+            "sessionActive": true
+          },
+          "expect": {
+            "state": "recording",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 0,
+            "actions": [
+              "record"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "revoke",
+            "nowMs": 100
+          },
+          "expect": {
+            "state": "recording",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 100,
+            "actions": [],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "pause",
+            "nowMs": 100,
+            "recordingId": "capture-a"
+          },
+          "expect": {
+            "state": "paused",
+            "reason": "user",
+            "pauseEpoch": 1,
+            "capturedMs": 100,
+            "actions": [
+              "pause",
+              "releaseSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "revoke",
+            "nowMs": 100
+          },
+          "expect": {
+            "state": "paused",
+            "reason": "user",
+            "pauseEpoch": 1,
+            "capturedMs": 100,
+            "actions": [],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "resume",
+            "nowMs": 100,
+            "recordingId": "capture-a",
+            "admission": 1,
+            "pauseEpoch": 1
+          },
+          "expect": {
+            "state": "paused",
+            "reason": "user",
+            "pauseEpoch": 1,
+            "capturedMs": 100,
+            "actions": [],
+            "error": "cancelled"
+          }
+        }
+      ]
+    },
+    {
+      "name": "activating_resume_revoked_by_Send",
+      "steps": [
+        {
+          "event": {
+            "type": "start",
+            "nowMs": 0,
+            "recordingId": "capture-a",
+            "admission": 0
+          },
+          "expect": {
+            "state": "starting",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 0,
+            "actions": [
+              "prepare",
+              "activateSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "startReady",
+            "nowMs": 0,
+            "sessionActive": true
+          },
+          "expect": {
+            "state": "recording",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 0,
+            "actions": [
+              "record"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "revoke",
+            "nowMs": 100
+          },
+          "expect": {
+            "state": "recording",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 100,
+            "actions": [],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "pause",
+            "nowMs": 100,
+            "recordingId": "capture-a"
+          },
+          "expect": {
+            "state": "paused",
+            "reason": "user",
+            "pauseEpoch": 1,
+            "capturedMs": 100,
+            "actions": [
+              "pause",
+              "releaseSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "resume",
+            "nowMs": 100,
+            "recordingId": "capture-a",
+            "admission": 1,
+            "pauseEpoch": 1
+          },
+          "expect": {
+            "state": "paused",
+            "reason": "user",
+            "pauseEpoch": 1,
+            "capturedMs": 100,
+            "actions": [
+              "activateSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "revoke",
+            "nowMs": 100
+          },
+          "expect": {
+            "state": "paused",
+            "reason": "user",
+            "pauseEpoch": 1,
+            "capturedMs": 100,
+            "actions": [],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "resumeReady",
+            "nowMs": 101,
+            "sessionActive": true
+          },
+          "expect": {
+            "state": "paused",
+            "reason": "cancelled",
+            "pauseEpoch": 2,
+            "capturedMs": 100,
+            "actions": [
+              "pause",
+              "releaseSession"
+            ],
+            "error": "cancelled"
+          }
+        }
+      ]
+    },
+    {
+      "name": "queued_start_revoked_by_X",
+      "steps": [
+        {
+          "event": {
+            "type": "revoke",
+            "nowMs": 0
+          },
+          "expect": {
+            "state": "idle",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 0,
+            "actions": [],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "start",
+            "nowMs": 0,
+            "recordingId": "capture-a",
+            "admission": 0
+          },
+          "expect": {
+            "state": "idle",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 0,
+            "actions": [],
+            "error": "cancelled"
+          }
+        }
+      ]
+    },
+    {
+      "name": "activating_start_revoked_by_X",
+      "steps": [
+        {
+          "event": {
+            "type": "start",
+            "nowMs": 0,
+            "recordingId": "capture-a",
+            "admission": 0
+          },
+          "expect": {
+            "state": "starting",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 0,
+            "actions": [
+              "prepare",
+              "activateSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "revoke",
+            "nowMs": 0
+          },
+          "expect": {
+            "state": "starting",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 0,
+            "actions": [],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "startReady",
+            "nowMs": 0,
+            "sessionActive": true
+          },
+          "expect": {
+            "state": "paused",
+            "reason": "cancelled",
+            "pauseEpoch": 1,
+            "capturedMs": 0,
+            "actions": [
+              "pause",
+              "releaseSession"
+            ],
+            "error": "cancelled"
+          }
+        }
+      ]
+    },
+    {
+      "name": "queued_resume_revoked_by_X",
+      "steps": [
+        {
+          "event": {
+            "type": "start",
+            "nowMs": 0,
+            "recordingId": "capture-a",
+            "admission": 0
+          },
+          "expect": {
+            "state": "starting",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 0,
+            "actions": [
+              "prepare",
+              "activateSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "startReady",
+            "nowMs": 0,
+            "sessionActive": true
+          },
+          "expect": {
+            "state": "recording",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 0,
+            "actions": [
+              "record"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "revoke",
+            "nowMs": 100
+          },
+          "expect": {
+            "state": "recording",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 100,
+            "actions": [],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "pause",
+            "nowMs": 100,
+            "recordingId": "capture-a"
+          },
+          "expect": {
+            "state": "paused",
+            "reason": "user",
+            "pauseEpoch": 1,
+            "capturedMs": 100,
+            "actions": [
+              "pause",
+              "releaseSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "revoke",
+            "nowMs": 100
+          },
+          "expect": {
+            "state": "paused",
+            "reason": "user",
+            "pauseEpoch": 1,
+            "capturedMs": 100,
+            "actions": [],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "resume",
+            "nowMs": 100,
+            "recordingId": "capture-a",
+            "admission": 1,
+            "pauseEpoch": 1
+          },
+          "expect": {
+            "state": "paused",
+            "reason": "user",
+            "pauseEpoch": 1,
+            "capturedMs": 100,
+            "actions": [],
+            "error": "cancelled"
+          }
+        }
+      ]
+    },
+    {
+      "name": "activating_resume_revoked_by_X",
+      "steps": [
+        {
+          "event": {
+            "type": "start",
+            "nowMs": 0,
+            "recordingId": "capture-a",
+            "admission": 0
+          },
+          "expect": {
+            "state": "starting",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 0,
+            "actions": [
+              "prepare",
+              "activateSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "startReady",
+            "nowMs": 0,
+            "sessionActive": true
+          },
+          "expect": {
+            "state": "recording",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 0,
+            "actions": [
+              "record"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "revoke",
+            "nowMs": 100
+          },
+          "expect": {
+            "state": "recording",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 100,
+            "actions": [],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "pause",
+            "nowMs": 100,
+            "recordingId": "capture-a"
+          },
+          "expect": {
+            "state": "paused",
+            "reason": "user",
+            "pauseEpoch": 1,
+            "capturedMs": 100,
+            "actions": [
+              "pause",
+              "releaseSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "resume",
+            "nowMs": 100,
+            "recordingId": "capture-a",
+            "admission": 1,
+            "pauseEpoch": 1
+          },
+          "expect": {
+            "state": "paused",
+            "reason": "user",
+            "pauseEpoch": 1,
+            "capturedMs": 100,
+            "actions": [
+              "activateSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "revoke",
+            "nowMs": 100
+          },
+          "expect": {
+            "state": "paused",
+            "reason": "user",
+            "pauseEpoch": 1,
+            "capturedMs": 100,
+            "actions": [],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "resumeReady",
+            "nowMs": 101,
+            "sessionActive": true
+          },
+          "expect": {
+            "state": "paused",
+            "reason": "cancelled",
+            "pauseEpoch": 2,
+            "capturedMs": 100,
+            "actions": [
+              "pause",
+              "releaseSession"
+            ],
+            "error": "cancelled"
+          }
+        }
+      ]
+    },
+    {
+      "name": "queued_start_revoked_by_lifecycle_pause",
+      "steps": [
+        {
+          "event": {
+            "type": "revoke",
+            "nowMs": 0
+          },
+          "expect": {
+            "state": "idle",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 0,
+            "actions": [],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "start",
+            "nowMs": 0,
+            "recordingId": "capture-a",
+            "admission": 0
+          },
+          "expect": {
+            "state": "idle",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 0,
+            "actions": [],
+            "error": "cancelled"
+          }
+        }
+      ]
+    },
+    {
+      "name": "activating_start_revoked_by_lifecycle_pause",
+      "steps": [
+        {
+          "event": {
+            "type": "start",
+            "nowMs": 0,
+            "recordingId": "capture-a",
+            "admission": 0
+          },
+          "expect": {
+            "state": "starting",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 0,
+            "actions": [
+              "prepare",
+              "activateSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "revoke",
+            "nowMs": 0
+          },
+          "expect": {
+            "state": "starting",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 0,
+            "actions": [],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "startReady",
+            "nowMs": 0,
+            "sessionActive": true
+          },
+          "expect": {
+            "state": "paused",
+            "reason": "cancelled",
+            "pauseEpoch": 1,
+            "capturedMs": 0,
+            "actions": [
+              "pause",
+              "releaseSession"
+            ],
+            "error": "cancelled"
+          }
+        }
+      ]
+    },
+    {
+      "name": "queued_resume_revoked_by_lifecycle_pause",
+      "steps": [
+        {
+          "event": {
+            "type": "start",
+            "nowMs": 0,
+            "recordingId": "capture-a",
+            "admission": 0
+          },
+          "expect": {
+            "state": "starting",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 0,
+            "actions": [
+              "prepare",
+              "activateSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "startReady",
+            "nowMs": 0,
+            "sessionActive": true
+          },
+          "expect": {
+            "state": "recording",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 0,
+            "actions": [
+              "record"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "revoke",
+            "nowMs": 100
+          },
+          "expect": {
+            "state": "recording",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 100,
+            "actions": [],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "pause",
+            "nowMs": 100,
+            "recordingId": "capture-a"
+          },
+          "expect": {
+            "state": "paused",
+            "reason": "user",
+            "pauseEpoch": 1,
+            "capturedMs": 100,
+            "actions": [
+              "pause",
+              "releaseSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "revoke",
+            "nowMs": 100
+          },
+          "expect": {
+            "state": "paused",
+            "reason": "user",
+            "pauseEpoch": 1,
+            "capturedMs": 100,
+            "actions": [],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "resume",
+            "nowMs": 100,
+            "recordingId": "capture-a",
+            "admission": 1,
+            "pauseEpoch": 1
+          },
+          "expect": {
+            "state": "paused",
+            "reason": "user",
+            "pauseEpoch": 1,
+            "capturedMs": 100,
+            "actions": [],
+            "error": "cancelled"
+          }
+        }
+      ]
+    },
+    {
+      "name": "activating_resume_revoked_by_lifecycle_pause",
+      "steps": [
+        {
+          "event": {
+            "type": "start",
+            "nowMs": 0,
+            "recordingId": "capture-a",
+            "admission": 0
+          },
+          "expect": {
+            "state": "starting",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 0,
+            "actions": [
+              "prepare",
+              "activateSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "startReady",
+            "nowMs": 0,
+            "sessionActive": true
+          },
+          "expect": {
+            "state": "recording",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 0,
+            "actions": [
+              "record"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "revoke",
+            "nowMs": 100
+          },
+          "expect": {
+            "state": "recording",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 100,
+            "actions": [],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "pause",
+            "nowMs": 100,
+            "recordingId": "capture-a"
+          },
+          "expect": {
+            "state": "paused",
+            "reason": "user",
+            "pauseEpoch": 1,
+            "capturedMs": 100,
+            "actions": [
+              "pause",
+              "releaseSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "resume",
+            "nowMs": 100,
+            "recordingId": "capture-a",
+            "admission": 1,
+            "pauseEpoch": 1
+          },
+          "expect": {
+            "state": "paused",
+            "reason": "user",
+            "pauseEpoch": 1,
+            "capturedMs": 100,
+            "actions": [
+              "activateSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "revoke",
+            "nowMs": 100
+          },
+          "expect": {
+            "state": "paused",
+            "reason": "user",
+            "pauseEpoch": 1,
+            "capturedMs": 100,
+            "actions": [],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "resumeReady",
+            "nowMs": 101,
+            "sessionActive": true
+          },
+          "expect": {
+            "state": "paused",
+            "reason": "cancelled",
+            "pauseEpoch": 2,
+            "capturedMs": 100,
+            "actions": [
+              "pause",
+              "releaseSession"
+            ],
+            "error": "cancelled"
+          }
+        }
+      ]
+    },
+    {
+      "name": "stop_wins_pending_resume",
+      "steps": [
+        {
+          "event": {
+            "type": "start",
+            "nowMs": 0,
+            "recordingId": "capture-a",
+            "admission": 0
+          },
+          "expect": {
+            "state": "starting",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 0,
+            "actions": [
+              "prepare",
+              "activateSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "startReady",
+            "nowMs": 0,
+            "sessionActive": true
+          },
+          "expect": {
+            "state": "recording",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 0,
+            "actions": [
+              "record"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "revoke",
+            "nowMs": 100
+          },
+          "expect": {
+            "state": "recording",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 100,
+            "actions": [],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "pause",
+            "nowMs": 100,
+            "recordingId": "capture-a"
+          },
+          "expect": {
+            "state": "paused",
+            "reason": "user",
+            "pauseEpoch": 1,
+            "capturedMs": 100,
+            "actions": [
+              "pause",
+              "releaseSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "resume",
+            "nowMs": 100,
+            "recordingId": "capture-a",
+            "admission": 1,
+            "pauseEpoch": 1
+          },
+          "expect": {
+            "state": "paused",
+            "reason": "user",
+            "pauseEpoch": 1,
+            "capturedMs": 100,
+            "actions": [
+              "activateSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "revoke",
+            "nowMs": 100
+          },
+          "expect": {
+            "state": "paused",
+            "reason": "user",
+            "pauseEpoch": 1,
+            "capturedMs": 100,
+            "actions": [],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "stop",
+            "nowMs": 100,
+            "recordingId": "capture-a"
+          },
+          "expect": {
+            "state": "stopped",
+            "reason": null,
+            "pauseEpoch": 1,
+            "capturedMs": 100,
+            "actions": [
+              "stop",
+              "releaseSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "resumeReady",
+            "nowMs": 101,
+            "sessionActive": true
+          },
+          "expect": {
+            "state": "stopped",
+            "reason": null,
+            "pauseEpoch": 1,
+            "capturedMs": 100,
+            "actions": [],
+            "error": "cancelled"
+          }
+        },
+        {
+          "event": {
+            "type": "activationAborted",
+            "nowMs": 101
+          },
+          "expect": {
+            "state": "stopped",
+            "reason": null,
+            "pauseEpoch": 1,
+            "capturedMs": 100,
+            "actions": [
+              "pause",
+              "releaseSession"
+            ],
+            "error": null
+          }
+        }
+      ]
+    },
+    {
+      "name": "discard_wins_pending_resume",
+      "steps": [
+        {
+          "event": {
+            "type": "start",
+            "nowMs": 0,
+            "recordingId": "capture-a",
+            "admission": 0
+          },
+          "expect": {
+            "state": "starting",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 0,
+            "actions": [
+              "prepare",
+              "activateSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "startReady",
+            "nowMs": 0,
+            "sessionActive": true
+          },
+          "expect": {
+            "state": "recording",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 0,
+            "actions": [
+              "record"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "revoke",
+            "nowMs": 100
+          },
+          "expect": {
+            "state": "recording",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 100,
+            "actions": [],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "pause",
+            "nowMs": 100,
+            "recordingId": "capture-a"
+          },
+          "expect": {
+            "state": "paused",
+            "reason": "user",
+            "pauseEpoch": 1,
+            "capturedMs": 100,
+            "actions": [
+              "pause",
+              "releaseSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "resume",
+            "nowMs": 100,
+            "recordingId": "capture-a",
+            "admission": 1,
+            "pauseEpoch": 1
+          },
+          "expect": {
+            "state": "paused",
+            "reason": "user",
+            "pauseEpoch": 1,
+            "capturedMs": 100,
+            "actions": [
+              "activateSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "revoke",
+            "nowMs": 100
+          },
+          "expect": {
+            "state": "paused",
+            "reason": "user",
+            "pauseEpoch": 1,
+            "capturedMs": 100,
+            "actions": [],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "discard",
+            "nowMs": 100,
+            "recordingId": "capture-a"
+          },
+          "expect": {
+            "state": "discarded",
+            "reason": null,
+            "pauseEpoch": 1,
+            "capturedMs": 100,
+            "actions": [
+              "stop",
+              "releaseSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "resumeReady",
+            "nowMs": 101,
+            "sessionActive": true
+          },
+          "expect": {
+            "state": "discarded",
+            "reason": null,
+            "pauseEpoch": 1,
+            "capturedMs": 100,
+            "actions": [],
+            "error": "cancelled"
+          }
+        },
+        {
+          "event": {
+            "type": "activationAborted",
+            "nowMs": 101
+          },
+          "expect": {
+            "state": "discarded",
+            "reason": null,
+            "pauseEpoch": 1,
+            "capturedMs": 100,
+            "actions": [
+              "pause",
+              "releaseSession"
+            ],
+            "error": null
+          }
+        }
+      ]
+    },
+    {
+      "name": "lifecycle_pause_wins_pending_resume",
+      "steps": [
+        {
+          "event": {
+            "type": "start",
+            "nowMs": 0,
+            "recordingId": "capture-a",
+            "admission": 0
+          },
+          "expect": {
+            "state": "starting",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 0,
+            "actions": [
+              "prepare",
+              "activateSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "startReady",
+            "nowMs": 0,
+            "sessionActive": true
+          },
+          "expect": {
+            "state": "recording",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 0,
+            "actions": [
+              "record"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "revoke",
+            "nowMs": 100
+          },
+          "expect": {
+            "state": "recording",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 100,
+            "actions": [],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "pause",
+            "nowMs": 100,
+            "recordingId": "capture-a"
+          },
+          "expect": {
+            "state": "paused",
+            "reason": "user",
+            "pauseEpoch": 1,
+            "capturedMs": 100,
+            "actions": [
+              "pause",
+              "releaseSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "resume",
+            "nowMs": 100,
+            "recordingId": "capture-a",
+            "admission": 1,
+            "pauseEpoch": 1
+          },
+          "expect": {
+            "state": "paused",
+            "reason": "user",
+            "pauseEpoch": 1,
+            "capturedMs": 100,
+            "actions": [
+              "activateSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "background",
+            "nowMs": 101
+          },
+          "expect": {
+            "state": "paused",
+            "reason": "background",
+            "pauseEpoch": 2,
+            "capturedMs": 100,
+            "actions": [
+              "pause",
+              "releaseSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "resumeReady",
+            "nowMs": 102,
+            "sessionActive": true
+          },
+          "expect": {
+            "state": "paused",
+            "reason": "background",
+            "pauseEpoch": 2,
+            "capturedMs": 100,
+            "actions": [],
+            "error": "cancelled"
+          }
+        }
+      ]
+    },
+    {
+      "name": "resume_not_foreground",
+      "steps": [
+        {
+          "event": {
+            "type": "start",
+            "nowMs": 0,
+            "recordingId": "capture-a",
+            "admission": 0
+          },
+          "expect": {
+            "state": "starting",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 0,
+            "actions": [
+              "prepare",
+              "activateSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "startReady",
+            "nowMs": 0,
+            "sessionActive": true
+          },
+          "expect": {
+            "state": "recording",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 0,
+            "actions": [
+              "record"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "background",
+            "nowMs": 100
+          },
+          "expect": {
+            "state": "paused",
+            "reason": "background",
+            "pauseEpoch": 1,
+            "capturedMs": 100,
+            "actions": [
+              "pause",
+              "releaseSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "resume",
+            "nowMs": 101,
+            "recordingId": "capture-a",
+            "admission": 1,
+            "pauseEpoch": 1
+          },
+          "expect": {
+            "state": "paused",
+            "reason": "background",
+            "pauseEpoch": 1,
+            "capturedMs": 100,
+            "actions": [],
+            "error": "not_foreground"
+          }
+        }
+      ]
+    },
+    {
+      "name": "resume_locked",
+      "steps": [
+        {
+          "event": {
+            "type": "start",
+            "nowMs": 0,
+            "recordingId": "capture-a",
+            "admission": 0
+          },
+          "expect": {
+            "state": "starting",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 0,
+            "actions": [
+              "prepare",
+              "activateSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "startReady",
+            "nowMs": 0,
+            "sessionActive": true
+          },
+          "expect": {
+            "state": "recording",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 0,
+            "actions": [
+              "record"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "lock",
+            "nowMs": 100
+          },
+          "expect": {
+            "state": "paused",
+            "reason": "locked",
+            "pauseEpoch": 1,
+            "capturedMs": 100,
+            "actions": [
+              "pause",
+              "releaseSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "resume",
+            "nowMs": 101,
+            "recordingId": "capture-a",
+            "admission": 1,
+            "pauseEpoch": 1
+          },
+          "expect": {
+            "state": "paused",
+            "reason": "locked",
+            "pauseEpoch": 1,
+            "capturedMs": 100,
+            "actions": [],
+            "error": "locked"
+          }
+        }
+      ]
+    },
+    {
+      "name": "resume_record_point_checks_actual_environment",
+      "steps": [
+        {
+          "event": {
+            "type": "start",
+            "nowMs": 0,
+            "recordingId": "capture-a",
+            "admission": 0
+          },
+          "expect": {
+            "state": "starting",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 0,
+            "actions": [
+              "prepare",
+              "activateSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "startReady",
+            "nowMs": 0,
+            "sessionActive": true
+          },
+          "expect": {
+            "state": "recording",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 0,
+            "actions": [
+              "record"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "revoke",
+            "nowMs": 100
+          },
+          "expect": {
+            "state": "recording",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 100,
+            "actions": [],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "pause",
+            "nowMs": 100,
+            "recordingId": "capture-a"
+          },
+          "expect": {
+            "state": "paused",
+            "reason": "user",
+            "pauseEpoch": 1,
+            "capturedMs": 100,
+            "actions": [
+              "pause",
+              "releaseSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "resume",
+            "nowMs": 100,
+            "recordingId": "capture-a",
+            "admission": 1,
+            "pauseEpoch": 1
+          },
+          "expect": {
+            "state": "paused",
+            "reason": "user",
+            "pauseEpoch": 1,
+            "capturedMs": 100,
+            "actions": [
+              "activateSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "resumeReady",
+            "nowMs": 101,
+            "sessionActive": true,
+            "foreground": false
+          },
+          "expect": {
+            "state": "paused",
+            "reason": "not_foreground",
+            "pauseEpoch": 2,
+            "capturedMs": 100,
+            "actions": [
+              "pause",
+              "releaseSession"
+            ],
+            "error": "not_foreground"
+          }
+        }
+      ]
+    },
+    {
+      "name": "start_record_point_checks_actual_lock",
+      "steps": [
+        {
+          "event": {
+            "type": "start",
+            "nowMs": 0,
+            "recordingId": "capture-a",
+            "admission": 0
+          },
+          "expect": {
+            "state": "starting",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 0,
+            "actions": [
+              "prepare",
+              "activateSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "startReady",
+            "nowMs": 1,
+            "sessionActive": true,
+            "protectedData": false
+          },
+          "expect": {
+            "state": "paused",
+            "reason": "locked",
+            "pauseEpoch": 1,
+            "capturedMs": 0,
+            "actions": [
+              "pause",
+              "releaseSession"
+            ],
+            "error": "locked"
+          }
+        }
+      ]
+    },
+    {
+      "name": "media_reset_terminal_keeps_captured_time",
+      "steps": [
+        {
+          "event": {
+            "type": "start",
+            "nowMs": 0,
+            "recordingId": "capture-a",
+            "admission": 0
+          },
+          "expect": {
+            "state": "starting",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 0,
+            "actions": [
+              "prepare",
+              "activateSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "startReady",
+            "nowMs": 0,
+            "sessionActive": true
+          },
+          "expect": {
+            "state": "recording",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 0,
+            "actions": [
+              "record"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "mediaReset",
+            "nowMs": 250
+          },
+          "expect": {
+            "state": "interrupted",
+            "reason": "recorder_reset",
+            "pauseEpoch": 1,
+            "capturedMs": 250,
+            "actions": [
+              "stop",
+              "releaseSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "resume",
+            "nowMs": 251,
+            "recordingId": "capture-a",
+            "admission": 1,
+            "pauseEpoch": 1
+          },
+          "expect": {
+            "state": "interrupted",
+            "reason": "recorder_reset",
+            "pauseEpoch": 1,
+            "capturedMs": 250,
+            "actions": [],
+            "error": "recorder_reset"
+          }
+        },
+        {
+          "event": {
+            "type": "pause",
+            "nowMs": 252,
+            "recordingId": "capture-a"
+          },
+          "expect": {
+            "state": "interrupted",
+            "reason": "recorder_reset",
+            "pauseEpoch": 1,
+            "capturedMs": 250,
+            "actions": [],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "stop",
+            "nowMs": 253,
+            "recordingId": "capture-a"
+          },
+          "expect": {
+            "state": "interrupted",
+            "reason": "recorder_reset",
+            "pauseEpoch": 1,
+            "capturedMs": 250,
+            "actions": [
+              "releaseSession"
+            ],
+            "error": null
+          }
+        }
+      ]
+    },
+    {
+      "name": "native_cap_without_javascript_poll",
+      "steps": [
+        {
+          "event": {
+            "type": "start",
+            "nowMs": 0,
+            "recordingId": "capture-a",
+            "admission": 0
+          },
+          "expect": {
+            "state": "starting",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 0,
+            "actions": [
+              "prepare",
+              "activateSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "startReady",
+            "nowMs": 0,
+            "sessionActive": true
+          },
+          "expect": {
+            "state": "recording",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 0,
+            "actions": [
+              "record"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "tick",
+            "nowMs": 300000
+          },
+          "expect": {
+            "state": "capped",
+            "reason": "capped",
+            "pauseEpoch": 0,
+            "capturedMs": 300000,
+            "actions": [
+              "stop",
+              "releaseSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "tick",
+            "nowMs": 900000
+          },
+          "expect": {
+            "state": "capped",
+            "reason": "capped",
+            "pauseEpoch": 0,
+            "capturedMs": 300000,
+            "actions": [],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "resume",
+            "nowMs": 900001,
+            "recordingId": "capture-a",
+            "admission": 0,
+            "pauseEpoch": 0
+          },
+          "expect": {
+            "state": "capped",
+            "reason": "capped",
+            "pauseEpoch": 0,
+            "capturedMs": 300000,
+            "actions": [],
+            "error": "capped"
+          }
+        }
+      ]
+    },
+    {
+      "name": "long_pause_crosses_old_deadline_near_cap",
+      "steps": [
+        {
+          "event": {
+            "type": "start",
+            "nowMs": 0,
+            "recordingId": "capture-a",
+            "admission": 0
+          },
+          "expect": {
+            "state": "starting",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 0,
+            "actions": [
+              "prepare",
+              "activateSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "startReady",
+            "nowMs": 0,
+            "sessionActive": true
+          },
+          "expect": {
+            "state": "recording",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 0,
+            "actions": [
+              "record"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "revoke",
+            "nowMs": 299990
+          },
+          "expect": {
+            "state": "recording",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 299990,
+            "actions": [],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "pause",
+            "nowMs": 299990,
+            "recordingId": "capture-a"
+          },
+          "expect": {
+            "state": "paused",
+            "reason": "user",
+            "pauseEpoch": 1,
+            "capturedMs": 299990,
+            "actions": [
+              "pause",
+              "releaseSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "tick",
+            "nowMs": 900000
+          },
+          "expect": {
+            "state": "paused",
+            "reason": "user",
+            "pauseEpoch": 1,
+            "capturedMs": 299990,
+            "actions": [],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "resume",
+            "nowMs": 900000,
+            "recordingId": "capture-a",
+            "admission": 1,
+            "pauseEpoch": 1
+          },
+          "expect": {
+            "state": "paused",
+            "reason": "user",
+            "pauseEpoch": 1,
+            "capturedMs": 299990,
+            "actions": [
+              "activateSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "resumeReady",
+            "nowMs": 900000,
+            "sessionActive": true
+          },
+          "expect": {
+            "state": "recording",
+            "reason": null,
+            "pauseEpoch": 1,
+            "capturedMs": 299990,
+            "actions": [
+              "record"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "tick",
+            "nowMs": 900009
+          },
+          "expect": {
+            "state": "recording",
+            "reason": null,
+            "pauseEpoch": 1,
+            "capturedMs": 299999,
+            "actions": [],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "tick",
+            "nowMs": 900010
+          },
+          "expect": {
+            "state": "capped",
+            "reason": "capped",
+            "pauseEpoch": 1,
+            "capturedMs": 300000,
+            "actions": [
+              "stop",
+              "releaseSession"
+            ],
+            "error": null
+          }
+        }
+      ]
+    },
+    {
+      "name": "double_pause_does_not_resume_or_add_dwell",
+      "steps": [
+        {
+          "event": {
+            "type": "start",
+            "nowMs": 0,
+            "recordingId": "capture-a",
+            "admission": 0
+          },
+          "expect": {
+            "state": "starting",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 0,
+            "actions": [
+              "prepare",
+              "activateSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "startReady",
+            "nowMs": 0,
+            "sessionActive": true
+          },
+          "expect": {
+            "state": "recording",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 0,
+            "actions": [
+              "record"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "revoke",
+            "nowMs": 100
+          },
+          "expect": {
+            "state": "recording",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 100,
+            "actions": [],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "pause",
+            "nowMs": 100,
+            "recordingId": "capture-a"
+          },
+          "expect": {
+            "state": "paused",
+            "reason": "user",
+            "pauseEpoch": 1,
+            "capturedMs": 100,
+            "actions": [
+              "pause",
+              "releaseSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "pause",
+            "nowMs": 60000,
+            "recordingId": "capture-a"
+          },
+          "expect": {
+            "state": "paused",
+            "reason": "user",
+            "pauseEpoch": 1,
+            "capturedMs": 100,
+            "actions": [
+              "pause",
+              "releaseSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "tick",
+            "nowMs": 120000
+          },
+          "expect": {
+            "state": "paused",
+            "reason": "user",
+            "pauseEpoch": 1,
+            "capturedMs": 100,
+            "actions": [],
+            "error": null
+          }
+        }
+      ]
+    },
+    {
+      "name": "double_stop_finalizes_once",
+      "steps": [
+        {
+          "event": {
+            "type": "start",
+            "nowMs": 0,
+            "recordingId": "capture-a",
+            "admission": 0
+          },
+          "expect": {
+            "state": "starting",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 0,
+            "actions": [
+              "prepare",
+              "activateSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "startReady",
+            "nowMs": 0,
+            "sessionActive": true
+          },
+          "expect": {
+            "state": "recording",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 0,
+            "actions": [
+              "record"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "revoke",
+            "nowMs": 125
+          },
+          "expect": {
+            "state": "recording",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 125,
+            "actions": [],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "stop",
+            "nowMs": 125,
+            "recordingId": "capture-a"
+          },
+          "expect": {
+            "state": "stopped",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 125,
+            "actions": [
+              "stop",
+              "releaseSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "stop",
+            "nowMs": 60000,
+            "recordingId": "capture-a"
+          },
+          "expect": {
+            "state": "stopped",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 125,
+            "actions": [
+              "releaseSession"
+            ],
+            "error": null
+          }
+        }
+      ]
+    },
+    {
+      "name": "double_discard_preserves_store_owned_file",
+      "steps": [
+        {
+          "event": {
+            "type": "start",
+            "nowMs": 0,
+            "recordingId": "capture-a",
+            "admission": 0
+          },
+          "expect": {
+            "state": "starting",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 0,
+            "actions": [
+              "prepare",
+              "activateSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "startReady",
+            "nowMs": 0,
+            "sessionActive": true
+          },
+          "expect": {
+            "state": "recording",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 0,
+            "actions": [
+              "record"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "revoke",
+            "nowMs": 100
+          },
+          "expect": {
+            "state": "recording",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 100,
+            "actions": [],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "pause",
+            "nowMs": 100,
+            "recordingId": "capture-a"
+          },
+          "expect": {
+            "state": "paused",
+            "reason": "user",
+            "pauseEpoch": 1,
+            "capturedMs": 100,
+            "actions": [
+              "pause",
+              "releaseSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "discard",
+            "nowMs": 100,
+            "recordingId": "capture-a"
+          },
+          "expect": {
+            "state": "discarded",
+            "reason": null,
+            "pauseEpoch": 1,
+            "capturedMs": 100,
+            "actions": [
+              "stop",
+              "releaseSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "discard",
+            "nowMs": 200,
+            "recordingId": "capture-a"
+          },
+          "expect": {
+            "state": "discarded",
+            "reason": null,
+            "pauseEpoch": 1,
+            "capturedMs": 100,
+            "actions": [
+              "releaseSession"
+            ],
+            "error": null
+          }
+        }
+      ]
+    },
+    {
+      "name": "explicit_resume_keeps_capture_and_excludes_pause",
+      "steps": [
+        {
+          "event": {
+            "type": "start",
+            "nowMs": 0,
+            "recordingId": "capture-a",
+            "admission": 0
+          },
+          "expect": {
+            "state": "starting",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 0,
+            "actions": [
+              "prepare",
+              "activateSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "startReady",
+            "nowMs": 0,
+            "sessionActive": true
+          },
+          "expect": {
+            "state": "recording",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 0,
+            "actions": [
+              "record"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "revoke",
+            "nowMs": 100
+          },
+          "expect": {
+            "state": "recording",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 100,
+            "actions": [],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "pause",
+            "nowMs": 100,
+            "recordingId": "capture-a"
+          },
+          "expect": {
+            "state": "paused",
+            "reason": "user",
+            "pauseEpoch": 1,
+            "capturedMs": 100,
+            "actions": [
+              "pause",
+              "releaseSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "resume",
+            "nowMs": 60100,
+            "recordingId": "capture-a",
+            "admission": 1,
+            "pauseEpoch": 1
+          },
+          "expect": {
+            "state": "paused",
+            "reason": "user",
+            "pauseEpoch": 1,
+            "capturedMs": 100,
+            "actions": [
+              "activateSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "resumeReady",
+            "nowMs": 60100,
+            "sessionActive": true
+          },
+          "expect": {
+            "state": "recording",
+            "reason": null,
+            "pauseEpoch": 1,
+            "capturedMs": 100,
+            "actions": [
+              "record"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "tick",
+            "nowMs": 60200
+          },
+          "expect": {
+            "state": "recording",
+            "reason": null,
+            "pauseEpoch": 1,
+            "capturedMs": 200,
+            "actions": [],
+            "error": null
+          }
+        }
+      ]
+    },
+    {
+      "name": "fractional_segments_keep_full_precision",
+      "steps": [
+        {
+          "event": {
+            "type": "start",
+            "nowMs": 0,
+            "recordingId": "capture-a",
+            "admission": 0
+          },
+          "expect": {
+            "state": "starting",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 0,
+            "actions": [
+              "prepare",
+              "activateSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "startReady",
+            "nowMs": 0,
+            "sessionActive": true
+          },
+          "expect": {
+            "state": "recording",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 0,
+            "actions": [
+              "record"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "revoke",
+            "nowMs": 0.4
+          },
+          "expect": {
+            "state": "recording",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 0.4,
+            "actions": [],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "pause",
+            "nowMs": 0.4,
+            "recordingId": "capture-a"
+          },
+          "expect": {
+            "state": "paused",
+            "reason": "user",
+            "pauseEpoch": 1,
+            "capturedMs": 0.4,
+            "actions": [
+              "pause",
+              "releaseSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "resume",
+            "nowMs": 1000,
+            "recordingId": "capture-a",
+            "admission": 1,
+            "pauseEpoch": 1
+          },
+          "expect": {
+            "state": "paused",
+            "reason": "user",
+            "pauseEpoch": 1,
+            "capturedMs": 0.4,
+            "actions": [
+              "activateSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "resumeReady",
+            "nowMs": 1000,
+            "sessionActive": true
+          },
+          "expect": {
+            "state": "recording",
+            "reason": null,
+            "pauseEpoch": 1,
+            "capturedMs": 0.4,
+            "actions": [
+              "record"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "tick",
+            "nowMs": 1000.4
+          },
+          "expect": {
+            "state": "recording",
+            "reason": null,
+            "pauseEpoch": 1,
+            "capturedMs": 0.8,
+            "actions": [],
+            "error": null
+          }
+        }
+      ]
+    },
+    {
+      "name": "wrong_capture_identity_refuses_resume",
+      "steps": [
+        {
+          "event": {
+            "type": "start",
+            "nowMs": 0,
+            "recordingId": "capture-a",
+            "admission": 0
+          },
+          "expect": {
+            "state": "starting",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 0,
+            "actions": [
+              "prepare",
+              "activateSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "startReady",
+            "nowMs": 0,
+            "sessionActive": true
+          },
+          "expect": {
+            "state": "recording",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 0,
+            "actions": [
+              "record"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "revoke",
+            "nowMs": 100
+          },
+          "expect": {
+            "state": "recording",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 100,
+            "actions": [],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "pause",
+            "nowMs": 100,
+            "recordingId": "capture-a"
+          },
+          "expect": {
+            "state": "paused",
+            "reason": "user",
+            "pauseEpoch": 1,
+            "capturedMs": 100,
+            "actions": [
+              "pause",
+              "releaseSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "resume",
+            "nowMs": 100,
+            "recordingId": "capture-other",
+            "admission": 1,
+            "pauseEpoch": 1
+          },
+          "expect": {
+            "state": "paused",
+            "reason": "user",
+            "pauseEpoch": 1,
+            "capturedMs": 100,
+            "actions": [],
+            "error": "cancelled"
+          }
+        }
+      ]
+    },
+    {
+      "name": "session_not_active_at_record_point",
+      "steps": [
+        {
+          "event": {
+            "type": "start",
+            "nowMs": 0,
+            "recordingId": "capture-a",
+            "admission": 0
+          },
+          "expect": {
+            "state": "starting",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 0,
+            "actions": [
+              "prepare",
+              "activateSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "startReady",
+            "nowMs": 0,
+            "sessionActive": false
+          },
+          "expect": {
+            "state": "paused",
+            "reason": "session_failed",
+            "pauseEpoch": 1,
+            "capturedMs": 0,
+            "actions": [
+              "pause",
+              "releaseSession"
+            ],
+            "error": "session_failed"
+          }
+        }
+      ]
+    },
+    {
+      "name": "record_failure_stays_paused",
+      "steps": [
+        {
+          "event": {
+            "type": "start",
+            "nowMs": 0,
+            "recordingId": "capture-a",
+            "admission": 0
+          },
+          "expect": {
+            "state": "starting",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 0,
+            "actions": [
+              "prepare",
+              "activateSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "startReady",
+            "nowMs": 0,
+            "sessionActive": true
+          },
+          "expect": {
+            "state": "recording",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 0,
+            "actions": [
+              "record"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "recordFailed",
+            "nowMs": 0
+          },
+          "expect": {
+            "state": "paused",
+            "reason": "resume_failed",
+            "pauseEpoch": 1,
+            "capturedMs": 0,
+            "actions": [
+              "pause",
+              "releaseSession"
+            ],
+            "error": "resume_failed"
+          }
+        }
+      ]
+    },
+    {
+      "name": "external_generation_fence_is_seen_without_fifo_event",
+      "steps": [
+        {
+          "event": {
+            "type": "start",
+            "nowMs": 0,
+            "recordingId": "capture-a",
+            "admission": 0
+          },
+          "expect": {
+            "state": "starting",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 0,
+            "actions": [
+              "prepare",
+              "activateSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "startReady",
+            "nowMs": 0,
+            "sessionActive": true,
+            "admissionGeneration": 1
+          },
+          "expect": {
+            "state": "paused",
+            "reason": "cancelled",
+            "pauseEpoch": 1,
+            "capturedMs": 0,
+            "actions": [
+              "pause",
+              "releaseSession"
+            ],
+            "error": "cancelled"
+          }
+        }
+      ]
+    },
+    {
+      "name": "second_start_does_not_replace_live_recorder",
+      "steps": [
+        {
+          "event": {
+            "type": "start",
+            "nowMs": 0,
+            "recordingId": "capture-a",
+            "admission": 0
+          },
+          "expect": {
+            "state": "starting",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 0,
+            "actions": [
+              "prepare",
+              "activateSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "startReady",
+            "nowMs": 0,
+            "sessionActive": true
+          },
+          "expect": {
+            "state": "recording",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 0,
+            "actions": [
+              "record"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "start",
+            "nowMs": 10,
+            "recordingId": "capture-other",
+            "admission": 0
+          },
+          "expect": {
+            "state": "recording",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 10,
+            "actions": [],
+            "error": "not_paused"
+          }
+        }
+      ]
+    },
+    {
+      "name": "stopped_identity_cannot_be_prepared_again",
+      "steps": [
+        {
+          "event": {
+            "type": "start",
+            "nowMs": 0,
+            "recordingId": "capture-a",
+            "admission": 0
+          },
+          "expect": {
+            "state": "starting",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 0,
+            "actions": [
+              "prepare",
+              "activateSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "startReady",
+            "nowMs": 0,
+            "sessionActive": true
+          },
+          "expect": {
+            "state": "recording",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 0,
+            "actions": [
+              "record"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "stop",
+            "nowMs": 10,
+            "recordingId": "capture-a"
+          },
+          "expect": {
+            "state": "stopped",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 10,
+            "actions": [
+              "stop",
+              "releaseSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "start",
+            "nowMs": 11,
+            "recordingId": "capture-a",
+            "admission": 0
+          },
+          "expect": {
+            "state": "stopped",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 10,
+            "actions": [],
+            "error": "cancelled"
+          }
+        }
+      ]
+    },
+    {
+      "name": "pause_tail_is_settled_before_resume_budget",
+      "steps": [
+        {
+          "event": {
+            "type": "start",
+            "nowMs": 0,
+            "recordingId": "capture-a",
+            "admission": 0
+          },
+          "expect": {
+            "state": "starting",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 0,
+            "actions": [
+              "prepare",
+              "activateSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "startReady",
+            "nowMs": 0,
+            "sessionActive": true
+          },
+          "expect": {
+            "state": "recording",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 0,
+            "actions": [
+              "record"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "revoke",
+            "nowMs": 1000
+          },
+          "expect": {
+            "state": "recording",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 1000,
+            "actions": [],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "pause",
+            "nowMs": 1000,
+            "recordingId": "capture-a"
+          },
+          "expect": {
+            "state": "paused",
+            "reason": "user",
+            "pauseEpoch": 1,
+            "capturedMs": 1000,
+            "actions": [
+              "pause",
+              "releaseSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "settleCaptured",
+            "nowMs": 1001,
+            "capturedMs": 1001
+          },
+          "expect": {
+            "state": "paused",
+            "reason": "user",
+            "pauseEpoch": 1,
+            "capturedMs": 1001,
+            "actions": [],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "resume",
+            "nowMs": 1001,
+            "recordingId": "capture-a",
+            "admission": 1,
+            "pauseEpoch": 1
+          },
+          "expect": {
+            "state": "paused",
+            "reason": "user",
+            "pauseEpoch": 1,
+            "capturedMs": 1001,
+            "actions": [
+              "activateSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "resumeReady",
+            "nowMs": 1001,
+            "sessionActive": true
+          },
+          "expect": {
+            "state": "recording",
+            "reason": null,
+            "pauseEpoch": 1,
+            "capturedMs": 1001,
+            "actions": [
+              "record"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "tick",
+            "nowMs": 300000
+          },
+          "expect": {
+            "state": "capped",
+            "reason": "capped",
+            "pauseEpoch": 1,
+            "capturedMs": 300000,
+            "actions": [
+              "stop",
+              "releaseSession"
+            ],
+            "error": null
+          }
+        }
+      ]
+    },
+    {
+      "name": "stop_tail_is_settled_after_pause_before_file_close",
+      "steps": [
+        {
+          "event": {
+            "type": "start",
+            "nowMs": 0,
+            "recordingId": "capture-a",
+            "admission": 0
+          },
+          "expect": {
+            "state": "starting",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 0,
+            "actions": [
+              "prepare",
+              "activateSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "startReady",
+            "nowMs": 0,
+            "sessionActive": true
+          },
+          "expect": {
+            "state": "recording",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 0,
+            "actions": [
+              "record"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "stop",
+            "nowMs": 1000,
+            "recordingId": "capture-a"
+          },
+          "expect": {
+            "state": "stopped",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 1000,
+            "actions": [
+              "stop",
+              "releaseSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "settleCaptured",
+            "nowMs": 1001,
+            "capturedMs": 1001
+          },
+          "expect": {
+            "state": "stopped",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 1001,
+            "actions": [],
+            "error": null
+          }
+        }
+      ]
+    },
+    {
+      "name": "settlement_overrun_is_visible_and_cannot_resume",
+      "steps": [
+        {
+          "event": {
+            "type": "start",
+            "nowMs": 0,
+            "recordingId": "capture-a",
+            "admission": 0
+          },
+          "expect": {
+            "state": "starting",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 0,
+            "actions": [
+              "prepare",
+              "activateSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "startReady",
+            "nowMs": 0,
+            "sessionActive": true
+          },
+          "expect": {
+            "state": "recording",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 0,
+            "actions": [
+              "record"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "revoke",
+            "nowMs": 299999
+          },
+          "expect": {
+            "state": "recording",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 299999,
+            "actions": [],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "pause",
+            "nowMs": 299999,
+            "recordingId": "capture-a"
+          },
+          "expect": {
+            "state": "paused",
+            "reason": "user",
+            "pauseEpoch": 1,
+            "capturedMs": 299999,
+            "actions": [
+              "pause",
+              "releaseSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "settleCaptured",
+            "nowMs": 300001,
+            "capturedMs": 300001
+          },
+          "expect": {
+            "state": "interrupted",
+            "reason": "capture_limit_exceeded",
+            "pauseEpoch": 2,
+            "capturedMs": 300000,
+            "actions": [
+              "stop",
+              "releaseSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "resume",
+            "nowMs": 300001,
+            "recordingId": "capture-a",
+            "admission": 1,
+            "pauseEpoch": 2
+          },
+          "expect": {
+            "state": "interrupted",
+            "reason": "capture_limit_exceeded",
+            "pauseEpoch": 2,
+            "capturedMs": 300000,
+            "actions": [],
+            "error": "recorder_reset"
+          }
+        }
+      ]
+    },
+    {
+      "name": "delayed_early_finish_cannot_manufacture_cap",
+      "steps": [
+        {
+          "event": {
+            "type": "start",
+            "nowMs": 0,
+            "recordingId": "capture-a",
+            "admission": 0
+          },
+          "expect": {
+            "state": "starting",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 0,
+            "actions": [
+              "prepare",
+              "activateSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "startReady",
+            "nowMs": 0,
+            "sessionActive": true
+          },
+          "expect": {
+            "state": "recording",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 0,
+            "actions": [
+              "record"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "tick",
+            "nowMs": 1000
+          },
+          "expect": {
+            "state": "recording",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 1000,
+            "actions": [],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "finished",
+            "nowMs": 900000,
+            "capturedMs": 1001,
+            "paddingMs": 100,
+            "success": true
+          },
+          "expect": {
+            "state": "interrupted",
+            "reason": "recorder_reset",
+            "pauseEpoch": 1,
+            "capturedMs": 1001,
+            "actions": [
+              "stop",
+              "releaseSession"
+            ],
+            "error": null
+          }
+        }
+      ]
+    },
+    {
+      "name": "verified_final_valid_frames_certify_cap",
+      "steps": [
+        {
+          "event": {
+            "type": "start",
+            "nowMs": 0,
+            "recordingId": "capture-a",
+            "admission": 0
+          },
+          "expect": {
+            "state": "starting",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 0,
+            "actions": [
+              "prepare",
+              "activateSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "startReady",
+            "nowMs": 0,
+            "sessionActive": true
+          },
+          "expect": {
+            "state": "recording",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 0,
+            "actions": [
+              "record"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "finished",
+            "nowMs": 900000,
+            "capturedMs": 300000,
+            "paddingMs": 250,
+            "success": true
+          },
+          "expect": {
+            "state": "capped",
+            "reason": "capped",
+            "pauseEpoch": 0,
+            "capturedMs": 300000,
+            "actions": [
+              "stop",
+              "releaseSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "finished",
+            "nowMs": 999999,
+            "capturedMs": 300000,
+            "paddingMs": 250,
+            "success": true
+          },
+          "expect": {
+            "state": "capped",
+            "reason": "capped",
+            "pauseEpoch": 0,
+            "capturedMs": 300000,
+            "actions": [],
+            "error": null
+          }
+        }
+      ]
+    },
+    {
+      "name": "finished_missing_evidence_is_interrupted",
+      "steps": [
+        {
+          "event": {
+            "type": "start",
+            "nowMs": 0,
+            "recordingId": "capture-a",
+            "admission": 0
+          },
+          "expect": {
+            "state": "starting",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 0,
+            "actions": [
+              "prepare",
+              "activateSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "startReady",
+            "nowMs": 0,
+            "sessionActive": true
+          },
+          "expect": {
+            "state": "recording",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 0,
+            "actions": [
+              "record"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "tick",
+            "nowMs": 1000
+          },
+          "expect": {
+            "state": "recording",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 1000,
+            "actions": [],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "finished",
+            "nowMs": 900000,
+            "success": true
+          },
+          "expect": {
+            "state": "interrupted",
+            "reason": "recorder_reset",
+            "pauseEpoch": 1,
+            "capturedMs": 1000,
+            "actions": [
+              "stop",
+              "releaseSession"
+            ],
+            "error": null
+          }
+        }
+      ]
+    },
+    {
+      "name": "finished_negative_evidence_is_interrupted",
+      "steps": [
+        {
+          "event": {
+            "type": "start",
+            "nowMs": 0,
+            "recordingId": "capture-a",
+            "admission": 0
+          },
+          "expect": {
+            "state": "starting",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 0,
+            "actions": [
+              "prepare",
+              "activateSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "startReady",
+            "nowMs": 0,
+            "sessionActive": true
+          },
+          "expect": {
+            "state": "recording",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 0,
+            "actions": [
+              "record"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "tick",
+            "nowMs": 1000
+          },
+          "expect": {
+            "state": "recording",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 1000,
+            "actions": [],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "finished",
+            "nowMs": 900000,
+            "capturedMs": -1,
+            "paddingMs": 100,
+            "success": true
+          },
+          "expect": {
+            "state": "interrupted",
+            "reason": "recorder_reset",
+            "pauseEpoch": 1,
+            "capturedMs": 1000,
+            "actions": [
+              "stop",
+              "releaseSession"
+            ],
+            "error": null
+          }
+        }
+      ]
+    },
+    {
+      "name": "finished_short_evidence_is_interrupted",
+      "steps": [
+        {
+          "event": {
+            "type": "start",
+            "nowMs": 0,
+            "recordingId": "capture-a",
+            "admission": 0
+          },
+          "expect": {
+            "state": "starting",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 0,
+            "actions": [
+              "prepare",
+              "activateSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "startReady",
+            "nowMs": 0,
+            "sessionActive": true
+          },
+          "expect": {
+            "state": "recording",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 0,
+            "actions": [
+              "record"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "tick",
+            "nowMs": 1000
+          },
+          "expect": {
+            "state": "recording",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 1000,
+            "actions": [],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "finished",
+            "nowMs": 900000,
+            "capturedMs": 299999,
+            "paddingMs": 100,
+            "success": true
+          },
+          "expect": {
+            "state": "interrupted",
+            "reason": "recorder_reset",
+            "pauseEpoch": 1,
+            "capturedMs": 299999,
+            "actions": [
+              "stop",
+              "releaseSession"
+            ],
+            "error": null
+          }
+        }
+      ]
+    },
+    {
+      "name": "finished_over_limit_evidence_is_interrupted",
+      "steps": [
+        {
+          "event": {
+            "type": "start",
+            "nowMs": 0,
+            "recordingId": "capture-a",
+            "admission": 0
+          },
+          "expect": {
+            "state": "starting",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 0,
+            "actions": [
+              "prepare",
+              "activateSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "startReady",
+            "nowMs": 0,
+            "sessionActive": true
+          },
+          "expect": {
+            "state": "recording",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 0,
+            "actions": [
+              "record"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "tick",
+            "nowMs": 1000
+          },
+          "expect": {
+            "state": "recording",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 1000,
+            "actions": [],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "finished",
+            "nowMs": 900000,
+            "capturedMs": 300001,
+            "paddingMs": 100,
+            "success": true
+          },
+          "expect": {
+            "state": "interrupted",
+            "reason": "capture_limit_exceeded",
+            "pauseEpoch": 1,
+            "capturedMs": 300000,
+            "actions": [
+              "stop",
+              "releaseSession"
+            ],
+            "error": null
+          }
+        }
+      ]
+    },
+    {
+      "name": "finished_encoder_padding_over_limit_evidence_is_interrupted",
+      "steps": [
+        {
+          "event": {
+            "type": "start",
+            "nowMs": 0,
+            "recordingId": "capture-a",
+            "admission": 0
+          },
+          "expect": {
+            "state": "starting",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 0,
+            "actions": [
+              "prepare",
+              "activateSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "startReady",
+            "nowMs": 0,
+            "sessionActive": true
+          },
+          "expect": {
+            "state": "recording",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 0,
+            "actions": [
+              "record"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "tick",
+            "nowMs": 1000
+          },
+          "expect": {
+            "state": "recording",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 1000,
+            "actions": [],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "finished",
+            "nowMs": 900000,
+            "capturedMs": 300000,
+            "paddingMs": 251,
+            "success": true
+          },
+          "expect": {
+            "state": "interrupted",
+            "reason": "encoder_padding_exceeded",
+            "pauseEpoch": 1,
+            "capturedMs": 300000,
+            "actions": [
+              "stop",
+              "releaseSession"
+            ],
+            "error": null
+          }
+        }
+      ]
+    },
+    {
+      "name": "finished_negative_padding_evidence_is_interrupted",
+      "steps": [
+        {
+          "event": {
+            "type": "start",
+            "nowMs": 0,
+            "recordingId": "capture-a",
+            "admission": 0
+          },
+          "expect": {
+            "state": "starting",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 0,
+            "actions": [
+              "prepare",
+              "activateSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "startReady",
+            "nowMs": 0,
+            "sessionActive": true
+          },
+          "expect": {
+            "state": "recording",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 0,
+            "actions": [
+              "record"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "tick",
+            "nowMs": 1000
+          },
+          "expect": {
+            "state": "recording",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 1000,
+            "actions": [],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "finished",
+            "nowMs": 900000,
+            "capturedMs": 300000,
+            "paddingMs": -1,
+            "success": true
+          },
+          "expect": {
+            "state": "interrupted",
+            "reason": "recorder_reset",
+            "pauseEpoch": 1,
+            "capturedMs": 300000,
+            "actions": [
+              "stop",
+              "releaseSession"
+            ],
+            "error": null
+          }
+        }
+      ]
+    },
+    {
+      "name": "finished_failed_evidence_is_interrupted",
+      "steps": [
+        {
+          "event": {
+            "type": "start",
+            "nowMs": 0,
+            "recordingId": "capture-a",
+            "admission": 0
+          },
+          "expect": {
+            "state": "starting",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 0,
+            "actions": [
+              "prepare",
+              "activateSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "startReady",
+            "nowMs": 0,
+            "sessionActive": true
+          },
+          "expect": {
+            "state": "recording",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 0,
+            "actions": [
+              "record"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "tick",
+            "nowMs": 1000
+          },
+          "expect": {
+            "state": "recording",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 1000,
+            "actions": [],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "finished",
+            "nowMs": 900000,
+            "capturedMs": 300000,
+            "paddingMs": 100,
+            "success": false
+          },
+          "expect": {
+            "state": "interrupted",
+            "reason": "recorder_reset",
+            "pauseEpoch": 1,
+            "capturedMs": 300000,
+            "actions": [
+              "stop",
+              "releaseSession"
+            ],
+            "error": null
+          }
+        }
+      ]
+    },
+    {
+      "name": "duplicate_scene_app_pause_epochs",
+      "steps": [
+        {
+          "event": {
+            "type": "start",
+            "nowMs": 0,
+            "recordingId": "capture-a",
+            "admission": 0
+          },
+          "expect": {
+            "state": "starting",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 0,
+            "actions": [
+              "prepare",
+              "activateSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "startReady",
+            "nowMs": 0,
+            "sessionActive": true
+          },
+          "expect": {
+            "state": "recording",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 0,
+            "actions": [
+              "record"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "resignActive",
+            "nowMs": 100
+          },
+          "expect": {
+            "state": "paused",
+            "reason": "inactive",
+            "pauseEpoch": 1,
+            "capturedMs": 100,
+            "actions": [
+              "pause",
+              "releaseSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "resignActive",
+            "nowMs": 100
+          },
+          "expect": {
+            "state": "paused",
+            "reason": "inactive",
+            "pauseEpoch": 2,
+            "capturedMs": 100,
+            "actions": [
+              "pause",
+              "releaseSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "background",
+            "nowMs": 101
+          },
+          "expect": {
+            "state": "paused",
+            "reason": "background",
+            "pauseEpoch": 3,
+            "capturedMs": 100,
+            "actions": [
+              "pause",
+              "releaseSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "background",
+            "nowMs": 101
+          },
+          "expect": {
+            "state": "paused",
+            "reason": "background",
+            "pauseEpoch": 4,
+            "capturedMs": 100,
+            "actions": [
+              "pause",
+              "releaseSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "foreground",
+            "nowMs": 1000
+          },
+          "expect": {
+            "state": "paused",
+            "reason": "background",
+            "pauseEpoch": 4,
+            "capturedMs": 100,
+            "actions": [],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "becameActive",
+            "nowMs": 1001
+          },
+          "expect": {
+            "state": "paused",
+            "reason": "background",
+            "pauseEpoch": 4,
+            "capturedMs": 100,
+            "actions": [],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "resume",
+            "nowMs": 1001,
+            "recordingId": "capture-a",
+            "admission": 4,
+            "pauseEpoch": 3
+          },
+          "expect": {
+            "state": "paused",
+            "reason": "background",
+            "pauseEpoch": 4,
+            "capturedMs": 100,
+            "actions": [],
+            "error": "stale_epoch"
+          }
+        },
+        {
+          "event": {
+            "type": "resume",
+            "nowMs": 1001,
+            "recordingId": "capture-a",
+            "admission": 4,
+            "pauseEpoch": 4
+          },
+          "expect": {
+            "state": "paused",
+            "reason": "background",
+            "pauseEpoch": 4,
+            "capturedMs": 100,
+            "actions": [
+              "activateSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "resumeReady",
+            "nowMs": 1001,
+            "sessionActive": true
+          },
+          "expect": {
+            "state": "recording",
+            "reason": null,
+            "pauseEpoch": 4,
+            "capturedMs": 100,
+            "actions": [
+              "record"
+            ],
+            "error": null
+          }
+        }
+      ]
+    }
+  ]
+}

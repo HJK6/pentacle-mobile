@@ -7,18 +7,13 @@ question overlays, and app-owned modal hosts project its state; they do not crea
 recorders or independent delivery queues. In-app navigation never changes the
 recording's destination, pauses capture, or sends a take.
 
-The JS controller responds to observed background, lock, and interruption by pausing
-the existing recorder and disarming recording audio mode. It does not request resume
-on foreground or unlock. **Known locked-native blocker:** Expo Audio 1.1.1 can resume
-a paused recorder on interruption-end or native foreground while `allowsRecording`
-remains true. An interruption entirely between JS polls, or delayed JS execution,
-can bypass the explicit-Resume policy. No supported synchronous JS opt-out was found;
-this requires requester disposition and is not fixed by this source implementation.
-The native timed-limit interaction is not established by source inspection. Resume
-requires an explicit action, unlocked foreground, the same credential/server scope,
-and no authoritative closure or replacement of the captured origin. It re-arms and
-records with the same native recorder without preparing a new file. Missing network
-inventory alone does not invalidate a previously authenticated origin.
+The iOS capture path uses the in-repository `pentacle-voice-capture` Expo module.
+Background, inactive, lock and interruption pause the same native recorder. Returning
+to active/unlocked only changes eligibility; recording requires explicit Resume,
+unlocked foreground, the original credential/server scope and no authoritative
+closure or replacement of the origin. Missing network inventory alone does not
+invalidate a previously authenticated origin. No Expo Audio recorder or audio-mode
+API is used by this capture path; the installed dependency stays unchanged.
 
 Captured audio is capped at 300,000 ms, with the existing mono AAC/M4A profile. The
 cap finalizes one retained, unsent take. Pause, cap, recovery, and accepting a finished
@@ -38,6 +33,80 @@ one accessible active host. They retain the original label/time, Return, Send,
 Discard, and explicit Resume when paused. Locked UI hides these labels and actions.
 Multiple retained takes are accessible through the take list. A proved successful
 send removes its control immediately; no Sent/Return banner, timer, or toast remains.
+
+## Native capture contract (CAP-01)
+
+`NativeCaptureEngine` keeps the existing `RecordingEngine` interface. Before reading
+microphone permission, requesting permission or creating durable draft ownership,
+it checks a synchronous `getCaptureContract()` response:
+
+    {contract: "pentacle-voice-capture", revision: 1, nativeBuild: "<CFBundleVersion>"}
+
+The contract name and single `ACCEPTED_CAPTURE_REVISION` constant must match exactly.
+The nonempty native build string must equal the build identity already resolved by
+`src/config/appIdentity.ts`. Missing/throwing modules, malformed responses, another
+revision, missing bridge functions or a build mismatch fail closed with typed
+`capture_unsupported` and the existing plain error surface. The draft is retained;
+there is no permission prompt, ownership transfer or capture fallback. This also
+protects a new OTA JavaScript bundle running against an old binary. Android has no
+capture implementation and is unavailable under this handshake.
+
+The module owns one `AVAudioRecorder` and file for each opaque native capture handle.
+That handle is engine-local and is not the take repository's UUID, upload identity,
+or send identity. The engine passes the sole file URI through the existing ownership
+checkpoint/finalization seam. Resume never prepares another recorder or file. Discard
+stops/releases capture; the take repository remains the only deletion owner and
+commits its tombstone before cleanup.
+
+All native observer and command events feed the pure Swift `VoiceCapturePolicy`
+reducer on one serial executor. The iOS observer for interruption-began,
+`willResignActive`, background and protected-data-unavailable synchronously revokes
+admission and applies the policy pause before returning. Every such pause advances
+`pauseEpoch`. Interruption-end (including `shouldResume`), foreground/active,
+protected-data-available and route changes never produce a record action. A complete
+begin/end pair between JS polls therefore leaves sticky paused state. The engine
+uses the current native epoch on explicit Resume. The controller consumes settled
+native captured time before closing a question visit or testing final answer
+eligibility, including delayed pause responses and page changes while paused. A
+queued Resume cannot merge two separate short visits across that pause.
+
+A synchronous, lock-protected admission generation is revoked as the first engine
+statement in pause, stop and discard, before any await. A queued or session-activating
+start/resume checks its captured token again immediately before its native record
+action, together with the current handle, paused state/epoch for Resume, active app,
+protected data and session activation. This supplements the controller's existing
+JS operation epochs. Pure cached status snapshots cannot wait behind activation
+and delay that cancellation. A refusal leaves capture paused or stopped, with a
+fixed error such as `cancelled`, `stale_epoch`, `not_paused`, `not_foreground`,
+`locked`, `capped`, `recorder_reset`, `session_failed` or `resume_failed`.
+
+Media-services reset is terminal for the handle. Polling, including while paused,
+consumes the sticky native interrupted state and projects the existing retained
+finalized controls with `Interrupted. Send or Discard.`; Resume is unavailable.
+The file is retained for best-effort finalization/recovery and is never replaced by
+another recorder for that take. A save/discard failure does not make it resumable.
+Neither reset, pause, cap nor recovery requests Send.
+
+Native captured time excludes paused dwell and never reports more than 300,000 ms.
+The native deadline finalizes while JS is stalled; acoustic samples beyond that cap
+are forbidden. The accepted container-duration tolerance is at most 250 ms of AAC
+encoder padding, not extra acoustic capture. The format remains mono AAC/M4A,
+16 kHz and 32 kbps with metering. No audio background mode or app permission change
+is introduced. The recording session configuration is released on pause/finalize.
+
+The shared `contract/capture-contract-v1.json` sequences exercise the Swift reducer
+and the same JavaScript native model used by the engine/controller tests. The
+separate `CAP-01 NEW-CONTRACT PROBE` runs the short interruption schedule against
+that amended engine/model. The sealed `CAP-01` RED at mobile `0053d68f` remains the
+old Expo engine baseline; running that old probe on the new adapter would be a setup
+failure and is not evidence of a new RED.
+
+These are source-policy and modeled-bridge checks, not iOS compilation or acoustic
+proof. Signed Release compilation/Expo bindings, real interruptions, lock with and
+without a passcode, denied unlock, media reset, same-file audible prefix, foreground
+transitions, the cap plus long paused dwell, encoder tolerance and coexistence with
+installed Expo Audio session observers still require the requester's native/device
+acceptance. Portable green does not certify the native executor.
 
 ## Device repository and recovery
 

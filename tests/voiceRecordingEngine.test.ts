@@ -1,16 +1,45 @@
 import { AppState, type AppStateStatus } from 'react-native';
 import { AudioModule, setAudioModeAsync } from 'expo-audio';
+import type { CaptureStatus } from '../modules/pentacle-voice-capture';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { bytesToHex, utf8ToBytes } from '@noble/hashes/utils.js';
 import { VoiceTakeStore, type VoiceTakeIO } from '../src/services/voiceTakeStore';
 import { createVoiceQuestionSnapshot, resetVoiceAnswersForTests } from '../src/components/questions/voice/voiceAnswersBinding';
 import { MAX_DURATION_MS } from '../src/services/voiceRecording';
-import { ExpoAudioEngine, voiceRecorder, setVoiceLifecycle, sendVoiceTake } from '../src/services/voiceRecordingEngine';
+import { NativeCaptureEngine, voiceRecorder, setVoiceLifecycle, sendVoiceTake } from '../src/services/voiceRecordingEngine';
 
 let mockStore: VoiceTakeStore;
 const mockFiles = new Map<string, string>();
 const mockDirs = new Set<string>();
-const mockModes: boolean[] = [];
+let mockStatus: CaptureStatus = { state: 'idle', reason: null, recordingId: null, pauseEpoch: 0, capturedMs: 0, uri: null, metering: -20 };
+let mockGeneration = 0;
+const mockRecord = jest.fn();
+const mockNative = {
+  getCaptureContract: () => ({ contract: 'pentacle-voice-capture', revision: 1, nativeBuild: '101' }),
+  getStatus: () => ({ ...mockStatus, capturedMs: mockStatus.state === 'recording' ? mockDuration : mockStatus.capturedMs }),
+  getAdmission: () => mockGeneration, revokeAdmissions: jest.fn(() => { mockGeneration++; }),
+  getPermission: jest.fn().mockResolvedValue({ granted: true, canAskAgain: true }), requestPermission: jest.fn().mockResolvedValue({ granted: true, canAskAgain: true }),
+  start: jest.fn(async (id: string, admission: number): Promise<CaptureStatus> => {
+    const uri = `file:///cache/take-${++mockSequence}.m4a`; mockFiles.set(uri, 'audio');
+    mockStatus = { ...mockStatus, recordingId: id, state: 'starting', capturedMs: 0, pauseEpoch: 0, uri };
+    if (mockPrepare) await mockPrepare;
+    if (admission !== mockGeneration) throw new Error('cancelled');
+    mockStatus.state = 'recording'; mockRecord(); return mockNative.getStatus();
+  }),
+  pause: jest.fn(async (): Promise<CaptureStatus> => {
+    if (mockStatus.state === 'recording') { mockStatus.capturedMs = mockDuration; mockStatus.pauseEpoch++; mockStatus.state = 'paused'; }
+    else if (mockStatus.state === 'starting') { mockStatus.pauseEpoch++; mockStatus.state = 'paused'; }
+    return mockNative.getStatus();
+  }),
+  resume: jest.fn(async (_id: string, epoch: number, admission: number): Promise<CaptureStatus> => {
+    if (mockPrepare) await mockPrepare;
+    if (admission !== mockGeneration) throw new Error('cancelled');
+    if (epoch !== mockStatus.pauseEpoch) throw new Error('stale_epoch');
+    mockStatus.state = 'recording'; mockRecord(); return mockNative.getStatus();
+  }),
+  stop: jest.fn(async (): Promise<CaptureStatus> => { if (mockStatus.state === 'recording') mockStatus.capturedMs = mockDuration; mockStatus.state = 'stopped'; return mockNative.getStatus(); }),
+  discard: jest.fn(async () => { mockStatus.state = 'discarded'; }),
+};
 const mockAccept = jest.fn().mockResolvedValue(undefined);
 const mockSend = jest.fn(async (id, options) => { await mockStore.requestSend(id, options); });
 let mockSequence = 0;
@@ -32,22 +61,8 @@ jest.mock('../src/services/pentacleStream', () => ({
   voiceOriginStatus: () => 'available', subscribeVoiceTransport: (listener: () => void) => { mockTransportListeners.add(listener); return () => mockTransportListeners.delete(listener); },
   getPentacleStreamState: () => ({ sessions: [], notifications: [] }),
 }));
-jest.mock('expo-audio', () => ({
-  AudioModule: {
-    AudioRecorder: jest.fn().mockImplementation(() => {
-      const uri = `file:///cache/take-${++mockSequence}.m4a`; mockFiles.set(uri, 'audio');
-      let active = false;
-      return { uri, get isRecording() { return active; },
-        prepareToRecordAsync: jest.fn(() => mockPrepare ?? Promise.resolve()),
-        record: jest.fn(() => { active = true; }), pause: jest.fn(() => { active = false; }), stop: jest.fn(async () => { active = false; }),
-        getStatus: jest.fn(() => ({ isRecording: active, durationMillis: mockDuration, metering: -20 })),
-        addListener: jest.fn(() => ({ remove: jest.fn() })),
-      };
-    }),
-    getRecordingPermissionsAsync: jest.fn().mockResolvedValue({ granted: true }), requestRecordingPermissionsAsync: jest.fn().mockResolvedValue({ granted: true }),
-  },
-  RecordingPresets: { HIGH_QUALITY: {} }, setAudioModeAsync: jest.fn(async mode => { mockModes.push(mode.allowsRecording); }),
-}));
+jest.mock('../modules/pentacle-voice-capture', () => ({ ACCEPTED_CAPTURE_REVISION: 1, nativeVoiceCapture: () => mockNative, getCaptureContract: () => mockNative.getCaptureContract() }));
+jest.mock('../src/config/appIdentity', () => ({ getAppIdentity: () => ({ version: '1', buildNumber: '101' }) }));
 const listeners = new Set<(state: AppStateStatus) => void>();
 async function flush() { for (let i = 0; i < 120; i += 1) await Promise.resolve(); }
 function fixture() {
@@ -68,7 +83,7 @@ function fixture() {
 beforeAll(() => {
   jest.spyOn(AppState, 'addEventListener').mockImplementation((_event, listener) => { listeners.add(listener); return { remove: () => { listeners.delete(listener); } }; });
 });
-beforeEach(() => { resetVoiceAnswersForTests(); jest.useFakeTimers(); mockFiles.clear(); mockDirs.clear(); mockModes.length = 0; mockDuration = 3000; mockPrepare = null; mockStore = fixture(); mockCurrentScope = scope; mockAuthNeeded = false; setVoiceLifecycle({ foreground: true, unlocked: true }); });
+beforeEach(() => { resetVoiceAnswersForTests(); jest.useFakeTimers(); mockFiles.clear(); mockDirs.clear(); mockStatus = { state: 'idle', reason: null, recordingId: null, pauseEpoch: 0, capturedMs: 0, uri: null, metering: -20 }; mockGeneration = 0; mockDuration = 3000; mockPrepare = null; mockStore = fixture(); mockCurrentScope = scope; mockAuthNeeded = false; setVoiceLifecycle({ foreground: true, unlocked: true }); });
 afterEach(async () => { await voiceRecorder.discard(); for (const take of mockStore.snapshot().takes) await mockStore.discard(take.recordingId); jest.useRealTimers(); });
 
 test('R1 foreground route subscriber removal preserves the singleton capture and immutable origin', async () => {
@@ -81,78 +96,43 @@ test('R2 background never automatically hands a take to delivery', async () => {
 });
 test('R2 five-minute cap retains an unsent take without automatic delivery', async () => {
   const id = await voiceRecorder.start('hosta:origin');
-  const recorder = (AudioModule.AudioRecorder as unknown as jest.Mock).mock.results.at(-1)!.value;
-  recorder.getStatus.mockReturnValue({ isRecording: true, durationMillis: MAX_DURATION_MS, metering: -20 });
+  mockDuration = MAX_DURATION_MS; mockStatus.state = 'capped'; mockStatus.capturedMs = MAX_DURATION_MS;
   jest.advanceTimersByTime(90); await flush();
   expect(mockAccept).not.toHaveBeenCalled(); expect(mockSend).not.toHaveBeenCalled();
   expect(mockStore.get(id)).toMatchObject({ storage: 'finalized', sendRequestedAt: null, capturedAudioMs: MAX_DURATION_MS });
 });
-test('R11 native pause precedes disarm; Resume reuses recorder and file without prepare', async () => {
-  const engine = new ExpoAudioEngine(); await engine.start();
-  const native = (AudioModule.AudioRecorder as unknown as jest.Mock).mock.results.at(-1)!.value;
-  const uri = engine.nativeUri; await engine.pause();
-  expect(native.pause.mock.invocationCallOrder[0]).toBeLessThan((setAudioModeAsync as jest.Mock).mock.invocationCallOrder.at(-1)!);
-  await engine.resume(); expect(engine.nativeUri).toBe(uri); expect(native.prepareToRecordAsync).toHaveBeenCalledTimes(1); expect(native.record).toHaveBeenCalledTimes(2);
-  expect(native.record.mock.calls[1][0]).toEqual({ forDuration: 297 }); await engine.discard();
+test('R11 native pause revokes admission first; Resume keeps its native identity/file', async () => {
+  const engine = new NativeCaptureEngine(); await engine.start();
+  const uri = engine.nativeUri; const id = mockStatus.recordingId; await engine.pause();
+  expect(mockNative.revokeAdmissions.mock.invocationCallOrder.at(-1)).toBeLessThan(mockNative.pause.mock.invocationCallOrder.at(-1)!);
+  await engine.resume(); expect(engine.nativeUri).toBe(uri); expect(mockStatus.recordingId).toBe(id);
+  expect(mockNative.start).toHaveBeenCalledTimes(1); expect(mockRecord).toHaveBeenCalledTimes(2);
+  expect(mockNative.resume).toHaveBeenCalledWith(id, 1, mockGeneration);
+  expect(AudioModule.AudioRecorder).not.toHaveBeenCalled(); expect(setAudioModeAsync).not.toHaveBeenCalled(); await engine.discard();
 });
-test('R11 delayed re-arm cannot record after X invalidates the operation', async () => {
-  const engine = new ExpoAudioEngine(); await engine.start(); await engine.pause();
-  const native = (AudioModule.AudioRecorder as unknown as jest.Mock).mock.results.at(-1)!.value;
-  let resolve!: () => void; let valid = true;
-  (setAudioModeAsync as jest.Mock).mockImplementationOnce(() => new Promise<void>(done => { resolve = done; }));
-  const resume = engine.resume(() => valid).catch(error => error); valid = false; resolve();
-  expect((await resume).message).toBe('voice_cancelled'); expect(native.record).toHaveBeenCalledTimes(1); expect(mockModes.at(-1)).toBe(false); await engine.discard();
-});
-test('R11 delayed native prepare cannot record after lock', async () => {
-  let resolve!: () => void; let valid = true; mockPrepare = new Promise<void>(done => { resolve = done; });
-  const engine = new ExpoAudioEngine(); const started = engine.start(() => valid).catch(error => error); await flush();
-  const native = (AudioModule.AudioRecorder as unknown as jest.Mock).mock.results.at(-1)!.value;
-  valid = false; resolve(); expect((await started).message).toBe('voice_cancelled'); expect(native.record).not.toHaveBeenCalled(); await engine.discard();
-});
-test('R11 failed disarm retains a paused native recorder and failed resume never claims recording', async () => {
-  const engine = new ExpoAudioEngine(); await engine.start();
-  (setAudioModeAsync as jest.Mock).mockRejectedValueOnce(new Error('mode_failed'));
-  await expect(engine.pause()).rejects.toThrow('mode_failed'); expect(engine.poll().interrupted).toBe(true);
-  (setAudioModeAsync as jest.Mock).mockRejectedValueOnce(new Error('arm_failed'));
-  await expect(engine.resume()).rejects.toThrow('arm_failed'); expect(engine.poll().interrupted).toBe(true); await engine.discard();
-});
-
 test('R11 account switch fences rearm even with identical origin and generation; restoring scope permits explicit Resume', async () => {
   const id = await voiceRecorder.start('hosta:origin');
-  const native = (AudioModule.AudioRecorder as unknown as jest.Mock).mock.results.at(-1)!.value;
   mockCurrentScope = { ...scope, credentialId: 'operator-b' };
   mockTransportListeners.forEach(listener => listener()); await flush();
   expect(voiceRecorder.snapshot()).toMatchObject({ recordingId: id, status: 'paused', pauseReason: 'origin' });
-  await expect(voiceRecorder.resume()).rejects.toThrow('Original chat unavailable'); expect(native.record).toHaveBeenCalledTimes(1); expect(voiceRecorder.isOwnedByCurrentScope(id)).toBe(false);
+  await expect(voiceRecorder.resume()).rejects.toThrow('Original chat unavailable'); expect(mockRecord).toHaveBeenCalledTimes(1); expect(voiceRecorder.isOwnedByCurrentScope(id)).toBe(false);
   mockCurrentScope = scope; mockTransportListeners.forEach(listener => listener());
-  expect(voiceRecorder.snapshot()?.pauseReason).toBeUndefined(); await voiceRecorder.resume(); expect(native.record).toHaveBeenCalledTimes(2);
+  expect(voiceRecorder.snapshot()?.pauseReason).toBeUndefined(); await voiceRecorder.resume(); expect(mockRecord).toHaveBeenCalledTimes(2);
 });
 test('R11 account switch during delayed native rearm cannot recapture', async () => {
   await voiceRecorder.start('hosta:origin'); await voiceRecorder.pause();
-  const native = (AudioModule.AudioRecorder as unknown as jest.Mock).mock.results.at(-1)!.value;
   let resolve!: () => void;
-  (setAudioModeAsync as jest.Mock).mockImplementationOnce(() => new Promise<void>(done => { resolve = done; }));
+  mockPrepare = new Promise<void>(done => { resolve = done; });
   const resumed = voiceRecorder.resume().catch(error => error); await flush();
-  mockCurrentScope = { ...scope, serverIdentity: 'wss://different.invalid/ws' }; resolve();
-  expect((await resumed).message).toBe('voice_cancelled'); expect(native.record).toHaveBeenCalledTimes(1);
-});
-
-test('R12 native deadline finish records the cap but early native finish never fabricates five minutes', async () => {
-  const engine = new ExpoAudioEngine(); await engine.start();
-  const native = (AudioModule.AudioRecorder as unknown as jest.Mock).mock.results.at(-1)!.value;
-  engine.poll(); native.addListener.mock.calls[0][1]({ isFinished: true, hasError: false });
-  expect(engine.poll()).toMatchObject({ capped: false, interrupted: true, durationMs: 3000 }); await engine.discard();
-  await engine.start(); const cappedNative = (AudioModule.AudioRecorder as unknown as jest.Mock).mock.results.at(-1)!.value;
-  jest.advanceTimersByTime(MAX_DURATION_MS); cappedNative.addListener.mock.calls[0][1]({ isFinished: true, hasError: false });
-  expect(engine.poll()).toMatchObject({ capped: true, durationMs: MAX_DURATION_MS }); await engine.discard();
+  mockCurrentScope = { ...scope, serverIdentity: 'wss://different.invalid/ws' }; mockTransportListeners.forEach(listener => listener()); resolve();
+  expect((await resumed).message).toBe('cancelled'); expect(mockRecord).toHaveBeenCalledTimes(1);
 });
 
 test('R11 revoked credentials pause capture and block rearm while retaining same-scope visibility', async () => {
   const id = await voiceRecorder.start('hosta:origin');
-  const native = (AudioModule.AudioRecorder as unknown as jest.Mock).mock.results.at(-1)!.value;
   mockAuthNeeded = true; mockTransportListeners.forEach(listener => listener()); await flush();
   expect(voiceRecorder.snapshot()?.status).toBe('paused'); expect(voiceRecorder.isOwnedByCurrentScope(id)).toBe(true);
-  await expect(voiceRecorder.resume()).rejects.toThrow('Original chat unavailable'); expect(native.record).toHaveBeenCalledTimes(1);
+  await expect(voiceRecorder.resume()).rejects.toThrow('Original chat unavailable'); expect(mockRecord).toHaveBeenCalledTimes(1);
 });
 
 test('CAP-03 restored finalized question Send preserves committed frozen answers with an unavailable deck', async () => {

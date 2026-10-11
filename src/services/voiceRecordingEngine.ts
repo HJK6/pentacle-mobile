@@ -1,110 +1,134 @@
 import { AppState } from 'react-native';
-import { AudioModule, RecordingPresets, setAudioModeAsync, type RecordingOptions } from 'expo-audio';
-import { VoiceRecorder, MAX_DURATION_MS, type RecordingEngine, type VoicePermission, type RecordingDraft, NoVoiceAnswersError } from './voiceRecording';
+import { uuid } from 'expo-modules-core';
+import { getAppIdentity } from '../config/appIdentity';
+import { nativeVoiceCapture, getCaptureContract, ACCEPTED_CAPTURE_REVISION, type NativeVoiceCapture, type CaptureStatus } from '../../modules/pentacle-voice-capture';
+import { VoiceRecorder, MAX_DURATION_MS, type RecordingEngine, type VoicePermission, type RecordingDraft, NoVoiceAnswersError, CaptureUnsupportedError } from './voiceRecording';
 import { voiceDelivery } from './voiceDelivery';
 import { voiceTakeStore, voiceScopeHash, VoiceStorageError } from './voiceTakeStore';
 import { voiceTransportSnapshot, voiceOriginStatus, subscribeVoiceTransport, getPentacleStreamState } from './pentacleStream';
 import { selectQuestionDeck } from '../components/questions/questionSelectors';
 import { voiceQuestionSnapshot, updateVoiceQuestionLiveKeys, freezeVoiceQuestionAnswers, startVoiceQuestionSession, completeVoiceQuestionSession } from '../components/questions/voice/voiceAnswersBinding';
 
-export const RECORDING_OPTIONS: RecordingOptions = {
-  ...RecordingPresets.HIGH_QUALITY, extension: '.m4a', sampleRate: 16000,
-  numberOfChannels: 1, bitRate: 32000, isMeteringEnabled: true,
-};
-function normalizeMeter(db?: number) { return typeof db === 'number' && Number.isFinite(db) ? (Math.max(-60, Math.min(0, db)) + 60) / 60 : 0; }
+export { ACCEPTED_CAPTURE_REVISION } from '../../modules/pentacle-voice-capture';
+export const RECORDING_OPTIONS = Object.freeze({
+  extension: '.m4a', sampleRate: 16000, numberOfChannels: 1,
+  bitRate: 32000, isMeteringEnabled: true,
+});
+function normalizeMeter(db?: number | null) { return typeof db === 'number' && Number.isFinite(db) ? (Math.max(-60, Math.min(0, db)) + 60) / 60 : 0; }
 function mapPermission(value: { granted: boolean; canAskAgain?: boolean }): VoicePermission { return value.granted ? 'granted' : value.canAskAgain === false ? 'denied' : 'undetermined'; }
+function captureMilliseconds(value: number) { return Number.isFinite(value) ? Math.max(0, Math.min(MAX_DURATION_MS, value)) : 0; }
 
-/** Same native recorder/file for the entire live take. Never prepare on Resume. */
-export class ExpoAudioEngine implements RecordingEngine {
+type CaptureBindings = {
+  module(): NativeVoiceCapture | null;
+  contract(): unknown;
+  build(): string;
+};
+const installedBindings: CaptureBindings = {
+  module: nativeVoiceCapture, contract: getCaptureContract, build: () => getAppIdentity().buildNumber,
+};
+
+/** One retained native handle/file per live capture. The take store's UUID is separate:
+ * this opaque handle only fences native commands; nativeUri is the ownership handoff.
+ * No Expo Audio recorder or audio-session API participates in this capture path.
+ */
+export class NativeCaptureEngine implements RecordingEngine {
   readonly mime = 'audio/mp4';
-  private recorder: InstanceType<typeof AudioModule.AudioRecorder> | null = null;
-  private listener: { remove(): void } | null = null;
+  private native: NativeVoiceCapture | null = null;
+  private recordingId: string | null = null;
   private appStateSubscription: { remove(): void } | null = null;
-  private capturedMs = 0;
-  private paused = true;
-  private capped = false;
-  private explicitStop = false;
-  private nativeDeadlineMs = 0;
+  private status: CaptureStatus | null = null;
   private stopped: { uri: string; durationMs: number } | null = null;
-  constructor(private onAppState?: (state: string) => void) {}
-  get nativeUri(): string | undefined { return this.recorder?.uri ?? this.stopped?.uri ?? undefined; }
-  async requestPermission() { return mapPermission(await AudioModule.requestRecordingPermissionsAsync()); }
-  async getPermission() { return mapPermission(await AudioModule.getRecordingPermissionsAsync()); }
-  private async disarm() { await setAudioModeAsync({ allowsRecording: false }); }
+  private stopping: Promise<{ uri: string; durationMs: number }> | null = null;
+  constructor(private onAppState?: (state: string) => void, private bindings: CaptureBindings = installedBindings) {}
+  private supported(): NativeVoiceCapture {
+    try {
+      const native = this.bindings.module();
+      const contract = this.bindings.contract();
+      const build = this.bindings.build();
+      if (!native || !contract || typeof contract !== 'object' || Array.isArray(contract)) throw new CaptureUnsupportedError();
+      const value = contract as Record<string, unknown>;
+      if (value.contract !== 'pentacle-voice-capture' || value.revision !== ACCEPTED_CAPTURE_REVISION
+        || typeof value.nativeBuild !== 'string' || !value.nativeBuild.trim() || value.nativeBuild !== build)
+        throw new CaptureUnsupportedError();
+      // Missing bridge methods are also unsupported; never enter ownership with a partial module.
+      for (const key of ['getStatus', 'getAdmission', 'revokeAdmissions', 'getPermission', 'requestPermission', 'start', 'pause', 'resume', 'stop', 'discard'] as const)
+        if (typeof native[key] !== 'function') throw new CaptureUnsupportedError();
+      this.native = native; return native;
+    } catch { throw new CaptureUnsupportedError(); }
+  }
+  get nativeUri(): string | undefined { return this.snapshot()?.uri ?? this.stopped?.uri ?? undefined; }
+  // VoiceRecorder asks getPermission before ownership.create or any permission prompt.
+  async getPermission() { return mapPermission(await this.supported().getPermission()); }
+  async requestPermission() { return mapPermission(await this.supported().requestPermission()); }
+  private snapshot(): CaptureStatus | null {
+    if (!this.native || !this.recordingId) return null;
+    const status = this.native.getStatus();
+    if (status.recordingId === this.recordingId) this.status = status;
+    return this.status;
+  }
+  private revokeAdmissions() {
+    if (this.native && this.recordingId) this.native.revokeAdmissions(this.recordingId);
+  }
   private async guard(isCurrent: () => boolean) {
     if (isCurrent()) return;
-    try { this.recorder?.pause(); } finally { this.paused = true; await this.disarm(); }
-    throw new Error('voice_cancelled');
+    await this.pause(); throw new Error('voice_cancelled');
   }
   async start(isCurrent: () => boolean = () => true) {
+    const native = this.supported();
     if (!this.appStateSubscription && this.onAppState) this.appStateSubscription = AppState.addEventListener('change', this.onAppState);
-    this.capturedMs = 0; this.capped = false; this.stopped = null; this.explicitStop = false; this.paused = true;
-    await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true, allowsBackgroundRecording: false });
+    if (this.recordingId && !this.stopped) throw new Error('a_recording_is_already_active');
+    this.recordingId = uuid.v4(); this.status = null; this.stopped = null;
+    const admission = native.getAdmission(this.recordingId);
     if (!isCurrent()) await this.guard(isCurrent);
-    const recorder = new AudioModule.AudioRecorder(RECORDING_OPTIONS); this.recorder = recorder;
-    this.listener = recorder.addListener('recordingStatusUpdate', event => {
-      if (this.recorder !== recorder || this.explicitStop) return;
-      if (event.isFinished && !event.hasError) {
-        // Expo resets duration before this event and does not distinguish an early finish.
-        // Only the armed native deadline can certify the full cap; otherwise retain last measured audio.
-        this.capped = !this.paused && performance.now() >= this.nativeDeadlineMs;
-        if (this.capped) this.capturedMs = MAX_DURATION_MS;
-        this.paused = true;
-      }
-      if (event.hasError) this.paused = true;
-    });
-    await recorder.prepareToRecordAsync(); if (!isCurrent()) await this.guard(isCurrent);
-    this.nativeDeadlineMs = performance.now() + MAX_DURATION_MS;
-    recorder.record({ forDuration: MAX_DURATION_MS / 1000 }); this.paused = false;
+    this.status = await native.start(this.recordingId, admission);
+    await this.guard(isCurrent);
+    this.snapshot();
   }
   poll() {
-    const status = this.recorder?.getStatus();
-    if (!this.paused) this.capturedMs = Math.min(MAX_DURATION_MS, Math.max(this.capturedMs, status?.durationMillis ?? 0));
-    return { level: normalizeMeter(status?.metering), durationMs: this.capturedMs, interrupted: !this.capped && (this.paused || status?.isRecording === false), capped: this.capped };
+    const status = this.snapshot();
+    const durationMs = captureMilliseconds(status?.capturedMs ?? this.stopped?.durationMs ?? 0);
+    // A reset is terminal. Use the existing engine interface's failure channel so
+    // the controller can retain Send/Discard without exposing a resumable pause.
+    if (status?.state === 'interrupted') throw Object.assign(new Error('recorder_reset'), { durationMs });
+    return { level: normalizeMeter(status?.metering), durationMs,
+      interrupted: status?.state === 'paused', capped: status?.state === 'capped' };
   }
   async pause() {
-    const recorder = this.recorder;
-    if (recorder && !this.stopped) {
-      this.poll();
-      // Swift setAudioMode(false) stops a still-recording ref. Pause FIRST to preserve it.
-      let failure: unknown;
-      try { recorder.pause(); } catch (error) { failure = error; } finally { this.paused = true; }
-      await this.disarm();
-      if (failure) throw failure;
-      return;
-    }
-    await this.disarm();
+    this.revokeAdmissions(); // Must be the first synchronous statement, before any await or queue.
+    if (!this.native || !this.recordingId || this.stopped) return;
+    this.status = await this.native.pause(this.recordingId);
   }
   async resume(isCurrent: () => boolean = () => true) {
-    const recorder = this.recorder;
-    if (!recorder || this.stopped || this.capped || this.capturedMs >= MAX_DURATION_MS) throw new Error('no_paused_recording');
-    await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true, allowsBackgroundRecording: false });
+    const native = this.supported();
+    const status = this.snapshot();
+    if (status?.state === 'interrupted') throw Object.assign(new Error('recorder_reset'), { durationMs: captureMilliseconds(status.capturedMs) });
+    if (!this.recordingId || this.stopped || status?.state !== 'paused') throw new Error(status?.state === 'capped' ? 'capped' : 'not_paused');
+    const admission = native.getAdmission(this.recordingId);
     if (!isCurrent()) await this.guard(isCurrent);
-    // prepareToRecordAsync would replace/reset native file and duration.
-    this.nativeDeadlineMs = performance.now() + (MAX_DURATION_MS - this.capturedMs);
-    recorder.record({ forDuration: (MAX_DURATION_MS - this.capturedMs) / 1000 });
-    this.paused = false;
-    if (!recorder.getStatus().isRecording || !recorder.isRecording) { await this.pause(); throw new Error('resume_failed'); }
+    // Both epoch and admission are checked again natively after session activation.
+    try { this.status = await native.resume(this.recordingId, status.pauseEpoch, admission); }
+    catch (error) { this.poll(); throw error; }
+    await this.guard(isCurrent);
+    this.poll();
   }
   async stop() {
-    const recorder = this.recorder;
-    if (!this.stopped) {
-      if (!recorder) throw new Error('no_active_recording');
-      this.poll(); this.explicitStop = true;
-      await recorder.stop();
-      this.paused = true; this.stopped = { uri: recorder.uri ?? '', durationMs: this.capturedMs };
-    }
-    // A failed disarm is retryable without issuing another native stop.
-    await this.disarm();
-    const result = this.stopped;
-    this.listener?.remove(); this.listener = null; this.recorder = null;
-    return result;
+    this.revokeAdmissions(); // Send cancels queued/activating admission immediately.
+    if (this.stopped) return this.stopped;
+    if (this.stopping) return this.stopping;
+    if (!this.native || !this.recordingId) throw new Error('no_active_recording');
+    const native = this.native; const id = this.recordingId;
+    const work = (async () => {
+      this.status = await native.stop(id);
+      this.stopped = { uri: this.status.uri ?? '', durationMs: captureMilliseconds(this.status.capturedMs) };
+      return this.stopped;
+    })();
+    this.stopping = work;
+    try { return await work; } finally { this.stopping = null; }
   }
   async discard() {
-    this.explicitStop = true;
-    if (this.recorder && !this.stopped) { await this.recorder.stop(); this.paused = true; }
-    await this.disarm();
-    this.listener?.remove(); this.listener = null; this.recorder = null; this.stopped = null;
+    this.revokeAdmissions(); // X cancels queued/activating admission immediately.
+    if (this.native && this.recordingId) await this.native.discard(this.recordingId);
+    this.recordingId = null; this.status = null; this.stopped = null;
   }
 }
 
@@ -131,7 +155,7 @@ function ownsCurrentScope(recordingId: string) {
   return !!take && !!context.credentialId && !!context.serverIdentity
     && take.scopeHash === voiceScopeHash({ serverIdentity: context.serverIdentity, credentialId: context.credentialId });
 }
-export const voiceRecorder = new VoiceRecorder(new ExpoAudioEngine(state => {
+export const voiceRecorder = new VoiceRecorder(new NativeCaptureEngine(state => {
   setVoiceLifecycle({ foreground: state === 'active', unlocked: state === 'active' ? lifecycle.unlocked : false });
 }), undefined, {
   create: async (streamId, draft) => {

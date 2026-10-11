@@ -4,7 +4,7 @@ import type { ProcessedAsset } from './imageCapture';
 import type { VoiceRecordingAsset } from './voiceSendUnit';
 import {
   startVoiceQuestionSession, updateVoiceQuestionCapture, voiceQuestionSnapshot, refreshVoiceQuestionSession,
-  coveredVoiceQuestionItems, freezeVoiceQuestionAnswers, completeVoiceQuestionSession,
+  freezeVoiceQuestionAnswers, completeVoiceQuestionSession,
   type VoiceQuestionSessionSnapshot, type VoiceAnswersItem,
 } from '../components/questions/voice/voiceAnswersBinding';
 
@@ -64,10 +64,15 @@ type ActiveRecording = {
   draft?: RecordingDraft; streamId: string; recordingId: string; levels: number[];
   durationMs: number; status: CapturePhase; pauseReason?: PauseReason; error?: string;
   finished?: FinishedRecording;
+  nativeInterrupted?: boolean;
   discardUri?: string;
   releaseDraft?: () => void; draftTransferred?: boolean;
 };
 type Listener = (snapshot: RecordingSnapshot | null) => void;
+export class CaptureUnsupportedError extends Error {
+  readonly code = 'capture_unsupported';
+  constructor() { super('Voice recording requires an updated iPhone app.'); this.name = 'CaptureUnsupportedError'; }
+}
 export class PermissionDeniedError extends Error { constructor() { super('microphone_permission_denied'); this.name = 'PermissionDeniedError'; } }
 export class RecorderBusyError extends Error { constructor() { super('a_recording_is_already_active'); this.name = 'RecorderBusyError'; } }
 export class NoVoiceAnswersError extends Error { constructor() { super('No answers recorded. Take discarded.'); this.name = 'NoVoiceAnswersError'; } }
@@ -162,8 +167,8 @@ export class VoiceRecorder {
           if (this.current(epoch)) {
             const held = this.active!;
             held.status = 'paused'; held.pauseReason = 'storage'; held.error = 'Could not save recording. Retry Send or Discard.'; this.stopTick();
-            updateVoiceQuestionCapture(held.recordingId, held.durationMs, 'paused');
-            try { await this.engine.pause(); } catch { /* remain visibly paused with the failure */ }
+            try { await this.engine.pause(); this.settleNativePause(held); }
+            catch { if (this.active === held && !held.nativeInterrupted) updateVoiceQuestionCapture(held.recordingId, held.durationMs, 'paused'); }
             this.emit();
           }
         } else if (created) {
@@ -187,15 +192,53 @@ export class VoiceRecorder {
   }
   capturedAudioMs(): number {
     const a = this.active; if (!a) return 0;
-    if (a.status === 'recording') {
-      const status = this.engine.poll();
-      a.durationMs = Math.min(MAX_DURATION_MS, Math.max(a.durationMs, status.durationMs || 0));
+    if (a.status === 'recording' || a.status === 'paused') {
+      try {
+        const status = this.engine.poll();
+        // A published native pause includes its settled capture tail, even when
+        // the pause promise has not reached JS yet. Never count paused wall time.
+        if (a.status === 'recording' || status.interrupted || status.capped) {
+          a.durationMs = Math.min(MAX_DURATION_MS, Math.max(a.durationMs, status.durationMs || 0));
+          if (a.status === 'paused' && status.interrupted) updateVoiceQuestionCapture(a.recordingId, a.durationMs, 'paused');
+        }
+      } catch (error) { if (!this.consumeNativeReset(error, a)) throw error; }
     }
     return a.durationMs;
   }
+  private settleNativePause(a: ActiveRecording) {
+    if (this.active !== a || a.nativeInterrupted || a.finished) return;
+    try {
+      const status = this.engine.poll();
+      a.durationMs = Math.min(MAX_DURATION_MS, Math.max(a.durationMs, status.durationMs || 0));
+      updateVoiceQuestionCapture(a.recordingId, a.durationMs, 'paused'); this.emit();
+    } catch (error) { if (!this.consumeNativeReset(error, a)) throw error; }
+  }
+  private consumeNativeReset(error: unknown, a: ActiveRecording): boolean {
+    if (!(error instanceof Error) || error.message !== 'recorder_reset') return false;
+    const duration = (error as Error & { durationMs?: number }).durationMs;
+    if (typeof duration === 'number' && Number.isFinite(duration)) a.durationMs = Math.min(MAX_DURATION_MS, Math.max(a.durationMs, duration));
+    a.nativeInterrupted = true; a.status = 'finalized'; a.pauseReason = 'interrupted'; a.error = 'Interrupted. Send or Discard.';
+    this.stopTick(); updateVoiceQuestionCapture(a.recordingId, a.durationMs, 'finalized'); this.emit();
+    return true;
+  }
   private sample() {
-    const a = this.active; if (!a || a.status !== 'recording') return;
-    const result = this.engine.poll(); a.levels.push(clamp01(result.level));
+    const a = this.active; if (!a || (a.status !== 'recording' && a.status !== 'paused')) return;
+    let result: ReturnType<RecordingEngine['poll']>;
+    try { result = this.engine.poll(); } catch (error) {
+      if (!this.consumeNativeReset(error, a)) void this.pause('interrupted').catch(() => undefined);
+      return;
+    }
+    // A native paused snapshot settles the tail captured before pause. It never
+    // accrues paused dwell or adds waveform samples while JS remains paused.
+    if (a.status === 'paused') {
+      if (result.interrupted || result.capped) {
+        a.durationMs = Math.min(MAX_DURATION_MS, Math.max(a.durationMs, result.durationMs || 0));
+        updateVoiceQuestionCapture(a.recordingId, a.durationMs, 'paused'); this.emit();
+      }
+      if (result.capped) void this.stop('cap').catch(() => undefined);
+      return;
+    }
+    a.levels.push(clamp01(result.level));
     a.durationMs = Math.min(MAX_DURATION_MS, Math.max(a.durationMs, result.durationMs || 0));
     updateVoiceQuestionCapture(a.recordingId, a.durationMs, 'recording');
     if (result.capped || a.durationMs >= MAX_DURATION_MS) { void this.stop('cap').catch(() => undefined); return; }
@@ -219,20 +262,26 @@ export class VoiceRecorder {
         throw error;
       });
     }
-    if (a?.finished) return Promise.resolve();
+    if (a?.finished || a?.status === 'finalized') return Promise.resolve();
     // Invalidate pending permission/arming synchronously; a stale await cannot record.
     const epoch = ++this.epoch;
     if (!a) return Promise.resolve();
-    this.capturedAudioMs(); a.status = 'paused'; a.pauseReason = reason;
+    this.capturedAudioMs();
+    if (a.nativeInterrupted) return Promise.resolve();
+    a.status = 'paused'; a.pauseReason = reason;
     a.error = reason === 'origin' ? 'Original chat unavailable' : undefined;
-    this.stopTick(); updateVoiceQuestionCapture(a.recordingId, a.durationMs, 'paused'); this.emit();
+    this.startTick(); this.emit();
     // Native pause starts now, before a slow checkpoint can delay the serial persistence tail.
     const nativePause = this.engine.pause(); nativePause.catch(() => undefined);
     return this.serial(async () => {
       try {
-        await nativePause; this.guard(epoch, a); this.telemetry(a.recordingId, 'paused');
+        await nativePause;
+        // A queued Resume may supersede this operation's persistence epoch, but
+        // the same take still needs its settled pause boundary closed first.
+        this.settleNativePause(a); this.guard(epoch, a); this.telemetry(a.recordingId, 'paused');
         if (this.ownership) { await this.ownership.checkpoint(this.snapshot()!, this.engine.nativeUri, voiceQuestionSnapshot(a.recordingId)); this.guard(epoch, a); }
       } catch (error) {
+        if (this.active === a && !a.nativeInterrupted) updateVoiceQuestionCapture(a.recordingId, a.durationMs, 'paused');
         if (this.current(epoch, a)) { a.error = 'Could not pause safely. Retry Resume, Send or Discard.'; this.emit(); }
         throw error;
       }
@@ -254,9 +303,10 @@ export class VoiceRecorder {
         if (this.ownership) { await this.ownership.checkpoint(this.snapshot()!, this.engine.nativeUri, voiceQuestionSnapshot(a.recordingId)); this.guard(epoch, a); }
       } catch (error) {
         if (this.current(epoch, a)) {
-          this.stopTick(); a.status = 'paused'; a.error = 'Could not resume. Retry Resume, Send or Discard.';
-          updateVoiceQuestionCapture(a.recordingId, a.durationMs, 'paused');
-          try { await this.engine.pause(); } catch { /* failure remains actionable */ }
+          if (this.consumeNativeReset(error, a)) throw error;
+          this.startTick(); a.status = 'paused'; a.error = 'Could not resume. Retry Resume, Send or Discard.';
+          try { await this.engine.pause(); this.settleNativePause(a); }
+          catch { if (this.active === a && !a.nativeInterrupted) updateVoiceQuestionCapture(a.recordingId, a.durationMs, 'paused'); }
           this.emit();
         }
         throw error;
@@ -276,12 +326,6 @@ export class VoiceRecorder {
     const work = this.serial(async () => {
       try {
         this.guard(epoch, a); await nativePause; this.guard(epoch, a);
-        if (reason === 'tap' && voiceQuestionSnapshot(a.recordingId) && coveredVoiceQuestionItems(a.recordingId, a.durationMs).length === 0) {
-          a.discardUri = a.discardUri ?? this.engine.nativeUri;
-          await this.engine.discard(); this.guard(epoch, a);
-          if (this.ownership) { await this.ownership.discard(a.recordingId, { nativeUri: a.discardUri }); this.guard(epoch, a); }
-          this.active = null; completeVoiceQuestionSession(a.recordingId, 'no_answers'); this.emit(); throw new NoVoiceAnswersError();
-        }
         if (!a.finished) {
           const result = await this.engine.stop(); this.guard(epoch, a);
           a.durationMs = Math.min(MAX_DURATION_MS, Math.max(a.durationMs, result.durationMs || 0));
@@ -296,6 +340,7 @@ export class VoiceRecorder {
         this.transferDraft(a);
         if (this.sendAfterStop) {
           if (take.frozenAnswers && !take.frozenAnswers.length) {
+            await this.engine.discard(); this.guard(epoch, a);
             if (this.ownership) { await this.ownership.discard(a.recordingId); this.guard(epoch, a); }
             this.active = null; completeVoiceQuestionSession(a.recordingId, 'no_answers'); this.emit(); throw new NoVoiceAnswersError();
           }
@@ -308,10 +353,11 @@ export class VoiceRecorder {
         return take;
       } catch (error) {
         if (this.current(epoch, a)) {
-          a.status = a.finished ? 'finalized' : 'paused';
+          a.status = a.finished || a.nativeInterrupted ? 'finalized' : 'paused';
           a.error = 'Could not save or stop recording. Tap stop again or discard.';
-          updateVoiceQuestionCapture(a.recordingId, a.durationMs, a.finished ? 'finalized' : 'paused');
-          try { await this.engine.pause(); } catch { /* display failure, never mark resumed */ }
+          if (a.finished || a.nativeInterrupted) updateVoiceQuestionCapture(a.recordingId, a.durationMs, 'finalized');
+          try { await this.engine.pause(); this.settleNativePause(a); }
+          catch { if (this.active === a && !a.finished && !a.nativeInterrupted) updateVoiceQuestionCapture(a.recordingId, a.durationMs, 'paused'); }
           this.emit();
         }
         throw error;
@@ -327,13 +373,17 @@ export class VoiceRecorder {
     if (a) this.ownership?.invalidate?.(a.recordingId);
     return this.serial(async () => {
       try {
-        await pause; this.guard(epoch, a ?? undefined);
+        await pause; this.guard(epoch);
+        // A revoked native start may have already cleaned this same take. X is
+        // complete in that case; another epoch or another active take still refuses.
+        if (a && !this.active) return;
+        this.guard(epoch, a ?? undefined);
         await this.engine.discard(); this.guard(epoch, a ?? undefined);
         if (a && this.ownership) { await this.ownership.discard(a.recordingId, { nativeUri: a.discardUri }); this.guard(epoch, a); }
         if (a) { completeVoiceQuestionSession(a.recordingId, 'discarded'); this.telemetry(a.recordingId, 'cancelled'); }
         this.active = null; this.emit();
       } catch (error) {
-        if (this.current(epoch, a ?? undefined) && a) { a.status = a.finished ? 'finalized' : 'paused'; a.error = 'Could not discard recording. Try again.'; this.emit(); }
+        if (this.current(epoch, a ?? undefined) && a) { a.status = a.finished || a.nativeInterrupted ? 'finalized' : 'paused'; a.error = 'Could not discard recording. Try again.'; this.emit(); }
         throw error;
       }
     });

@@ -24,7 +24,28 @@ const mockState = { ...initialPentacleStreamState, connected: true, hasHydrated:
 jest.mock('../src/services/pentacleStream', () => require('./questions/voiceHarness').makeVoiceTransportMock(() => mockState, () => new Promise(() => {}), async () => ({ delivery: 'landed' })));
 jest.mock('../src/hooks/usePentacleToken', () => () => ({ isReady: true, token: 'test-token' }));
 jest.mock('expo-file-system/legacy', () => require('./questions/voiceHarness').makeVoiceCaptureFsMock());
-jest.mock('expo-audio', () => require('./questions/voiceHarness').makeNativeVoiceMock());
+jest.mock('../modules/pentacle-voice-capture', () => {
+  let next = 0; let admission = 0;
+  let status: any = { state: 'idle', reason: null, recordingId: null, pauseEpoch: 0, capturedMs: 0, uri: null, metering: -20 };
+  const contract = { contract: 'pentacle-voice-capture', revision: 1, nativeBuild: '101' };
+  const native = {
+    getCaptureContract: () => contract, getStatus: () => ({ ...status }),
+    getAdmission: () => admission, revokeAdmissions: () => { admission++; },
+    getPermission: async () => ({ granted: true, canAskAgain: true }), requestPermission: async () => ({ granted: true, canAskAgain: true }),
+    start: async (id: string, token: number) => {
+      if (token !== admission) throw new Error('cancelled');
+      const uri = `file:///cache/voice-${++next}.m4a`;
+      const box = (kind: string, payload: string) => { const b = Buffer.alloc(8 + payload.length); b.writeUInt32BE(b.length); b.write(kind, 4); b.write(payload, 8); return b; };
+      require('expo-file-system/legacy').__files.set(uri, Buffer.concat([box('ftyp', 'M4A \0\0\0\0'), box('moov', 'synthetic'), box('mdat', 'audio')]));
+      status = { state: 'recording', reason: null, recordingId: id, pauseEpoch: 0, capturedMs: 3000, uri, metering: -20 }; return { ...status };
+    },
+    pause: async () => { if (status.state === 'recording') { status.state = 'paused'; status.pauseEpoch++; } return { ...status }; },
+    resume: async (_id: string, epoch: number, token: number) => { if (token !== admission || epoch !== status.pauseEpoch) throw new Error('cancelled'); status.state = 'recording'; return { ...status }; },
+    stop: async () => { status.state = 'stopped'; return { ...status }; }, discard: async () => { status.state = 'discarded'; },
+  };
+  return { ACCEPTED_CAPTURE_REVISION: 1, getCaptureContract: () => contract, nativeVoiceCapture: () => native };
+});
+jest.mock('../src/config/appIdentity', () => ({ getAppIdentity: () => ({ version: '1', buildNumber: '101' }) }));
 jest.mock('expo-router', () => require('./helpers/mocks/expoRouter').makeMock());
 jest.mock('@expo/vector-icons/FontAwesome', () => 'FontAwesome');
 jest.mock('@react-navigation/native', () => ({ useIsFocused: () => true }));
