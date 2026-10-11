@@ -678,6 +678,29 @@ test('U3 auth-blocked take ignores unrelated stream notifications until renewed 
   expect(h.io.transcribe).toHaveBeenCalledTimes(2);
   h.delivery.dispose();
 });
+test('U3 a transient transport auth block clears to queued once the credential is present, even offline', async () => {
+  const h = harness();
+  await h.ready();
+  const t = await h.take();
+  h.io.transcribe = jest.fn();
+  h.transport.ready = false;
+  h.notify();
+  await flush();
+  await h.delivery.send(t.recordingId);
+  await flush();
+  // Relaunch can briefly report authNeeded before the stored credential is current.
+  h.transport.authNeeded = true;
+  h.notify();
+  await flush();
+  expect(h.store.get(t.recordingId)?.delivery.phase).toBe('auth_needed');
+  h.transport.authNeeded = false;
+  h.notify();
+  await flush();
+  expect(h.store.get(t.recordingId)?.delivery.phase).toBe('queued');
+  expect(h.store.get(t.recordingId)?.delivery.error).toBeUndefined();
+  expect(h.io.transcribe).not.toHaveBeenCalled();
+  h.delivery.dispose();
+});
 test('U3 enqueue releases the capture command after durable Send while ASR remains pending', async () => {
   const h = harness();
   await h.ready();

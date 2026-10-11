@@ -169,6 +169,8 @@ export class VoiceDelivery {
   private scope: string | null = null;
   private lastReady = false;
   private authReadyKey = '';
+  /** Takes blocked only by the transport's auth state, not by a server credential rejection. */
+  private transportAuthBlocked = new Set<string>();
   private readyEpoch = 0;
   private configuration: Promise<void> = Promise.resolve();
   private proofWrites = new Map<string, Promise<void>>();
@@ -330,12 +332,25 @@ export class VoiceDelivery {
               t.sendRequestedAt !== null &&
               !t.dispatchIntent &&
               t.delivery.phase !== 'auth_needed'
-            )
+            ) {
               await this.store.setDelivery(t.recordingId, {
                 phase: 'auth_needed',
                 retryAt: null,
                 error: 'auth_needed',
               });
+              this.transportAuthBlocked.add(t.recordingId);
+            }
+        } else if (current.credentialId && this.transportAuthBlocked.size) {
+          // Relaunch can report authNeeded before the stored credential is current. Once it is,
+          // the take is queued again even while offline; it is not a sign-in problem.
+          for (const t of this.store.snapshot().takes)
+            if (this.transportAuthBlocked.has(t.recordingId) && t.delivery.phase === 'auth_needed')
+              await this.store.setDelivery(t.recordingId, {
+                phase: 'queued',
+                retryAt: null,
+                error: undefined,
+              });
+          this.transportAuthBlocked.clear();
         }
         if (!this.enabled()) return;
         const authKey = `${current.scopeGeneration}:${current.socketGeneration}:${this.readyEpoch}`;
@@ -706,6 +721,7 @@ export class VoiceDelivery {
         return;
       }
       if (authFailure(error)) {
+        this.transportAuthBlocked.delete(id);
         await this.store.setDelivery(id, {
           phase: 'auth_needed',
           retryAt: null,
