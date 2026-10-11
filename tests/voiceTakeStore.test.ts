@@ -780,3 +780,92 @@ test('CAP-05 terminal callback observes durable truth before a blocked cleanup',
   release();
   await work;
 });
+
+test('MOB-04 held take deletion freezes selected IDs before cleanup and excludes later takes', async () => {
+  const f = fixture();
+  const first = await f.create(),
+    second = await f.create();
+  await f.finish(first.recordingId);
+  const otherScope = { ...scope, credentialId: 'operator-b' };
+  await f.store.setScope(otherScope);
+  const originalCurrent = await f.store.create({ scope: otherScope, origin });
+  const paths = new Map(
+    [...f.files.keys()]
+      .filter((p) => p.endsWith('/manifest.json'))
+      .map((p) => [JSON.parse(f.files.get(p)!).recordingId, p]),
+  );
+  let release!: () => void,
+    reached = false;
+  const blocked = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const remove = f.io.remove;
+  f.io.remove = async (p) => {
+    if (p.includes(first.recordingId) && p.endsWith('/audio.m4a')) {
+      reached = true;
+      await blocked;
+    }
+    await remove(p);
+  };
+  const notified: string[] = [];
+  const work = f.store.discardHeld((id) => notified.push(id));
+  for (let i = 0; i < 200; i++) await Promise.resolve();
+  expect(reached).toBe(true);
+  await f.store.setScope(scope);
+  const addedAfterSelection = await f.store.create({ scope, origin });
+  release();
+  await work;
+  expect(f.files.has(paths.get(originalCurrent.recordingId)!)).toBe(true);
+  expect(f.files.has(paths.get(second.recordingId)!)).toBe(false);
+  expect(f.store.get(addedAfterSelection.recordingId)).toBeDefined();
+  expect(notified).toEqual([first.recordingId, second.recordingId]);
+  await f.store.setScope(otherScope);
+  expect(f.store.get(originalCurrent.recordingId)).toBeDefined();
+});
+
+test.each(['healthy-cleanup', 'failure-cleanup'] as const)(
+  'MOB-04 quarantine selection is frozen before %s',
+  async (boundary) => {
+    const f = fixture();
+    const healthy = boundary === 'healthy-cleanup' ? await f.create() : undefined;
+    if (healthy) await f.finish(healthy.recordingId);
+    const otherScope = { ...scope, credentialId: 'operator-b' };
+    const failed = async (owner: typeof scope, serial: number) => {
+      const id = `123e4567-e89b-42d3-a456-${String(900 + serial).padStart(12, '0')}`;
+      const dir = `${f.io.root}${voiceScopeHash(owner)}/${id}/`;
+      await f.io.mkdir(dir);
+      f.files.set(dir + 'manifest.json', '{');
+      f.files.set(dir + 'audio.m4a', 'retained unknown audio');
+      return { id, dir };
+    };
+    const first = await failed(scope, 1),
+      second = await failed(scope, 2),
+      originalCurrent = await failed(otherScope, 3);
+    const restored = new VoiceTakeStore(f.io);
+    await restored.setScope(otherScope);
+    let release!: () => void,
+      reached = false;
+    const blocked = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const remove = f.io.remove;
+    f.io.remove = async (p) => {
+      if (healthy ? p.includes(healthy.recordingId) && p.endsWith('/audio.m4a') : p === first.dir) {
+        reached = true;
+        await blocked;
+      }
+      await remove(p);
+    };
+    const work = restored.discardHeld();
+    for (let i = 0; i < 200; i++) await Promise.resolve();
+    expect(reached).toBe(true);
+    await restored.setScope(scope);
+    release();
+    await work;
+    expect(f.files.get(originalCurrent.dir + 'audio.m4a')).toBe('retained unknown audio');
+    expect(f.files.get(originalCurrent.dir + 'manifest.json')).toBe('{');
+    expect(f.files.has(first.dir + 'manifest.json')).toBe(false);
+    expect(f.files.has(second.dir + 'manifest.json')).toBe(false);
+    expect(restored.snapshot()).toMatchObject({ takes: [], recoveryFailures: [], heldCount: 1 });
+  },
+);

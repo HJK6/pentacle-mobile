@@ -934,13 +934,20 @@ export class VoiceTakeStore {
     this.publish();
   }
   async discardHeld(onTerminalized?: (recordingId: string) => void): Promise<void> {
-    for (const t of [...this.records.values()]) {
-      if (t.scopeHash === this.currentScope) continue;
+    // The user's action selects held data now, not whatever becomes held while
+    // a disk await is pending. Snapshot both sets before the first await.
+    const scope = this.currentScope;
+    const recordingIds = [...this.records.values()]
+      .filter((take) => take.scopeHash !== scope)
+      .map((take) => take.recordingId);
+    const failureIds = [...this.failures.values()]
+      .filter((failure) => failure.scopeHash !== scope)
+      .map((failure) => failure.id);
+    for (const id of recordingIds) {
       // Notify at durable terminalization, before any potentially blocked cleanup.
-      await this.terminate(t.recordingId, 'discarded', {}, onTerminalized);
+      await this.terminate(id, 'discarded', {}, onTerminalized);
     }
-    for (const f of [...this.failures.values()])
-      if (f.scopeHash !== this.currentScope) await this.removeRecoveryFailure(f.id);
+    for (const id of failureIds) await this.removeRecoveryFailure(id);
   }
   async removeRecoveryFailure(id: string): Promise<void> {
     const f = this.failures.get(id);
