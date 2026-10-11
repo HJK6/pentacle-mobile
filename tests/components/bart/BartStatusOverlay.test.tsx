@@ -9,7 +9,7 @@ import {
   type PentacleSessionSummary,
   type PentacleStreamState,
 } from 'pentacle-chat-core';
-import BartStatusOverlay from '../../../src/components/bart/BartStatusOverlay';
+import BartStatusOverlay from '../../../src/components/assistant/BartStatusOverlay';
 import { selectSmartChatList, smartChatAttention } from '../../../app/(tabs)/chats';
 import { selectOpenLanes, selectStatusUpdates } from '../../../src/components/status/statusSelectors';
 import { Tokens } from '../../../constants/Colors';

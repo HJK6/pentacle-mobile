@@ -9,7 +9,7 @@ not shown in the bar. Existing Dashboards content is unchanged.
 [`app/(tabs)/bart.tsx`](../app/(tabs)/bart.tsx) composes the exported `SessionScreen`
 for `BART_STREAM_ID`. Transcript rendering, composer, session questions, and voice
 remain the existing session implementation. It does not fork a session screen,
-create a store, or change the daemon. The tab and header read one local [identity adapter](../src/components/bart/assistantIdentity.tsx):
+create a store, or change the daemon. The tab and header read one local [identity adapter](../src/components/assistant/assistantIdentity.tsx):
 the canonical session’s `display_name`, then `title`, then **Assistant**. Its
 icon uses that session’s configured host accent with the `djinni` identity
 glyph; the tab retains its active/inactive tint. The adapter is the single
@@ -30,14 +30,14 @@ replacement point for a future shared identity selector.
   the sole owner of the assistant’s focused-stream registration; modal closure cannot
   unpin the live thread
 
-Implementation: [`BartHeader`](../src/components/bart/BartHeader.tsx) and
-[`BartStatusOverlay`](../src/components/bart/BartStatusOverlay.tsx). The locked
+Implementation: [`BartHeader`](../src/components/assistant/BartHeader.tsx) and
+[`BartStatusOverlay`](../src/components/assistant/BartStatusOverlay.tsx). The locked
 [`StatusSurface`](../src/components/status/StatusSurface.tsx) and hidden
 [`Updates`](../app/(tabs)/updates.tsx) route are unchanged.
 
 ## Sessions drawer
 
-[`ChatsDrawer`](../src/components/bart/ChatsDrawer.tsx) preserves the Chats list's
+[`ChatsDrawer`](../src/components/assistant/ChatsDrawer.tsx) preserves the Chats list's
 ordering within NEEDS YOU, WORKING, and IDLE groups. Attention takes precedence
 over working. Empty groups are omitted. Its panel occupies 86% of the viewport;
 its 300 ms left-slide and 250 ms scrim fade reverse on dismissal. Tap the scrim,
@@ -51,7 +51,7 @@ modals are not presented at the same time.
 
 Rows use the shared duplicate-safe `performChatOpenNavigation`. Opening the
 drawer dismisses the composer keyboard, and handled row taps are preserved.
-[`MachineMark`](../src/components/bart/MachineMark.tsx) gives the machine with the
+[`MachineMark`](../src/components/assistant/MachineMark.tsx) gives the machine with the
 djinni skin a muted B monogram; drawer rows do not reuse the assistant’s lamp. The locked
 status surface retains its existing marks unchanged.
 

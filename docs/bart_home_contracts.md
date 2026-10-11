@@ -9,7 +9,7 @@ integration owner publishes a new version here and tells every packet lead befor
 
 | Packet | Owns | Must not touch |
 | --- | --- | --- |
-| P3 Bart shell | `app/(tabs)/_layout.tsx`, `app/(tabs)/bart.tsx`, `src/components/bart/*` | everything below |
+| P3 assistant shell | `app/(tabs)/_layout.tsx`, the home tab route (see Routes), `src/components/assistant/*` | everything below |
 | P4 Questions overlay | `app/pentacle/questions.tsx`, `src/components/questions/*` | P3, P5, shared files |
 | P5 Personal | `app/(tabs)/personal.tsx`, `app/pentacle/personal/*`, `src/components/personal/*`, `src/services/household/*` | P3, P4, shared files |
 | Integration owner | every other file, in particular `pentacle-chat-core/src/types/*`, `src/services/pentacleStream.ts`, `app/_layout.tsx`, `app/pentacle/session/*`, `src/components/Session*`, `src/components/voice/*` | packet files |
@@ -23,7 +23,7 @@ change outside its files asks the integration owner, who lands it on `feat/integ
 The home tab, its header and the status surface show the operator's own assistant, as Pentacle
 web does (`renderer/app.js` `syncSlotAssistantIcon`). Never hard-code a product name in a visible
 string; `tests/assistantIdentity.test.ts` parses `app/` and
-`src/components/{bart,status,questions,personal}` and fails on any visible assistant product-name literal
+`src/components/{assistant,status,questions,personal}` and fails on any visible assistant product-name literal
 (`Bart`, `BART` or the long form, in string, template or JSX text; lowercase route, telemetry and module
 ids such as `'bart'`, the protocol id `bart:assistant` and `testID` values are not visible text).
 
@@ -34,7 +34,7 @@ ids such as `'bart'`, the protocol id `bart:assistant` and `testID` values are n
   session's `display_name`, else its `title`, else `'Assistant'` (blank values skipped); `hostId` is
   the session's host (`null` before the session arrives); `sigilKind` is `'djinni'`. Draw the icon as
   that host's machine sigil with kind `djinni`: `AssistantIcon` / `assistantAccent(identity)` in
-  `src/components/bart/assistantIdentity.tsx`.
+  `src/components/assistant/assistantIdentity.tsx`.
 - `useAssistantIdentity()` subscribes with field equality, and the selector returns the previous
   object while the identity is unchanged, so memoized consumers (the home header) re-render only
   on a real rename or host change.
@@ -109,7 +109,7 @@ must equal that deck's length for every state (a unit test asserts this).
 
 ### `selectOthersNeedingYou(state): SmartChatListItem[]` — owned by P3
 
-File: `src/components/bart/bartSelectors.ts`. The ☰ badge shows `.length` (hidden at 0).
+File: `src/components/assistant/bartSelectors.ts`. The ☰ badge shows `.length` (hidden at 0).
 
 ```ts
 selectSmartChatList(state).filter((chat) => chat.streamId !== BART_STREAM_ID && smartChatAttention(chat))
@@ -147,7 +147,7 @@ button uses the same hook. Do not copy the spawn logic.
 with `updates = selectStatusUpdates(state)` and `lanes = selectOpenLanes(state)` from
 `statusSelectors.ts`. Since v1.8 the Bart header no longer opens it (its lanes tap goes to
 `/pentacle/lanes`, § Work lanes); it stays reachable from the Updates route
-(`app/(tabs)/updates.tsx`, `UpdatesScreen`) unchanged. `src/components/bart/BartStatusOverlay.tsx`
+(`app/(tabs)/updates.tsx`, `UpdatesScreen`) unchanged. `src/components/assistant/BartStatusOverlay.tsx`
 is kept, unmounted from the header. Any API change is an integration request, not a packet edit.
 
 ## Work lanes

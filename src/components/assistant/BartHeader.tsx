@@ -20,12 +20,12 @@ function HeaderButton({ kind, count, onPress }: { kind: 'sessions' | 'questions'
       strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round">
       <Path d={sessions ? 'M4 6h16M4 12h11M4 18h7' : 'M9.2 9a2.9 2.9 0 1 1 4.3 2.5c-.9.55-1.5 1-1.5 2.1M12 17.4v.05'} />
     </Svg>
-    {count > 0 ? <Text testID={`bart-${kind}-badge`} style={styles.badge}>{count}</Text> : null}
+    {count > 0 ? <Text testID={`assistant-${kind}-badge`} style={styles.badge}>{count}</Text> : null}
   </Pressable>;
 }
 
 export default function BartHeader({ identity, others, pending, lanes, blocked = 0, working, top, onDrawer, onStatus, onQuestions }: Props) {
-  return <View testID="bart-header" style={[styles.header, { paddingTop: Math.max(top, 52) }]}>
+  return <View testID="assistant-header" style={[styles.header, { paddingTop: Math.max(top, 52) }]}>
     <HeaderButton kind="sessions" count={others} onPress={onDrawer} />
     <Pressable accessibilityRole="button" accessibilityLabel={`${identity.name} status, ${lanes} open lanes${blocked > 0 ? `, ${blocked} blocked` : ''}`}
       onPress={onStatus} style={styles.identity}>
@@ -37,7 +37,7 @@ export default function BartHeader({ identity, others, pending, lanes, blocked =
         <View style={styles.meta}>
           <StatusTag status={working ? 'working' : 'idle'} />
           <Text style={styles.lanes}>{lanes} LANES</Text>
-          {blocked > 0 ? <Text testID="bart-lanes-blocked" style={styles.blocked}>{blocked} BLOCKED</Text> : null}
+          {blocked > 0 ? <Text testID="assistant-lanes-blocked" style={styles.blocked}>{blocked} BLOCKED</Text> : null}
         </View>
       </View>
     </Pressable>

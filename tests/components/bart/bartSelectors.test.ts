@@ -1,6 +1,6 @@
 import { selectSmartChatList, smartChatAttention } from '../../../app/(tabs)/chats';
 import { BART_STREAM_ID } from '../../../src/components/status/statusSelectors';
-import { selectOthersNeedingYou } from '../../../src/components/bart/bartSelectors';
+import { selectOthersNeedingYou } from '../../../src/components/assistant/bartSelectors';
 import { bartQuestion, bartSession, bartState, NOW } from './fixtures';
 
 jest.mock('expo-constants', () => require('../../helpers/stubs/expoConstants.cjs'));
@@ -27,7 +27,7 @@ test('empty state and Bart-only questions have zero other sessions needing atten
 });
 
 test('drawer groups preserve Chats ordering, attention wins, and Bart is never listed', () => {
-  const { selectDrawerGroups } = require('../../../src/components/bart/bartSelectors');
+  const { selectDrawerGroups } = require('../../../src/components/assistant/bartSelectors');
   const state = { ...bartState(), sessions: [bartSession(BART_STREAM_ID, { working: true }),
     bartSession('hostc:claude:working', { working: true }), bartSession('hostc:claude:idle'),
     bartSession('hostc:claude:working-needs', { working: true }), bartSession('hostc:claude:needs')],
