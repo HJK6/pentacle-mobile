@@ -10,6 +10,7 @@ import {
   resetVoiceAnswersForTests,
 } from '../../src/components/questions/voice/voiceAnswersBinding';
 import { makeRecorderHarness } from './voiceHarness';
+import { ASSISTANT_STREAM_ID } from '../../src/services/assistantIdentity';
 import {
   BART,
   HIDDEN_SEAT,
@@ -619,7 +620,7 @@ test('R8 durable validators reject malformed visits and duplicate answer keys wi
 
 test('CAP-05 a held finalized question session does not block current-scope capture; terminal cleanup releases only the held binding', async () => {
   const held = '123e4567-e89b-42d3-a456-000000000999';
-  const item = { key: 'held:0', question_id: 'held-q', notification_id: 'held', producer_stream_id: 'hosta:worker', surface_stream_id: BART, prompt: 'Held synthetic question' };
+  const item = { key: 'held:0', question_id: 'held-q', notification_id: 'held', producer_stream_id: 'hosta:worker', surface_stream_id: ASSISTANT_STREAM_ID, prompt: 'Held synthetic question' };
   startVoiceQuestionSession(held, { ...createVoiceQuestionSnapshot([item], 1, item.key, [item.key]), phase: 'finalized', capturedAudioMs: 2500, visits: [{ key: item.key, startMs: 0, endMs: 2500 }] });
   freezeVoiceQuestionAnswers(held, 2500);
   jest.spyOn(mockHarness.recorder, 'isOwnedByCurrentScope').mockImplementation(id => id !== held);

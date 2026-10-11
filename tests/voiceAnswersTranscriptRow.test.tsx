@@ -84,6 +84,7 @@ import {
 } from '../src/components/questions/voice/voiceAnswersBinding';
 import { voiceDelivery, voiceTakeRow } from '../src/services/voiceDelivery';
 import { voiceTakeStore } from '../src/services/voiceTakeStore';
+import { ASSISTANT_STREAM_ID } from '../src/services/assistantIdentity';
 
 const chrome = hostChrome('bart');
 const item = (n: number) => ({
@@ -91,7 +92,7 @@ const item = (n: number) => ({
   question_id: `q-${n}`,
   notification_id: `n-${n}`,
   producer_stream_id: 'hostc:codex:seat',
-  surface_stream_id: 'bart:assistant',
+  surface_stream_id: ASSISTANT_STREAM_ID,
   prompt: `Prompt ${n}?`,
   segment: { start_s: n, end_s: n + 2 },
 });
@@ -110,7 +111,7 @@ async function transcribingRow(answerCount: number, restored = false) {
     await voiceTakeStore.setScope(scope);
     const take = await voiceTakeStore.create({
       scope,
-      origin: { streamId: 'bart:assistant', generation: 'generation-1', label: 'Synthetic origin' },
+      origin: { streamId: ASSISTANT_STREAM_ID, generation: 'generation-1', label: 'Synthetic origin' },
       operationKind: answerCount ? 'voice_answer' : 'voice_chat',
     });
     id = take.recordingId;

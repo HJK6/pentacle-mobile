@@ -4,7 +4,7 @@ import { agentQuestionStreamId, agentQuestionSurfaceStreamId } from '../../../se
 import { PermissionDeniedError, RecorderBusyError, NoVoiceAnswersError } from '../../../services/voiceRecording';
 import { voiceRecorder, sendVoiceTake, discardVoiceTake } from '../../../services/voiceRecordingEngine';
 import { getPentacleStreamState, voiceTransportSnapshot } from '../../../services/pentacleStream';
-import { BART_STREAM_ID } from '../../status/statusSelectors';
+import { ASSISTANT_STREAM_ID } from '../../../services/assistantIdentity';
 import type { QuestionDeckEntry } from '../questionSelectors';
 import {
   isVoiceAnswersCarrierInstalled, createVoiceQuestionSnapshot, activeVoiceQuestionSession,
@@ -99,8 +99,8 @@ export function useVoiceAnswers({ deck, currentKey, onFinished, onDiscarded, not
     const questionBinding = createVoiceQuestionSnapshot(eligibleItems, current.deck.filter(entry => entry.action.kind === 'durable').length, current.currentKey, current.deck.map(entry => entry.key));
     setPhase('starting');
     try {
-      const origin = getPentacleStreamState().sessions.find(row => row.stream_id === BART_STREAM_ID);
-      const id = await recorder.start(BART_STREAM_ID, { originGeneration: origin?.session_generation ?? null, originLabel: origin?.title || 'Assistant', textPrefix: '', images: [], operationKind: 'voice_answer', questionBinding });
+      const origin = getPentacleStreamState().sessions.find(row => row.stream_id === ASSISTANT_STREAM_ID);
+      const id = await recorder.start(ASSISTANT_STREAM_ID, { originGeneration: origin?.session_generation ?? null, originLabel: origin?.title || 'Assistant', textPrefix: '', images: [], operationKind: 'voice_answer', questionBinding });
       observedId.current = id;
       if (mounted.current) setPhase('recording');
     } catch (error) {
