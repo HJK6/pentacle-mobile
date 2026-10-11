@@ -112,7 +112,7 @@ final class VoiceCapturePolicyTests: XCTestCase {
     }
   }
   func testFinalFileEvidenceCanInvalidateTentativeCap() {
-    for (captured, padding, reason) in [(299_999.0, 100.0, "recorder_reset"),
+    for (captured, padding, reason) in [(299_749.9375, 100.0, "recorder_reset"),
                                       (300_000.0625, 100.0, "capture_limit_exceeded"),
                                       (300_000.0, 250.0625, "encoder_padding_exceeded")] {
       var policy = VoiceCapturePolicy()
@@ -126,6 +126,25 @@ final class VoiceCapturePolicyTests: XCTestCase {
       XCTAssertEqual(policy.state, .interrupted)
       XCTAssertEqual(policy.reason, reason)
       XCTAssertEqual(result.actions, [.releaseSession])
+    }
+  }
+  // A finalized AAC file holds whole packets: the simulator's uninterrupted five-minute take
+  // finalized 299.9 s of valid frames. Within the 250 ms padding ceiling below the limit it is
+  // the cap, whether the recorder stopped itself or the audio-clock tick stopped it.
+  func testFinalizedFramesWithinToleranceCertifyCap() {
+    for (captured, viaTick) in [(299_750.0, false), (299_900.0, false), (300_000.0, false), (299_900.0, true)] {
+      var policy = VoiceCapturePolicy()
+      _ = policy.handle(.init("start", recordingId: "capture-a", admission: 0))
+      var ready = VoiceCapturePolicy.Event("startReady"); ready.sessionActive = true
+      _ = policy.handle(ready)
+      if viaTick { XCTAssertEqual(policy.handle(.init("tick", nowMs: 300_000)).actions, [.stop, .releaseSession]) }
+      var finalized = VoiceCapturePolicy.Event("finished", nowMs: 900_000)
+      finalized.success = true; finalized.capturedMs = captured; finalized.paddingMs = 100
+      let result = policy.handle(finalized)
+      XCTAssertEqual(policy.state, .capped, "\(captured)")
+      XCTAssertEqual(policy.reason, "capped")
+      XCTAssertEqual(policy.capturedMs, 300_000)
+      XCTAssertEqual(result.actions, viaTick ? [] : [.stop, .releaseSession])
     }
   }
   func testNonFiniteFinalEvidenceCannotCertifyCap() {

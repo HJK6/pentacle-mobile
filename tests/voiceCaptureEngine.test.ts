@@ -127,7 +127,7 @@ class CaptureContractModel {
         const alreadyStopped = this.state === 'capped';
         if (event.capturedMs !== undefined && Number.isFinite(event.capturedMs) && event.capturedMs >= 0) {
           this.capturedMs = Math.min(MAX_DURATION_MS, Math.max(this.capturedMs, event.capturedMs));
-          if (event.success === true && event.capturedMs === MAX_DURATION_MS && event.paddingMs !== undefined
+          if (event.success === true && event.capturedMs >= MAX_DURATION_MS - 250 && event.capturedMs <= MAX_DURATION_MS && event.paddingMs !== undefined
             && Number.isFinite(event.paddingMs) && event.paddingMs >= 0 && event.paddingMs <= 250) {
             if (!alreadyStopped) actions.push(...this.cap());
             break;

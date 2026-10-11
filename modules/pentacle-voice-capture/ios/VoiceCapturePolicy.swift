@@ -3,6 +3,9 @@
 // intervals accrue time. The executor supplies the recorder's captured-audio clock.
 public struct VoiceCapturePolicy {
   public static let maximumCapturedMs = 300_000.0
+  /// Finalized AAC holds whole packets, so a capped file can end short of the limit. It is
+  /// certified within the same 250 ms ceiling that bounds encoder padding.
+  public static let capCertificationToleranceMs = 250.0
 
   public enum State: String, Codable { case idle, starting, recording, paused, stopped, discarded, interrupted, capped }
   public enum Action: String, Codable { case prepare, activateSession, record, pause, stop, releaseSession }
@@ -199,7 +202,8 @@ public struct VoiceCapturePolicy {
       // priming/remainder, can certify a cap. Never clamp an overrun into success.
       if let captured = event.capturedMs, captured.isFinite, captured >= 0 {
         capturedMs = min(Self.maximumCapturedMs, max(capturedMs, captured))
-        if event.success == true, captured == Self.maximumCapturedMs,
+        if event.success == true, captured >= Self.maximumCapturedMs - Self.capCertificationToleranceMs,
+           captured <= Self.maximumCapturedMs,
            let padding = event.paddingMs, padding.isFinite, padding >= 0, padding <= 250 {
           return alreadyStopped ? finished() : finished(finalizeCap())
         }

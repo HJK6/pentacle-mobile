@@ -4124,6 +4124,162 @@
       ]
     },
     {
+      "name": "finalized_frames_at_tolerance_floor_certify_cap",
+      "steps": [
+        {
+          "event": {
+            "type": "start",
+            "nowMs": 0,
+            "recordingId": "capture-a",
+            "admission": 0
+          },
+          "expect": {
+            "state": "starting",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 0,
+            "actions": [
+              "prepare",
+              "activateSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "startReady",
+            "nowMs": 0,
+            "sessionActive": true
+          },
+          "expect": {
+            "state": "recording",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 0,
+            "actions": [
+              "record"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "finished",
+            "nowMs": 900000,
+            "capturedMs": 299750,
+            "paddingMs": 250,
+            "success": true
+          },
+          "expect": {
+            "state": "capped",
+            "reason": "capped",
+            "pauseEpoch": 0,
+            "capturedMs": 300000,
+            "actions": [
+              "stop",
+              "releaseSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "finished",
+            "nowMs": 999999,
+            "capturedMs": 299750,
+            "paddingMs": 250,
+            "success": true
+          },
+          "expect": {
+            "state": "capped",
+            "reason": "capped",
+            "pauseEpoch": 0,
+            "capturedMs": 300000,
+            "actions": [],
+            "error": null
+          }
+        }
+      ]
+    },
+    {
+      "name": "finalized_frames_within_tolerance_certify_cap",
+      "steps": [
+        {
+          "event": {
+            "type": "start",
+            "nowMs": 0,
+            "recordingId": "capture-a",
+            "admission": 0
+          },
+          "expect": {
+            "state": "starting",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 0,
+            "actions": [
+              "prepare",
+              "activateSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "startReady",
+            "nowMs": 0,
+            "sessionActive": true
+          },
+          "expect": {
+            "state": "recording",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 0,
+            "actions": [
+              "record"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "finished",
+            "nowMs": 900000,
+            "capturedMs": 299900,
+            "paddingMs": 250,
+            "success": true
+          },
+          "expect": {
+            "state": "capped",
+            "reason": "capped",
+            "pauseEpoch": 0,
+            "capturedMs": 300000,
+            "actions": [
+              "stop",
+              "releaseSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "finished",
+            "nowMs": 999999,
+            "capturedMs": 299900,
+            "paddingMs": 250,
+            "success": true
+          },
+          "expect": {
+            "state": "capped",
+            "reason": "capped",
+            "pauseEpoch": 0,
+            "capturedMs": 300000,
+            "actions": [],
+            "error": null
+          }
+        }
+      ]
+    },
+    {
       "name": "finished_missing_evidence_is_interrupted",
       "steps": [
         {
@@ -4328,7 +4484,7 @@
           "event": {
             "type": "finished",
             "nowMs": 900000,
-            "capturedMs": 299999,
+            "capturedMs": 299749,
             "paddingMs": 100,
             "success": true
           },
@@ -4336,7 +4492,7 @@
             "state": "interrupted",
             "reason": "recorder_reset",
             "pauseEpoch": 1,
-            "capturedMs": 299999,
+            "capturedMs": 299749,
             "actions": [
               "stop",
               "releaseSession"
