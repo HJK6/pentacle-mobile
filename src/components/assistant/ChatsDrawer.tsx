@@ -1,3 +1,4 @@
+import VoiceRecordingOverlay from '../voice/VoiceRecordingOverlay';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, Easing, Keyboard, Modal, PanResponder, Platform, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { useRouter } from 'expo-router';
@@ -53,7 +54,8 @@ export default function ChatsDrawer({ open, groups, canStart, onClose, onNewSess
     onClose();
   };
   return <Modal visible={mounted} onDismiss={finishDismiss} transparent animationType="none" onRequestClose={onClose} statusBarTranslucent>
-    <View style={styles.root} pointerEvents={open ? 'auto' : 'none'} accessibilityViewIsModal>
+    <View style={styles.root} accessibilityViewIsModal>
+    <View style={styles.root} pointerEvents={open ? 'auto' : 'none'}>
       <Animated.View style={[StyleSheet.absoluteFill, { opacity: fade }]}>
         <Pressable accessibilityLabel="Close sessions" accessibilityRole="button" onPress={onClose} style={styles.scrim} />
       </Animated.View>
@@ -84,6 +86,8 @@ export default function ChatsDrawer({ open, groups, canStart, onClose, onNewSess
           </View>)}
         </ScrollView>
       </Animated.View>
+    </View>
+    <VoiceRecordingOverlay visible={mounted} priority={2} onReturn={onClose} hostName="chats-drawer" />
     </View>
   </Modal>;
 }

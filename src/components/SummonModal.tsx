@@ -1,3 +1,4 @@
+import VoiceRecordingOverlay from './voice/VoiceRecordingOverlay';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Fonts, MACHINE_ORDER, MACHINES, Tokens, type ProviderName } from '@/constants/Colors';
@@ -281,6 +282,7 @@ export default function SummonModal({
           )}
         </Pressable>
       </Pressable>
+    <VoiceRecordingOverlay visible={visible} priority={2} onReturn={onClose} hostName="summon" />
     </Modal>
   );
 }

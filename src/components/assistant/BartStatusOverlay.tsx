@@ -1,3 +1,4 @@
+import VoiceRecordingOverlay from '../voice/VoiceRecordingOverlay';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, Easing, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useIsFocused } from '@react-navigation/native';
@@ -118,7 +119,8 @@ export default function BartStatusOverlay({ onClose }: { onClose(): void }) {
       style={[styles.close, { top: Math.max(insets.top, TOP_INSET) }]}><Text style={styles.closeText}>✕</Text></Pressable>
     </Animated.View>
     </View>
-  </Modal>;
+  <VoiceRecordingOverlay visible={true} priority={2} onReturn={onClose} hostName="assistant-status" />
+    </Modal>;
 }
 
 const styles = StyleSheet.create({

@@ -42,6 +42,7 @@ export default function RecordingStrip({
   durationS,
   error,
   onDiscard,
+  showDiscard = true,
   testID = 'voice-recording-strip',
 }: {
   displayLevels: number[];
@@ -49,6 +50,7 @@ export default function RecordingStrip({
   durationS: number;
   error?: string;
   onDiscard: () => void;
+  showDiscard?: boolean;
   testID?: string;
 }) {
   const blink = useStepBlink();
@@ -57,9 +59,9 @@ export default function RecordingStrip({
 
   return (
     <View testID={testID} style={styles.strip}>
-      <Pressable accessibilityLabel="Discard recording" testID={`${testID}-discard`} onPress={onDiscard} hitSlop={10}>
+      {showDiscard ? <Pressable accessibilityLabel="Discard recording" testID={`${testID}-discard`} onPress={onDiscard} hitSlop={10} style={{ minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' }}>
         <DiscardGlyph />
-      </Pressable>
+      </Pressable> : null}
       <Animated.View style={[styles.dot, { opacity: blink }]} />
       <Text testID={`${testID}-timer`} style={styles.timer}>
         {formatDuration(durationS)}

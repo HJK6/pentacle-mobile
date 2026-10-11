@@ -1,3 +1,4 @@
+import VoiceRecordingOverlay from './voice/VoiceRecordingOverlay';
 import React from 'react';
 import {
   Modal,
@@ -54,6 +55,7 @@ export function ImageViewerModal({ uri, onClose }: ImageViewerModalProps) {
           ) : null}
         </TouchableOpacity>
       </View>
+    <VoiceRecordingOverlay visible={uri != null} priority={2} onReturn={onClose} hostName="image-viewer" />
     </Modal>
   );
 }

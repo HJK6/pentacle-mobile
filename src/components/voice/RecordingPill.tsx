@@ -7,7 +7,7 @@ import { formatDuration } from '../../services/voiceRecording';
 import { useStepBlink } from './VoiceGlyphs';
 
 // Cross-chat "Recording · m:ss · Return" pill: shown when the user navigates away
-// from the chat where a take is recording (or after stop: "Sent · Return"). Tapping
+// from the chat where an unsent take is recording. Tapping
 // it returns to the originating chat. (§ Journey / Operator choices.) Not drawn in
 // the design original; it uses the mock's voice language: beveled green-tinted
 // chip, blinking record dot, mono tabular timer.
@@ -49,7 +49,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 7,
-    height: 34,
+    minHeight: 44,
     paddingHorizontal: 13,
   },
   dot: { width: 7, height: 7, borderRadius: 3.5, backgroundColor: R },

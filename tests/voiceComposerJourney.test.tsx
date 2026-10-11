@@ -5,7 +5,8 @@ import { PermissionDeniedError } from '../src/services/voiceRecording';
 import { act, fireEvent, render } from '@testing-library/react-native';
 import { ComposerBar, TranscriptRow, hostChrome } from '../app/pentacle/session/[streamId]';
 import UnifiedScreen from '../app/(tabs)/unified';
-import { voiceRecorder } from '../src/services/voiceRecordingEngine';
+import { voiceRecorder, setVoiceLifecycle } from '../src/services/voiceRecordingEngine';
+import { uuid } from 'expo-modules-core';
 import { voiceDelivery, voiceTakeRow } from '../src/services/voiceDelivery';
 import { initialPentacleStreamState, setTelemetrySink, type TelemetryPayload } from 'pentacle-chat-core';
 
@@ -18,24 +19,13 @@ const mockState = { ...initialPentacleStreamState, connected: true, hasHydrated:
     { stream_id: 'hosta:other', host: 'hosta', session_name: 'other', provider: 'codex', timestamp: '2026-09-26T08:01:00Z', daemon_seq: 2, kind: 'ASSIST', text: 'Other reply' },
   ],
 };
-const mockSend = jest.fn().mockResolvedValue(true);
+const mockSend = jest.fn().mockResolvedValue({ delivery: 'landed' });
 const mockTranscribe = jest.fn();
 const mockDelete = jest.fn().mockResolvedValue(undefined);
-jest.mock('../src/services/pentacleStream', () => ({
-  getPentacleStreamState: () => mockState,
-  appendOptimisticUserMessage: jest.fn(() => 'optimistic-voice'),
-  sendPentacleMessage: (...args: unknown[]) => mockSend(...args),
-  uploadBlobBase64: jest.fn().mockResolvedValue({ blob_sha: 'voice-sha' }),
-  transcribeBlob: (...args: unknown[]) => mockTranscribe(...args),
-  usePentacleStreamSelectorWhen: (_enabled: boolean, selector: any) => selector(mockState),
-  usePentacleStreamActions: () => ({}),
-}));
+jest.mock('../src/services/pentacleStream', () => require('./questions/voiceHarness').makeVoiceTransportMock(() => mockState, (...args: unknown[]) => mockTranscribe(...args), (...args: unknown[]) => mockSend(...args)));
 jest.mock('../src/hooks/usePentacleToken', () => () => ({ isReady: true, token: 'test-token' }));
-jest.mock('expo-file-system/legacy', () => ({
-  readAsStringAsync: jest.fn().mockResolvedValue('AUDIO'),
-  deleteAsync: (...args: unknown[]) => mockDelete(...args),
-  EncodingType: { Base64: 'base64' },
-}));
+jest.mock('expo-file-system/legacy', () => require('./questions/voiceHarness').makeVoiceCaptureFsMock((...args: unknown[]) => mockDelete(...args)));
+jest.mock('expo-audio', () => require('./questions/voiceHarness').makeNativeVoiceMock());
 jest.mock('expo-router', () => require('./helpers/mocks/expoRouter').makeMock());
 jest.mock('@expo/vector-icons/FontAwesome', () => 'FontAwesome');
 jest.mock('@react-navigation/native', () => ({ useIsFocused: () => true }));
@@ -43,7 +33,10 @@ jest.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({
 
 let resolveTranscript: (value: any) => void;
 let telemetry: TelemetryPayload[];
+let fixtureId = 0;
 beforeEach(() => {
+  jest.spyOn(uuid, 'v4').mockImplementation(() => `123e4567-e89b-42d3-a456-${String(++fixtureId).padStart(12, '0')}`);
+  setVoiceLifecycle({ foreground: true, unlocked: true });
   jest.useFakeTimers();
   mockSend.mockClear();
   mockDelete.mockClear();
@@ -54,7 +47,7 @@ beforeEach(() => {
 afterEach(async () => {
   await act(async () => {
     await voiceRecorder.discard();
-    for (const take of voiceDelivery.snapshot().takes) voiceDelivery.discard(take.recordingId);
+    for (const take of voiceDelivery.snapshot().takes) await voiceDelivery.discard(take.recordingId);
     voiceDelivery.clearLast();
   });
   setTelemetrySink(null);
@@ -80,11 +73,11 @@ test('shared composer swaps empty draft to mic, records while destination change
   view.rerender(<ComposerBar {...props} streamId="hosta:origin" />);
   await act(async () => fireEvent.press(view.getByTestId('composer-mic-button')));
   expect(voiceDelivery.snapshot().takes[0].streamId).toBe('hosta:origin');
-  await act(async () => resolveTranscript({ text: 'Hello Juniper', model: 'large-v3', vocabulary_version: 'fleet-v1', duration_s: 3 }));
+  await act(async () => { resolveTranscript({ text: 'Hello Juniper', model: 'large-v3', vocabulary_version: 'fleet-v1', duration_s: 3 }); await voiceDelivery.drain(); });
   expect(mockSend).toHaveBeenCalledTimes(1);
-  expect(mockSend).toHaveBeenCalledWith({ streamId: 'hosta:origin', text: 'Hello Juniper', optimisticId: 'optimistic-voice', originGeneration: null, meta: { voice: { duration_s: 3 } } });
-  expect(mockDelete).toHaveBeenCalledTimes(1);
-  expect(telemetry.filter(e => e.message === 'chat.voice.send_outcome').map(e => e.data.outcome)).toEqual(['landed']);
+  expect(mockSend).toHaveBeenCalledWith({ streamId: 'hosta:origin', text: 'Hello Juniper', optimisticId: 'optimistic-voice', originGeneration: 'generation-1', meta: { voice: { duration_s: 3 } } });
+  expect(mockDelete).toHaveBeenCalledWith(expect.stringContaining('audio.m4a'), { idempotent: true });
+  expect(telemetry.filter(e => String(e.message) === 'voice_delivery:lifecycle' && e.data.stage === 'receipt').map(e => e.data.state)).toEqual(['landed']);
 });
 
 test('pending row renders waveform, cancellation removes it and prevents late send; durable voice text has caption', async () => {
@@ -96,10 +89,10 @@ test('pending row renders waveform, cancellation removes it and prevents late se
   expect(row.getByText('TRANSCRIBING')).toBeTruthy();
   expect(row.getByTestId('voice-bubble')).toBeTruthy();
   await act(async () => fireEvent.press(row.getByTestId('voice-transcription-discard')));
-  await act(async () => resolveTranscript({ text: 'must not send', model: 'large-v3', vocabulary_version: 'v1' }));
+  await act(async () => { resolveTranscript({ text: 'must not send', model: 'large-v3', vocabulary_version: 'v1' }); await voiceDelivery.drain(); });
   expect(mockSend).not.toHaveBeenCalled();
   expect(voiceDelivery.snapshot().takes).toHaveLength(0);
-  expect(telemetry.filter(e => e.message === 'chat.voice.transcribe_cancelled')).toHaveLength(1);
+  expect(telemetry.some(e => e.data.state === 'cancelled')).toBe(true);
   row.rerender(<TranscriptRow item={{ ...voiceTakeRow(take), text: 'durable transcript', id: 'echo:1' }} chrome={props.chrome} />);
   expect(row.queryByTestId('voice-bubble')).toBeNull();
   expect(row.getByTestId('voice-message-caption')).toBeTruthy();
@@ -119,7 +112,7 @@ test('unified real composer pins selected destination through closing/reselectin
   fireEvent.press(view.getByLabelText('Close reply composer'));
   fireEvent.press(view.getByTestId('unified-reply-hosta:origin'));
   await act(async () => fireEvent.press(view.getByTestId('composer-mic-button')));
-  await act(async () => resolveTranscript({ text: 'origin unified', model: 'large-v3', vocabulary_version: 'v1' }));
+  await act(async () => { resolveTranscript({ text: 'origin unified', model: 'large-v3', vocabulary_version: 'v1' }); await voiceDelivery.drain(); });
   expect(mockSend).toHaveBeenCalledWith(expect.objectContaining({ streamId: 'hosta:origin', text: 'origin unified', meta: { voice: { duration_s: 3 } } }));
   expect(mockSend).toHaveBeenCalledTimes(1);
 });
@@ -184,8 +177,24 @@ test('a replacement origin generation cannot receive an in-flight voice transcri
     await act(async () => fireEvent.press(view.getByTestId('composer-mic-button')));
     await act(async () => fireEvent.press(view.getByTestId('composer-mic-button')));
     origin.session_generation = 'replacement';
-    await act(async () => resolveTranscript({ text: 'must remain retained', model: 'test', vocabulary_version: 'test' }));
+    await act(async () => { resolveTranscript({ text: 'must remain retained', model: 'test', vocabulary_version: 'test' }); await voiceDelivery.drain(); });
     expect(mockSend).not.toHaveBeenCalled();
-    expect(voiceDelivery.snapshot().takes[0]).toMatchObject({ status: 'failed', error: expect.stringContaining('replaced') });
+    expect(voiceDelivery.snapshot().takes[0]).toMatchObject({ status: 'origin_unavailable', error: 'Original chat unavailable' });
   } finally { delete origin.session_generation; }
+});
+
+test('R10 a queued take awaiting ASR does not block a new independently owned capture', async () => {
+  const view = render(<ComposerBar {...props} streamId="hosta:origin" />);
+  fireEvent.changeText(view.getByTestId('composer-input'), '');
+  await act(async () => fireEvent.press(view.getByTestId('composer-mic-button')));
+  const first = voiceRecorder.snapshot()!.recordingId;
+  await act(async () => fireEvent.press(view.getByTestId('composer-mic-button')));
+  expect(voiceDelivery.snapshot().takes.find(take => take.recordingId === first)?.status).toBe('transcribing');
+  const firstTranscript = resolveTranscript;
+  await act(async () => fireEvent.press(view.getByTestId('composer-mic-button')));
+  expect(voiceRecorder.snapshot()).toMatchObject({ streamId: 'hosta:origin', status: 'recording' });
+  expect(voiceRecorder.snapshot()!.recordingId).not.toBe(first);
+  expect(mockSend).not.toHaveBeenCalled();
+  await act(async () => { await voiceRecorder.discard(); firstTranscript({ text: 'First take', model: 'test', duration_s: 3 }); await voiceDelivery.drain(); });
+  expect(mockSend).toHaveBeenCalledTimes(1);
 });

@@ -7,20 +7,24 @@ export const MAX_BOUND_ITEMS = 20;
 
 export type Segment = { start_s: number; end_s: number };
 
-type Visit = { key: string; startMs: number; endMs: number | null };
+export type VoiceVisit = { key: string; startMs: number; endMs: number | null };
 
 const seconds = (ms: number) => Math.round(ms / 100) / 10;
 
 export class SegmentTracker {
   private readonly tracked: ReadonlySet<string>;
-  private readonly visits: Visit[] = [];
-  private open: Visit | null = null;
+  private readonly visits: VoiceVisit[] = [];
+  private open: VoiceVisit | null = null;
 
   // `trackedKeys` is the page set at recording start: later arrivals and legacy pages are
   // never in it, so their dwell time is not recorded as a segment.
-  constructor(trackedKeys: Iterable<string>) {
+  constructor(trackedKeys: Iterable<string>, visits: readonly VoiceVisit[] = []) {
     this.tracked = new Set(trackedKeys);
+    for (const visit of visits) this.visits.push({ ...visit });
+    this.open = this.visits.find(visit => visit.endMs === null) ?? null;
   }
+
+  snapshot(): VoiceVisit[] { return this.visits.map(visit => ({ ...visit })); }
 
   // The operator is now on `key` (null: on no page). Re-entering the current page keeps its visit.
   enter(key: string | null, atMs: number) {
@@ -41,7 +45,7 @@ export class SegmentTracker {
   covered(nowMs: number): Map<string, Segment> {
     const best = new Map<string, { startMs: number; endMs: number }>();
     for (const visit of this.visits) {
-      const endMs = visit.endMs ?? nowMs;
+      const endMs = Math.min(visit.endMs ?? nowMs, nowMs);
       if (endMs - visit.startMs < MIN_SEGMENT_MS) continue;
       const prior = best.get(visit.key);
       if (!prior || endMs - visit.startMs > prior.endMs - prior.startMs) {
@@ -49,7 +53,8 @@ export class SegmentTracker {
       }
     }
     const ordered = [...best.entries()].sort((a, b) => a[1].startMs - b[1].startMs).slice(0, MAX_BOUND_ITEMS);
-    return new Map(ordered.map(([key, span]) => [key, { start_s: seconds(span.startMs), end_s: seconds(span.endMs) }]));
+    // Floor the end so rounding can never extend metadata past captured audio.
+    return new Map(ordered.map(([key, span]) => [key, { start_s: seconds(span.startMs), end_s: Math.floor(span.endMs / 100) / 10 }]));
   }
 
   // Milliseconds until the open visit reaches MIN_SEGMENT_MS, or null when nothing is pending.

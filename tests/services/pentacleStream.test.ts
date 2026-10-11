@@ -6501,3 +6501,524 @@ test('hosted dashboard policy comes only from current authenticated hello and cl
     expect(stream.getHostedDashboardPolicy()).toBeNull();
   } finally { unsubscribe(); stream.__resetPentacleStreamForTests(); }
 });
+
+// U0 records the pre-existing boolean transport contract. Voice delivery must
+// not interpret this generic caller's acceptance boolean as landed evidence.
+test('R7 baseline capability: accepted/proof_unavailable resolves generic true without landed proof', async () => {
+  const stream = loadStream();
+  const { unsubscribe, socket } = subscribeAndCreateSocket(stream);
+  socket.open();
+  socket.message({ type: 'snapshot', sessions: [sessionSummary('hostc:codex:one', { working: false })], events: [] });
+  const optimisticId = stream.appendOptimisticUserMessage('hostc:codex:one', 'ambiguous voice fixture');
+  const promise = stream.sendPentacleMessage({ streamId: 'hostc:codex:one', optimisticId, text: 'ambiguous voice fixture' });
+  const sent = sentFrames(socket, 'send').at(-1)!;
+  socket.message({ type: 'send.result', request_id: sent.request_id, state: 'accepted', delivery: 'proof_unavailable' });
+  await expect(promise).resolves.toBe(true);
+  expect(stream.getPentacleStreamState().optimisticSends?.[optimisticId]?.status).toBe('indeterminate');
+  expect(sentFrames(socket, 'send')).toHaveLength(1);
+  unsubscribe();
+});
+
+test('R13 baseline capability: generic send identity and lookup carry no original generation proof', async () => {
+  const stream = loadStream();
+  const { unsubscribe, socket } = subscribeAndCreateSocket(stream);
+  socket.open();
+  socket.message({ type: 'snapshot', sessions: [sessionSummary('hostc:codex:one', { session_generation: 'generation-voice-1', working: false })], events: [] });
+  const optimisticId = stream.appendOptimisticUserMessage('hostc:codex:one', 'voice identity fixture');
+  const promise = stream.sendPentacleMessage({ streamId: 'hostc:codex:one', optimisticId, text: 'voice identity fixture', originGeneration: 'generation-voice-1' });
+  const sent = sentFrames(socket, 'send').at(-1)!;
+  expect(sent.request_id).toMatch(/^send-/);
+  socket.message({ type: 'send.result', request_id: sent.request_id, state: 'accepted', delivery: 'proof_unavailable' });
+  await promise;
+  const query = sentFrames(socket, 'send.receipt.get').at(-1)!;
+  expect(query).toMatchObject({ request_id: sent.request_id, to_stream_id: 'hostc:codex:one' });
+  expect(query).not.toHaveProperty('original_request');
+  unsubscribe();
+});
+
+const VOICE_RECORDING_ID = '123e4567-e89b-42d3-a456-426614174000';
+const VOICE_STREAM_ID = 'fixture:assistant';
+const VOICE_GENERATION = 'generation-1';
+const voiceOperationFixture = () => ({
+  version: 1 as const, operation_id: VOICE_RECORDING_ID, origin_stream_id: VOICE_STREAM_ID,
+  origin_generation: VOICE_GENERATION, operation_kind: 'voice_chat' as const, client_build: 'fixture-1',
+});
+
+function readyVoiceTransport(overrides: Record<string, unknown> = {}) {
+  const stream = loadStream();
+  stream.setPentacleAuthToken(OPERATOR_V2_ENVELOPE);
+  const { unsubscribe, socket } = subscribeAndCreateSocket(stream);
+  socket.open();
+  socket.message(operatorV2Welcome());
+  const session = sessionSummary(VOICE_STREAM_ID, {
+    session_generation: VOICE_GENERATION, session_kind: 'assistant_composite', working: false, ...overrides,
+  });
+  socket.message({ type: 'snapshot', sessions: [session], events: [] });
+  const prepare = (changes: Record<string, unknown> = {}) => stream.prepareVoiceDispatchIntent({
+    recordingId: VOICE_RECORDING_ID, sequence: 1, streamId: VOICE_STREAM_ID,
+    originGeneration: VOICE_GENERATION, text: 'synthetic voice transcript',
+    meta: { voice: { duration_s: 2 } }, operationId: VOICE_RECORDING_ID, ...changes,
+  });
+  return { stream, socket, session, prepare, unsubscribe };
+}
+
+describe('durable voice transport conformance', () => {
+  test('prepare freezes exact identity and payload without creating a row or sending before persisted hydration', async () => {
+    const { stream, socket, prepare, unsubscribe } = readyVoiceTransport();
+    const meta = { voice: { duration_s: 2 } };
+    const intent = prepare({ meta });
+    expect(intent.requestId).toBe('voice-send-b620c843aa1796134510973f91adb9be784e54e9');
+    expect(intent.originalRequest).toEqual({ protocol: 'voice-v1', logical_id: VOICE_RECORDING_ID, target: VOICE_STREAM_ID, generation: VOICE_GENERATION, sequence: 1 });
+    expect(intent.payload).toMatchObject({ type: 'send', msg_id: intent.optimisticId, stream_id: VOICE_STREAM_ID, message: 'synthetic voice transcript', operation_id: VOICE_RECORDING_ID });
+    expect(intent.msgId).toBe(intent.optimisticId);
+    meta.voice.duration_s = 99;
+    expect(intent.payload.meta).toEqual({ voice: { duration_s: 2 } });
+    expect(stream.getPentacleStreamState().optimisticSends?.[intent.optimisticId]).toBeUndefined();
+    await expect(stream.dispatchVoiceDispatchIntent(intent)).rejects.toThrow('voice_intent_not_hydrated');
+    expect(sentFrames(socket, 'send')).toEqual([]);
+    stream.hydrateVoiceDispatchIntent(JSON.parse(JSON.stringify(intent)));
+    expect(stream.getPentacleStreamState().optimisticSends?.[intent.optimisticId]).toMatchObject({ request_id: intent.requestId, origin_generation: VOICE_GENERATION });
+    expect(sentFrames(socket, 'send')).toEqual([]);
+    unsubscribe();
+  });
+
+  test('voice-v1 Unicode golden vector preserves UTF8 without ASCII escaping', () => {
+    const { stream, prepare, unsubscribe } = readyVoiceTransport({ stream_id: 'fixture:会話', session_generation: 'génération-🚀' });
+    const intent = prepare({ streamId: 'fixture:会話', originGeneration: 'génération-🚀', sequence: 1000 });
+    expect(intent.requestId).toBe('voice-send-716c9023043fb12ca11a439c72b9128ef88750ab');
+    for (const sequence of [0, 1001, 1.5, true, '1']) expect(() => prepare({ streamId: 'fixture:会話', originGeneration: 'génération-🚀', sequence })).toThrow();
+    expect(() => prepare({ recordingId: 'not-a-uuid' })).toThrow();
+    expect(stream.getPentacleStreamState().optimisticSends).toEqual({});
+    unsubscribe();
+  });
+
+  test.each([
+    { type: 'send.result', state: 'accepted', delivery: 'proof_unavailable' },
+    { type: 'send.result', delivery: 'accepted' },
+    { type: 'send.result', state: 'persisted' },
+    { type: 'send.ok' },
+  ])('acceptance $type/$state/$delivery is unknown, never landed', async response => {
+    const { stream, socket, prepare, unsubscribe } = readyVoiceTransport();
+    const intent = prepare();
+    stream.hydrateVoiceDispatchIntent(intent);
+    const seen: unknown[] = [];
+    const off = stream.subscribeVoiceSendEvidence(proof => seen.push(proof));
+    const promise = stream.dispatchVoiceDispatchIntent(intent);
+    socket.message({ ...response, request_id: intent.requestId, to_stream_id: VOICE_STREAM_ID });
+    await expect(promise).resolves.toMatchObject({ state: 'unknown', requestId: intent.requestId });
+    expect(seen).not.toEqual(expect.arrayContaining([expect.objectContaining({ state: 'landed' })]));
+    expect(sentFrames(socket, 'send')).toHaveLength(1);
+    expect(stream.getPentacleStreamState().optimisticSends?.[intent.optimisticId]?.status).not.toBe('acked');
+    off(); unsubscribe();
+  });
+
+  test('sparse landed receipt publishes after restart hydration with no pending send promise', async () => {
+    const first = readyVoiceTransport();
+    const intent = first.prepare();
+    first.unsubscribe();
+    const { stream, socket, unsubscribe } = readyVoiceTransport();
+    stream.hydrateVoiceDispatchIntent(JSON.parse(JSON.stringify(intent)));
+    const seen: unknown[] = [];
+    const off = stream.subscribeVoiceSendEvidence(proof => seen.push(proof));
+    const query = stream.queryVoiceDispatchReceipt(intent);
+    expect(sentFrames(socket, 'send.receipt.get').at(-1)).toEqual({ type: 'send.receipt.get', request_id: intent.requestId, to_stream_id: VOICE_STREAM_ID, original_request: intent.originalRequest });
+    socket.message({ type: 'send.receipt.get.ok', found: true, receipts: [{ request_id: intent.requestId, to_stream_id: VOICE_STREAM_ID, state: 'landed' }] });
+    await expect(query).resolves.toMatchObject({ state: 'landed', generation: VOICE_GENERATION, source: 'receipt' });
+    expect(seen).toEqual([expect.objectContaining({ state: 'landed', recordingId: VOICE_RECORDING_ID })]);
+    expect(sentFrames(socket, 'send')).toEqual([]);
+    off(); unsubscribe();
+  });
+
+  test('explicit receipt generation, target and composite identity mismatches cannot prove landed', async () => {
+    const { stream, socket, prepare, unsubscribe } = readyVoiceTransport();
+    const intent = prepare();
+    stream.hydrateVoiceDispatchIntent(intent);
+    const seen: unknown[] = [];
+    const off = stream.subscribeVoiceSendEvidence(proof => seen.push(proof));
+    for (const mismatch of [
+      { session_generation: 'replaced' }, { generation: 'replaced' },
+      { to_stream_id: 'fixture:other' }, { optimistic_id: 'other-input' },
+    ]) {
+      const query = stream.queryVoiceDispatchReceipt(intent);
+      socket.message({ type: 'send.receipt.get.ok', found: true, receipts: [{ request_id: intent.requestId, to_stream_id: VOICE_STREAM_ID, state: 'landed', ...mismatch }] });
+      await expect(query).resolves.toMatchObject({ state: 'unknown' });
+    }
+    expect(seen).not.toEqual(expect.arrayContaining([expect.objectContaining({ state: 'landed' })]));
+    off(); unsubscribe();
+  });
+
+  test('canonical composite USER requires request, origin and stable input identity', () => {
+    const { stream, socket, prepare, unsubscribe } = readyVoiceTransport();
+    const intent = prepare();
+    stream.hydrateVoiceDispatchIntent(intent);
+    const seen: unknown[] = [];
+    const off = stream.subscribeVoiceSendEvidence(proof => seen.push(proof));
+    const canonical = pentacleEvent({ stream_id: VOICE_STREAM_ID, kind: 'USER', provider: 'composite', optimistic_id: intent.optimisticId, message_id: intent.msgId, text: 'synthetic voice transcript', raw: { assistant_composite: true, input_identity: intent.msgId, input_request_id: intent.requestId } });
+    socket.message({ type: 'chat.event', event: { ...canonical, raw: { assistant_composite: true, input_identity: intent.msgId, input_request_id: 'retired-attempt' } } });
+    expect(seen).toEqual([]);
+    socket.message({ type: 'chat.event', event: { ...canonical, daemon_seq: 2 } });
+    jest.advanceTimersByTime(240);
+    expect(seen).toEqual([expect.objectContaining({ state: 'landed', source: 'user', msgId: intent.msgId })]);
+    off(); unsubscribe();
+  });
+
+  test('unknown receipt stays unknown and generic retry/reconnect cannot send or rotate a voice attempt', async () => {
+    const { stream, socket, session, prepare, unsubscribe } = readyVoiceTransport();
+    const intent = prepare();
+    stream.hydrateVoiceDispatchIntent(intent);
+    const query = stream.queryVoiceDispatchReceipt(intent);
+    socket.message({ type: 'send.receipt.get.ok', found: false, receipts: [] });
+    await expect(query).resolves.toMatchObject({ state: 'unknown' });
+    stream.markOptimisticFailed(intent.optimisticId, 'fixture_unknown');
+    await expect(stream.retryOptimisticSend(intent.optimisticId)).resolves.toBe(false);
+    expect(stream.getPentacleStreamState().optimisticSends?.[intent.optimisticId]?.request_id).toBe(intent.requestId);
+    socket.closeFromServer();
+    jest.advanceTimersByTime(1_000);
+    const reconnect = MockWebSocket.instances.at(-1)!;
+    reconnect.open(); reconnect.message(operatorV2Welcome());
+    reconnect.message({ type: 'snapshot', sessions: [session], events: [] });
+    await flushMicrotasks();
+    expect(sentFrames(reconnect, 'send')).toEqual([]);
+    unsubscribe();
+  });
+
+  test('explicit next attempt preserves optimistic/msg identity and uses sequence-2 golden request', async () => {
+    const { stream, socket, prepare, unsubscribe } = readyVoiceTransport();
+    const prior = prepare();
+    stream.hydrateVoiceDispatchIntent(prior);
+    const query = stream.queryVoiceDispatchReceipt(prior);
+    socket.message({ type: 'send.receipt.get.ok', found: true, receipts: [{ request_id: prior.requestId, to_stream_id: VOICE_STREAM_ID, state: 'not_landed' }] });
+    await expect(query).resolves.toMatchObject({ state: 'not_landed' });
+    const next = prepare({ sequence: 2, previousIntent: prior });
+    expect(next.requestId).toBe('voice-send-90704e4dd6cdc962a6206371a3b832e8e4273b24');
+    expect(next.optimisticId).toBe(prior.optimisticId);
+    expect(next.msgId).toBe(prior.msgId);
+    expect(next.payload).toEqual({ ...prior.payload, request_id: next.requestId });
+    stream.hydrateVoiceDispatchIntent(next);
+    const seen: unknown[] = [];
+    const off = stream.subscribeVoiceSendEvidence(proof => seen.push(proof));
+    socket.message({ type: 'send.result', request_id: prior.requestId, to_stream_id: VOICE_STREAM_ID, state: 'landed' });
+    expect(seen).toEqual([]);
+    off(); unsubscribe();
+  });
+
+  test('retains authenticated origin across omission/disconnect but blocks replacement and old-scope receipts', async () => {
+    const { stream, socket, prepare, unsubscribe } = readyVoiceTransport();
+    const intent = prepare(); stream.hydrateVoiceDispatchIntent(intent);
+    const originalScope = stream.voiceTransportSnapshot();
+    expect(originalScope).toMatchObject({ ready: true, inventoryFresh: true, credentialId: '123e4567-e89b-12d3-a456-426614174000' });
+    socket.message({ type: 'session.inventory', sessions: [] });
+    expect(stream.voiceOriginStatus(VOICE_STREAM_ID, VOICE_GENERATION)).toBe('available');
+    await expect(stream.dispatchVoiceDispatchIntent(intent)).rejects.toThrow('voice_origin_unverified');
+    socket.message({ type: 'session.inventory', sessions: [sessionSummary(VOICE_STREAM_ID, { session_generation: 'generation-replaced' })] });
+    expect(stream.voiceOriginStatus(VOICE_STREAM_ID, VOICE_GENERATION)).toBe('unavailable');
+    const seen: unknown[] = [];
+    const off = stream.subscribeVoiceSendEvidence(proof => seen.push(proof));
+    stream.setPentacleAuthToken(null);
+    expect(stream.voiceTransportSnapshot().scopeGeneration).toBeGreaterThan(originalScope.scopeGeneration);
+    socket.message({ type: 'send.result', request_id: intent.requestId, to_stream_id: VOICE_STREAM_ID, state: 'landed' });
+    expect(seen).toEqual([]);
+    off(); unsubscribe();
+  });
+
+  test('protocol-2 init and intermediate chunk ACK remain typed and legacy responses require server update', async () => {
+    const { stream, socket, unsubscribe } = readyVoiceTransport();
+    const uploadId = '223e4567-e89b-42d3-a456-426614174000';
+    const args = { type: 'upload_blob_init' as const, protocol: 2 as const, upload_id: uploadId, total_bytes: 3, sha256: 'a'.repeat(64), mime: 'audio/mp4' as const, voice_operation: voiceOperationFixture() };
+    const init = stream.uploadVoiceBlobRpc(args);
+    const first = sentFrames(socket, 'upload_blob_init').at(-1)!;
+    socket.message({ type: 'upload_blob.init.ok', request_id: first.request_id, protocol: 2, upload_id: uploadId, next_offset: 0, complete: false });
+    await expect(init).resolves.toEqual({ protocol: 2, upload_id: uploadId, next_offset: 0, complete: false });
+    const chunk = stream.uploadVoiceBlobRpc({ type: 'upload_blob_chunk', protocol: 2, upload_id: uploadId, offset: 0, data_b64: 'YWJj', chunk_sha256: 'b'.repeat(64), final: false });
+    const second = sentFrames(socket, 'upload_blob_chunk').at(-1)!;
+    expect(second.request_id).not.toBe(first.request_id);
+    socket.message({ type: 'upload_blob.ok', request_id: second.request_id, protocol: 2, upload_id: uploadId, next_offset: 3, complete: false });
+    await expect(chunk).resolves.toEqual({ protocol: 2, upload_id: uploadId, next_offset: 3, complete: false });
+    const legacy = stream.uploadVoiceBlobRpc(args);
+    const third = sentFrames(socket, 'upload_blob_init').at(-1)!;
+    socket.message({ type: 'upload_blob.init.ok', request_id: third.request_id });
+    await expect(legacy).rejects.toMatchObject({ code: 'server_update_required' });
+    unsubscribe();
+  });
+
+  test('voice transcription carries operation unchanged and uses 130s timeout; ordinary ASR stays 30s', async () => {
+    const { stream, socket, unsubscribe } = readyVoiceTransport();
+    const timerSpy = jest.spyOn(global, 'setTimeout');
+    const operation = voiceOperationFixture();
+    const voice = stream.transcribeBlob('a'.repeat(64), 'audio/mp4', { requestId: `transcribe-${VOICE_RECORDING_ID}`, voiceOperation: operation });
+    expect(sentFrames(socket, 'transcribe_blob').at(-1)).toMatchObject({ request_id: `transcribe-${VOICE_RECORDING_ID}`, voice_operation: operation });
+    expect(timerSpy.mock.calls.some(([, delay]) => delay === 130_000)).toBe(true);
+    socket.message({ type: 'transcribe_blob.ok', request_id: `transcribe-${VOICE_RECORDING_ID}`, text: 'fixture' });
+    await expect(voice).resolves.toMatchObject({ text: 'fixture' });
+    timerSpy.mockClear();
+    const ordinary = stream.transcribeBlob('b'.repeat(64), 'audio/wav', { requestId: 'ordinary-transcribe' });
+    expect(timerSpy.mock.calls.some(([, delay]) => delay === 130_000)).toBe(false);
+    expect(timerSpy.mock.calls.some(([, delay]) => delay === 30_000)).toBe(true);
+    socket.message({ type: 'transcribe_blob.ok', request_id: 'ordinary-transcribe', text: 'ordinary' });
+    await ordinary;
+    timerSpy.mockRestore(); unsubscribe();
+  });
+});
+
+describe('durable voice extra ordering fences', () => {
+  test('late result without a pending Promise publishes once, while mismatched generation cannot land', () => {
+    const { stream, socket, prepare, unsubscribe } = readyVoiceTransport();
+    const intent = prepare(); stream.hydrateVoiceDispatchIntent(intent);
+    const seen: unknown[] = [];
+    const off = stream.subscribeVoiceSendEvidence(proof => seen.push(proof));
+    socket.message({ type: 'send.result', request_id: intent.requestId, to_stream_id: VOICE_STREAM_ID, session_generation: 'other-generation', delivery: 'landed' });
+    expect(seen).toEqual([]);
+    socket.message({ type: 'send.result', request_id: intent.requestId, to_stream_id: VOICE_STREAM_ID, delivery: 'landed' });
+    expect(seen).toEqual([expect.objectContaining({ state: 'landed', source: 'send.result' })]);
+    socket.message({ type: 'send.result', request_id: intent.requestId, to_stream_id: VOICE_STREAM_ID, state: 'accepted', delivery: 'proof_unavailable' });
+    expect(seen).toHaveLength(1);
+    off(); unsubscribe();
+  });
+
+  test('snapshot text coincidence and mismatched direct identity cannot prune an unproved voice row', () => {
+    const { stream, socket, session, prepare, unsubscribe } = readyVoiceTransport();
+    const intent = prepare(); stream.hydrateVoiceDispatchIntent(intent);
+    const seen: unknown[] = [];
+    const off = stream.subscribeVoiceSendEvidence(proof => seen.push(proof));
+    socket.message({ type: 'snapshot', sessions: [session], events: [pentacleEvent({ stream_id: VOICE_STREAM_ID, kind: 'USER', text: 'synthetic voice transcript', timestamp: new Date().toISOString() })] });
+    expect(stream.getPentacleStreamState().optimisticSends?.[intent.optimisticId]?.request_id).toBe(intent.requestId);
+    socket.message({ type: 'chat.event', event: pentacleEvent({ stream_id: VOICE_STREAM_ID, kind: 'USER', daemon_seq: 2, optimistic_id: intent.optimisticId, text: 'synthetic voice transcript', raw: { request_id: 'wrong-request' } }) });
+    jest.advanceTimersByTime(240);
+    expect(stream.getPentacleStreamState().optimisticSends?.[intent.optimisticId]?.request_id).toBe(intent.requestId);
+    expect(seen).toEqual([]);
+    off(); unsubscribe();
+  });
+
+  test('duplicate dispatch joins one wire attempt and generic same-text sends never adopt voice row', async () => {
+    const { stream, socket, prepare, unsubscribe } = readyVoiceTransport();
+    const intent = prepare(); stream.hydrateVoiceDispatchIntent(intent);
+    const first = stream.dispatchVoiceDispatchIntent(intent);
+    const duplicate = stream.dispatchVoiceDispatchIntent(intent);
+    expect(sentFrames(socket, 'send')).toHaveLength(1);
+    socket.message({ type: 'send.result', request_id: intent.requestId, to_stream_id: VOICE_STREAM_ID, delivery: 'landed' });
+    await expect(first).resolves.toMatchObject({ state: 'landed' });
+    await expect(duplicate).resolves.toMatchObject({ state: 'landed' });
+    await expect(stream.dispatchVoiceDispatchIntent(intent)).resolves.toMatchObject({ state: 'landed' });
+    expect(sentFrames(socket, 'send')).toHaveLength(1);
+    unsubscribe();
+  });
+
+  test('v2 upload errors keep fixed code and malformed complete ACK cannot masquerade as a blob', async () => {
+    const { stream, socket, unsubscribe } = readyVoiceTransport();
+    const fields = { type: 'upload_blob_chunk' as const, protocol: 2 as const, upload_id: VOICE_RECORDING_ID, offset: 0, data_b64: '', chunk_sha256: 'a'.repeat(64), final: true };
+    const denied = stream.uploadVoiceBlobRpc(fields);
+    let request = sentFrames(socket, 'upload_blob_chunk').at(-1)!;
+    socket.message({ type: 'upload_blob.error', request_id: request.request_id, error_code: 'upload_forbidden' });
+    await expect(denied).rejects.toMatchObject({ code: 'upload_forbidden' });
+    const malformed = stream.uploadVoiceBlobRpc(fields);
+    request = sentFrames(socket, 'upload_blob_chunk').at(-1)!;
+    socket.message({ type: 'upload_blob.ok', request_id: request.request_id, protocol: 2, upload_id: VOICE_RECORDING_ID, next_offset: 0, complete: true });
+    await expect(malformed).rejects.toMatchObject({ code: 'invalid_upload_ack' });
+    unsubscribe();
+  });
+});
+
+test('durable voice persisted intent validation rejects corrupt proof, scope and payload bindings', () => {
+  const { stream, prepare, unsubscribe } = readyVoiceTransport();
+  const intent = prepare();
+  expect(stream.validateVoiceDispatchIntent(JSON.parse(JSON.stringify(intent)))).toBe(true);
+  const corruptions = [
+    { ...intent, requestId: 'voice-send-' + '0'.repeat(40) },
+    { ...intent, sequence: 2 },
+    { ...intent, originalRequest: { ...intent.originalRequest, extra: true } },
+    { ...intent, originalRequest: { ...intent.originalRequest, protocol: 'voice-v2' } },
+    { ...intent, payload: { ...intent.payload, message: 'corrupt text' } },
+    { ...intent, payload: { ...intent.payload, msg_id: 'corrupt-input' } },
+    { ...intent, payload: { ...intent.payload, attachments: [{ key: 'a'.repeat(64), mime: 'image/jpeg' }] } },
+    { ...intent, payloadSha256: '0'.repeat(64) },
+    { ...intent, optimisticId: 'other-input' },
+    { ...intent, credentialId: '' },
+    { ...intent, createdAt: Infinity },
+  ];
+  for (const bad of corruptions) {
+    expect(stream.validateVoiceDispatchIntent(bad)).toBe(false);
+    expect(() => stream.hydrateVoiceDispatchIntent(bad as import('../../src/services/pentacleStream').VoiceDispatchIntent)).toThrow('invalid_voice_intent');
+  }
+  unsubscribe();
+});
+
+describe('durable voice transport boundary controls', () => {
+  test.each(['legacy', 'voice-v2'])('%s upload keeps its same socket alive while pending; idle socket still times out', async mode => {
+    const clock = mockMonotonicNow();
+    const { stream, socket, unsubscribe } = readyVoiceTransport();
+    stream.__handlePentacleAppStateChangeForTests('active');
+    const unfocus = stream.registerFocusedPentacleStream(VOICE_STREAM_ID);
+    const upload = mode === 'legacy' ? stream.uploadBlobBase64('YWJj', 3) : stream.uploadVoiceBlobRpc({
+      type: 'upload_blob_init', protocol: 2, upload_id: VOICE_RECORDING_ID, total_bytes: 3,
+      sha256: 'a'.repeat(64), mime: 'audio/mp4', voice_operation: voiceOperationFixture(),
+    });
+    const init = sentFrames(socket, 'upload_blob_init').at(-1)!;
+    clock.advance(4_000); jest.advanceTimersByTime(4_000);
+    expect(socket.readyState).toBe(MockWebSocket.OPEN);
+    if (mode === 'legacy') {
+      socket.message({ type: 'upload_blob.init.ok', request_id: init.request_id });
+      await flushMicrotasks();
+      socket.message({ type: 'upload_blob.ok', request_id: init.request_id, blob_sha: 'a'.repeat(64) });
+    } else socket.message({ type: 'upload_blob.init.ok', request_id: init.request_id, protocol: 2, upload_id: VOICE_RECORDING_ID, next_offset: 0, complete: false });
+    await upload;
+    for (const history of sentFrames(socket, 'request_stream_events')) socket.message({ type: 'request_stream_events.ok', request_id: history.request_id, stream_id: VOICE_STREAM_ID, events: [] });
+    await flushMicrotasks();
+    clock.advance(4_000);
+    stream.requestFocusedPentacleLivenessProbe('interaction');
+    jest.advanceTimersByTime(2_001);
+    expect(socket.readyState).toBe(MockWebSocket.CLOSED);
+    unfocus(); unsubscribe(); clock.restore();
+  });
+
+  test('ordinary voice routing accepts exact host/session landed result and preserves original generation', async () => {
+    const { stream, socket, prepare, unsubscribe } = readyVoiceTransport({ session_kind: undefined });
+    const intent = prepare();
+    expect(intent.msgId).toBeUndefined();
+    expect(intent.payload).toMatchObject({ host: 'hostc', session_name: 'assistant', text: 'synthetic voice transcript' });
+    stream.hydrateVoiceDispatchIntent(intent);
+    const send = stream.dispatchVoiceDispatchIntent(intent);
+    socket.message({ type: 'send.result', request_id: intent.requestId, host: 'hostc', session_name: 'assistant', delivery: 'landed' });
+    await expect(send).resolves.toMatchObject({ state: 'landed', generation: VOICE_GENERATION });
+    unsubscribe();
+  });
+
+  test('target and generation limits count Unicode codepoints and reject unmatched surrogates', () => {
+    const target = '🚀'.repeat(160), generation = '🚀'.repeat(128);
+    const { prepare, unsubscribe } = readyVoiceTransport({ stream_id: target, session_generation: generation });
+    expect(prepare({ streamId: target, originGeneration: generation })).toMatchObject({ streamId: target, originGeneration: generation });
+    expect(() => prepare({ streamId: target + 'a', originGeneration: generation })).toThrow('invalid_voice_identity');
+    expect(() => prepare({ streamId: target, originGeneration: generation + 'a' })).toThrow('invalid_voice_identity');
+    expect(() => prepare({ streamId: '\uD800', originGeneration: generation })).toThrow('invalid_voice_identity');
+    unsubscribe();
+  });
+
+  test('configured server identity remains available offline and fallback endpoint cannot drain it', () => {
+    const { stream, socket, unsubscribe } = readyVoiceTransport();
+    const original = stream.voiceTransportSnapshot();
+    socket.closeFromServer();
+    expect(stream.voiceTransportSnapshot()).toMatchObject({ serverIdentity: original.serverIdentity, credentialId: original.credentialId, ready: false, authNeeded: false });
+    expect(stream.voiceOriginStatus(VOICE_STREAM_ID, VOICE_GENERATION)).toBe('available');
+    stream.setPentacleWsUrl('ws://other.example/ws');
+    expect(stream.voiceTransportSnapshot()).toMatchObject({ serverIdentity: 'ws://other.example/ws', ready: false });
+    expect(stream.voiceTransportSnapshot().origins).toEqual([]);
+    unsubscribe();
+  });
+});
+
+describe('durable voice late evidence and origin closure', () => {
+  test('a late receipt proves its own take without consuming another take lookup', async () => {
+    const { stream, socket, prepare, unsubscribe } = readyVoiceTransport();
+    const first = prepare(); stream.hydrateVoiceDispatchIntent(first);
+    const secondId = '223e4567-e89b-42d3-a456-426614174000';
+    const second = prepare({ recordingId: secondId, operationId: secondId }); stream.hydrateVoiceDispatchIntent(second);
+    const firstQuery = stream.queryVoiceDispatchReceipt(first);
+    // Keep the connection alive while only the bounded receipt waiter expires.
+    jest.advanceTimersByTime(15_000); socket.message({ type: 'pong' });
+    jest.advanceTimersByTime(14_000); socket.message({ type: 'pong' });
+    jest.advanceTimersByTime(1_000);
+    await expect(firstQuery).resolves.toMatchObject({ state: 'unknown' });
+    const secondQuery = stream.queryVoiceDispatchReceipt(second);
+    const seen: unknown[] = [];
+    const off = stream.subscribeVoiceSendEvidence(proof => seen.push(proof));
+    socket.message({ type: 'send.receipt.get.ok', found: true, receipts: [{ request_id: first.requestId, to_stream_id: VOICE_STREAM_ID, state: 'landed' }] });
+    expect(seen).toEqual([expect.objectContaining({ recordingId: first.recordingId, state: 'landed' })]);
+    socket.message({ type: 'send.receipt.get.ok', found: true, receipts: [{ request_id: second.requestId, to_stream_id: VOICE_STREAM_ID, state: 'not_landed' }] });
+    await expect(secondQuery).resolves.toMatchObject({ recordingId: secondId, state: 'not_landed' });
+    off(); unsubscribe();
+  });
+
+  test('correlated explicit close blocks original generation while omission alone does not', async () => {
+    const { stream, socket, prepare, unsubscribe } = readyVoiceTransport({ session_kind: undefined });
+    const intent = prepare(); stream.hydrateVoiceDispatchIntent(intent);
+    const close = stream.closePentacleSession({ host: 'hostc', sessionName: 'assistant', streamId: VOICE_STREAM_ID });
+    await flushMicrotasks(10);
+    const request = sentFrames(socket, 'close').at(-1)!;
+    expect(request).toBeDefined();
+    socket.message({ type: 'close.ok', request_id: request.request_id, session_generation: VOICE_GENERATION });
+    await close;
+    expect(stream.voiceOriginStatus(VOICE_STREAM_ID, VOICE_GENERATION)).toBe('unavailable');
+    await expect(stream.dispatchVoiceDispatchIntent(intent)).rejects.toThrow('voice_origin_unavailable');
+    expect(sentFrames(socket, 'send')).toEqual([]);
+    unsubscribe();
+  });
+
+  test('unproved direct USER acceptance cannot land despite stamped identity', () => {
+    const { stream, socket, prepare, unsubscribe } = readyVoiceTransport({ session_kind: undefined });
+    const intent = prepare(); stream.hydrateVoiceDispatchIntent(intent);
+    const seen: unknown[] = [];
+    const off = stream.subscribeVoiceSendEvidence(proof => seen.push(proof));
+    socket.message({ type: 'chat.event', event: pentacleEvent({ stream_id: VOICE_STREAM_ID, kind: 'USER', optimistic_id: intent.optimisticId, request_id: intent.requestId, raw: { receipt_state: 'accepted', receipt_delivery: 'proof_unavailable' } }) });
+    expect(seen).toEqual([]);
+    expect(stream.getPentacleStreamState().optimisticSends?.[intent.optimisticId]).toBeDefined();
+    off(); unsubscribe();
+  });
+});
+
+describe('durable voice upload reconnect ownership', () => {
+  test.each(['timeout', 'disconnect'])('v2 %s forces recovery through one connection owner before re-init', async fault => {
+    const { stream, socket, session, unsubscribe } = readyVoiceTransport();
+    const fields = { type: 'upload_blob_init' as const, protocol: 2 as const, upload_id: VOICE_RECORDING_ID, total_bytes: 3, sha256: 'a'.repeat(64), mime: 'audio/mp4' as const, voice_operation: voiceOperationFixture() };
+    const first = stream.uploadVoiceBlobRpc(fields).catch(error => error as Error);
+    const firstFrame = sentFrames(socket, 'upload_blob_init').at(-1)!;
+    if (fault === 'timeout') {
+      // An alive socket still must be replaced after the voice phase deadline.
+      jest.advanceTimersByTime(15_000); socket.message({ type: 'pong' });
+      jest.advanceTimersByTime(14_000); socket.message({ type: 'pong' });
+      jest.advanceTimersByTime(1_000);
+    } else socket.closeFromServer();
+    await flushMicrotasks(6);
+    expect(await first).toBeInstanceOf(Error);
+    expect(socket.readyState).toBe(MockWebSocket.CLOSED);
+    expect(MockWebSocket.instances).toHaveLength(2);
+    const secondSocket = MockWebSocket.instances.at(-1)!;
+    expect(sentFrames(secondSocket, 'upload_blob_init')).toEqual([]);
+    secondSocket.open(); secondSocket.message(operatorV2Welcome());
+    secondSocket.message({ type: 'snapshot', sessions: [session], events: [] });
+    const resumed = stream.uploadVoiceBlobRpc(fields);
+    const resumedFrame = sentFrames(secondSocket, 'upload_blob_init').at(-1)!;
+    expect(resumedFrame).toMatchObject({ upload_id: firstFrame.upload_id, sha256: firstFrame.sha256, voice_operation: voiceOperationFixture() });
+    expect(resumedFrame.request_id).not.toBe(firstFrame.request_id);
+    secondSocket.message({ type: 'upload_blob.init.ok', request_id: resumedFrame.request_id, protocol: 2, upload_id: VOICE_RECORDING_ID, next_offset: 2, complete: false });
+    await expect(resumed).resolves.toMatchObject({ next_offset: 2 });
+    unsubscribe();
+  });
+
+  test('explicit authentication failure cannot remain voice-ready with stored credential', () => {
+    const { stream, socket, unsubscribe } = readyVoiceTransport();
+    socket.message({ type: 'auth.error', error: 'credential_revoked' });
+    expect(stream.voiceTransportSnapshot()).toMatchObject({ ready: false, authNeeded: true, credentialId: '123e4567-e89b-12d3-a456-426614174000' });
+    unsubscribe();
+  });
+});
+
+describe('durable voice generic drain isolation', () => {
+  test.each(['queued', 'dispatched'])('generic reconnect never drives a hydrated %s voice row', async phase => {
+    const { stream, socket, session, prepare, unsubscribe } = readyVoiceTransport();
+    const intent = prepare(); stream.hydrateVoiceDispatchIntent(intent);
+    const dispatch = phase === 'dispatched' ? stream.dispatchVoiceDispatchIntent(intent) : undefined;
+    socket.closeFromServer();
+    if (dispatch) await expect(dispatch).resolves.toMatchObject({ state: 'unknown' });
+    jest.advanceTimersByTime(1_000);
+    const reconnect = MockWebSocket.instances.at(-1)!;
+    reconnect.open(); reconnect.message(operatorV2Welcome());
+    reconnect.message({ type: 'snapshot', sessions: [session], events: [] });
+    await flushMicrotasks();
+    expect(sentFrames(reconnect, 'send')).toEqual([]);
+    expect(sentFrames(reconnect, 'send.receipt.get')).toEqual([]);
+    expect(stream.getPentacleStreamState().optimisticSends?.[intent.optimisticId]?.request_id).toBe(intent.requestId);
+    unsubscribe();
+  });
+
+  test('ordinary same-text send allocates its own logical row instead of adopting retained voice', async () => {
+    const { stream, socket, prepare, unsubscribe } = readyVoiceTransport();
+    const intent = prepare(); stream.hydrateVoiceDispatchIntent(intent);
+    const sent = stream.sendPentacleMessage({ streamId: VOICE_STREAM_ID, text: 'synthetic voice transcript' });
+    const frame = sentFrames(socket, 'send').at(-1)!;
+    expect(frame.request_id).toMatch(/^send-/);
+    expect(frame.msg_id).not.toBe(intent.msgId);
+    expect(stream.getPentacleStreamState().optimisticSends?.[intent.optimisticId]?.request_id).toBe(intent.requestId);
+    socket.message({ type: 'send.result', request_id: frame.request_id, delivery: 'landed' });
+    await expect(sent).resolves.toBe(true);
+    unsubscribe();
+  });
+});

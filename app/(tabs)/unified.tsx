@@ -1,3 +1,4 @@
+import VoiceRecordingOverlay from '../../src/components/voice/VoiceRecordingOverlay';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
@@ -442,6 +443,7 @@ function QuestionsDrawer({
           ))}
         </ScrollView>
       </View>
+    <VoiceRecordingOverlay visible={visible} priority={2} onReturn={onClose} hostName="unified-questions" />
     </Modal>
   );
 }

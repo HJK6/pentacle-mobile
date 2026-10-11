@@ -4,7 +4,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import QuestionsRoute from '../../app/pentacle/questions';
 import { QuestionsScreen, selectPendingQuestionCount, selectQuestionDeck } from '../../src/components/questions';
 import {
-  buildVoiceAnswersMeta,
+  buildVoiceAnswersMeta, validVoiceAnswersItems, validVoiceQuestionSnapshot, createVoiceQuestionSnapshot,
   installVoiceAnswersCarrier,
   resetVoiceAnswersForTests,
 } from '../../src/components/questions/voice/voiceAnswersBinding';
@@ -63,6 +63,7 @@ jest.mock('../../src/services/chatOpenNavigation', () => ({ performChatOpenNavig
 jest.mock('../../src/services/voiceRecordingEngine', () => ({
   get voiceRecorder() { return mockHarness.recorder; },
 }));
+jest.mock('../../src/components/voice/VoiceRecordingOverlay', () => ({ __esModule: true, default: () => null, useSharedVoiceControlsActive: () => false }));
 jest.mock('../../src/services/voiceDelivery', () => ({
   voiceDelivery: { discard: (...args: unknown[]) => mockDeliveryDiscard(...args) },
 }));
@@ -71,6 +72,7 @@ jest.mock('../../src/services/pentacleStream', () => {
   const ReactActual = require('react');
   return {
     ...actual,
+    getPentacleStreamState: () => mockState,
     usePentacleStreamSelector: (selector: (state: unknown) => unknown) => {
       const [, force] = ReactActual.useReducer((value: number) => value + 1, 0);
       ReactActual.useEffect(() => {
@@ -369,20 +371,21 @@ describe('Done (V1 selected set, V2 binding, V5 no false answers)', () => {
     expect(buildVoiceAnswersMeta(mockHarness.recorder.snapshot()!.recordingId, { blobSha: 's', durationS: 1 })).toBeNull();
   });
 
-  test('an automatic stop (cap/interruption) freezes the same selection and closes the overlay', async () => {
+  test('a cap freezes the same selection and retains an unsent question take', async () => {
     render(<QuestionsScreen />);
     await startVoice(); dwell(2500);
     await act(async () => { await mockHarness.recorder.stop('cap'); await flush(); });
     const meta = buildVoiceAnswersMeta(mockHarness.stopped[0].recordingId, { blobSha: 's', durationS: 3 })!;
     expect(meta.items).toHaveLength(1);
-    expect(mockBack).toHaveBeenCalledTimes(1);
+    expect(mockBack).not.toHaveBeenCalled();
+    expect(screen.getByTestId('questions-voice-bar')).toBeTruthy();
   });
 
-  test('an automatic stop with nothing covered discards the delivered take', async () => {
+  test('an automatic stop with nothing covered retains the unsent take until explicit action', async () => {
     render(<QuestionsScreen />);
     await startVoice(); dwell(500);
     await act(async () => { await mockHarness.recorder.stop('background'); await flush(); });
-    expect(mockDeliveryDiscard).toHaveBeenCalledWith(mockHarness.stopped[0].recordingId);
+    expect(mockDeliveryDiscard).not.toHaveBeenCalled();
     expect(mockBack).not.toHaveBeenCalled();
   });
 });
@@ -419,12 +422,13 @@ describe('discard (V1)', () => {
     expect(screen.queryByTestId('questions-voice-confirm')).toBeNull();
   });
 
-  test('unmounting mid-recording (navigated away) discards the take', async () => {
+  test('unmounting mid-recording preserves the process-owned take', async () => {
     const view = render(<QuestionsScreen />);
     await startVoice(); dwell(2000);
     view.unmount();
     await act(async () => { await flush(); });
-    expect(mockHarness.engine.discarded).toBe(true);
+    expect(mockHarness.engine.discarded).toBe(false);
+    expect(mockHarness.recorder.isActive()).toBe(true);
     expect(mockHarness.stopped).toHaveLength(0);
   });
 });
@@ -544,4 +548,69 @@ describe('n is the full durable deck at recording start (V1, legacy excluded onl
     const meta = buildVoiceAnswersMeta(mockHarness.stopped[0].recordingId, { blobSha: 's', durationS: 7 })!;
     expect(meta.items.map((item) => item.key)).toEqual([bindable]);
   });
+});
+
+test('R8 delayed background observation never freezes question time beyond native captured audio', async () => {
+  render(<QuestionsScreen />);
+  await startVoice();
+  const recordingId = mockHarness.recorder.snapshot()!.recordingId;
+  // Native capture ended after 2 seconds, but JS observes the background stop 60 seconds later.
+  // This uses the existing stop and hook ingress rather than inventing a baseline pause API.
+  jest.spyOn(mockHarness.engine, 'poll').mockReturnValue({ level: 0.5, durationMs: 2000 });
+  jest.spyOn(mockHarness.engine, 'stop').mockResolvedValue({ uri: 'file:///tmp/p6-take.m4a', durationMs: 2000, bytes: 1000 });
+  dwell(62000);
+  await act(async () => { await mockHarness.recorder.stop('background'); await flush(); });
+  const meta = buildVoiceAnswersMeta(recordingId, { blobSha: 'synthetic-sha', durationS: 2 });
+  expect(meta?.items.every(item => item.segment.end_s <= 2) ?? true).toBe(true);
+});
+
+test('R8 background stop does not automatically finish question delivery', async () => {
+  render(<QuestionsScreen />);
+  await startVoice(); dwell(2000);
+  await act(async () => { await mockHarness.recorder.stop('background'); await flush(); });
+  expect(mockBack).not.toHaveBeenCalled();
+});
+
+
+test('R8 conformance: a short visit plus sixty seconds paused contributes no answer', async () => {
+  render(<QuestionsScreen />); await startVoice(); dwell(1000);
+  await act(async () => { await mockHarness.recorder.pause('background'); await flush(); });
+  dwell(60000);
+  expect(text('questions-voice-progress')).toBe('0 of 3 answered by voice');
+  expect(mockHarness.recorder.snapshot()?.capturedAudioMs).toBe(1000);
+  await act(async () => { await mockHarness.recorder.resume(); await flush(); });
+  dwell(600);
+  // Pause closed the 1s visit; this new 0.6s visit does not aggregate with it.
+  expect(text('questions-voice-progress')).toBe('0 of 3 answered by voice');
+});
+
+test('R8 conformance: global Send freezes question binding before the stopped subscriber', async () => {
+  render(<QuestionsScreen />); await startVoice(); dwell(2100);
+  const id = mockHarness.recorder.snapshot()!.recordingId;
+  let observed: unknown;
+  mockHarness.recorder.subscribeStopped(take => { observed = buildVoiceAnswersMeta(take.recordingId, { blobSha: 's', durationS: take.durationS }); });
+  await act(async () => { await mockHarness.recorder.send(); await flush(); });
+  expect(observed).toMatchObject({ recording_id: id, items: [expect.objectContaining({ segment: { start_s: 0, end_s: 2.1 } })] });
+  expect(mockBack).toHaveBeenCalledTimes(1);
+});
+
+test('R8 conformance: global Discard releases the process question session', async () => {
+  render(<QuestionsScreen />); await startVoice(); dwell(2100);
+  const id = mockHarness.recorder.snapshot()!.recordingId;
+  await act(async () => { await mockHarness.recorder.discard(); await flush(); });
+  expect(buildVoiceAnswersMeta(id, { blobSha: 's', durationS: 3 })).toBeNull();
+  expect(screen.queryByTestId('questions-voice-bar')).toBeNull();
+  expect(mockBack).toHaveBeenCalledTimes(1);
+});
+
+test('R8 durable validators reject malformed visits and duplicate answer keys without throwing', () => {
+  const item = { key: 'question:0', question_id: 'question', notification_id: 'notification', producer_stream_id: 'hosta:worker', surface_stream_id: 'hosta:chat', prompt: 'Synthetic prompt' };
+  const snapshot = createVoiceQuestionSnapshot([item], 1, item.key, [item.key]);
+  expect(validVoiceQuestionSnapshot(snapshot)).toBe(true);
+  expect(validVoiceQuestionSnapshot({ ...snapshot, visits: [null] })).toBe(false);
+  expect(validVoiceQuestionSnapshot({ ...snapshot, visits: [{ key: item.key, startMs: 0, endMs: Infinity }] })).toBe(false);
+  const answer = { ...item, segment: { start_s: 0, end_s: 2 } };
+  expect(validVoiceAnswersItems([answer], 2000)).toBe(true);
+  expect(validVoiceAnswersItems([answer, answer], 2000)).toBe(false);
+  expect(validVoiceAnswersItems([answer], 1999)).toBe(false);
 });

@@ -13,6 +13,11 @@ import {
   type PentacleStreamState,
 } from 'pentacle-chat-core';
 
+// Voice attempts belong to the durable take store, never the generic outbox.
+export function isVoiceOwnedSend(send: Pick<OptimisticSendState, 'request_id'> | undefined): boolean {
+  return !!send?.request_id?.startsWith('voice-send-');
+}
+
 // Automatic reconnect replay is bounded to survivors no older than 30 minutes.
 // Older ambiguous sends stay visibly recoverable (manual retry) rather than being
 // silently re-driven long after the fact.
@@ -31,6 +36,7 @@ export function rearmOfflineQueuedSends(
   const optimisticSends = { ...(state.optimisticSends ?? {}) };
   for (const [optimisticId, send] of Object.entries(optimisticSends)) {
     if (
+      isVoiceOwnedSend(send) ||
       send.status !== 'queued' ||
       send.window_started_at !== null ||
       now - send.created_at > maxAgeMs
@@ -63,6 +69,7 @@ export function eligibleReconnectReplayOptimisticIds(
 ): string[] {
   return Object.values(state.optimisticSends ?? {})
     .filter((send: OptimisticSendState) => (
+      !isVoiceOwnedSend(send) &&
       send.socket_generation === generation &&
       (send.status === 'queued' || send.status === 'dispatched') &&
       now - send.created_at <= maxAgeMs
@@ -108,7 +115,7 @@ export function rotateOptimisticSendRequestId(
   newRequestId: string,
 ): PentacleStreamState {
   const send = state.optimisticSends?.[optimisticId];
-  if (!send || send.request_id === newRequestId) return state;
+  if (!send || isVoiceOwnedSend(send) || send.request_id === newRequestId) return state;
   const priorRequestId = send.request_id;
   const optimisticSends = {
     ...(state.optimisticSends ?? {}),
@@ -250,7 +257,7 @@ export function rekeyOptimisticSend(
     return state;
   }
   const prior = state.optimisticSends?.[priorOptimisticId];
-  if (!prior) return state;
+  if (!prior || isVoiceOwnedSend(prior)) return state;
 
   const nextSend: OptimisticSendState = {
     ...prior,

@@ -11,7 +11,8 @@ import RecordingStrip from '../src/components/voice/RecordingStrip';
 import RecordingPill from '../src/components/voice/RecordingPill';
 import VoiceBubble from '../src/components/voice/VoiceBubble';
 import Bevel from '../src/components/Bevel';
-import { voiceRecorder } from '../src/services/voiceRecordingEngine';
+import { voiceRecorder, setVoiceLifecycle } from '../src/services/voiceRecordingEngine';
+import { uuid } from 'expo-modules-core';
 import { voiceDelivery, voiceTakeRow } from '../src/services/voiceDelivery';
 import { initialPentacleStreamState } from 'pentacle-chat-core';
 import { Tokens } from '../constants/Colors';
@@ -20,21 +21,10 @@ const G = Tokens.palette.green;
 const mockState = { ...initialPentacleStreamState, connected: true, hasHydrated: true,
   sessions: [{ stream_id: 'hoste:origin', host: 'hoste', session_name: 'origin', provider: 'codex', title: 'Origin', last_event_at: '2026-09-26T08:00:00Z', online: true }],
   events: [] };
-jest.mock('../src/services/pentacleStream', () => ({
-  getPentacleStreamState: () => mockState,
-  appendOptimisticUserMessage: jest.fn(() => 'optimistic-voice'),
-  sendPentacleMessage: jest.fn().mockResolvedValue(true),
-  uploadBlobBase64: jest.fn().mockResolvedValue({ blob_sha: 'voice-sha' }),
-  transcribeBlob: jest.fn(() => new Promise(() => {})),
-  usePentacleStreamSelectorWhen: (_enabled: boolean, selector: any) => selector(mockState),
-  usePentacleStreamActions: () => ({}),
-}));
+jest.mock('../src/services/pentacleStream', () => require('./questions/voiceHarness').makeVoiceTransportMock(() => mockState, () => new Promise(() => {}), async () => ({ delivery: 'landed' })));
 jest.mock('../src/hooks/usePentacleToken', () => () => ({ isReady: true, token: 'test-token' }));
-jest.mock('expo-file-system/legacy', () => ({
-  readAsStringAsync: jest.fn().mockResolvedValue('AUDIO'),
-  deleteAsync: jest.fn().mockResolvedValue(undefined),
-  EncodingType: { Base64: 'base64' },
-}));
+jest.mock('expo-file-system/legacy', () => require('./questions/voiceHarness').makeVoiceCaptureFsMock());
+jest.mock('expo-audio', () => require('./questions/voiceHarness').makeNativeVoiceMock());
 jest.mock('expo-router', () => require('./helpers/mocks/expoRouter').makeMock());
 jest.mock('@expo/vector-icons/FontAwesome', () => 'FontAwesome');
 jest.mock('@react-navigation/native', () => ({ useIsFocused: () => true }));
@@ -43,11 +33,12 @@ jest.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({
 const props = { host: 'hoste', chrome: hostChrome('hoste'), disabled: false, dismissToken: 0, refocusToken: 0, onFocus: jest.fn(), onSend: jest.fn().mockResolvedValue(undefined), onError: jest.fn() };
 const flat = (node: any) => StyleSheet.flatten(node.props.style) ?? {};
 
-beforeEach(() => jest.useFakeTimers());
+let fixtureId = 0;
+beforeEach(() => { jest.useFakeTimers(); jest.spyOn(uuid, 'v4').mockImplementation(() => `123e4567-e89b-42d3-a456-${String(++fixtureId).padStart(12, '0')}`); setVoiceLifecycle({ foreground: true, unlocked: true }); });
 afterEach(async () => {
   await act(async () => {
     await voiceRecorder.discard();
-    for (const take of voiceDelivery.snapshot().takes) voiceDelivery.discard(take.recordingId);
+    for (const take of voiceDelivery.snapshot().takes) await voiceDelivery.discard(take.recordingId);
     voiceDelivery.clearLast();
   });
   jest.useRealTimers();

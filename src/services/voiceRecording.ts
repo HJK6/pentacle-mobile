@@ -1,269 +1,327 @@
-import { logTelemetry, TELEMETRY_EVENTS } from 'pentacle-chat-core';
-
+import { voiceLifecycle } from './voiceTakeStore';
+import { uuid } from 'expo-modules-core';
 import type { ProcessedAsset } from './imageCapture';
 import type { VoiceRecordingAsset } from './voiceSendUnit';
-
-// Module-level recording session. It lives OUTSIDE any React component so a take
-// survives scrolling, keyboard changes and navigating to another chat (the
-// "Recording · m:ss · Return" pill). One recording at a time per app process.
-// (spec_pentacle_mobile__voice_input_thoth_transcription_2026_09 § Journey.)
+import {
+  startVoiceQuestionSession, updateVoiceQuestionCapture, voiceQuestionSnapshot, refreshVoiceQuestionSession,
+  coveredVoiceQuestionItems, freezeVoiceQuestionAnswers, completeVoiceQuestionSession,
+  type VoiceQuestionSessionSnapshot, type VoiceAnswersItem,
+} from '../components/questions/voice/voiceAnswersBinding';
 
 export type VoicePermission = 'granted' | 'denied' | 'undetermined';
-
 export type StopReason = 'tap' | 'interrupted' | 'background' | 'cap';
-
-/** Real capture is behind this interface so the state machine is testable with
- * a fake (no device, no expo-audio). The adapter normalizes metering to [0,1]. */
+export type PauseReason = 'background' | 'locked' | 'interrupted' | 'origin' | 'storage';
+export type CapturePhase = 'starting' | 'recording' | 'paused' | 'stopping' | 'finalized';
 export interface RecordingEngine {
   requestPermission(): Promise<VoicePermission>;
   getPermission(): Promise<VoicePermission>;
-  start(): Promise<void>;
-  /** Current normalized level [0,1] and elapsed ms since start. */
-  poll(): { level: number; durationMs: number; interrupted?: boolean };
+  start(isCurrent?: () => boolean): Promise<void>;
+  pause(): Promise<void>;
+  resume(isCurrent?: () => boolean): Promise<void>;
+  poll(): { level: number; durationMs: number; interrupted?: boolean; capped?: boolean };
   stop(): Promise<{ uri: string; durationMs: number; bytes?: number }>;
+  /** Stops/disarms only. The take repository exclusively deletes owned assets. */
   discard(): Promise<void>;
-  /** Container mime of produced files (audio/mp4 for AAC/M4A). */
   readonly mime: string;
+  readonly nativeUri?: string;
 }
-
 export interface Scheduler {
   setInterval(handler: () => void, ms: number): unknown;
   clearInterval(handle: unknown): void;
 }
-
 export const SAMPLE_INTERVAL_MS = 90;
 export const DISPLAY_BARS = 46;
-export const MAX_DURATION_MS = 5 * 60 * 1000; // 5-minute cap (§ Journey)
-
+export const MAX_DURATION_MS = 300000;
 export interface RecordingDraft {
   originGeneration: string | null;
   originLabel: string;
   textPrefix: string;
   images: ProcessedAsset[];
+  operationKind?: 'voice_chat' | 'voice_answer';
+  questionBinding?: VoiceQuestionSessionSnapshot;
 }
-
-export interface ActiveRecording {
-  draft?: RecordingDraft;
-  streamId: string;
-  recordingId: string;
-  /** Full metering series (retained for the pending voice bubble downsample). */
-  levels: number[];
-  durationMs: number;
-  status: 'recording' | 'stopping';
-  error?: string;
-}
-
 export interface RecordingSnapshot {
-  streamId: string;
-  recordingId: string;
-  levels: number[];
-  /** Last DISPLAY_BARS levels for the live strip (filled from the right). */
-  displayLevels: number[];
-  durationS: number;
-  status: 'recording' | 'stopping';
-  error?: string;
+  streamId: string; recordingId: string; originLabel: string;
+  levels: number[]; displayLevels: number[]; durationS: number; capturedAudioMs: number;
+  status: CapturePhase; pauseReason?: PauseReason; error?: string;
 }
-
-export type FinishedRecording = VoiceRecordingAsset & { draft?: RecordingDraft; streamId: string; recordingId: string; levels: number[]; interrupted: boolean };
-
+export type FinishedRecording = VoiceRecordingAsset & {
+  draft?: RecordingDraft; streamId: string; recordingId: string; levels: number[]; interrupted: boolean;
+  capturedAudioMs?: number; reason?: StopReason; sendRequested?: boolean;
+  questionBinding?: VoiceQuestionSessionSnapshot; frozenAnswers?: VoiceAnswersItem[];
+};
+export interface RecordingOwnership {
+  create(streamId: string, draft?: RecordingDraft): Promise<{ recordingId: string; draft?: RecordingDraft }>;
+  checkpoint(snapshot: RecordingSnapshot, nativeUri?: string, questionBinding?: VoiceQuestionSessionSnapshot): Promise<void>;
+  finalize(take: FinishedRecording): Promise<void>;
+  requestSend(take: FinishedRecording): Promise<void>;
+  invalidate?(recordingId: string): void;
+  discard(recordingId: string): Promise<void>;
+  ownsScope?(recordingId: string): boolean;
+  originAvailable(streamId: string, generation?: string | null, recordingId?: string): boolean;
+}
+type ActiveRecording = {
+  draft?: RecordingDraft; streamId: string; recordingId: string; levels: number[];
+  durationMs: number; status: CapturePhase; pauseReason?: PauseReason; error?: string;
+  finished?: FinishedRecording;
+  releaseDraft?: () => void; draftTransferred?: boolean;
+};
 type Listener = (snapshot: RecordingSnapshot | null) => void;
+export class PermissionDeniedError extends Error { constructor() { super('microphone_permission_denied'); this.name = 'PermissionDeniedError'; } }
+export class RecorderBusyError extends Error { constructor() { super('a_recording_is_already_active'); this.name = 'RecorderBusyError'; } }
+export class NoVoiceAnswersError extends Error { constructor() { super('No answers recorded. Take discarded.'); this.name = 'NoVoiceAnswersError'; } }
+const cancelled = () => new Error('voice_cancelled');
+const copy = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 
-export class PermissionDeniedError extends Error {
-  constructor() {
-    super('microphone_permission_denied');
-    this.name = 'PermissionDeniedError';
-  }
-}
-
-export class RecorderBusyError extends Error {
-  constructor() {
-    super('a_recording_is_already_active');
-    this.name = 'RecorderBusyError';
-  }
-}
-
-/**
- * The recording session controller. One instance is the app singleton
- * (`voiceRecorder`); tests construct their own with a fake engine + scheduler.
- */
+/** One process owner. Route mounts never participate in capture eligibility. */
 export class VoiceRecorder {
-  private engine: RecordingEngine;
-  private scheduler: Scheduler;
   private active: ActiveRecording | null = null;
   private tick: unknown = null;
   private listeners = new Set<Listener>();
-  private nextId = 0;
   private stoppedListeners = new Set<(take: FinishedRecording) => void>();
-  private stopping: Promise<FinishedRecording> | null = null;
   private starting = false;
-
-  subscribeStopped(listener: (take: FinishedRecording) => void): () => void {
-    this.stoppedListeners.add(listener);
-    return () => { this.stoppedListeners.delete(listener); };
-  }
-
-  constructor(engine: RecordingEngine, scheduler: Scheduler = globalScheduler) {
-    this.engine = engine;
-    this.scheduler = scheduler;
-  }
-
-  subscribe(listener: Listener): () => void {
-    this.listeners.add(listener);
-    listener(this.snapshot());
-    return () => this.listeners.delete(listener);
-  }
-
+  private stopping: Promise<FinishedRecording> | null = null;
+  private sendAfterStop = false;
+  private resuming: Promise<void> | null = null;
+  private tail: Promise<unknown> = Promise.resolve();
+  private epoch = 0;
+  private checkpointPending = false;
+  private checkpointAt = 0;
+  private lifecycle = { foreground: true, unlocked: true };
+  constructor(private engine: RecordingEngine, private scheduler: Scheduler = globalScheduler, private ownership?: RecordingOwnership) {}
+  subscribeStopped(listener: (take: FinishedRecording) => void) { this.stoppedListeners.add(listener); return () => { this.stoppedListeners.delete(listener); }; }
+  subscribe(listener: Listener) { this.listeners.add(listener); listener(this.snapshot()); return () => { this.listeners.delete(listener); }; }
   snapshot(): RecordingSnapshot | null {
+    const a = this.active; if (!a) return null;
+    return { streamId: a.streamId, recordingId: a.recordingId, originLabel: a.draft?.originLabel || a.streamId,
+      levels: a.levels.slice(), displayLevels: a.levels.slice(-DISPLAY_BARS), durationS: Math.floor(a.durationMs / 1000), capturedAudioMs: a.durationMs,
+      status: a.status, pauseReason: a.pauseReason, error: a.error };
+  }
+  isActive() { return this.active !== null || this.starting; }
+  isOwnedByCurrentScope(recordingId: string) { return this.ownership?.ownsScope?.(recordingId) ?? true; }
+  activeStreamId() { return this.active?.streamId ?? null; }
+  private serial<T>(fn: () => Promise<T>): Promise<T> { const work = this.tail.catch(() => undefined).then(fn); this.tail = work; return work; }
+  private current(epoch: number, a?: ActiveRecording) { return epoch === this.epoch && (!a || this.active === a); }
+  private guard(epoch: number, a?: ActiveRecording) { if (!this.current(epoch, a)) throw cancelled(); }
+  private ready(a?: ActiveRecording) {
+    return this.lifecycle.foreground && this.lifecycle.unlocked && (!a || !this.ownership || this.ownership.originAvailable(a.streamId, a.draft?.originGeneration, a.recordingId));
+  }
+  setLifecycle(value: { foreground: boolean; unlocked: boolean }) {
+    const changed = value.foreground !== this.lifecycle.foreground || value.unlocked !== this.lifecycle.unlocked;
+    this.lifecycle = { ...value };
+    if (changed && (!value.foreground || !value.unlocked) && (this.active || this.starting)) {
+      void this.pause(!value.foreground ? 'background' : 'locked').catch(() => undefined);
+    }
+    // Unlock/foreground only changes eligibility. Resume is always an explicit command.
+  }
+  checkOrigin() {
     const a = this.active;
-    if (!a) return null;
-    return {
-      streamId: a.streamId,
-      recordingId: a.recordingId,
-      levels: a.levels,
-      displayLevels: a.levels.slice(-DISPLAY_BARS),
-      durationS: Math.floor(a.durationMs / 1000),
-      status: a.status,
-      error: a.error,
-    };
+    if (a) { this.emit(); refreshVoiceQuestionSession(a.recordingId); }
+    const available = !a || !this.ownership || this.ownership.originAvailable(a.streamId, a.draft?.originGeneration, a.recordingId);
+    if (a?.status === 'paused' && a.pauseReason === 'origin') {
+      if (available) { a.pauseReason = undefined; a.error = undefined; this.emit(); }
+      return;
+    }
+    if (a && !available) {
+      void this.pause('origin').catch(() => undefined);
+    }
   }
-
-  isActive(): boolean {
-    return this.active !== null;
-  }
-
-  activeStreamId(): string | null {
-    return this.active?.streamId ?? null;
-  }
-
   async ensurePermission(): Promise<VoicePermission> {
-    const current = await this.engine.getPermission();
-    if (current === 'granted' || current === 'denied') return current;
-    return this.engine.requestPermission();
+    const epoch = this.epoch;
+    const permission = await this.engine.getPermission(); this.guard(epoch);
+    if (permission !== 'undetermined') return permission;
+    const requested = await this.engine.requestPermission(); this.guard(epoch); return requested;
   }
-
-  /**
-   * Begin a recording bound to `streamId`. Rejects with PermissionDeniedError if
-   * the mic is denied, or RecorderBusyError if one is already active elsewhere.
-   */
-  async start(streamId: string, draft?: RecordingDraft): Promise<string> {
-    if (this.active || this.starting) throw new RecorderBusyError();
-    this.starting = true;
-    try {
-    const permission = await this.ensurePermission();
-    if (permission !== 'granted') throw new PermissionDeniedError();
-    await this.engine.start();
-    const recordingId = `rec-${Date.now()}-${this.nextId++}`;
-    this.active = { streamId, draft, recordingId, levels: [], durationMs: 0, status: 'recording' };
-    logTelemetry(TELEMETRY_EVENTS.CHAT_VOICE_RECORD_STARTED, {
-      stream_id: streamId,
-      recording_id: recordingId,
-      subsystem: 'voice', bug_ref: 'mobile-image-voice-drafts',
-      image_count: draft?.images.length ?? 0,
+  start(streamId: string, draft?: RecordingDraft, releaseDraft?: () => void): Promise<string> {
+    if (this.active || this.starting) return Promise.reject(new RecorderBusyError());
+    this.starting = true; const epoch = ++this.epoch;
+    const capturedDraft = draft ? copy(draft) : undefined;
+    return this.serial(async () => {
+      let created: { recordingId: string; draft?: RecordingDraft } | undefined;
+      let nativeStarted = false;
+      try {
+        this.guard(epoch); if (!this.ready()) throw new Error('Unlock the app before recording.');
+        const permission = await this.ensurePermission(); this.guard(epoch);
+        if (permission !== 'granted') throw new PermissionDeniedError();
+        created = this.ownership ? await this.ownership.create(streamId, capturedDraft) : { recordingId: uuid.v4(), draft: capturedDraft };
+        this.guard(epoch);
+        const a: ActiveRecording = { streamId, recordingId: created.recordingId, draft: created.draft ?? capturedDraft, durationMs: 0, levels: [], status: 'starting', releaseDraft };
+        this.active = a; this.checkpointAt = 0;
+        if (a.draft?.questionBinding) startVoiceQuestionSession(a.recordingId, a.draft.questionBinding);
+        this.emit();
+        await this.engine.start(() => this.current(epoch, a) && this.ready(a)); nativeStarted = true; this.guard(epoch, a);
+        a.status = 'recording'; this.startTick(); this.emit();
+        if (this.ownership) { await this.ownership.checkpoint(this.snapshot()!, this.engine.nativeUri, voiceQuestionSnapshot(a.recordingId)); this.guard(epoch, a); }
+        this.transferDraft(a);
+        this.telemetry(a.recordingId, 'started');
+        return a.recordingId;
+      } catch (error) {
+        if (nativeStarted && this.active?.recordingId === created?.recordingId) {
+          // A failed ownership checkpoint cannot release the draft. Keep the take visibly paused.
+          if (this.current(epoch)) {
+            const held = this.active!;
+            held.status = 'paused'; held.pauseReason = 'storage'; held.error = 'Could not save recording. Retry Send or Discard.'; this.stopTick();
+            updateVoiceQuestionCapture(held.recordingId, held.durationMs, 'paused');
+            try { await this.engine.pause(); } catch { /* remain visibly paused with the failure */ }
+            this.emit();
+          }
+        } else if (created) {
+          try { await this.engine.discard(); } catch { /* never claim capture began */ }
+          if (this.ownership) await this.ownership.discard(created.recordingId).catch(() => undefined);
+          completeVoiceQuestionSession(created.recordingId, 'discarded');
+          if (this.active?.recordingId === created.recordingId) { this.active = null; this.emit(); }
+        }
+        throw error;
+      } finally { this.starting = false; }
     });
-    this.tick = this.scheduler.setInterval(() => this.sample(), SAMPLE_INTERVAL_MS);
-    this.emit();
-    return recordingId;
-    } finally { this.starting = false; }
   }
-
-  private sample(): void {
+  capturedAudioMs(): number {
+    const a = this.active; if (!a) return 0;
+    if (a.status === 'recording') {
+      const status = this.engine.poll();
+      a.durationMs = Math.min(MAX_DURATION_MS, Math.max(a.durationMs, status.durationMs || 0));
+    }
+    return a.durationMs;
+  }
+  private sample() {
+    const a = this.active; if (!a || a.status !== 'recording') return;
+    const result = this.engine.poll(); a.levels.push(clamp01(result.level));
+    a.durationMs = Math.min(MAX_DURATION_MS, Math.max(a.durationMs, result.durationMs || 0));
+    updateVoiceQuestionCapture(a.recordingId, a.durationMs, 'recording');
+    if (result.capped || a.durationMs >= MAX_DURATION_MS) { void this.stop('cap').catch(() => undefined); return; }
+    if (result.interrupted) { void this.pause('interrupted').catch(() => undefined); return; }
+    this.emit();
+    if (this.ownership && !this.checkpointPending && a.durationMs - this.checkpointAt >= 1000) {
+      const epoch = this.epoch; this.checkpointPending = true; this.checkpointAt = a.durationMs;
+      void this.ownership.checkpoint(this.snapshot()!, this.engine.nativeUri, voiceQuestionSnapshot(a.recordingId)).then(() => { this.guard(epoch, a); }).catch(() => {
+        if (!this.current(epoch, a) || a.status !== 'recording') return;
+        void this.pause('storage').catch(() => undefined); a.error = 'Could not save recording. Retry Send or Discard.'; this.emit();
+      }).finally(() => { this.checkpointPending = false; });
+    }
+  }
+  pause(reason: PauseReason = 'interrupted'): Promise<void> {
     const a = this.active;
-    if (!a || a.status !== 'recording') return;
-    const { level, durationMs, interrupted } = this.engine.poll();
-    a.levels.push(clamp01(level));
-    a.durationMs = durationMs;
-    if (interrupted) {
-      void this.stop('interrupted').catch(() => undefined);
-      return;
-    }
-    if (durationMs >= MAX_DURATION_MS) {
-      // Auto-stop at the cap; the caller's onStop wiring handles the take.
-      void this.stop('cap').catch(() => undefined);
-      return;
-    }
-    this.emit();
+    if (a && (a.finished || a.status === 'stopping')) return Promise.resolve();
+    // Invalidate pending permission/arming synchronously; a stale await cannot record.
+    const epoch = ++this.epoch;
+    if (!a) return Promise.resolve();
+    this.capturedAudioMs(); a.status = 'paused'; a.pauseReason = reason;
+    a.error = reason === 'origin' ? 'Original chat unavailable' : undefined;
+    this.stopTick(); updateVoiceQuestionCapture(a.recordingId, a.durationMs, 'paused'); this.emit();
+    // Native pause starts now, before a slow checkpoint can delay the serial persistence tail.
+    const nativePause = this.engine.pause(); nativePause.catch(() => undefined);
+    return this.serial(async () => {
+      try {
+        await nativePause; this.guard(epoch, a); this.telemetry(a.recordingId, 'paused');
+        if (this.ownership) { await this.ownership.checkpoint(this.snapshot()!, this.engine.nativeUri, voiceQuestionSnapshot(a.recordingId)); this.guard(epoch, a); }
+      } catch (error) {
+        if (this.current(epoch, a)) { a.error = 'Could not pause safely. Retry Resume, Send or Discard.'; this.emit(); }
+        throw error;
+      }
+    });
   }
-
-  /**
-   * Stop capture and return the finished take. `reason` distinguishes a manual
-   * tap from an interruption/background/cap stop (all are treated as a stop that
-   * proceeds to upload/transcribe/send per § Journey).
-   */
+  resume(): Promise<void> {
+    if (this.resuming) return this.resuming;
+    const a = this.active;
+    if (!a || a.status !== 'paused' || a.finished) return Promise.reject(new Error('Recording cannot be resumed. Send or Discard.'));
+    if (!this.ready(a)) { a.error = this.lifecycle.foreground && this.lifecycle.unlocked ? 'Original chat unavailable' : 'Unlock the app before resuming.'; this.emit(); return Promise.reject(new Error(a.error)); }
+    const epoch = ++this.epoch;
+    const work = this.serial(async () => {
+      try {
+        this.guard(epoch, a);
+        await this.engine.resume(() => this.current(epoch, a) && this.ready(a)); this.guard(epoch, a);
+        if (!this.ready(a)) throw cancelled();
+        a.status = 'recording'; a.error = undefined; a.pauseReason = undefined; this.telemetry(a.recordingId, 'resumed');
+        updateVoiceQuestionCapture(a.recordingId, a.durationMs, 'recording'); this.startTick(); this.emit();
+        if (this.ownership) { await this.ownership.checkpoint(this.snapshot()!, this.engine.nativeUri, voiceQuestionSnapshot(a.recordingId)); this.guard(epoch, a); }
+      } catch (error) {
+        if (this.current(epoch, a)) {
+          this.stopTick(); a.status = 'paused'; a.error = 'Could not resume. Retry Resume, Send or Discard.';
+          updateVoiceQuestionCapture(a.recordingId, a.durationMs, 'paused');
+          try { await this.engine.pause(); } catch { /* failure remains actionable */ }
+          this.emit();
+        }
+        throw error;
+      }
+    });
+    this.resuming = work.finally(() => { this.resuming = null; }); return this.resuming;
+  }
+  send() { return this.stop('tap'); }
   stop(reason: StopReason): Promise<FinishedRecording> {
-    if (this.stopping) return this.stopping;
-    this.stopping = this.finishStop(reason).finally(() => { this.stopping = null; });
-    return this.stopping;
-  }
-
-  private async finishStop(reason: StopReason): Promise<FinishedRecording> {
-    const a = this.active;
-    if (!a) throw new Error('no_active_recording');
-    a.status = 'stopping';
-    this.emit();
-    this.stopTick();
-    let stopped: Awaited<ReturnType<RecordingEngine['stop']>>;
-    try { stopped = await this.engine.stop(); }
-    catch (error) {
-      // Keep the take bound to its origin. A failed automatic stop pauses the
-      // timer and exposes Retry-stop/Discard instead of looping at the cap.
-      a.status = 'recording';
-      a.error = 'Could not stop recording. Tap stop again or discard.';
-      this.emit();
-      throw error;
-    }
-    const { uri, durationMs, bytes } = stopped;
-    const durationS = Math.max(1, Math.round((durationMs || a.durationMs) / 1000));
-    const levels = a.levels.slice();
-    logTelemetry(TELEMETRY_EVENTS.CHAT_VOICE_RECORD_STOPPED, {
-      stream_id: a.streamId,
-      recording_id: a.recordingId,
-      reason,
-      duration_s: durationS,
+    if (this.stopping) { if (reason === 'tap') this.sendAfterStop = true; return this.stopping; }
+    this.sendAfterStop = reason === 'tap';
+    const a = this.active; if (!a) return Promise.reject(new Error('no_active_recording'));
+    const epoch = ++this.epoch;
+    this.capturedAudioMs(); this.stopTick(); a.status = 'stopping'; this.emit();
+    const work = this.serial(async () => {
+      try {
+        this.guard(epoch, a);
+        if (reason === 'tap' && voiceQuestionSnapshot(a.recordingId) && coveredVoiceQuestionItems(a.recordingId, a.durationMs).length === 0) {
+          await this.engine.discard(); this.guard(epoch, a);
+          if (this.ownership) { await this.ownership.discard(a.recordingId); this.guard(epoch, a); }
+          this.active = null; completeVoiceQuestionSession(a.recordingId, 'no_answers'); this.emit(); throw new NoVoiceAnswersError();
+        }
+        if (!a.finished) {
+          const result = await this.engine.stop(); this.guard(epoch, a);
+          a.durationMs = Math.min(MAX_DURATION_MS, Math.max(a.durationMs, result.durationMs || 0));
+          const frozenAnswers = freezeVoiceQuestionAnswers(a.recordingId, a.durationMs);
+          a.finished = { streamId: a.streamId, draft: a.draft, recordingId: a.recordingId, uri: result.uri, mime: this.engine.mime,
+            durationS: Math.max(1, Math.round(a.durationMs / 1000)), capturedAudioMs: a.durationMs, bytes: result.bytes, levels: a.levels.slice(),
+            interrupted: reason !== 'tap' && reason !== 'cap', reason, sendRequested: false,
+            ...(frozenAnswers ? { frozenAnswers, questionBinding: voiceQuestionSnapshot(a.recordingId) } : {}) };
+        }
+        const take = a.finished;
+        if (this.ownership) { await this.ownership.finalize(take); this.guard(epoch, a); }
+        this.transferDraft(a);
+        if (this.sendAfterStop) {
+          if (take.frozenAnswers && !take.frozenAnswers.length) {
+            if (this.ownership) { await this.ownership.discard(a.recordingId); this.guard(epoch, a); }
+            this.active = null; completeVoiceQuestionSession(a.recordingId, 'no_answers'); this.emit(); throw new NoVoiceAnswersError();
+          }
+          if (this.ownership) { await this.ownership.requestSend(take); this.guard(epoch, a); }
+          take.sendRequested = true; completeVoiceQuestionSession(a.recordingId, 'sent');
+        }
+        this.active = null; this.emit();
+        this.telemetry(a.recordingId, 'finalized');
+        for (const listener of this.stoppedListeners) listener(take);
+        return take;
+      } catch (error) {
+        if (this.current(epoch, a)) {
+          a.status = a.finished ? 'finalized' : 'paused';
+          a.error = 'Could not save or stop recording. Tap stop again or discard.';
+          updateVoiceQuestionCapture(a.recordingId, a.durationMs, a.finished ? 'finalized' : 'paused');
+          try { await this.engine.pause(); } catch { /* display failure, never mark resumed */ }
+          this.emit();
+        }
+        throw error;
+      }
     });
-    const recordingId = a.recordingId;
-    this.active = null;
-    this.emit();
-    const take: FinishedRecording = {
-      streamId: a.streamId,
-      draft: a.draft,
-      uri,
-      mime: this.engine.mime,
-      durationS,
-      bytes,
-      recordingId,
-      levels,
-      interrupted: reason !== 'tap' && reason !== 'cap',
-    };
-    for (const listener of this.stoppedListeners) listener(take);
-    return take;
+    this.stopping = work.finally(() => { this.stopping = null; }); return this.stopping;
   }
-
-  /** Discard the active take: drop the file, emit telemetry, clear state. */
-  async discard(): Promise<void> {
-    const a = this.active;
-    if (!a || a.status === 'stopping') return;
-    this.stopTick();
-    await this.engine.discard();
-    logTelemetry(TELEMETRY_EVENTS.CHAT_VOICE_RECORD_DISCARDED, {
-      stream_id: a.streamId,
-      recording_id: a.recordingId,
-      duration_s: Math.floor(a.durationMs / 1000),
+  discard(): Promise<void> {
+    const epoch = ++this.epoch; const a = this.active; this.stopTick();
+    if (a) { a.status = 'stopping'; this.emit(); }
+    // Synchronous store epoch invalidation blocks an in-flight requestSend/dispatch.
+    const pause = a ? this.engine.pause().catch(() => undefined) : Promise.resolve();
+    if (a) this.ownership?.invalidate?.(a.recordingId);
+    return this.serial(async () => {
+      try {
+        await pause; this.guard(epoch, a ?? undefined);
+        await this.engine.discard(); this.guard(epoch, a ?? undefined);
+        if (a && this.ownership) { await this.ownership.discard(a.recordingId); this.guard(epoch, a); }
+        if (a) { completeVoiceQuestionSession(a.recordingId, 'discarded'); this.telemetry(a.recordingId, 'cancelled'); }
+        this.active = null; this.emit();
+      } catch (error) {
+        if (this.current(epoch, a ?? undefined) && a) { a.status = a.finished ? 'finalized' : 'paused'; a.error = 'Could not discard recording. Try again.'; this.emit(); }
+        throw error;
+      }
     });
-    this.active = null;
-    this.emit();
   }
-
-  private stopTick(): void {
-    if (this.tick != null) {
-      this.scheduler.clearInterval(this.tick);
-      this.tick = null;
-    }
-  }
-
-  private emit(): void {
-    const snap = this.snapshot();
-    for (const listener of this.listeners) listener(snap);
-  }
+  private transferDraft(a: ActiveRecording) { if (!a.draftTransferred) { a.draftTransferred = true; a.releaseDraft?.(); } }
+  private telemetry(id: string, state: 'started' | 'paused' | 'resumed' | 'finalized' | 'cancelled') { voiceLifecycle(id, 'capture', state); }
+  private startTick() { this.stopTick(); this.tick = this.scheduler.setInterval(() => this.sample(), SAMPLE_INTERVAL_MS); }
+  private stopTick() { if (this.tick != null) { this.scheduler.clearInterval(this.tick); this.tick = null; } }
+  private emit() { const snapshot = this.snapshot(); for (const fn of this.listeners) fn(snapshot); }
 }
 
 const globalScheduler: Scheduler = {

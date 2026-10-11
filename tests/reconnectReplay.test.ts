@@ -321,3 +321,24 @@ describe('notification-resolve survivors (§A parity)', () => {
     });
   });
 });
+
+describe('durable voice keeps exclusive retry ownership', () => {
+  const voiceRequest = 'voice-send-b620c843aa1796134510973f91adb9be784e54e9';
+  function voiceState(status: OptimisticSendStatus) {
+    const state = optimisticState(status);
+    return {
+      ...state,
+      optimisticSends: { [OPTIMISTIC_ID]: { ...state.optimisticSends![OPTIMISTIC_ID], request_id: voiceRequest, window_started_at: null } },
+      optimisticByRequestId: { [voiceRequest]: OPTIMISTIC_ID },
+    };
+  }
+  test.each<OptimisticSendStatus>(['queued', 'dispatched'])('generic replay excludes voice %s rows', status => {
+    const state = voiceState(status);
+    expect(eligibleReconnectReplayOptimisticIds(state, GEN, CREATED_AT + 1_000)).toEqual([]);
+    expect(rearmOfflineQueuedSends(state, NEXT_GEN, CREATED_AT + 1_000)).toBe(state);
+  });
+  test('generic explicit retry cannot replace the persisted voice request identity', () => {
+    const state = voiceState('failed');
+    expect(rotateOptimisticSendRequestId(state, OPTIMISTIC_ID, 'send-new-attempt')).toBe(state);
+  });
+});

@@ -1,6 +1,7 @@
-import { TELEMETRY_EVENTS } from 'pentacle-chat-core';
+import { TELEMETRY_EVENTS, TELEMETRY_EVENT_BUG_REFS } from 'pentacle-chat-core';
 
 export const MOBILE_TELEMETRY_EVENTS = {
+  VOICE_DELIVERY_LIFECYCLE: 'voice_delivery:lifecycle',
   QUESTION_REOPEN_FETCH_ATTEMPT: TELEMETRY_EVENTS.QUESTION_REOPEN_FETCH_ATTEMPT,
   QUESTION_REOPEN_FETCH_FAILED: TELEMETRY_EVENTS.QUESTION_REOPEN_FETCH_FAILED,
   QUESTION_REOPEN_FETCH_READY: TELEMETRY_EVENTS.QUESTION_REOPEN_FETCH_READY,
@@ -70,3 +71,6 @@ export type MobileTelemetryEvent =
   (typeof MOBILE_TELEMETRY_EVENTS)[keyof typeof MOBILE_TELEMETRY_EVENTS];
 
 export const MOBILE_TELEMETRY_EVENT_NAMES = Object.values(MOBILE_TELEMETRY_EVENTS);
+
+// Register only this mobile-owned lifecycle event with the existing telemetry channel.
+(TELEMETRY_EVENT_BUG_REFS as Record<string, string>)[MOBILE_TELEMETRY_EVENTS.VOICE_DELIVERY_LIFECYCLE] = 'continuous_voice';

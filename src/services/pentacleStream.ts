@@ -1,6 +1,8 @@
 import { acceptBlobChunk, newBlobFetchBudget, type BlobFetchBudget } from './blobFetchBudget';
 import { useCallback, useSyncExternalStore } from 'react';
 import { fromByteArray, toByteArray } from 'base64-js';
+import { sha256 } from '@noble/hashes/sha2.js';
+import { bytesToHex, utf8ToBytes } from '@noble/hashes/utils.js';
 import { AppState, type AppStateStatus } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useSyncExternalStoreWithSelector } from 'use-sync-external-store/shim/with-selector';
@@ -28,6 +30,7 @@ import {
 } from './operatorAuthV2';
 export type { SpawnCatalog, SpawnProvider } from './spawnCatalog';
 import {
+  isVoiceOwnedSend,
   markDaemonRestartSurvivorsIndeterminate,
   markDaemonRestartNotificationResolvesIndeterminate,
   rearmOfflineQueuedSends,
@@ -197,6 +200,386 @@ export class CloseSessionError extends Error {
   }
 }
 
+/** Durable voice identity is prepared here, committed only by voiceTakeStore. */
+export type VoiceOriginalRequest = {
+  protocol: 'voice-v1'; logical_id: string; target: string; generation: string; sequence: number;
+};
+export type VoiceOperation = {
+  version: 1; operation_id: string; origin_stream_id: string; origin_generation: string;
+  operation_kind: 'voice_chat' | 'voice_answer'; client_build: string;
+};
+export type VoiceDispatchIntent = {
+  version: 1; recordingId: string; sequence: number; streamId: string; originGeneration: string;
+  serverIdentity: string; credentialId: string; optimisticId: string; requestId: string;
+  msgId?: string; createdAt: number; originalRequest: VoiceOriginalRequest;
+  payload: Record<string, unknown>; payloadSha256: string;
+};
+export type VoiceSendEvidence = {
+  recordingId: string; requestId: string; streamId: string; generation: string;
+  state: 'landed' | 'not_landed' | 'unknown'; source: 'send.result' | 'receipt' | 'user'; msgId?: string;
+};
+export type VoiceTransportSnapshot = {
+  serverIdentity: string; credentialId: string | null; ready: boolean; inventoryFresh: boolean; authNeeded: boolean;
+  scopeGeneration: number; socketGeneration: number; origins: readonly PentacleSessionSummary[];
+};
+export type VoiceUploadAck = {
+  protocol: 2; upload_id: string; next_offset: number; complete: boolean; blob_sha?: string;
+};
+export type VoiceUploadRpc = {
+  type: 'upload_blob_init'; protocol: 2; upload_id: string; total_bytes: number;
+  sha256: string; mime: 'audio/mp4' | 'audio/wav'; voice_operation: VoiceOperation;
+} | {
+  type: 'upload_blob_chunk'; protocol: 2; upload_id: string; offset: number;
+  data_b64: string; chunk_sha256: string; final: boolean;
+};
+
+const VOICE_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const VOICE_SHA256 = /^[0-9a-f]{64}$/;
+let voiceScopeGeneration = 0;
+let voiceLastOrigins = new Map<string, PentacleSessionSummary>();
+let voiceCurrentOrigins = new Map<string, PentacleSessionSummary>();
+const voiceClosedOrigins = new Map<string, string>();
+let voiceOrigins: readonly PentacleSessionSummary[] = [];
+let voiceSnapshotCache: VoiceTransportSnapshot | undefined;
+const voiceIntents = new Map<string, { intent: VoiceDispatchIntent; json: string; scopeGeneration: number }>();
+const voiceEvidence = new Map<string, VoiceSendEvidence>();
+const voiceEvidenceListeners = new Set<(evidence: VoiceSendEvidence) => void>();
+const voiceDispatches = new Map<string, Promise<VoiceSendEvidence>>();
+const voiceReceiptWaiters = new Map<string, { promise: Promise<VoiceSendEvidence>; finish: (evidence: VoiceSendEvidence) => void }>();
+
+function voiceError(code: string) { return Object.assign(new Error(code), { code }); }
+function voiceJsonHash(value: unknown): string { return bytesToHex(sha256(utf8ToBytes(JSON.stringify(value)))); }
+function freezeVoiceJson<T>(value: T): T {
+  if (value && typeof value === 'object') { Object.freeze(value); Object.values(value).forEach(freezeVoiceJson); }
+  return value;
+}
+function cloneVoiceJson<T>(value: T): T { return JSON.parse(JSON.stringify(value)) as T; }
+function voiceString(value: unknown, max: number): value is string {
+  if (typeof value !== 'string') return false;
+  const points = [...value];
+  return points.length >= 1 && points.length <= max && points.every(point => {
+    const code = point.codePointAt(0)!; return code < 0xD800 || code > 0xDFFF;
+  });
+}
+function voiceServerIdentity(url: string): string {
+  try { const parsed = new URL(url); return `${parsed.protocol}//${parsed.host}${parsed.pathname}`; }
+  catch { return ''; }
+}
+function voiceConfiguredCredentialId(): string | null {
+  try { return authToken?.startsWith(OPERATOR_AUTH_V2_PREFIX) ? parseOperatorAuthV2Envelope(authToken).credentialId : null; }
+  catch { return null; }
+}
+export function voiceTransportSnapshot(): VoiceTransportSnapshot {
+  const serverIdentity = voiceServerIdentity(wsUrl || getDefaultPentacleWsUrl());
+  const credentialId = voiceConfiguredCredentialId();
+  const inventoryFresh = sendInventoryGeneration === currentSocketGeneration;
+  const authNeeded = !credentialId || /auth|credential|enroll|revoked|expired/i.test(state.lastError || '');
+  const ready = !authNeeded && !!credentialId && !!serverIdentity && state.connected && !state.connecting
+    && ws?.readyState === WebSocket.OPEN && inventoryFresh && voiceServerIdentity(ws.url) === serverIdentity;
+  const prior = voiceSnapshotCache;
+  if (prior && prior.serverIdentity === serverIdentity && prior.credentialId === credentialId
+    && prior.ready === ready && prior.inventoryFresh === inventoryFresh && prior.authNeeded === authNeeded
+    && prior.scopeGeneration === voiceScopeGeneration && prior.socketGeneration === currentSocketGeneration
+    && prior.origins === voiceOrigins) return prior;
+  voiceSnapshotCache = Object.freeze({ serverIdentity, credentialId, ready, inventoryFresh, authNeeded,
+    scopeGeneration: voiceScopeGeneration, socketGeneration: currentSocketGeneration, origins: voiceOrigins });
+  return voiceSnapshotCache;
+}
+export function subscribeVoiceTransport(listener: () => void): () => void {
+  return subscribePentacleStream(listener);
+}
+export function voiceOriginStatus(streamId: string, generation: string): 'available' | 'unavailable' | 'unverified' {
+  if (!voiceString(generation, 128) || generation === 'assistant-composite-v1') return 'unverified';
+  if (voiceClosedOrigins.get(streamId) === generation) return 'unavailable';
+  const origin = voiceLastOrigins.get(streamId);
+  if (!origin?.session_generation) return 'unverified';
+  return origin.session_generation === generation ? 'available' : 'unavailable';
+}
+function rememberVoiceInventory(sessions: PentacleSessionSummary[]) {
+  if (!voiceConfiguredCredentialId() || !state.connected || !ws
+    || voiceServerIdentity(ws.url) !== voiceServerIdentity(wsUrl || getDefaultPentacleWsUrl())) return;
+  voiceCurrentOrigins = new Map(sessions.map(row => [row.stream_id, row]));
+  for (const row of sessions) {
+    if (!voiceString(row.session_generation, 128)) continue;
+    const copy = freezeVoiceJson(cloneVoiceJson(row));
+    voiceLastOrigins.set(row.stream_id, copy);
+    const status = (row as PentacleSessionSummary & { status?: string; closed_at?: unknown }).status;
+    if (status === 'closed' || (row as PentacleSessionSummary & { closed_at?: unknown }).closed_at) {
+      voiceClosedOrigins.set(row.stream_id, row.session_generation);
+    }
+  }
+  voiceOrigins = Object.freeze([...voiceLastOrigins.values()]);
+}
+function rememberVoiceClose(message: Record<string, unknown>) {
+  if (!['close.ok', 'close.already_closed', 'close.degraded'].includes(String(message.type)) || message.deferred === true) return;
+  const pending = [...pendingSessionCloses.values()].find(row => row.requestId === message.request_id);
+  if (!pending?.sessionGeneration || !voiceConfiguredCredentialId()) return;
+  if (message.session_generation !== undefined && message.session_generation !== pending.sessionGeneration) return;
+  voiceClosedOrigins.set(pending.streamId, pending.sessionGeneration);
+  voiceOrigins = Object.freeze([...voiceLastOrigins.values()]);
+  emit();
+}
+function resetVoiceScope() {
+  voiceScopeGeneration += 1;
+  for (const entry of [...voiceIntents.values()]) voiceReceiptWaiters.get(entry.intent.requestId)?.finish(voiceUnknown(entry.intent));
+  voiceIntents.clear(); voiceEvidence.clear(); voiceDispatches.clear();
+  voiceLastOrigins = new Map(); voiceCurrentOrigins = new Map(); voiceClosedOrigins.clear();
+  voiceOrigins = []; voiceSnapshotCache = undefined;
+}
+function voiceScopeMatches(intent: VoiceDispatchIntent): boolean {
+  const scope = voiceTransportSnapshot();
+  return intent.serverIdentity === scope.serverIdentity && intent.credentialId === scope.credentialId;
+}
+function requireVoiceOrigin(streamId: string, generation: string) {
+  const scope = voiceTransportSnapshot();
+  if (!scope.credentialId) throw voiceError('auth_needed');
+  if (voiceOriginStatus(streamId, generation) === 'unavailable') throw voiceError('voice_origin_unavailable');
+  if (!scope.ready) throw voiceError('voice_transport_not_ready');
+  const origin = voiceCurrentOrigins.get(streamId);
+  if (!origin || origin.session_generation !== generation || generation === 'assistant-composite-v1') throw voiceError('voice_origin_unverified');
+  return origin;
+}
+function voiceOriginalRequest(recordingId: string, streamId: string, generation: string, sequence: number): VoiceOriginalRequest {
+  if (!VOICE_UUID.test(recordingId) || !voiceString(streamId, 160) || !voiceString(generation, 128)
+    || !Number.isInteger(sequence) || sequence < 1 || sequence > 1000) throw voiceError('invalid_voice_identity');
+  return { protocol: 'voice-v1', logical_id: recordingId, target: streamId, generation, sequence };
+}
+function voiceRequestId(proof: VoiceOriginalRequest): string {
+  return `voice-send-${voiceJsonHash([proof.logical_id, proof.target, proof.generation, proof.sequence]).slice(0, 40)}`;
+}
+export function validateVoiceDispatchIntent(value: unknown): value is VoiceDispatchIntent {
+  try {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+    const intent = value as VoiceDispatchIntent;
+    if (intent.version !== 1 || typeof intent.serverIdentity !== 'string' || !intent.serverIdentity
+      || voiceServerIdentity(intent.serverIdentity) !== intent.serverIdentity || !VOICE_UUID.test(intent.credentialId)
+      || !voiceString(intent.optimisticId, 256) || !Number.isSafeInteger(intent.createdAt) || intent.createdAt < 0) return false;
+    const proof = voiceOriginalRequest(intent.recordingId, intent.streamId, intent.originGeneration, intent.sequence);
+    if (!intent.originalRequest || Object.keys(intent.originalRequest).sort().join(',') !== 'generation,logical_id,protocol,sequence,target'
+      || Object.keys(proof).some(key => proof[key as keyof VoiceOriginalRequest] !== intent.originalRequest[key as keyof VoiceOriginalRequest])
+      || intent.requestId !== voiceRequestId(proof)) return false;
+    const payload = intent.payload;
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload) || payload.type !== 'send'
+      || payload.request_id !== intent.requestId || payload.operation_id !== intent.recordingId
+      || !VOICE_SHA256.test(intent.payloadSha256) || voiceJsonHash(payload) !== intent.payloadSha256) return false;
+    if (intent.msgId !== undefined) {
+      if (intent.msgId !== intent.optimisticId || payload.msg_id !== intent.msgId || payload.stream_id !== intent.streamId
+        || typeof payload.message !== 'string' || 'host' in payload || 'session_name' in payload || 'text' in payload) return false;
+    } else if (payload.optimistic_id !== intent.optimisticId || !voiceString(payload.host, 160)
+      || !voiceString(payload.session_name, 160) || typeof payload.text !== 'string' || 'msg_id' in payload || 'stream_id' in payload) return false;
+    if (payload.attachments !== undefined && !Array.isArray(payload.attachments)) return false;
+    if (payload.meta !== undefined && (!payload.meta || typeof payload.meta !== 'object' || Array.isArray(payload.meta))) return false;
+    return true;
+  } catch { return false; }
+}
+export function prepareVoiceDispatchIntent(args: {
+  recordingId: string; sequence: number; streamId: string; originGeneration: string;
+  text: string; attachments?: ChatAttachment[]; meta?: PentacleEvent['meta']; operationId: string;
+  previousIntent?: VoiceDispatchIntent;
+}): VoiceDispatchIntent {
+  const proof = voiceOriginalRequest(args.recordingId, args.streamId, args.originGeneration, args.sequence);
+  if (args.operationId !== args.recordingId) throw voiceError('invalid_voice_operation');
+  const origin = requireVoiceOrigin(args.streamId, args.originGeneration);
+  const scope = voiceTransportSnapshot();
+  const prior = args.previousIntent;
+  if (prior && (!validateVoiceDispatchIntent(prior) || !voiceScopeMatches(prior)
+    || prior.recordingId !== args.recordingId || prior.streamId !== args.streamId || prior.originGeneration !== args.originGeneration
+    || args.sequence !== prior.sequence + 1)) throw voiceError('invalid_voice_retry');
+  const optimisticId = prior?.optimisticId || nextOptimisticId(args.streamId);
+  const requestId = voiceRequestId(proof);
+  const payload = prior ? { ...prior.payload, request_id: requestId } : {
+    ...sendPayloadForSession(origin, { text: args.text, attachments: args.attachments, meta: args.meta, optimisticId }),
+    operation_id: args.operationId, request_id: requestId,
+  };
+  const intent: VoiceDispatchIntent = {
+    version: 1, recordingId: args.recordingId, sequence: args.sequence, streamId: args.streamId,
+    originGeneration: args.originGeneration, serverIdentity: scope.serverIdentity, credentialId: scope.credentialId!,
+    optimisticId, requestId, ...(prior?.msgId || (!prior && isPentacleAssistantCompositeSession(origin)) ? { msgId: optimisticId } : {}),
+    createdAt: prior?.createdAt ?? Date.now(), originalRequest: proof, payload: cloneVoiceJson(payload), payloadSha256: voiceJsonHash(payload),
+  };
+  if (!validateVoiceDispatchIntent(intent)) throw voiceError('invalid_voice_intent');
+  return freezeVoiceJson(intent);
+}
+/** Call only after voiceTakeStore has atomically committed this exact intent. No frame is sent here. */
+export function hydrateVoiceDispatchIntent(intent: VoiceDispatchIntent): void {
+  if (!validateVoiceDispatchIntent(intent)) throw voiceError('invalid_voice_intent');
+  if (!voiceScopeMatches(intent)) throw voiceError('voice_scope_mismatch');
+  const prior = state.optimisticSends?.[intent.optimisticId];
+  const priorEntry = [...voiceIntents.values()].find(entry => entry.intent.optimisticId === intent.optimisticId);
+  if (prior && !isVoiceOwnedSend(prior)) throw voiceError('invalid_voice_intent');
+  if (priorEntry && priorEntry.intent.requestId !== intent.requestId) {
+    if (intent.sequence !== priorEntry.intent.sequence + 1 || priorEntry.intent.recordingId !== intent.recordingId
+      || priorEntry.intent.streamId !== intent.streamId || priorEntry.intent.originGeneration !== intent.originGeneration
+      || JSON.stringify({ ...priorEntry.intent.payload, request_id: intent.requestId }) !== JSON.stringify(intent.payload)) throw voiceError('invalid_voice_retry');
+    voiceReceiptWaiters.get(priorEntry.intent.requestId)?.finish(voiceUnknown(priorEntry.intent));
+    voiceIntents.delete(priorEntry.intent.requestId);
+    voiceEvidence.delete(priorEntry.intent.requestId); voiceDispatches.delete(priorEntry.intent.requestId);
+  }
+  const saved = freezeVoiceJson(cloneVoiceJson(intent));
+  const existing = voiceIntents.get(intent.requestId);
+  const json = JSON.stringify(saved);
+  if (existing && existing.json !== json) throw voiceError('immutable_voice_intent');
+  voiceIntents.set(intent.requestId, { intent: saved, json, scopeGeneration: voiceScopeGeneration });
+  queuedOptimisticDispatchRequests.delete(intent.optimisticId);
+  if (prior?.request_id === intent.requestId) return;
+  const attachments = saved.payload.attachments as ChatAttachment[] | undefined;
+  let next = prior ? pruneOptimisticSend(state, intent.optimisticId) : state;
+  if (prior) next = mutatePentacleEventBuckets(next, { type: 'optimistic-remove', streamId: prior.stream_id, optimisticId: intent.optimisticId });
+  next = reduceSendOptimisticMessage(next, {
+    streamId: intent.streamId, optimisticId: intent.optimisticId, requestId: intent.requestId,
+    text: String(saved.payload.message ?? saved.payload.text ?? ''), createdAt: intent.createdAt,
+    windowStartedAt: null, socketGeneration: currentSocketGeneration, ...(attachments?.length ? { attachments } : {}),
+  });
+  const row = next.optimisticSends?.[intent.optimisticId];
+  if (!row) throw voiceError('voice_hydration_failed');
+  next = { ...next, optimisticSends: { ...next.optimisticSends, [intent.optimisticId]: { ...row, origin_generation: intent.originGeneration } } };
+  const event = peekEventsForStream(next, intent.streamId).find(event => event.client_origin && event.optimistic_id === intent.optimisticId);
+  if (event && saved.payload.meta) next = mutatePentacleEventBuckets(next, { type: 'optimistic-replace', streamId: intent.streamId,
+    optimisticId: intent.optimisticId, event: { ...event, meta: saved.payload.meta as PentacleEvent['meta'] } });
+  setState(next);
+}
+function activeVoiceIntent(requestId: unknown): VoiceDispatchIntent | undefined {
+  if (typeof requestId !== 'string') return undefined;
+  const entry = voiceIntents.get(requestId);
+  return entry && entry.scopeGeneration === voiceScopeGeneration && voiceScopeMatches(entry.intent) ? entry.intent : undefined;
+}
+function voiceUnknown(intent: VoiceDispatchIntent, source: VoiceSendEvidence['source'] = 'receipt'): VoiceSendEvidence {
+  return { recordingId: intent.recordingId, requestId: intent.requestId, streamId: intent.streamId,
+    generation: intent.originGeneration, state: 'unknown', source, ...(intent.msgId ? { msgId: intent.msgId } : {}) };
+}
+function voiceGenerationMatches(intent: VoiceDispatchIntent, value: Record<string, unknown>): boolean {
+  return ['generation', 'session_generation', 'origin_generation'].every(key => value[key] === undefined || value[key] === intent.originGeneration);
+}
+function voiceFrameMatches(intent: VoiceDispatchIntent, frame: Record<string, unknown>): boolean {
+  if (frame.request_id !== intent.requestId || !voiceGenerationMatches(intent, frame)) return false;
+  const streamId = frame.to_stream_id ?? frame.stream_id;
+  if (streamId !== undefined ? streamId !== intent.streamId
+    : !(frame.host === intent.payload.host && frame.session_name === intent.payload.session_name && typeof frame.host === 'string')) return false;
+  const composite = frame.assistant_composite && typeof frame.assistant_composite === 'object' ? frame.assistant_composite as Record<string, unknown> : {};
+  for (const value of [frame.optimistic_id, frame.msg_id, frame.message_id, composite.message_id]) {
+    if (value !== undefined && value !== null && value !== intent.optimisticId) return false;
+  }
+  return true;
+}
+function voiceUserProof(intent: VoiceDispatchIntent, event: PentacleEvent): boolean {
+  if (event.kind !== 'USER' || event.client_origin === true || event.stream_id !== intent.streamId || isReturnedToPromptUserEvent(event)) return false;
+  const raw = event.raw ?? {};
+  const record = event as unknown as Record<string, unknown>;
+  if (!voiceGenerationMatches(intent, record) || !voiceGenerationMatches(intent, raw)) return false;
+  const requests = [event.request_id, raw.request_id, raw.input_request_id].filter(value => value !== undefined && value !== null);
+  if (!requests.length || requests.some(value => value !== intent.requestId)) return false;
+  if (event.optimistic_id !== intent.optimisticId) return false;
+  const receiptStates = [record.receipt_state, raw.receipt_state].filter(value => value !== undefined && value !== null);
+  const deliveries = [record.receipt_delivery, raw.receipt_delivery].filter(value => value !== undefined && value !== null);
+  if (receiptStates.some(value => value !== 'landed') || (!receiptStates.length && deliveries.some(value => value !== 'landed'))) return false;
+  if (intent.msgId && (event.message_id !== intent.msgId || raw.assistant_composite !== true
+    || raw.input_identity !== intent.msgId || raw.input_request_id !== intent.requestId)) return false;
+  return true;
+}
+function publishVoiceEvidence(intent: VoiceDispatchIntent, evidence: VoiceSendEvidence): VoiceSendEvidence {
+  const prior = voiceEvidence.get(intent.requestId);
+  if (prior?.state === 'landed' || (prior?.state === 'not_landed' && evidence.state === 'unknown')) return prior;
+  voiceEvidence.set(intent.requestId, evidence);
+  voiceReceiptWaiters.get(intent.requestId)?.finish(evidence);
+  for (const listener of voiceEvidenceListeners) listener(evidence);
+  return evidence;
+}
+export function subscribeVoiceSendEvidence(listener: (evidence: VoiceSendEvidence) => void): () => void {
+  voiceEvidenceListeners.add(listener); return () => { voiceEvidenceListeners.delete(listener); };
+}
+function applyVoiceSendFrame(frame: Record<string, unknown>, source: 'send.result' | 'receipt'): boolean {
+  const intent = activeVoiceIntent(frame.request_id);
+  if (!intent) return false;
+  if (!voiceFrameMatches(intent, frame)) return true;
+  const receiptState = frame.state ?? frame.receipt_state;
+  const outcome: VoiceSendEvidence['state'] = receiptState === 'not_landed' && frame.delivery === 'landed' ? 'unknown'
+    : receiptState === 'landed' || frame.delivery === 'landed' ? 'landed'
+      : receiptState === 'not_landed' ? 'not_landed' : 'unknown';
+  const evidence = publishVoiceEvidence(intent, { ...voiceUnknown(intent, source), state: outcome });
+  const accepted = recordOptimisticSendAcceptanceByRequestId(state, intent.requestId, sendAcceptanceFromFrame(frame));
+  setState(evidence.state === 'landed' ? markOptimisticAckedByRequestId(accepted, intent.requestId, Date.now())
+    : evidence.state === 'not_landed' ? markOptimisticFailedByRequestId(accepted, intent.requestId, 'not_landed', Date.now())
+      : markOptimisticIndeterminateByRequestId(accepted, intent.requestId, Date.now()));
+  settlePendingRequest(intent.requestId)?.resolve(evidence);
+  return true;
+}
+function publishVoiceUser(event: PentacleEvent) {
+  for (const { intent } of voiceIntents.values()) {
+    if (!activeVoiceIntent(intent.requestId) || !voiceUserProof(intent, event)) continue;
+    const proof = publishVoiceEvidence(intent, { ...voiceUnknown(intent, 'user'), state: 'landed' });
+    settlePendingRequest(intent.requestId)?.resolve(proof);
+  }
+}
+/** Generic reducer text matching cannot retire a durable voice attempt. */
+function preserveUnprovedVoiceRows(before: PentacleStreamState, after: PentacleStreamState, events: PentacleEvent[]): PentacleStreamState {
+  let next = after;
+  for (const row of Object.values(before.optimisticSends ?? {})) {
+    if (!isVoiceOwnedSend(row)) continue;
+    const intent = activeVoiceIntent(row.request_id);
+    if (!intent || voiceEvidence.get(row.request_id)?.state === 'landed' || events.some(event => voiceUserProof(intent, event))) continue;
+    const priorEvent = peekEventsForStream(before, row.stream_id).find(event => event.client_origin && event.optimistic_id === row.optimistic_id);
+    next = { ...next, optimisticSends: { ...next.optimisticSends, [row.optimistic_id]: row },
+      optimisticByRequestId: { ...next.optimisticByRequestId, [row.request_id]: row.optimistic_id } };
+    if (priorEvent) {
+      const retained = peekEventsForStream(next, row.stream_id).filter(event => event.optimistic_id !== row.optimistic_id);
+      next = mutatePentacleEventBuckets(next, { type: 'replace-stream', streamId: row.stream_id, events: [...retained, priorEvent] });
+    }
+  }
+  return next;
+}
+export async function dispatchVoiceDispatchIntent(intent: VoiceDispatchIntent): Promise<VoiceSendEvidence> {
+  if (!validateVoiceDispatchIntent(intent)) throw voiceError('invalid_voice_intent');
+  const entry = voiceIntents.get(intent.requestId);
+  if (!entry || entry.json !== JSON.stringify(intent)) throw voiceError('voice_intent_not_hydrated');
+  if (!activeVoiceIntent(intent.requestId)) throw voiceError('voice_scope_mismatch');
+  const confirmed = voiceEvidence.get(intent.requestId);
+  if (confirmed?.state === 'landed') return confirmed;
+  const prior = voiceDispatches.get(intent.requestId);
+  if (prior) return prior;
+  requireVoiceOrigin(intent.streamId, intent.originGeneration);
+  const promise = sendCommand<VoiceSendEvidence>(intent.payload, 'send', {
+    requestId: intent.requestId, optimisticId: intent.optimisticId,
+    onSocketSent: (requestId, generation) => {
+      if (!voiceEvidence.get(requestId) || voiceEvidence.get(requestId)?.state === 'unknown') {
+        setState(markOptimisticDispatchedByRequestId(state, requestId, Date.now(), generation));
+      }
+    },
+  }).then(result => result && typeof result === 'object' && ['landed', 'not_landed', 'unknown'].includes(result.state)
+    ? result : voiceUnknown(intent, 'send.result')).catch(() => voiceEvidence.get(intent.requestId) ?? voiceUnknown(intent, 'send.result'));
+  voiceDispatches.set(intent.requestId, promise);
+  return promise;
+}
+export function queryVoiceDispatchReceipt(intent: VoiceDispatchIntent): Promise<VoiceSendEvidence> {
+  if (!validateVoiceDispatchIntent(intent) || !activeVoiceIntent(intent.requestId)
+    || voiceIntents.get(intent.requestId)?.json !== JSON.stringify(intent)) return Promise.reject(voiceError('voice_intent_not_hydrated'));
+  if (!voiceTransportSnapshot().ready) return Promise.resolve(voiceUnknown(intent));
+  const existing = voiceReceiptWaiters.get(intent.requestId);
+  if (existing) return existing.promise;
+  const landed = voiceEvidence.get(intent.requestId);
+  if (landed?.state === 'landed') return Promise.resolve(landed);
+  let finish!: (evidence: VoiceSendEvidence) => void;
+  const promise = new Promise<VoiceSendEvidence>(resolve => {
+    const timer = setTimeout(() => finish(voiceUnknown(intent)), RPC_TIMEOUT_MS);
+    finish = evidence => {
+      clearTimeout(timer);
+      voiceReceiptWaiters.delete(intent.requestId);
+      if (receiptQueryInFlight?.requestId === intent.requestId) receiptQueryInFlight = null;
+      const queued = queuedReceiptQueries.findIndex(item => item.requestId === intent.requestId);
+      if (queued >= 0) queuedReceiptQueries.splice(queued, 1);
+      resolve(evidence); drainReceiptQueryQueue();
+    };
+  });
+  voiceReceiptWaiters.set(intent.requestId, { promise, finish });
+  queuedReceiptQueries.push({ toStreamId: intent.streamId, requestId: intent.requestId, originalRequest: intent.originalRequest });
+  drainReceiptQueryQueue();
+  return promise;
+}
+export function forgetVoiceDispatchIntent(intent: VoiceDispatchIntent): void {
+  voiceReceiptWaiters.get(intent.requestId)?.finish(voiceUnknown(intent));
+  voiceIntents.delete(intent.requestId); voiceEvidence.delete(intent.requestId); voiceDispatches.delete(intent.requestId);
+  queuedOptimisticDispatchRequests.delete(intent.optimisticId);
+}
+
 export type SendResponseClass = 'send.result' | 'send.error';
 
 type RetryTelemetryContext = {
@@ -316,6 +699,7 @@ if (process.env.EXPO_PUBLIC_HARNESS === '1') {
 }
 
 type PendingRequest = {
+  voiceUploadId?: string;
   blobBudget?: BlobFetchBudget;
   resolve: (value: any) => void;
   reject: (reason?: unknown) => void;
@@ -368,8 +752,9 @@ let resumePendingAfterClose = false;
 let harnessForcedReconnectIssued = false;
 let harnessForcedHistoryFetchFailureIssued = false;
 let pendingReconnectSurvivorGeneration: number | null = null;
-let receiptQueryInFlight: { toStreamId: string; requestId: string } | null = null;
-const queuedReceiptQueries: Array<{ toStreamId: string; requestId: string }> = [];
+type SendReceiptLookup = { toStreamId: string; requestId: string; originalRequest?: VoiceOriginalRequest };
+let receiptQueryInFlight: SendReceiptLookup | null = null;
+const queuedReceiptQueries: SendReceiptLookup[] = [];
 let lastFrameReceivedAt = monotonicNowMs();
 let awaitingPongSince: number | null = null;
 let pendingForegroundProbe = false;
@@ -1726,6 +2111,7 @@ function findMatchingOptimisticId(event: PentacleEvent, baseState = state) {
     const optimistic = baseState.optimisticSends?.[event.optimistic_id];
     if (
       optimistic &&
+      (!isVoiceOwnedSend(optimistic) || !!activeVoiceIntent(optimistic.request_id) && voiceUserProof(activeVoiceIntent(optimistic.request_id)!, event)) &&
       optimistic.stream_id === event.stream_id &&
       // A daemon-stamped echo carries THIS row's optimistic_id, which is proof
       // the send actually landed — so it must clear even a 'failed' row. This
@@ -1767,6 +2153,7 @@ function findMatchingOptimisticId(event: PentacleEvent, baseState = state) {
   }
   for (const [optimisticId, optimistic] of Object.entries(baseState.optimisticSends ?? {})) {
     if (
+      !isVoiceOwnedSend(optimistic) &&
       isReconcilableOptimisticStatus(optimistic.status) &&
       optimisticMatchesServerUser(optimistic, event, OPTIMISTIC_RECONCILE_WINDOW_MS)
     ) {
@@ -1784,7 +2171,7 @@ function matchingOptimisticIdsForServerUser(
   if (directOrFallback) return [directOrFallback];
   return findMatchingCompositeQueuedOptimisticIds(
     event,
-    Object.values(baseState.optimisticSends ?? {}),
+    Object.values(baseState.optimisticSends ?? {}).filter(send => !isVoiceOwnedSend(send)),
   );
 }
 
@@ -1869,6 +2256,7 @@ function reconcileAcceptedUserEchoes(
   let matched = false;
   for (const event of events) {
     if (String(event.kind || '').toUpperCase() !== 'USER' || event.client_origin === true) continue;
+    publishVoiceUser(event);
     const optimisticIds = matchingOptimisticIdsForServerUser(event, next);
     if (optimisticIds.length === 0) continue;
     matched = true;
@@ -1913,7 +2301,7 @@ function applyServerUserEventWithReconciliation(event: PentacleEvent) {
   rememberEventSeqs([event]);
   const before = state;
   const reconciled = reconcileAcceptedUserEchoes(before, [event], 'chat.event');
-  const next = reconciled.matched ? reconciled.next : applyPentacleEvent(before, event);
+  const next = preserveUnprovedVoiceRows(before, reconciled.matched ? reconciled.next : applyPentacleEvent(before, event), [event]);
   const deferHarnessLiveEmit = process.env.EXPO_PUBLIC_HARNESS === '1';
   const stateChanged = setState(next, !deferHarnessLiveEmit);
   rememberHarnessLiveApplied([event], next, before);
@@ -2747,6 +3135,7 @@ function failAmbiguousOptimisticSends(generation: number, reason: string) {
   void reason;
   receiptQueryInFlight = null;
   queuedReceiptQueries.length = 0;
+  for (const { intent } of voiceIntents.values()) voiceReceiptWaiters.get(intent.requestId)?.finish(voiceUnknown(intent));
 }
 
 // A queued row that was explicitly submitted while offline never reached the
@@ -2756,7 +3145,7 @@ function dispatchOfflineQueuedSends(generation: number) {
   for (const optimisticId of queuedOptimisticDispatchRequests) {
     const optimistic = state.optimisticSends?.[optimisticId];
     if (
-      !optimistic ||
+      !optimistic || isVoiceOwnedSend(optimistic) ||
       optimistic.status !== 'queued' ||
       optimistic.socket_generation !== generation
     ) continue;
@@ -2809,7 +3198,7 @@ function applyRequestStreamEvents(
     }
   }
   const reducedAt = monotonicNowMs();
-  const reducedState = applyFetchedStreamEvents(
+  const reducedState = preserveUnprovedVoiceRows(before, applyFetchedStreamEvents(
     before,
     acceptedEvents,
     source === 'chat.event'
@@ -2817,7 +3206,7 @@ function applyRequestStreamEvents(
       : currentTailOptions
         ? { requestedStreamId: currentTailOptions.requestedStreamId, mode: 'fetch' }
         : undefined,
-  );
+  ), acceptedEvents);
   const reconciled = reconcileAcceptedUserEchoes(
     reducedState,
     acceptedEvents,
@@ -3651,7 +4040,7 @@ function handleMessageInner(raw: string) {
     const drafts = { ...((message.drafts as Record<string, PentacleEvent> | undefined) || {}) };
     const beforeEvents = selectPentacleDerivedEventIndex(state).chronological;
     const beforeOptimistics = state.optimisticSends ?? {};
-    const snapshotState = applySnapshotWithOptimisticReconciliation(state, {
+    const snapshotState = preserveUnprovedVoiceRows(state, applySnapshotWithOptimisticReconciliation(state, {
       events: snapshotEvents,
       drafts,
       hosts: message.hosts as Record<string, PentacleHostStatus> | undefined,
@@ -3662,7 +4051,7 @@ function handleMessageInner(raw: string) {
       notifications: message.notifications as PentacleNotification[] | undefined,
       working_states: message.working_states as Record<string, WorkingStateData> | undefined,
       work_lanes: message.work_lanes,
-    });
+    }), events || []);
     const reconciledSnapshot = reconcileAcceptedUserEchoes(
       snapshotState,
       events || [],
@@ -3675,6 +4064,7 @@ function handleMessageInner(raw: string) {
       workingByStream: snapshotState.workingByStream,
     };
     for (const [optimisticId, optimistic] of Object.entries(beforeOptimistics)) {
+      if (isVoiceOwnedSend(optimistic)) continue;
       const matched = (events || []).find((event) =>
         optimisticMatchesServerUser(optimistic, event, OPTIMISTIC_RECONCILE_WINDOW_MS),
       );
@@ -3703,7 +4093,7 @@ function handleMessageInner(raw: string) {
         events || [],
       );
     }
-    if (sessions) sendInventoryGeneration = currentSocketGeneration;
+    if (sessions) { sendInventoryGeneration = currentSocketGeneration; rememberVoiceInventory(sessions); }
     setState(nextState);
     dispatchOfflineQueuedSends(currentSocketGeneration);
     void reconcilePendingSessionCloses(sessions || [], currentSocketGeneration);
@@ -3800,6 +4190,7 @@ function handleMessageInner(raw: string) {
   if (message.type === 'session.inventory' && Array.isArray(message.sessions)) {
     const sessions = message.sessions as PentacleSessionSummary[];
     sendInventoryGeneration = currentSocketGeneration;
+    rememberVoiceInventory(sessions);
     setState(applyPentacleSessionInventory(
       state,
       sessions,
@@ -3839,7 +4230,8 @@ function handleMessageInner(raw: string) {
     const pending = pendingRequests.get(message.request_id);
     if (pending) {
       settlePendingRequest(message.request_id);
-      pending.resolve(true);
+      if (pending.voiceUploadId) settleVoiceUploadAck(pending, message);
+      else pending.resolve(true);
     }
     return;
   }
@@ -3848,6 +4240,7 @@ function handleMessageInner(raw: string) {
     const pending = pendingRequests.get(message.request_id);
     if (pending) {
       settlePendingRequest(message.request_id);
+      if (pending.voiceUploadId) { settleVoiceUploadAck(pending, message); return; }
       pending.resolve({
         blob_sha: String(message.blob_sha || ''),
         size_bytes: typeof message.size_bytes === 'number' ? message.size_bytes : undefined,
@@ -3860,7 +4253,8 @@ function handleMessageInner(raw: string) {
     const pending = pendingRequests.get(message.request_id);
     if (pending) {
       settlePendingRequest(message.request_id);
-      pending.reject(new Error(String(message.error || message.error_code || 'blob upload failed')));
+      pending.reject(pending.voiceUploadId ? voiceError(String(message.error_code || 'invalid_request'))
+        : new Error(String(message.error || message.error_code || 'blob upload failed')));
     }
     return;
   }
@@ -4030,6 +4424,7 @@ function handleMessageInner(raw: string) {
   }
 
   if (message.type === 'send.result' && typeof message.request_id === 'string') {
+    if (applyVoiceSendFrame(message, 'send.result')) return;
     const pending = pendingRequests.get(message.request_id);
     const receiptState = String(message.state || '');
     const acceptance = sendAcceptanceFromFrame(message);
@@ -4077,17 +4472,36 @@ function handleMessageInner(raw: string) {
 
   if (message.type === 'send.receipt.get.ok') {
     const lookup = receiptQueryInFlight;
-    receiptQueryInFlight = null;
     const receipts = Array.isArray(message.receipts) ? message.receipts : [];
-    if (lookup && message.found === true && receipts.length === 1 && receipts[0] && typeof receipts[0] === 'object') {
-      applyDurableSendReceipt(receipts[0] as Record<string, unknown>, lookup);
+    const receipt = receipts.length === 1 && receipts[0] && typeof receipts[0] === 'object'
+      ? receipts[0] as Record<string, unknown> : undefined;
+    // A late timed-out reply cannot consume a different current lookup. Old
+    // servers omit the outer request_id, so correlate an available inner one.
+    if (lookup && (lookup.originalRequest || (receipt && activeVoiceIntent(receipt.request_id)))
+      && ((message.request_id !== undefined && message.request_id !== lookup.requestId)
+        || (receipt && receipt.request_id !== lookup.requestId))) {
+      if (receipt) applyVoiceSendFrame(receipt, 'receipt');
+      return;
+    }
+    if (lookup) {
+      receiptQueryInFlight = null;
+      if (message.found === true && receipt) applyDurableSendReceipt(receipt, lookup);
+      const intent = activeVoiceIntent(lookup.requestId);
+      if (intent) voiceReceiptWaiters.get(lookup.requestId)?.finish(voiceUnknown(intent));
+    } else if (receipt) {
+      // Authenticated terminal evidence survives loss of an in-memory waiter.
+      applyVoiceSendFrame(receipt, 'receipt');
     }
     drainReceiptQueryQueue();
     return;
   }
 
   if (message.type === 'send.receipt.get.error') {
+    const lookup = receiptQueryInFlight;
+    if (lookup?.originalRequest && message.request_id !== undefined && message.request_id !== lookup.requestId) return;
     receiptQueryInFlight = null;
+    const intent = lookup ? activeVoiceIntent(lookup.requestId) : undefined;
+    if (intent) voiceReceiptWaiters.get(intent.requestId)?.finish(voiceUnknown(intent));
     drainReceiptQueryQueue();
     return;
   }
@@ -4120,6 +4534,14 @@ function handleMessageInner(raw: string) {
     (message.type === 'send.ok' || message.type === 'spawn.ok' || message.type === 'rename.ok' || message.type === 'close.ok' || message.type === 'close.degraded' || message.type === 'close.already_closed' || message.type === 'close.deferred' || message.type === 'register_push.ok') &&
     typeof message.request_id === 'string'
   ) {
+    rememberVoiceClose(message);
+    if (message.type === 'send.ok' && activeVoiceIntent(message.request_id)) {
+      const intent = activeVoiceIntent(message.request_id)!;
+      const evidence = publishVoiceEvidence(intent, voiceUnknown(intent, 'send.result'));
+      setState(markOptimisticIndeterminateByRequestId(state, intent.requestId, Date.now()));
+      settlePendingRequest(intent.requestId)?.resolve(evidence);
+      return;
+    }
     const pending = pendingRequests.get(message.request_id);
       if (pending) {
         if (message.type === 'send.ok') {
@@ -4839,6 +5261,8 @@ function sendCommand<T>(
     retryOnOptimisticIdConflict?: boolean;
     retryTelemetry?: RetryTelemetryContext;
     blobMaxBytes?: number;
+    timeoutMs?: number;
+    voiceUploadId?: string;
   } = {},
 ): Promise<T> {
   if (!ws || ws.readyState !== WebSocket.OPEN) {
@@ -4866,7 +5290,8 @@ function sendCommand<T>(
       generation: myGen,
       socket,
       requestPrefix,
-      timeoutMs: RPC_TIMEOUT_MS,
+      timeoutMs: options.timeoutMs ?? RPC_TIMEOUT_MS,
+      voiceUploadId: options.voiceUploadId,
       blobBudget: requestPrefix === 'fetch_blob' ? newBlobFetchBudget(options.blobMaxBytes) : undefined,
       optimisticId: options.optimisticId,
       retryOnOptimisticIdConflict: options.retryOnOptimisticIdConflict,
@@ -4960,7 +5385,7 @@ function scheduleOptimisticReconcileCatchUp(requestId: string) {
 function queueSendReceiptQuery(requestId: string) {
   const optimisticId = state.optimisticByRequestId?.[requestId];
   const send = optimisticId ? state.optimisticSends?.[optimisticId] : undefined;
-  if (!send || !['queued', 'dispatched', 'indeterminate'].includes(send.status)) return;
+  if (!send || isVoiceOwnedSend(send) || !['queued', 'dispatched', 'indeterminate'].includes(send.status)) return;
   const lookup = { toStreamId: send.stream_id, requestId: send.request_id };
   if (
     receiptQueryInFlight?.requestId === lookup.requestId ||
@@ -4974,12 +5399,19 @@ function drainReceiptQueryQueue() {
   if (receiptQueryInFlight || !ws || ws.readyState !== WebSocket.OPEN) return;
   const lookup = queuedReceiptQueries.shift();
   if (!lookup) return;
+  if (lookup.originalRequest && (!activeVoiceIntent(lookup.requestId) || !voiceTransportSnapshot().ready)) {
+    const intent = voiceIntents.get(lookup.requestId)?.intent;
+    if (intent) voiceReceiptWaiters.get(lookup.requestId)?.finish(voiceUnknown(intent));
+    else drainReceiptQueryQueue();
+    return;
+  }
   receiptQueryInFlight = lookup;
   try {
     ws.send(JSON.stringify({
       type: 'send.receipt.get',
       to_stream_id: lookup.toStreamId,
       request_id: lookup.requestId,
+      ...(lookup.originalRequest ? { original_request: lookup.originalRequest } : {}),
     }));
   } catch {
     receiptQueryInFlight = null;
@@ -4997,6 +5429,10 @@ function applyDurableSendReceipt(
   lookup: { toStreamId: string; requestId: string },
   event?: PentacleEvent,
 ) {
+  if (activeVoiceIntent(lookup.requestId)) {
+    if (receipt.request_id !== lookup.requestId || receipt.to_stream_id !== lookup.toStreamId) return false;
+    return applyVoiceSendFrame(receipt, 'receipt');
+  }
   const requestId = String(receipt.request_id || '').trim();
   const toStreamId = String(receipt.to_stream_id || '').trim();
   if (requestId !== lookup.requestId || toStreamId !== lookup.toStreamId) return false;
@@ -5547,7 +5983,7 @@ function dispatchHeldSend(
   } = {},
 ): Promise<boolean> {
   const optimistic = state.optimisticSends?.[optimisticId];
-  if (!optimistic) return Promise.resolve(false);
+  if (!optimistic || isVoiceOwnedSend(optimistic)) return Promise.resolve(false);
   if (
     optimistic.status === 'failed' ||
     optimistic.status === 'cancelled' ||
@@ -5597,7 +6033,7 @@ export function dispatchQueuedSendsByOptimisticId(
   if (!session) return;
   const queued = Object.values(state.optimisticSends ?? {})
     .filter((send) => (
-      requestedIds.has(send.optimistic_id) &&
+      requestedIds.has(send.optimistic_id) && !isVoiceOwnedSend(send) &&
       send.stream_id === streamId &&
       send.status === 'queued'
     ))
@@ -5617,7 +6053,7 @@ export function flushQueuedSends(streamId: string) {
   if (!streamId) return;
   const held = Object.values(state.optimisticSends ?? {})
     .filter((send) => (
-      send.stream_id === streamId &&
+      send.stream_id === streamId && !isVoiceOwnedSend(send) &&
       send.turn_queued === true &&
       send.status !== 'failed' &&
       send.status !== 'cancelled' &&
@@ -5692,7 +6128,7 @@ function waitForRetryConnection(optimisticId: string, sendRequestId: string): Pr
 
 export async function retryOptimisticSend(optimisticId: string): Promise<boolean> {
   const optimistic = state.optimisticSends?.[optimisticId];
-  if (!optimistic || optimistic.status !== 'failed') return false;
+  if (!optimistic || isVoiceOwnedSend(optimistic) || optimistic.status !== 'failed') return false;
   const session = state.sessions.find((item) => item.stream_id === optimistic.stream_id);
   if (!session) return false;
   // idempotent_mobile_send §A: explicit retry mints a NEW request_id (keeping
@@ -5775,7 +6211,7 @@ export function replaceOptimisticAttachments(
   attachments: ChatAttachment[],
 ) {
   const optimistic = state.optimisticSends?.[optimistic_id];
-  if (!optimistic || !attachments.length) return;
+  if (!optimistic || isVoiceOwnedSend(optimistic) || !attachments.length) return;
   const optimisticSends = {
     ...(state.optimisticSends ?? {}),
     [optimistic_id]: {
@@ -5827,10 +6263,12 @@ export async function sendPentacleMessage(args: {
   // to the queued answer must not hijack that row (which would paste the answer into
   // the pane). The explicit-identity branch is untouched: the in-pane question answer
   // legitimately dispatches its own row when the caller passes its optimistic_id.
+  if (isVoiceOwnedSend(explicitOptimistic)) throw voiceError('voice_delivery_owner_required');
   let optimistic = explicitOptimistic?.stream_id === streamId
     ? explicitOptimistic
     : Object.values(state.optimisticSends ?? {}).find((send) => (
       send.status === 'queued' &&
+      !isVoiceOwnedSend(send) &&
       !optimisticQuestionAnswers.has(send.optimistic_id) &&
       send.stream_id === streamId &&
       send.text === trimmed
@@ -5938,6 +6376,42 @@ export async function sendPentacleMessage(args: {
   );
 }
 
+function settleVoiceUploadAck(pending: PendingRequest, frame: Record<string, unknown>) {
+  if (frame.protocol !== 2) { pending.reject(voiceError('server_update_required')); return; }
+  if (frame.upload_id !== pending.voiceUploadId || !Number.isSafeInteger(frame.next_offset)
+    || (frame.next_offset as number) < 0 || (frame.next_offset as number) > 16 * 1024 * 1024
+    || typeof frame.complete !== 'boolean'
+    || (frame.complete ? typeof frame.blob_sha !== 'string' || !VOICE_SHA256.test(frame.blob_sha) : frame.blob_sha !== undefined)) {
+    pending.reject(voiceError('invalid_upload_ack')); return;
+  }
+  pending.resolve({ protocol: 2, upload_id: frame.upload_id as string, next_offset: frame.next_offset as number, complete: frame.complete,
+    ...(frame.complete ? { blob_sha: frame.blob_sha as string } : {}) } satisfies VoiceUploadAck);
+}
+/** Reuse the stream's one connection owner; never create an upload socket. */
+export function requestVoiceReconnect(): void {
+  if (!subscribers || voiceTransportSnapshot().authNeeded) return;
+  if (ws?.readyState === WebSocket.OPEN) reconnectPentacleStream('refresh');
+  else connect();
+}
+export function uploadVoiceBlobRpc(fields: VoiceUploadRpc): Promise<VoiceUploadAck> {
+  if (!voiceTransportSnapshot().ready) return Promise.reject(voiceError('voice_transport_not_ready'));
+  if (fields.protocol !== 2 || !VOICE_UUID.test(fields.upload_id)
+    || !['upload_blob_init', 'upload_blob_chunk'].includes(fields.type)) return Promise.reject(voiceError('invalid_request'));
+  // The existing upload_blob prefix preserves the same-socket upload liveness
+  // guard. Each phase has a fresh RPC identity and the normal 30 second bound.
+  const generation = currentSocketGeneration;
+  const scopeGeneration = voiceScopeGeneration;
+  return sendCommand<VoiceUploadAck>(fields, 'upload_blob', { voiceUploadId: fields.upload_id }).catch(error => {
+    if (scopeGeneration === voiceScopeGeneration && error instanceof Error && [
+      'Pentacle command timed out', 'Pentacle stream disconnected', 'Pentacle stream is not connected',
+    ].includes(error.message)) {
+      if (generation === currentSocketGeneration) requestVoiceReconnect();
+      else if (!ws) connect(); // An old leg must never tear down a newer socket.
+    }
+    throw error;
+  });
+}
+
 export interface UploadBlobResult {
   blob_sha: string;
   size_bytes?: number;
@@ -6020,16 +6494,18 @@ export interface TranscribeBlobResult {
 export async function transcribeBlob(
   blobSha: string,
   mime: string,
-  options: { requestId?: string; isCancelled?: () => boolean } = {},
+  options: { requestId?: string; isCancelled?: () => boolean; voiceOperation?: VoiceOperation } = {},
 ): Promise<TranscribeBlobResult> {
   const guardCancellation = () => {
     if (options.isCancelled?.()) throw Object.assign(new Error('voice_cancelled'), { code: 'voice_cancelled' });
   };
   const id = options.requestId || requestId('transcribe');
+  const voiceOperation = options.voiceOperation ? freezeVoiceJson(cloneVoiceJson(options.voiceOperation)) : undefined;
   const attempt = () => {
     guardCancellation();
     return sendCommand<TranscribeBlobResult>(
-      { type: 'transcribe_blob', blob_sha: blobSha, mime }, 'transcribe', { requestId: id },
+      { type: 'transcribe_blob', blob_sha: blobSha, mime, ...(voiceOperation ? { voice_operation: voiceOperation } : {}) },
+      'transcribe', { requestId: id, ...(voiceOperation ? { timeoutMs: 130_000 } : {}) },
     );
   };
   try {
@@ -6867,6 +7343,7 @@ export function reconnectPentacleStream(
   const preserveHarnessEvents = process.env.EXPO_PUBLIC_HARNESS === '1' &&
     harnessRuntime.isArmed() && harnessRuntime.hasAction('all_chats_regression');
   const crossesAccountBoundary = reason === 'credential-change' || reason === 'endpoint-change';
+  if (crossesAccountBoundary) resetVoiceScope();
   setState(mutatePentacleEventBuckets({
     ...state,
     connected: false,
@@ -6991,6 +7468,8 @@ export function __getFocusedPentacleStreamForTests() {
 }
 
 export function __resetPentacleStreamForTests() {
+  resetVoiceScope();
+  voiceEvidenceListeners.clear();
   invalidateCurrentSocketGeneration();
   clearTimers();
   clearDisconnectBannerTimer();

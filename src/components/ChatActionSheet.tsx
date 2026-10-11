@@ -1,3 +1,4 @@
+import VoiceRecordingOverlay from './voice/VoiceRecordingOverlay';
 import React from 'react';
 import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Fonts, Tokens } from '@/constants/Colors';
@@ -81,6 +82,7 @@ export default function ChatActionSheet({ visible, reportCount = 0, reportUnread
           </Pressable>
         </Pressable>
       </Pressable>
+    <VoiceRecordingOverlay visible={visible} priority={2} onReturn={onClose} hostName="chat-actions" />
     </Modal>
   );
 }

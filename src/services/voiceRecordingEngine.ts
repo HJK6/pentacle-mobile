@@ -1,115 +1,186 @@
 import { AppState } from 'react-native';
-import * as FileSystem from 'expo-file-system/legacy';
+import { AudioModule, RecordingPresets, setAudioModeAsync, type RecordingOptions } from 'expo-audio';
+import { VoiceRecorder, MAX_DURATION_MS, type RecordingEngine, type VoicePermission, type RecordingDraft, NoVoiceAnswersError } from './voiceRecording';
 import { voiceDelivery } from './voiceDelivery';
-import {
-  AudioModule,
-  RecordingPresets,
-  setAudioModeAsync,
-  type RecordingOptions,
-} from 'expo-audio';
+import { voiceTakeStore, voiceScopeHash, VoiceStorageError } from './voiceTakeStore';
+import { voiceTransportSnapshot, voiceOriginStatus, subscribeVoiceTransport, getPentacleStreamState } from './pentacleStream';
+import { selectQuestionDeck } from '../components/questions/questionSelectors';
+import { voiceQuestionSnapshot, updateVoiceQuestionLiveKeys, freezeVoiceQuestionAnswers, startVoiceQuestionSession, completeVoiceQuestionSession } from '../components/questions/voice/voiceAnswersBinding';
 
-import { VoiceRecorder, type RecordingEngine, type VoicePermission } from './voiceRecording';
-
-// Thin expo-audio adapter behind the RecordingEngine interface. The recording
-// STATE MACHINE (start/stop/discard/metering/cap) is tested engine-agnostically
-// in voiceRecording.test.ts; this file is the device-coupled boundary and is
-// validated on the paired phone (acceptance gate C1), not in jest.
-//
-// Capture profile per § Journey: AAC/M4A, mono, 16 kHz, ~32 kbps (~240 KB/min)
-// with metering enabled, so a 5-minute take stays well under the 4 MiB frame and
-// 64 MiB blob caps and faster-whisper/MLX decodes the M4A directly.
-
-const RECORDING_OPTIONS: RecordingOptions = {
-  ...RecordingPresets.HIGH_QUALITY,
-  extension: '.m4a',
-  sampleRate: 16000,
-  numberOfChannels: 1,
-  bitRate: 32000,
-  isMeteringEnabled: true,
+export const RECORDING_OPTIONS: RecordingOptions = {
+  ...RecordingPresets.HIGH_QUALITY, extension: '.m4a', sampleRate: 16000,
+  numberOfChannels: 1, bitRate: 32000, isMeteringEnabled: true,
 };
+function normalizeMeter(db?: number) { return typeof db === 'number' && Number.isFinite(db) ? (Math.max(-60, Math.min(0, db)) + 60) / 60 : 0; }
+function mapPermission(value: { granted: boolean; canAskAgain?: boolean }): VoicePermission { return value.granted ? 'granted' : value.canAskAgain === false ? 'denied' : 'undetermined'; }
 
-// Normalize expo-audio's dBFS metering (roughly [-60, 0]) into [0, 1].
-const METER_FLOOR_DB = -60;
-function normalizeMeter(db: number | undefined): number {
-  if (typeof db !== 'number' || !Number.isFinite(db)) return 0;
-  const clamped = Math.max(METER_FLOOR_DB, Math.min(0, db));
-  return (clamped - METER_FLOOR_DB) / -METER_FLOOR_DB;
-}
-
-function mapPermission(status: { granted: boolean; canAskAgain?: boolean }): VoicePermission {
-  if (status.granted) return 'granted';
-  if (status.canAskAgain === false) return 'denied';
-  return 'undetermined';
-}
-
-class ExpoAudioEngine implements RecordingEngine {
+/** Same native recorder/file for the entire live take. Never prepare on Resume. */
+export class ExpoAudioEngine implements RecordingEngine {
   readonly mime = 'audio/mp4';
   private recorder: InstanceType<typeof AudioModule.AudioRecorder> | null = null;
-  private appStateSubscription: { remove: () => void } | null = null;
-
-  async requestPermission(): Promise<VoicePermission> {
-    return mapPermission(await AudioModule.requestRecordingPermissionsAsync());
+  private listener: { remove(): void } | null = null;
+  private appStateSubscription: { remove(): void } | null = null;
+  private capturedMs = 0;
+  private paused = true;
+  private capped = false;
+  private explicitStop = false;
+  private nativeDeadlineMs = 0;
+  private stopped: { uri: string; durationMs: number } | null = null;
+  constructor(private onAppState?: (state: string) => void) {}
+  get nativeUri(): string | undefined { return this.recorder?.uri ?? this.stopped?.uri ?? undefined; }
+  async requestPermission() { return mapPermission(await AudioModule.requestRecordingPermissionsAsync()); }
+  async getPermission() { return mapPermission(await AudioModule.getRecordingPermissionsAsync()); }
+  private async disarm() { await setAudioModeAsync({ allowsRecording: false }); }
+  private async guard(isCurrent: () => boolean) {
+    if (isCurrent()) return;
+    try { this.recorder?.pause(); } finally { this.paused = true; await this.disarm(); }
+    throw new Error('voice_cancelled');
   }
-
-  async getPermission(): Promise<VoicePermission> {
-    return mapPermission(await AudioModule.getRecordingPermissionsAsync());
-  }
-
-  async start(): Promise<void> {
-    if (!this.appStateSubscription) {
-      this.appStateSubscription = AppState.addEventListener('change', state => {
-        if (state !== 'active' && voiceRecorder.snapshot()?.status === 'recording') {
-          void voiceRecorder.stop('background').catch(() => undefined);
-        }
-      });
-    }
-    await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
-    const recorder = new AudioModule.AudioRecorder(RECORDING_OPTIONS);
-    await recorder.prepareToRecordAsync();
-    recorder.record();
-    this.recorder = recorder;
-  }
-
-  poll(): { level: number; durationMs: number; interrupted?: boolean } {
-    const status = this.recorder?.getStatus();
-    return {
-      level: normalizeMeter(status?.metering),
-      durationMs: status?.durationMillis ?? 0,
-      interrupted: status?.isRecording === false,
-    };
-  }
-
-  async stop(): Promise<{ uri: string; durationMs: number; bytes?: number }> {
-    const recorder = this.recorder;
-    if (!recorder) throw new Error('no_active_recording');
-    const capturedDurationMs = recorder.getStatus()?.durationMillis ?? 0;
-    await recorder.stop();
-    const uri = recorder.uri ?? '';
-    const durationMs = capturedDurationMs || recorder.getStatus()?.durationMillis || 0;
-    this.recorder = null;
-    // Release the recording audio mode so playback is unaffected afterwards.
-    await setAudioModeAsync({ allowsRecording: false });
-    return { uri, durationMs };
-  }
-
-  async discard(): Promise<void> {
-    const recorder = this.recorder;
-    this.recorder = null;
-    if (recorder) {
-      const uri = recorder.uri;
-      try {
-        await recorder.stop();
-      } catch {
-        // already stopped / never started — nothing to release
+  async start(isCurrent: () => boolean = () => true) {
+    if (!this.appStateSubscription && this.onAppState) this.appStateSubscription = AppState.addEventListener('change', this.onAppState);
+    this.capturedMs = 0; this.capped = false; this.stopped = null; this.explicitStop = false; this.paused = true;
+    await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true, allowsBackgroundRecording: false });
+    if (!isCurrent()) await this.guard(isCurrent);
+    const recorder = new AudioModule.AudioRecorder(RECORDING_OPTIONS); this.recorder = recorder;
+    this.listener = recorder.addListener('recordingStatusUpdate', event => {
+      if (this.recorder !== recorder || this.explicitStop) return;
+      if (event.isFinished && !event.hasError) {
+        // Expo resets duration before this event and does not distinguish an early finish.
+        // Only the armed native deadline can certify the full cap; otherwise retain last measured audio.
+        this.capped = !this.paused && performance.now() >= this.nativeDeadlineMs;
+        if (this.capped) this.capturedMs = MAX_DURATION_MS;
+        this.paused = true;
       }
-      if (uri) await FileSystem.deleteAsync(uri, { idempotent: true });
+      if (event.hasError) this.paused = true;
+    });
+    await recorder.prepareToRecordAsync(); if (!isCurrent()) await this.guard(isCurrent);
+    this.nativeDeadlineMs = performance.now() + MAX_DURATION_MS;
+    recorder.record({ forDuration: MAX_DURATION_MS / 1000 }); this.paused = false;
+  }
+  poll() {
+    const status = this.recorder?.getStatus();
+    if (!this.paused) this.capturedMs = Math.min(MAX_DURATION_MS, Math.max(this.capturedMs, status?.durationMillis ?? 0));
+    return { level: normalizeMeter(status?.metering), durationMs: this.capturedMs, interrupted: !this.capped && (this.paused || status?.isRecording === false), capped: this.capped };
+  }
+  async pause() {
+    const recorder = this.recorder;
+    if (recorder && !this.stopped) {
+      this.poll();
+      // Swift setAudioMode(false) stops a still-recording ref. Pause FIRST to preserve it.
+      let failure: unknown;
+      try { recorder.pause(); } catch (error) { failure = error; } finally { this.paused = true; }
+      await this.disarm();
+      if (failure) throw failure;
+      return;
     }
-    await setAudioModeAsync({ allowsRecording: false });
+    await this.disarm();
+  }
+  async resume(isCurrent: () => boolean = () => true) {
+    const recorder = this.recorder;
+    if (!recorder || this.stopped || this.capped || this.capturedMs >= MAX_DURATION_MS) throw new Error('no_paused_recording');
+    await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true, allowsBackgroundRecording: false });
+    if (!isCurrent()) await this.guard(isCurrent);
+    // prepareToRecordAsync would replace/reset native file and duration.
+    this.nativeDeadlineMs = performance.now() + (MAX_DURATION_MS - this.capturedMs);
+    recorder.record({ forDuration: (MAX_DURATION_MS - this.capturedMs) / 1000 });
+    this.paused = false;
+    if (!recorder.getStatus().isRecording || !recorder.isRecording) { await this.pause(); throw new Error('resume_failed'); }
+  }
+  async stop() {
+    const recorder = this.recorder;
+    if (!this.stopped) {
+      if (!recorder) throw new Error('no_active_recording');
+      this.poll(); this.explicitStop = true;
+      await recorder.stop();
+      this.paused = true; this.stopped = { uri: recorder.uri ?? '', durationMs: this.capturedMs };
+    }
+    // A failed disarm is retryable without issuing another native stop.
+    await this.disarm();
+    const result = this.stopped;
+    this.listener?.remove(); this.listener = null; this.recorder = null;
+    return result;
+  }
+  async discard() {
+    this.explicitStop = true;
+    if (this.recorder && !this.stopped) { await this.recorder.stop(); this.paused = true; }
+    await this.disarm();
+    this.listener?.remove(); this.listener = null; this.recorder = null; this.stopped = null;
   }
 }
 
-/** App singleton recorder wired to the real expo-audio engine. */
-export const voiceRecorder = new VoiceRecorder(new ExpoAudioEngine());
+let lifecycle = { foreground: AppState.currentState === 'active', unlocked: false };
+const lifecycleListeners = new Set<() => void>();
+let stopOriginSubscription: (() => void) | null = null;
+function ensureOriginSubscription() { if (!stopOriginSubscription) stopOriginSubscription = subscribeVoiceTransport(() => voiceRecorder.checkOrigin()); }
+export const voiceLifecycleSnapshot = () => lifecycle;
+export const subscribeVoiceLifecycle = (listener: () => void) => { lifecycleListeners.add(listener); return () => { lifecycleListeners.delete(listener); }; };
+export function setVoiceLifecycle(value: { foreground: boolean; unlocked: boolean }) {
+  lifecycle = { ...value };
+  if (value.foreground && value.unlocked) ensureOriginSubscription();
+  voiceRecorder.setLifecycle(lifecycle); voiceDelivery.setLifecycle(lifecycle);
+  for (const listener of lifecycleListeners) listener();
+}
+function refreshQuestionKeys(id: string) {
+  if (voiceQuestionSnapshot(id)) updateVoiceQuestionLiveKeys(id, selectQuestionDeck(getPentacleStreamState()).map(page => page.key));
+}
+function ownsCurrentScope(recordingId: string) {
+  const take = voiceTakeStore.get(recordingId); const context = voiceTransportSnapshot();
+  return !!take && !!context.credentialId && !!context.serverIdentity
+    && take.scopeHash === voiceScopeHash({ serverIdentity: context.serverIdentity, credentialId: context.credentialId });
+}
+export const voiceRecorder = new VoiceRecorder(new ExpoAudioEngine(state => {
+  setVoiceLifecycle({ foreground: state === 'active', unlocked: state === 'active' ? lifecycle.unlocked : false });
+}), undefined, {
+  create: async (streamId, draft) => {
+    ensureOriginSubscription();
+    await voiceDelivery.initialize();
+    const context = voiceTransportSnapshot();
+    const origin = context.origins.find(row => row.stream_id === streamId);
+    if (!context.credentialId || context.authNeeded) throw new VoiceStorageError('auth_needed');
+    if (!origin?.session_generation || voiceOriginStatus(streamId, origin.session_generation) !== 'available') throw new VoiceStorageError('origin_unverifiable');
+    if (draft?.originGeneration && draft.originGeneration !== origin.session_generation) throw new VoiceStorageError('origin_unverifiable');
+    const captured: RecordingDraft = { originGeneration: origin.session_generation, originLabel: origin.title || draft?.originLabel || streamId,
+      textPrefix: draft?.textPrefix ?? '', images: draft?.images.slice() ?? [], operationKind: draft?.operationKind ?? 'voice_chat', questionBinding: draft?.questionBinding };
+    const take = await voiceTakeStore.create({ scope: { serverIdentity: context.serverIdentity, credentialId: context.credentialId },
+      origin: { streamId, generation: origin.session_generation, label: captured.originLabel }, draft: captured, operationKind: captured.operationKind, questionBinding: captured.questionBinding });
+    return { recordingId: take.recordingId, draft: { ...captured, images: voiceTakeStore.images(take) } };
+  },
+  checkpoint: async (snapshot, nativeUri, questionBinding) => {
+    await voiceTakeStore.noteCapture(snapshot.recordingId, { nativeUri, capturedAudioMs: snapshot.capturedAudioMs, phase: snapshot.status === 'recording' ? 'recording' : 'paused', levels: snapshot.levels, questionBinding });
+  },
+  finalize: async take => {
+    refreshQuestionKeys(take.recordingId);
+    const frozenAnswers = freezeVoiceQuestionAnswers(take.recordingId, take.capturedAudioMs ?? take.durationS * 1000) ?? take.frozenAnswers;
+    take.frozenAnswers = frozenAnswers; take.questionBinding = voiceQuestionSnapshot(take.recordingId);
+    await voiceTakeStore.adoptFinalized(take.recordingId, { uri: take.uri, mime: take.mime, capturedAudioMs: take.capturedAudioMs ?? take.durationS * 1000, levels: take.levels, frozenAnswers, questionBinding: take.questionBinding });
+  },
+  requestSend: async take => {
+    if (take.draft?.operationKind === 'voice_answer' && !take.frozenAnswers?.length) {
+      await voiceDelivery.discard(take.recordingId); completeVoiceQuestionSession(take.recordingId, 'no_answers'); throw new NoVoiceAnswersError();
+    }
+    await voiceDelivery.enqueue(take.recordingId, { frozenAnswers: take.frozenAnswers });
+  },
+  invalidate: id => { voiceTakeStore.invalidate(id); },
+  discard: id => voiceTakeStore.get(id) ? voiceDelivery.discard(id) : voiceTakeStore.discard(id),
+  ownsScope: ownsCurrentScope,
+  originAvailable: (streamId, generation, recordingId) => !!recordingId && ownsCurrentScope(recordingId)
+    && !voiceTransportSnapshot().authNeeded && !!generation && voiceOriginStatus(streamId, generation) === 'available',
+});
+voiceRecorder.setLifecycle(lifecycle);
 
-// These subscriptions belong to the app process, never to a screen mount.
-voiceRecorder.subscribeStopped(take => { void voiceDelivery.accept(take); });
+/** Every retained/global Send freezes the same process binding before the committed queue. */
+export async function sendVoiceTake(id: string) {
+  if (voiceRecorder.snapshot()?.recordingId === id) { await voiceRecorder.send(); return; }
+  const take = voiceTakeStore.get(id); if (!take) return;
+  if (take.questionBinding && !voiceQuestionSnapshot(id)) startVoiceQuestionSession(id, take.questionBinding);
+  refreshQuestionKeys(id);
+  const frozenAnswers = freezeVoiceQuestionAnswers(id, take.capturedAudioMs) ?? take.frozenAnswers;
+  if (take.operation.operation_kind === 'voice_answer' && !frozenAnswers?.length) {
+    await voiceDelivery.discard(id); completeVoiceQuestionSession(id, 'no_answers'); throw new NoVoiceAnswersError();
+  }
+  await voiceDelivery.enqueue(id, { frozenAnswers }); completeVoiceQuestionSession(id, 'sent');
+}
+export async function discardVoiceTake(id: string) {
+  if (voiceRecorder.snapshot()?.recordingId === id) await voiceRecorder.discard();
+  else { await voiceDelivery.discard(id); completeVoiceQuestionSession(id, 'discarded'); }
+}
