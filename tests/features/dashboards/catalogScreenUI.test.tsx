@@ -1,4 +1,5 @@
 import React from 'react';
+import { Linking } from 'react-native';
 import { teeTelemetrySink, type TelemetryPayload } from 'pentacle-chat-core';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -9,6 +10,7 @@ import { type Catalog, type ReportDescriptor } from '../../../src/features/dashb
 import * as assets from '../../../src/services/pentacleAssets';
 import fixtures from './fixtures/report_retrieval_cases.json';
 
+let mockPolicy: unknown = null;
 let mockFocused = true;
 let mockSpec: string | undefined = 'example__dashboard_catalog';
 let mockReady = true;
@@ -16,7 +18,7 @@ jest.mock('@react-navigation/native', () => ({ useIsFocused: () => mockFocused }
 jest.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ bottom: 0, left: 0, right: 0, top: 0 }) }));
 jest.mock('expo-constants', () => ({ __esModule: true, default: { expoConfig: { extra: { get dashboardCatalogSpecId() { return mockSpec; } } } } }));
 jest.mock('expo-router', () => ({ router: { push: jest.fn() } }));
-jest.mock('../../../src/services/pentacleStream', () => ({ sendPentacleAssetCommand: jest.fn(), subscribePentacleAssetFrames: jest.fn() }));
+jest.mock('../../../src/services/pentacleStream', () => ({ sendPentacleAssetCommand: jest.fn(), subscribePentacleAssetFrames: jest.fn(), getHostedDashboardPolicy: () => mockPolicy }));
 jest.mock('../../../src/services/pentacleAssets', () => ({ ...jest.requireActual('../../../src/services/pentacleAssets'), listReportsBySpec: jest.fn(), getReportByOwner: jest.fn() }));
 jest.mock('../../../src/components/Starfield', () => () => null);
 jest.mock('../../../src/services/mobileTabsTelemetry', () => ({ logFocusedTab: jest.fn() }));
@@ -44,7 +46,7 @@ function deferred<T>() {
 
 beforeEach(async () => {
   await AsyncStorage.clear();
-  mockFocused = true; mockSpec = catalogSpec; mockReady = true;
+  mockPolicy = null; mockFocused = true; mockSpec = catalogSpec; mockReady = true;
   currentCatalog = catalog();
   list.mockReset().mockImplementation(async (spec) => spec === catalogSpec
     ? [{ asset_id: 'dashboard-catalog', title: 'Example Catalog', content_type: 'dashboard-catalog', stream_id: 'local:example-catalog' }]
@@ -79,11 +81,13 @@ test('catalog report/unsupported entries never connect or poll the retired hub',
     expect(screen.getByTestId('dashboard-catalog-version').props).toMatchObject({ accessible: true, accessibilityLabel: '0.2.0+aaaaaaa' });
     expect(catalogLists()).toHaveLength(1); expect(reportLists()).toHaveLength(1);
     expect(get).toHaveBeenCalledWith('local:example-catalog', 'dashboard-catalog', catalogSpec);
-    for (const id of ['example-board', 'example-hosted']) {
+    for (const id of ['example-board']) {
       fireEvent.press(screen.getByTestId(`dashboard-selector-${id}`));
       expect(screen.getByTestId(`dashboard-board-unsupported-${id}`)).toHaveTextContent('Unsupported on this client');
       expect(screen.getByTestId(`dashboard-board-unsupported-${id}`).props).toMatchObject({ accessible: true, accessibilityLabel: 'Unsupported on this client' });
     }
+    fireEvent.press(screen.getByTestId('dashboard-selector-example-hosted'));
+    expect(screen.getByTestId('dashboard-hosted-error')).toHaveTextContent(/configuration/);
     jest.useFakeTimers(); act(() => jest.advanceTimersByTime(600_000));
     expect(catalogLists()).toHaveLength(1); expect(reportLists()).toHaveLength(1);
     expect(connect).not.toHaveBeenCalled(); expect(hubRefresh).not.toHaveBeenCalled();
@@ -139,7 +143,7 @@ test('transport failure without cache shows a visible card and no boards', async
 test.each(['malformed', 'unsupported'])('%s fetch hides cached boards but retains the good cache for a later outage', async (state) => {
   render(<DashboardsScreen />);
   await screen.findByText(`Synthetic report ${latest}.`);
-  currentCatalog = state === 'malformed' ? { ...catalog(), unknown: true } : { ...catalog(), requires: { host_api: 2 } };
+  currentCatalog = state === 'malformed' ? { ...catalog(), unknown: true } : { ...catalog(), requires: { host_api: 3 } };
   act(() => refresh());
   expect(await screen.findByTestId('dashboard-catalog-error')).toHaveTextContent(/^Dashboard catalog unsupported\/malformed:/);
   expect(screen.queryByTestId('dashboard-selector')).toBeNull();
@@ -186,17 +190,16 @@ test('merge leaves static registration untouched and preserves catalog array ord
   expect(result.registry['example-report'].hubKey).toBe('');
 });
 
-test('a built-in collision leaves that built-in intact and isolates the colliding catalog card', () => {
+test('registered code is only a lookup; a catalog report with the same id keeps its native renderer', () => {
   const id = 'example-report';
   const definition = { id, hubKey: 'example.static', label: 'Example Static', resolve: () => null, render: () => null };
   DASHBOARD_ORDER.push(id); DASHBOARD_REGISTRY[id] = definition;
   try {
     const result = mergeCatalogBoards(catalog());
-    expect(result.order).toEqual([id, `catalog:${id}`, 'example-board', 'example-hosted']);
-    expect(result.registry[id]).toBe(definition);
-    const Failure = result.registry[`catalog:${id}`].render;
-    render(<Failure snapshot={null} onSelectBatch={jest.fn()} onMutateGate={jest.fn()} />);
-    expect(screen.getByTestId('dashboard-board-error')).toHaveTextContent('Board failed to load: board id example-report conflicts with a built-in');
+    expect(result.order).toEqual([id, 'example-board', 'example-hosted']);
+    expect(DASHBOARD_REGISTRY[id]).toBe(definition);
+    expect(result.registry[id].catalogBoard).toEqual(catalog().boards[0]);
+    expect(result.registry[id].render).not.toBe(definition.render);
     expect(list).not.toHaveBeenCalled(); expect(get).not.toHaveBeenCalled();
   } finally { DASHBOARD_ORDER.pop(); delete DASHBOARD_REGISTRY[id]; }
 });
@@ -248,4 +251,125 @@ test('catalog get denial records exact receipt and stops before report retrieval
     expect(get).toHaveBeenCalledTimes(1); expect(get).toHaveBeenCalledWith('local:example-catalog', 'dashboard-catalog', catalogSpec);
     expect(reportLists()).toHaveLength(0);
   } finally { detach(); if (prior === undefined) delete process.env.EXPO_PUBLIC_HARNESS; else process.env.EXPO_PUBLIC_HARNESS = prior; }
+});
+
+const hostedPolicy = { tailnetSuffix: 'example.ts.net', pentacleOrigin: 'https://chat.example.ts.net' };
+const hostedBoards: Catalog['boards'] = [
+  { id: 'project-map', name: 'Project map demo', kind: 'hosted-view', hosted: { url: 'https://boards.example.ts.net:8444/project-map/' } },
+  { id: 'modeler-3d', name: 'Modeler 3D', kind: 'hosted-view', hosted: { url: 'https://boards.example.ts.net:8443/' } },
+];
+
+test('both hosted selections hand only the URL to the browser and retain selection on return', async () => {
+  mockPolicy = hostedPolicy;
+  currentCatalog = { ...catalog(), boards: hostedBoards };
+  const open = jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined);
+  try {
+    const rendered = render(<DashboardsScreen />);
+    await screen.findByTestId('dashboard-selector-project-map');
+    expect(open).not.toHaveBeenCalled(); // Listing/restoring a selection is not a browser gesture.
+    for (const board of hostedBoards) {
+      fireEvent.press(screen.getByTestId(`dashboard-selector-${board.id}`));
+      await waitFor(() => expect(open).toHaveBeenLastCalledWith((board as { hosted: { url: string } }).hosted.url));
+    }
+    expect(open.mock.calls.every(args => args.length === 1)).toBe(true);
+    mockFocused = false; rendered.rerender(<DashboardsScreen />);
+    mockFocused = true; rendered.rerender(<DashboardsScreen />);
+    await waitFor(() => expect(catalogLists()).toHaveLength(2));
+    expect(screen.getByTestId('dashboard-selector-modeler-3d').props.accessibilityState.selected).toBe(true);
+    expect(open).toHaveBeenCalledTimes(2);
+  } finally { open.mockRestore(); }
+});
+
+test('cached hosted selection checks the current policy at selection and retry', async () => {
+  mockPolicy = hostedPolicy; currentCatalog = { ...catalog(), boards: hostedBoards };
+  const open = jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined);
+  try {
+    render(<DashboardsScreen />); await screen.findByTestId('dashboard-selector-project-map');
+    fireEvent.press(screen.getByTestId('dashboard-selector-project-map'));
+    await waitFor(() => expect(open).toHaveBeenCalledTimes(1));
+    mockPolicy = null; list.mockRejectedValueOnce(new Error('offline')); act(() => refresh());
+    await screen.findByTestId('dashboard-catalog-cached');
+    fireEvent.press(screen.getByTestId('dashboard-selector-project-map'));
+    expect(await screen.findByTestId('dashboard-hosted-error')).toHaveTextContent(/configuration/);
+    fireEvent.press(screen.getByTestId('dashboard-hosted-open'));
+    expect(open).toHaveBeenCalledTimes(1);
+    mockPolicy = { ...hostedPolicy, tailnetSuffix: 'other.ts.net' };
+    fireEvent.press(screen.getByTestId('dashboard-hosted-open')); expect(open).toHaveBeenCalledTimes(1);
+    mockPolicy = hostedPolicy;
+    fireEvent.press(screen.getByTestId('dashboard-hosted-open'));
+    await waitFor(() => expect(open).toHaveBeenCalledTimes(2));
+  } finally { open.mockRestore(); }
+});
+
+test.each(['https://foreign.test/app', 'https://chat.example.ts.net:8444/app'])('invalid API-1 cached URL never reaches the opener: %s', async (url) => {
+  mockPolicy = hostedPolicy;
+  currentCatalog = { ...catalog(), boards: [{ ...hostedBoards[0], hosted: { url } }] };
+  const open = jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined);
+  try {
+    render(<DashboardsScreen />); await screen.findByTestId('dashboard-selector-project-map');
+    list.mockRejectedValueOnce(new Error('offline')); act(() => refresh()); await screen.findByTestId('dashboard-catalog-cached');
+    fireEvent.press(screen.getByTestId('dashboard-selector-project-map'));
+    await screen.findByTestId('dashboard-hosted-error'); expect(open).not.toHaveBeenCalled();
+  } finally { open.mockRestore(); }
+});
+
+test('browser handoff failure offers retry without changing the catalog or opening on refresh', async () => {
+  mockPolicy = hostedPolicy; currentCatalog = { ...catalog(), boards: hostedBoards };
+  const open = jest.spyOn(Linking, 'openURL').mockRejectedValueOnce(new Error('synthetic platform refusal')).mockResolvedValue(undefined);
+  try {
+    render(<DashboardsScreen />); await screen.findByTestId('dashboard-selector-project-map');
+    fireEvent.press(screen.getByTestId('dashboard-selector-project-map'));
+    expect(await screen.findByTestId('dashboard-hosted-error')).toHaveTextContent(/Could not open dashboard/);
+    fireEvent.press(screen.getByTestId('dashboard-hosted-open'));
+    await waitFor(() => expect(screen.queryByTestId('dashboard-hosted-error')).toBeNull());
+    expect(open).toHaveBeenCalledTimes(2);
+    act(() => refresh()); await waitFor(() => expect(catalogLists()).toHaveLength(2));
+    expect(open).toHaveBeenCalledTimes(2);
+  } finally { open.mockRestore(); }
+});
+
+test.each(['http://boards.example.ts.net/app', 'https://boards.example.ts.net/app?token=synthetic', 'https://boards.example.ts.net/app#fragment'])('structurally unsafe persisted catalog URL is refused before selection: %s', async (url) => {
+  mockPolicy = hostedPolicy;
+  const unsafe = { ...catalog(), boards: [{ ...hostedBoards[0], hosted: { url } }] };
+  await AsyncStorage.setItem(`dashboard-catalog:${catalogSpec}`, JSON.stringify({ catalog: unsafe, savedAt: Date.now() }));
+  list.mockRejectedValue(new Error('offline'));
+  const open = jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined);
+  try {
+    render(<DashboardsScreen />); await screen.findByTestId('dashboard-catalog-unavailable');
+    expect(screen.queryByTestId('dashboard-selector-project-map')).toBeNull();
+    expect(screen.queryByTestId('dashboard-catalog-cached')).toBeNull();
+    expect(open).not.toHaveBeenCalled();
+  } finally { open.mockRestore(); }
+});
+
+test('visibility uses catalog position and removed native registrations never become an outage fallback', async () => {
+  DASHBOARD_REGISTRY['unlisted-native'] = { id: 'unlisted-native', label: 'Unlisted', hubKey: 'example.native', render: () => null, resolve: () => null };
+  DASHBOARD_ORDER.push('unlisted-native');
+  currentCatalog = { ...catalog(), requires: { host_api: 2 }, boards: [hostedBoards[1], { ...hostedBoards[0], visible: false }, catalog().boards[1]] };
+  try {
+    render(<DashboardsScreen />); await screen.findByTestId('dashboard-selector-modeler-3d');
+    expect(screen.queryByTestId('dashboard-selector-project-map')).toBeNull();
+    expect(screen.queryByTestId('dashboard-selector-unlisted-native')).toBeNull();
+    expect(screen.getAllByRole('tab').map(tab => tab.props.testID)).toEqual(['dashboard-selector-modeler-3d', 'dashboard-selector-example-board']);
+    currentCatalog = { ...catalog(), unknown: true }; act(() => refresh());
+    await screen.findByTestId('dashboard-catalog-error');
+    expect(screen.queryByTestId('dashboard-selector')).toBeNull();
+  } finally { delete DASHBOARD_REGISTRY['unlisted-native']; DASHBOARD_ORDER.splice(0); }
+});
+
+test('a late failed handoff cannot overwrite another selection or reopen on return', async () => {
+  mockPolicy = hostedPolicy; currentCatalog = { ...catalog(), boards: hostedBoards };
+  let reject!: (error: Error) => void;
+  const open = jest.spyOn(Linking, 'openURL').mockImplementationOnce(() => new Promise((_resolve, no) => { reject = no; })).mockResolvedValue(undefined);
+  try {
+    const rendered = render(<DashboardsScreen />); await screen.findByTestId('dashboard-selector-project-map');
+    fireEvent.press(screen.getByTestId('dashboard-selector-project-map'));
+    fireEvent.press(screen.getByTestId('dashboard-selector-modeler-3d'));
+    await act(async () => reject(new Error('stale platform rejection')));
+    expect(screen.queryByTestId('dashboard-hosted-error')).toBeNull();
+    mockFocused = false; rendered.rerender(<DashboardsScreen />);
+    mockFocused = true; rendered.rerender(<DashboardsScreen />);
+    await waitFor(() => expect(catalogLists()).toHaveLength(2));
+    expect(open).toHaveBeenCalledTimes(2);
+  } finally { open.mockRestore(); }
 });

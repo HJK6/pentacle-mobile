@@ -496,6 +496,12 @@ const harnessPersistedEventSeqKeys = new Set<string>();
 const deferredBackgroundLiveEventsByStream = new Map<string, PentacleEvent[]>();
 
 let state: PentacleStreamState = initialPentacleStreamState;
+let hostedDashboardPolicy: unknown = null;
+// Never persisted with catalog or session state. Opening reads the current
+// connection's value and validates it immediately before invoking the browser.
+export function getHostedDashboardPolicy(): unknown {
+  return state.connected && !state.connecting ? hostedDashboardPolicy : null;
+}
 export type ConsentConnection = {scope: string; host_id: string; credential_id: string; generation: number};
 let consentHostId = '';
 let consentProtocolSupported = false;
@@ -508,6 +514,7 @@ export function consentConnection(): ConsentConnection | null {
   } catch { return null; }
 }
 function resetConsentConnection() { consentProtocolSupported = false; consentHostId = ''; }
+function resetHostedDashboardPolicy() { hostedDashboardPolicy = null; }
 
 function monotonicNowMs() {
   return globalThis.performance?.now?.() ?? 0;
@@ -1355,6 +1362,7 @@ function shallowEqualState(a: PentacleStreamState, b: PentacleStreamState) {
 function setState(next: PentacleStreamState, notify = true) {
   if (!next.connected || next.connecting) {
     resetConsentConnection();
+    resetHostedDashboardPolicy();
     if (next.notifications.some(record=>record.producer?.startsWith('consent.'))) {
       next={...next,notifications:next.notifications.filter(record=>!record.producer?.startsWith('consent.'))};
     }
@@ -1603,6 +1611,7 @@ function socketGenerationMatches(generation: number) {
 
 function invalidateCurrentSocketGeneration() {
   resetConsentConnection();
+  resetHostedDashboardPolicy();
   currentSocketGeneration += 1;
 }
 
@@ -3608,6 +3617,11 @@ function handleMessageInner(raw: string) {
     }
   }
 
+  if (message.type === 'hello') {
+    hostedDashboardPolicy = message.hostedDashboardPolicy ?? null;
+    return;
+  }
+
   if (message.type === 'snapshot') {
     const capabilities = message.capabilities as Record<string, unknown> | undefined;
     consentProtocolSupported = capabilities?.consent_enrollment_offer_v1 === true && capabilities?.consent_open_v1 === true;
@@ -4450,6 +4464,7 @@ function connect() {
 
   clearTimers();
   resetConsentConnection();
+  resetHostedDashboardPolicy();
   updateState({ connecting: true });
   const urls = connectionUrls();
   const targetUrl = urls[Math.min(reconnectAttempt, urls.length - 1)] || getDefaultPentacleWsUrl();
@@ -7024,6 +7039,7 @@ export function __resetPentacleStreamForTests() {
   deferredIntentPrefetches.clear();
   streamOpenEntrySources.clear();
   activeIntentPrefetches = 0;
+  hostedDashboardPolicy = null;
   state = initialPentacleStreamState;
 }
 

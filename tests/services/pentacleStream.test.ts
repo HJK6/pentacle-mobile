@@ -6474,3 +6474,30 @@ test('a late authoritative echo during Retry connection recovery cancels the upl
   expect(MockWebSocket.instances.flatMap(s => sentFrames(s, 'send'))).toHaveLength(0);
   unsubscribe();
 });
+
+test('hosted dashboard policy comes only from current authenticated hello and clears across reconnect', () => {
+  const stream = loadStream();
+  const { unsubscribe, socket } = subscribeAndCreateSocket(stream);
+  const policy = { tailnetSuffix: 'example.ts.net', pentacleOrigin: 'https://chat.example.ts.net' };
+  try {
+    expect(stream.getHostedDashboardPolicy()).toBeNull(); socket.open();
+    socket.message({ type: 'welcome', hostedDashboardPolicy: policy });
+    expect(stream.getHostedDashboardPolicy()).toBeNull();
+    socket.message({ type: 'hello', sessions: [], events: [], hostedDashboardPolicy: policy });
+    expect(stream.getHostedDashboardPolicy()).toEqual(policy);
+    socket.message({ type: 'snapshot', sessions: [], events: [], hostedDashboardPolicy: { tailnetSuffix: 'ignored.ts.net' } });
+    expect(stream.getHostedDashboardPolicy()).toEqual(policy);
+    socket.closeFromServer(); expect(stream.getHostedDashboardPolicy()).toBeNull();
+    jest.advanceTimersByTime(1000);
+    const next = MockWebSocket.instances.at(-1)!; next.open();
+    expect(stream.getHostedDashboardPolicy()).toBeNull();
+    socket.message({ type: 'hello', hostedDashboardPolicy: policy });
+    expect(stream.getHostedDashboardPolicy()).toBeNull();
+    next.message({ type: 'hello', sessions: [], events: [] });
+    expect(stream.getHostedDashboardPolicy()).toBeNull();
+    next.message({ type: 'hello', sessions: [], events: [], hostedDashboardPolicy: policy });
+    expect(stream.getHostedDashboardPolicy()).toEqual(policy);
+    next.message({ type: 'auth.error', error: 'synthetic refusal' });
+    expect(stream.getHostedDashboardPolicy()).toBeNull();
+  } finally { unsubscribe(); stream.__resetPentacleStreamForTests(); }
+});

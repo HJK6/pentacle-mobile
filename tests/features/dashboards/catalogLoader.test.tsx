@@ -3,19 +3,33 @@ import path from 'path';
 import crypto from 'crypto';
 import Constants from 'expo-constants';
 import * as harnessRuntime from '../../../src/utils/harnessRuntime';
-import { createCatalogLoader, getCatalogSpecId, keyFormatWidth, plainHttpUrl, reportIdGrammar, reportRequest, selectReports, validateCatalog, type Catalog, type ReportDescriptor } from '../../../src/features/dashboards/catalogLoader';
+import { createCatalogLoader, getCatalogSpecId, keyFormatWidth, plainHttpUrl, reportIdGrammar, reportRequest, selectReports, validateCatalog, validateHostedDashboardUrl, type Catalog, type ReportDescriptor } from '../../../src/features/dashboards/catalogLoader';
 import type { PentacleReport } from '../../../src/services/pentacleAssets';
 
 jest.mock('@react-native-async-storage/async-storage', () => ({ getItem: jest.fn(), setItem: jest.fn() }));
 jest.mock('expo-constants', () => ({ expoConfig: { extra: {} } }));
 jest.mock('../../../src/utils/harnessRuntime', () => ({ getParam: jest.fn() }));
-// Byte-for-byte HJK6/pentacle:test/fixtures/dashboard_catalog/catalog_cases.json
-// SHA256 a2bfaf2b8b1ebd4cad925308d554843c89fb8b428c5abdb805ae18fd4b9f62a1
+// Byte-for-byte HJK6/pentacle commit c5671adbcf6f40b03cbc486d554792d656e1a8c9
+// test/fixtures/dashboard_catalog/catalog_cases.json
+// SHA256 69eb4e98dbef4bd027e239d57bce9b46b5b9bed268183c28ebce2e4eff9277b2
 const catalogCases = require('./fixtures/catalog_cases.json');
 // Byte-for-byte HJK6/pentacle:test/fixtures/dashboard_catalog/report_retrieval_cases.json
 // SHA256 ce4c8ec61ec42e2f8113310add075a2d73a71f3898ca8f102b9a20d58e9c0235
 const retrieval = require('./fixtures/report_retrieval_cases.json');
 const full = (): Catalog => JSON.parse(JSON.stringify(catalogCases.valid[0].catalog));
+test('lanes and navigate action names are accepted on unsupported web adapters', async () => {
+  const catalog = full();
+  const adapter = catalog.boards.find(b => b.kind === 'web-adapter')!;
+  (adapter as { actions: string[] }).actions = ['lanes', 'navigate'];
+  expect(validateCatalog(catalog)).toBe(catalog);
+  const loader = createCatalogLoader({
+    listReportsBySpec: async () => [meta],
+    getReportByOwner: async () => ({ ...meta, body: JSON.stringify(catalog) }),
+  });
+  const result = await loader.refresh('example__catalog');
+  expect(result.status).toBe('ready');
+  expect(result.catalog?.boards.find(b => b.id === adapter.id)).toEqual(adapter);
+});
 const meta = { asset_id: 'dashboard-catalog', content_type: 'dashboard-catalog', title: 'Example catalog', stream_id: 'hostx:example-catalog-owner' };
 function harness() {
   const records = new Map<string, string>();
@@ -34,9 +48,9 @@ for (const fixture of retrieval.cases) test(`shared retrieval fixture: ${fixture
   for (const [field, value] of Object.entries(fixture.outcome)) expect(outcome[field as keyof typeof outcome]).toEqual(value);
 });
 test('shared fixture bytes have exact documented source digests', () => {
-  for (const [file, hash] of [['catalog_cases.json', 'a2bfaf2b8b1ebd4cad925308d554843c89fb8b428c5abdb805ae18fd4b9f62a1'], ['report_retrieval_cases.json', 'ce4c8ec61ec42e2f8113310add075a2d73a71f3898ca8f102b9a20d58e9c0235']]) expect(crypto.createHash('sha256').update(fs.readFileSync(path.join(__dirname, 'fixtures', file))).digest('hex')).toBe(hash);
+  for (const [file, hash] of [['catalog_cases.json', '69eb4e98dbef4bd027e239d57bce9b46b5b9bed268183c28ebce2e4eff9277b2'], ['report_retrieval_cases.json', 'ce4c8ec61ec42e2f8113310add075a2d73a71f3898ca8f102b9a20d58e9c0235']]) expect(crypto.createHash('sha256').update(fs.readFileSync(path.join(__dirname, 'fixtures', file))).digest('hex')).toBe(hash);
 });
-test('host API above one is unsupported including large integers, after whole-schema validation', async () => {
+test('host API above two is unsupported including large integers, after whole-schema validation', async () => {
   const h = harness(), c = full(); c.requires.host_api = 9007199254740992; h.get.mockResolvedValue({ ...meta, body: JSON.stringify(c) });
   expect((await h.loader.refresh('example__catalog')).status).toBe('unsupported'); c.boards[0] = { ...c.boards[0], extra: true } as never;
   h.get.mockResolvedValue({ ...meta, body: JSON.stringify(c) }); expect((await h.loader.refresh('example__catalog')).status).toBe('malformed');
@@ -69,7 +83,7 @@ test('unavailable without cache and invalid fetched catalog have exact visible c
 test('bad fetch retains but never displays good cache until unavailable; cache is spec-scoped', async () => {
   const h = harness(); const good = await h.loader.refresh('example__catalog'); await h.loader.flush();
   h.get.mockResolvedValue({...meta,body:'{broken'}); expect((await h.loader.refresh('example__catalog')).catalog).toBeNull();
-  const newer = full(); newer.requires.host_api = 2; h.get.mockResolvedValue({...meta,body:JSON.stringify(newer)}); expect((await h.loader.refresh('example__catalog')).catalog).toBeNull();
+  const newer = full(); newer.requires.host_api = 3; h.get.mockResolvedValue({...meta,body:JSON.stringify(newer)}); expect((await h.loader.refresh('example__catalog')).catalog).toBeNull();
   h.get.mockRejectedValue(new Error('offline')); expect(await h.loader.refresh('example__catalog')).toMatchObject({cached:true,catalog:good.catalog,age:0}); expect((await h.loader.refresh('example__other')).catalog).toBeNull();
 });
 test('persisted cache is validated; denied storage still supports good memory cache', async () => {
@@ -100,4 +114,9 @@ test('slow persisted-cache read cannot replace newer validated memory catalog', 
   h.get.mockResolvedValue({...meta,body:JSON.stringify(next)}); expect((await h.loader.refresh('example__catalog')).status).toBe('ready');
   resolve(JSON.stringify({catalog:old,savedAt:0})); expect((await stale).status).toBe('superseded'); h.list.mockRejectedValue(new Error('offline'));
   expect((await h.loader.refresh('example__catalog')).catalog?.catalog_version).toBe(next.catalog_version);
+});
+
+for (const item of catalogCases.hosted_urls) test(`shared hosted URL: ${item.name}`, () => {
+  if (item.allowed) expect(validateHostedDashboardUrl(item.url, catalogCases.hosted_policy)).toBe(item.url);
+  else expect(() => validateHostedDashboardUrl(item.url, catalogCases.hosted_policy)).toThrow();
 });

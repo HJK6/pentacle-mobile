@@ -5,7 +5,7 @@ import DashboardsScreen from '../../../app/(tabs)/dashboards';
 import { dashboardHubClient } from '../../../src/features/dashboards/dashboardHubClient';
 import { loadDashboardHubRuntime } from '../../../src/features/dashboards/dashboardHubRuntime';
 
-// A board registered later (as the runtime catalog will) brings the selector and hub behaviour back.
+// Only native built-ins referenced by the catalog bring back hub behavior.
 jest.mock('../../../src/features/dashboards/dashboardRegistry', () => {
   const { Text: RNText } = require('react-native');
   const board = (id: string, label: string) => ({
@@ -15,11 +15,22 @@ jest.mock('../../../src/features/dashboards/dashboardRegistry', () => {
     render: ({ snapshot }: { snapshot: unknown }) => <RNText testID={`board-${id}`}>{snapshot ? 'has snapshot' : `${label} body`}</RNText>,
     resolve: () => null,
   });
-  return {
-    DASHBOARD_ORDER: ['alpha', 'beta'],
-    DASHBOARD_REGISTRY: { alpha: board('alpha', 'Synthetic Alpha'), beta: board('beta', 'Synthetic Beta') },
-  };
+  const actual = jest.requireActual('../../../src/features/dashboards/dashboardRegistry');
+  actual.DASHBOARD_REGISTRY.alpha = board('alpha', 'Synthetic Alpha');
+  actual.DASHBOARD_REGISTRY.beta = board('beta', 'Synthetic Beta');
+  return actual;
 });
+jest.mock('../../../src/features/dashboards/catalogLoader', () => ({
+  ...jest.requireActual('../../../src/features/dashboards/catalogLoader'),
+  getCatalogSpecId: () => 'example__catalog',
+  createCatalogLoader: () => ({ cancel: jest.fn(), refresh: jest.fn(async () => ({
+    status: 'ready', cached: false, catalog: { boards: [
+      { id: 'alpha', name: 'Synthetic Alpha', kind: 'built-in' },
+      { id: 'beta', name: 'Synthetic Beta', kind: 'built-in' },
+    ] },
+  })) }),
+}));
+jest.mock('../../../src/services/pentacleAssets', () => ({ listReportsBySpec: jest.fn(), getReportByOwner: jest.fn() }));
 jest.mock('@react-navigation/native', () => ({ useIsFocused: () => true }));
 jest.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ bottom: 0, left: 0, right: 0, top: 0 }) }));
 jest.mock('../../../src/components/Starfield', () => () => null);
@@ -43,6 +54,7 @@ describe('Dashboards tab with registered boards', () => {
 
   it('shows the selector with the first board active, no empty state, and connects + refreshes it on focus', async () => {
     render(<DashboardsScreen />);
+    await screen.findByTestId('board-alpha');
     expect(screen.queryByTestId('dashboards-empty')).toBeNull();
     expect(screen.getByTestId('dashboard-selector')).toBeTruthy();
     expect(screen.getByTestId('dashboard-selector-alpha').props.accessibilityState).toEqual({ selected: true });
@@ -52,17 +64,19 @@ describe('Dashboards tab with registered boards', () => {
     await waitFor(() => expect(connect).toHaveBeenCalled());
   });
 
-  it('switching boards refreshes the newly selected board', () => {
+  it('switching boards refreshes the newly selected board', async () => {
     render(<DashboardsScreen />);
+    await screen.findByTestId('board-alpha');
     fireEvent.press(screen.getByTestId('dashboard-selector-beta'));
     expect(screen.getByTestId('board-beta')).toBeTruthy();
     expect(refresh).toHaveBeenLastCalledWith('synthetic.beta', {});
   });
 
-  it('pull-to-refresh refreshes the active board', () => {
+  it('pull-to-refresh refreshes the active board', async () => {
     render(<DashboardsScreen />);
+    await screen.findByTestId('board-alpha');
     refresh.mockClear();
-    act(() => refreshControl().onRefresh());
+    await act(async () => refreshControl().onRefresh());
     expect(refresh).toHaveBeenCalledWith('synthetic.alpha', {});
   });
 });

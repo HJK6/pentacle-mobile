@@ -136,7 +136,10 @@ To opt in, copy `pentacle.config.example.ts` to the gitignored
 catalog's spec ID. The example uses only the synthetic placeholder
 `example__dashboard_catalog`; keep real IDs and endpoints in local configuration.
 Credentials continue through the existing enrollment/SecureStore flow; keep them
-out of the local TypeScript config and Expo `extra`.
+out of the local TypeScript config and Expo `extra`. To read the sole catalog
+managed by `agent-orch dashboard add/remove`, set the locator to
+`pentacle__dashboard_catalog`; see the public
+[dashboard guide](https://github.com/HJK6/pentacle/blob/main/docs/dashboards_view.md).
 
 Expo publishes this field as
 `Constants.expoConfig.extra.dashboardCatalogSpecId`. Expo `extra` is build/profile
@@ -153,8 +156,24 @@ retired dashboard hub.
   full windows are visibly partial. The existing generic report block renderer
   displays the selected body, without the session modal's extra list/comment/read
   operations
-- `web-adapter` and `hosted-view` boards display **Unsupported on this client**.
-  Mobile never downloads/evaluates their code or embeds a WebView
+- One list contains built-in and hosted entries in catalog `boards[]` order;
+  `visible:false` hides an entry (default: true). Registered native code resolves
+  `built-in` IDs without adding extra list items; missing implementations remain
+  unavailable in position. The mixed-list extension uses `requires.host_api:2`;
+  API-1 catalogs remain readable
+- `web-adapter` boards remain **Unsupported on this client**. Native built-ins
+  and generic reports keep their existing behavior; mobile never downloads or
+  evaluates adapter code
+- Selecting a `hosted-view`, or choosing its explicit Open/Retry action, opens
+  its URL in the **system browser**, with no Pentacle session or headers attached.
+  Before every handoff, including cached entries, mobile checks the current
+  authenticated daemon's URL policy: credential-free HTTPS, a subdomain of the
+  configured fleet suffix, no userinfo/query/fragment, and never Pentacle's own
+  hostname even on another port. Missing/invalid policy refuses opening. Policy
+  is not taken from the catalog or cache and clears on connection loss
+- The browser owns hosted loading and unreachable-page presentation. Returning
+  to Pentacle preserves the selection without automatically reopening the URL.
+  There is no native WebView or new browser/session dependency
 - The last validated catalog is stored by spec in memory and AsyncStorage. It is
   shown with an unavailable card and **catalog cached <age>** only when retrieval
   is unavailable. Malformed/unsupported responses show their own card and retain
