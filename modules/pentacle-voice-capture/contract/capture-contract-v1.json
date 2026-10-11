@@ -4202,6 +4202,96 @@
       ]
     },
     {
+      "name": "tick_cap_clock_overshoot_defers_to_finalized_frames",
+      "steps": [
+        {
+          "event": {
+            "type": "start",
+            "nowMs": 0,
+            "recordingId": "capture-a",
+            "admission": 0
+          },
+          "expect": {
+            "state": "starting",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 0,
+            "actions": [
+              "prepare",
+              "activateSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "startReady",
+            "nowMs": 0,
+            "sessionActive": true
+          },
+          "expect": {
+            "state": "recording",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 0,
+            "actions": [
+              "record"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "tick",
+            "nowMs": 300004
+          },
+          "expect": {
+            "state": "capped",
+            "reason": "capped",
+            "pauseEpoch": 0,
+            "capturedMs": 300000,
+            "actions": [
+              "stop",
+              "releaseSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "settleCaptured",
+            "nowMs": 300012,
+            "capturedMs": 300012
+          },
+          "expect": {
+            "state": "capped",
+            "reason": "capped",
+            "pauseEpoch": 0,
+            "capturedMs": 300000,
+            "actions": [],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "finished",
+            "nowMs": 300012,
+            "capturedMs": 299900,
+            "paddingMs": 132,
+            "success": true
+          },
+          "expect": {
+            "state": "capped",
+            "reason": "capped",
+            "pauseEpoch": 0,
+            "capturedMs": 300000,
+            "actions": [],
+            "error": null
+          }
+        }
+      ]
+    },
+    {
       "name": "finalized_frames_within_tolerance_certify_cap",
       "steps": [
         {

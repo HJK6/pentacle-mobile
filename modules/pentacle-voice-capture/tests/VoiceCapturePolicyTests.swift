@@ -147,6 +147,26 @@ final class VoiceCapturePolicyTests: XCTestCase {
       XCTAssertEqual(result.actions, viaTick ? [] : [.stop, .releaseSession])
     }
   }
+  // The 20 ms audio-clock tick caps first; stopping then settles the recorder clock a few
+  // milliseconds past the limit. Only the finalized file decides certification or overrun.
+  func testTickCapClockOvershootDefersToFinalizedFrames() {
+    for (captured, state, reason) in [(299_900.0, VoiceCapturePolicy.State.capped, "capped"),
+                                      (300_000.0625, .interrupted, "capture_limit_exceeded")] {
+      var policy = VoiceCapturePolicy()
+      _ = policy.handle(.init("start", recordingId: "capture-a", admission: 0))
+      var ready = VoiceCapturePolicy.Event("startReady"); ready.sessionActive = true
+      _ = policy.handle(ready)
+      XCTAssertEqual(policy.handle(.init("tick", nowMs: 300_004)).actions, [.stop, .releaseSession])
+      var settled = VoiceCapturePolicy.Event("settleCaptured"); settled.capturedMs = 300_012
+      XCTAssertEqual(policy.handle(settled).actions, [])
+      XCTAssertEqual(policy.state, .capped)
+      var finalized = VoiceCapturePolicy.Event("finished", nowMs: 300_012)
+      finalized.success = true; finalized.capturedMs = captured; finalized.paddingMs = 132
+      _ = policy.handle(finalized)
+      XCTAssertEqual(policy.state, state, "\(captured)")
+      XCTAssertEqual(policy.reason, reason)
+    }
+  }
   func testNonFiniteFinalEvidenceCannotCertifyCap() {
     for value in [Double.nan, Double.infinity, -Double.infinity] {
       var policy = VoiceCapturePolicy()

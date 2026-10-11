@@ -187,7 +187,9 @@ public struct VoiceCapturePolicy {
     case "settleCaptured":
       if let captured = event.capturedMs, captured.isFinite, captured >= 0 {
         capturedMs = min(Self.maximumCapturedMs, max(capturedMs, captured))
-        if captured > Self.maximumCapturedMs && state != .discarded {
+        // A tick-driven cap stops after the clock crossed the limit; the finalized file, not this
+        // approximate recorder clock, then certifies the cap or reports the overrun.
+        if captured > Self.maximumCapturedMs && state != .discarded && state != .capped {
           if state == .interrupted && reason == "capture_limit_exceeded" { return finished() }
           state = .interrupted; reason = "capture_limit_exceeded"; pending = nil; lastClockMs = nil
           pauseEpoch += 1; sessionActive = false

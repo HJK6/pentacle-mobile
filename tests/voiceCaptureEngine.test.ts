@@ -114,7 +114,7 @@ class CaptureContractModel {
       case 'settleCaptured':
         if (event.capturedMs !== undefined && Number.isFinite(event.capturedMs) && event.capturedMs >= 0) {
           this.capturedMs = Math.min(MAX_DURATION_MS, Math.max(this.capturedMs, event.capturedMs));
-          if (event.capturedMs > MAX_DURATION_MS && this.state !== 'discarded') {
+          if (event.capturedMs > MAX_DURATION_MS && this.state !== 'discarded' && this.state !== 'capped') {
             if (this.state === 'interrupted' && this.reason === 'capture_limit_exceeded') break;
             this.state = 'interrupted'; this.reason = 'capture_limit_exceeded'; this.pending = null; this.lastClock = null;
             this.pauseEpoch++; this.sessionActive = false; actions.push('stop', 'releaseSession'); break;
