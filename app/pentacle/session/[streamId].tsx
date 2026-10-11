@@ -55,7 +55,8 @@ import VoiceBubble from '../../../src/components/voice/VoiceBubble';
 import { VoiceAnswersStatusNote, voiceAnswersItemCount } from '../../../src/components/questions/voice';
 import { DiscardGlyph, MicGlyph, VoiceRecordFace, VoiceSpinner, recordButtonStyle } from '../../../src/components/voice/VoiceGlyphs';
 import { voiceRecorder } from '../../../src/services/voiceRecordingEngine';
-import { formatDuration, PermissionDeniedError, type RecordingSnapshot } from '../../../src/services/voiceRecording';
+import { useSharedVoiceControlsActive } from '../../../src/components/voice/VoiceRecordingOverlay';
+import { formatDuration, PermissionDeniedError, CaptureUnsupportedError, type RecordingSnapshot } from '../../../src/services/voiceRecording';
 import { voiceDelivery, useVoiceDelivery, voiceTakeRow, retryVoiceMessage } from '../../../src/services/voiceDelivery';
 
 import { WandCastSendIcon } from '../../../src/components/SendGlyphs';
@@ -3960,6 +3961,7 @@ export const TranscriptRow = memo(function TranscriptRow({
   onOpenDirectChildThread?: (child: ChildAgent) => void;
 }) {
   const voiceState = useVoiceDelivery();
+  const sharedVoiceControls = useSharedVoiceControlsActive();
   const voiceTake = voiceState.takes.find(t => `voice:${t.recordingId}` === item.id);
   const hidesTurnDuration = !showTurnDuration &&
     (item.displayRule === 'terminal:divider' || item.displayRule === 'activity:turn-summary');
@@ -4073,11 +4075,14 @@ export const TranscriptRow = memo(function TranscriptRow({
           <>
             <View style={styles.voiceCaptionRow} testID="voice-transcription-status">
               {voiceTake.status === 'transcribing' ? <VoiceSpinner testID="voice-transcribing-spinner" /> : null}
-              <Text style={[styles.voiceCaptionText, voiceTake.error ? styles.voiceCaptionError : null]}>{voiceTake.error || 'TRANSCRIBING'}</Text>
-              {voiceAnswersItemCount(voiceTake.recordingId) > 0 ? <><Text style={styles.voiceCaptionText}>·</Text><Text testID="voice-answers-label" style={styles.voiceCaptionText}>{`ANSWERS ${voiceAnswersItemCount(voiceTake.recordingId)} QUESTION${voiceAnswersItemCount(voiceTake.recordingId) === 1 ? '' : 'S'}`}</Text></> : null}
+              <Text style={[styles.voiceCaptionText, voiceTake.error ? styles.voiceCaptionError : null]}>{voiceTake.error || ({ unsent: 'UNSENT', queued: 'QUEUED', uploading: 'UPLOADING', transcribing: 'TRANSCRIBING', checking: 'CHECKING DELIVERY', auth_needed: 'SIGN IN REQUIRED', origin_unavailable: 'ORIGINAL CHAT UNAVAILABLE', not_landed: 'NOT DELIVERED', failed: 'FAILED' }[voiceTake.status])}</Text>
+              {(voiceTake.manifest.frozenAnswers?.length ?? voiceAnswersItemCount(voiceTake.recordingId)) > 0 ? <><Text style={styles.voiceCaptionText}>·</Text><Text testID="voice-answers-label" style={styles.voiceCaptionText}>{`ANSWERS ${(voiceTake.manifest.frozenAnswers?.length ?? voiceAnswersItemCount(voiceTake.recordingId))} QUESTION${(voiceTake.manifest.frozenAnswers?.length ?? voiceAnswersItemCount(voiceTake.recordingId)) === 1 ? '' : 'S'}`}</Text></> : null}
               {voiceTake.interrupted ? <><Text style={styles.voiceCaptionText}>·</Text><Text style={styles.voiceCaptionText}>INTERRUPTED AT {formatDuration(voiceTake.durationS)}</Text></> : null}
-              {voiceTake.status === 'failed' ? <Pressable accessibilityLabel="Retry transcription" testID="voice-transcription-retry" hitSlop={8} onPress={() => { void voiceDelivery.retry(voiceTake.recordingId); }}><Text style={[styles.voiceCaptionText, styles.voiceCaptionAction]}>RETRY</Text></Pressable> : null}
-              <Pressable accessibilityLabel="Discard voice message" testID="voice-transcription-discard" hitSlop={10} onPress={() => voiceDelivery.discard(voiceTake.recordingId)}><DiscardGlyph size={10} /></Pressable>
+              {!sharedVoiceControls && voiceTake.status === 'failed' ? <Pressable accessibilityLabel="Retry transcription" testID="voice-transcription-retry" hitSlop={8} onPress={() => { void voiceDelivery.retry(voiceTake.recordingId); }}><Text style={[styles.voiceCaptionText, styles.voiceCaptionAction]}>RETRY</Text></Pressable> : null}
+              {!sharedVoiceControls ? <Pressable accessibilityLabel="Discard voice message" testID="voice-transcription-discard" style={{ minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' }} onPress={() => {
+                if (voiceTake.manifest.dispatchIntent) Alert.alert('Remove local copy?', 'Remove local copy; delivery may already have happened', [{ text: 'Keep', style: 'cancel' }, { text: 'Remove local copy', style: 'destructive', onPress: () => { void voiceDelivery.discard(voiceTake.recordingId); } }]);
+                else void voiceDelivery.discard(voiceTake.recordingId);
+              }}><DiscardGlyph size={10} /></Pressable> : null}
             </View>
             <VoiceBubble levels={voiceTake.levels} durationS={voiceTake.durationS} />
           </>
@@ -4832,7 +4837,8 @@ export function ComposerBar({
   onRegisterSendHandler?: (fn: ((request: HarnessSendRequest) => Promise<void>) | null) => void;
 }) {
   const [processRecording, setRecording] = useState<RecordingSnapshot | null>(() => voiceRecorder.snapshot());
-  const recording = processRecording?.streamId === streamId ? processRecording : null;
+  const recording = processRecording && processRecording.streamId === streamId && voiceRecorder.isOwnedByCurrentScope(processRecording.recordingId) ? processRecording : null;
+  const sharedVoiceControls = useSharedVoiceControlsActive();
   const [microphoneDenied, setMicrophoneDenied] = useState(false);
   const [voiceBusy, setVoiceBusy] = useState(false);
   const voiceBusyRef = useRef(false);
@@ -4847,7 +4853,7 @@ export function ComposerBar({
           onError('A recording is already active in another chat. Use Return or the recording controls.');
           return;
         }
-        await voiceRecorder.stop('tap');
+        await voiceRecorder.send();
       } else {
         if (disabled || submissionDisabled || !streamId || picking || sendInFlightRef.current) return;
         setMicrophoneDenied(false);
@@ -4861,14 +4867,16 @@ export function ComposerBar({
           originLabel: origin?.title || streamId,
           textPrefix: composer.trim(),
           images: capturedImages.slice(),
+        }, () => {
+          // A later storage-recovery Send clears only the unchanged captured revision.
+          restoreDraft(streamId, revision, '');
+          setStagedAttachments(current => current.filter(asset => !capturedImages.includes(asset)));
         });
-        // Permission can take time. Clear only the draft we actually captured.
-        if (draftRevision(streamId) === revision) setComposer('');
-        setStagedAttachments(current => current.filter(asset => !capturedImages.includes(asset)));
       }
     } catch (error) {
-      if (error instanceof PermissionDeniedError) setMicrophoneDenied(true);
-      else onError('Could not record audio. Try again.');
+      if (error instanceof CaptureUnsupportedError) onError(error.message);
+      else if (error instanceof PermissionDeniedError) setMicrophoneDenied(true);
+      else onError(error instanceof Error && /storage|save|take_limit|origin|auth_needed/i.test(error.message) ? 'Could not safely save this recording. Check storage and the original signed-in chat.' : 'Could not record audio. Try again.');
     } finally { voiceBusyRef.current = false; setVoiceBusy(false); }
   };
   const [composer, setComposer] = useComposerDraft(streamId);
@@ -5194,7 +5202,7 @@ export function ComposerBar({
             style={styles.composerTapAway}
           />
         ) : null}
-        {recording ? <RecordingStrip displayLevels={recording.displayLevels} sampleCount={recording.levels.length} durationS={recording.durationS} error={recording.error} onDiscard={() => { if (voiceRecorder.snapshot()?.status !== 'recording') return; void voiceRecorder.discard().catch(() => onError('Could not discard recording.')); }} /> : <TextInput
+        {recording ? <RecordingStrip displayLevels={recording.displayLevels} sampleCount={recording.levels.length} durationS={recording.durationS} error={recording.error || (recording.status === 'paused' ? 'Paused' : undefined)} showDiscard={!sharedVoiceControls} onDiscard={() => { void voiceRecorder.discard().catch(() => onError('Could not discard recording.')); }} /> : <TextInput
           testID="composer-input"
           accessibilityLabel="Message input"
           ref={inputRef}
@@ -5292,7 +5300,7 @@ export function ComposerBar({
             </Svg>
           </Pressable>
         ) : null}
-        {(recording || !composer.trim() || stagedAttachments.length > 0) ? (
+        {(!(recording && sharedVoiceControls) && (recording || !composer.trim() || stagedAttachments.length > 0)) ? (
           <Pressable testID="composer-mic-button" accessibilityRole="button" accessibilityLabel={recording ? 'Stop and send' : 'Voice mode'} accessibilityState={{ disabled: voiceBusy || (!recording && (disabled || submissionDisabled || !streamId)) }} disabled={voiceBusy || (!recording && (disabled || submissionDisabled || !streamId))} onPress={() => { void handleVoicePress(); }} style={recording ? recordButtonStyle(40) : [styles.sendButton, stagedAttachments.length > 0 && { right: 50 }]} hitSlop={8}>
             <VoiceRecordFace recording={Boolean(recording)} />
           </Pressable>

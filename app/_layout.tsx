@@ -1,6 +1,7 @@
 import { MachineRosterProvider } from '../src/components/MachineRosterContext';
 import ConsentInbox from '../src/components/ConsentInbox';
 import VoiceRecordingOverlay from '../src/components/voice/VoiceRecordingOverlay';
+import { setVoiceLifecycle } from '../src/services/voiceRecordingEngine';
 import { LogBox, Linking } from 'react-native';
 
 // Suppress harmless Expo native module warnings that fire on startup
@@ -19,7 +20,7 @@ import { Stack } from 'expo-router';
 // to this provider; config/local owns the Expo-sourced host order + themes and
 // stays out of the package. Wired once at app startup, before any selector runs.
 setHostConfigProvider({ getHostOrder, getHostTheme });
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { AppState, View, StyleSheet, Text, TouchableOpacity, Platform } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import * as Updates from 'expo-updates';
@@ -973,6 +974,18 @@ export default function RootLayout() {
   const fontsReady = fontsLoaded || process.env.NODE_ENV === 'test';
   const navigatorRendered = fontsReady || process.env.EXPO_PUBLIC_HARNESS === '1';
   const { locked, authenticate } = useBiometricLock('Pentacle');
+  const [voiceForeground, setVoiceForeground] = useState(AppState.currentState === 'active');
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', state => {
+      const foreground = state === 'active';
+      if (!foreground) setVoiceLifecycle({ foreground: false, unlocked: false });
+      setVoiceForeground(foreground);
+    });
+    return () => sub.remove();
+  }, []);
+  useEffect(() => {
+    setVoiceLifecycle({ foreground: voiceForeground, unlocked: voiceForeground && (!locked || DISABLE_LOCAL_AUTH_FOR_TESTING) });
+  }, [voiceForeground, locked]);
   usePushNotifications({ locked: !DISABLE_LOCAL_AUTH_FOR_TESTING && locked });
 
   // Check for OTA updates on launch and when app comes to foreground

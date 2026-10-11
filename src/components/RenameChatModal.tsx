@@ -1,3 +1,4 @@
+import VoiceRecordingOverlay from './voice/VoiceRecordingOverlay';
 import React, { useEffect, useState } from 'react';
 import { Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Fonts, Tokens } from '@/constants/Colors';
@@ -72,6 +73,7 @@ export default function RenameChatModal({ visible, initialName, onSubmit, onClos
           </View>
         </Pressable>
       </Pressable>
+    <VoiceRecordingOverlay visible={visible} priority={2} onReturn={onClose} hostName="rename-chat" />
     </Modal>
   );
 }

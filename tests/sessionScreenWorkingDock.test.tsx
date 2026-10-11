@@ -20,21 +20,14 @@ let mockParams: Record<string, unknown> = { streamId: encodeURIComponent(CLAUDE_
 let mockState: PentacleStreamState;
 let mockShowToolActions = false;
 let mockIsFocused = true;
-let mockAppStateCurrent: string | null = 'active';
-const mockAppStateListeners = new Set<(state: string) => void>();
-
-const mockAppState = {
-  get currentState() {
-    return mockAppStateCurrent;
-  },
-  addEventListener: (_event: string, listener: (state: string) => void) => {
-    mockAppStateListeners.add(listener);
-    return { remove: () => mockAppStateListeners.delete(listener) };
-  },
+const mockAppState = require('react-native').AppState as {
+  currentState: string | null;
+  __listeners: Set<(state: string) => void>;
 };
+const mockAppStateListeners = mockAppState.__listeners;
 
 function setMockAppState(state: string) {
-  mockAppStateCurrent = state;
+  mockAppState.currentState = state;
   for (const listener of mockAppStateListeners) listener(state);
 }
 
@@ -56,11 +49,21 @@ const mockRunAfterInteractions = jest.fn((callback: () => void) => {
 
 jest.mock('react-native', () => {
   const actual = jest.requireActual('react-native');
+  // Construct AppState inside the hoisted factory so imported capture code can
+  // read its initial state before this test module's top-level declarations run.
+  const appState = {
+    currentState: 'active' as string | null,
+    __listeners: new Set<(mockState: string) => void>(),
+    addEventListener: (_event: string, listener: (mockState: string) => void) => {
+      appState.__listeners.add(listener);
+      return { remove: () => appState.__listeners.delete(listener) };
+    },
+  };
   return new Proxy(actual, {
     get(target, prop) {
       if (prop === 'Keyboard') return { dismiss: mockKeyboardDismiss, addListener: mockKeyboardAddListener };
       if (prop === 'InteractionManager') return { runAfterInteractions: mockRunAfterInteractions };
-      if (prop === 'AppState') return mockAppState;
+      if (prop === 'AppState') return appState;
       return target[prop as keyof typeof target];
     },
   });
@@ -165,7 +168,7 @@ function resetState(streamId: string = CLAUDE_STREAM_ID) {
   mockParams = { streamId: encodeURIComponent(streamId) };
   mockShowToolActions = false;
   mockIsFocused = true;
-  mockAppStateCurrent = 'active';
+  mockAppState.currentState = 'active';
   mockAppStateListeners.clear();
   mockState = {
     connected: true,
@@ -395,7 +398,7 @@ test('unknown app state cannot emit before a later background observation', asyn
   harnessRuntime.applyURL('pentacle://harness?actions=&scenario=header-status&scenario_run_id=run-unknown');
   const seen: TelemetryPayload[] = [];
   setTelemetrySink((payload) => seen.push(payload));
-  mockAppStateCurrent = null;
+  mockAppState.currentState = null;
   const rendered = render(<SessionScreen />);
 
   fireEvent.changeText(screen.getByTestId('composer-input'), 'again');

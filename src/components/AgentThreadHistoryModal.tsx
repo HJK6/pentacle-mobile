@@ -1,3 +1,4 @@
+import VoiceRecordingOverlay from './voice/VoiceRecordingOverlay';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Tokens } from '@/constants/Colors';
@@ -163,6 +164,7 @@ export function AgentThreadHistoryModal({
           </Pressable>
         </View>
       </View>
+    <VoiceRecordingOverlay visible={true} priority={2} onReturn={close} hostName="thread-history" />
     </Modal>
   );
 }

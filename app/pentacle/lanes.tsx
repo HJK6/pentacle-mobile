@@ -1,3 +1,4 @@
+import VoiceRecordingOverlay from '../../src/components/voice/VoiceRecordingOverlay';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { useIsFocused } from '@react-navigation/native';
@@ -56,6 +57,7 @@ export default function LanesRoute() {
         <LaneHistoryScreen target={history} connected={state.connected} onClose={() => setHistory(null)} top={top} bottom={bottom} />
       </View>
       : null}
+    <VoiceRecordingOverlay visible={isFocused} priority={1} hostName="lanes" />
   </View>;
 }
 

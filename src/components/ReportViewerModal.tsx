@@ -1,3 +1,4 @@
+import VoiceRecordingOverlay from './voice/VoiceRecordingOverlay';
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { logTelemetry } from "pentacle-chat-core";
 import {
@@ -1126,6 +1127,7 @@ export default function ReportViewerModal({
           readOnly={sessionClosed}
         />
       </View>
+    <VoiceRecordingOverlay visible={visible} priority={2} onReturn={onClose} hostName="report-viewer" />
     </Modal>
   );
 }

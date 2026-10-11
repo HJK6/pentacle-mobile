@@ -19,6 +19,14 @@ const mockHarnessRuntime = {
   markStreamHarnessActive: jest.fn(),
 };
 const mockPentacleStream = {
+  // This non-voice fixture has no authenticated voice transport or retained work.
+  voiceTransportSnapshot: () => ({
+    serverIdentity: 'wss://synthetic.invalid/ws', credentialId: null,
+    ready: false, inventoryFresh: false, authNeeded: false,
+    scopeGeneration: 0, socketGeneration: 0, origins: [],
+  }),
+  subscribeVoiceTransport: jest.fn(() => () => {}),
+  subscribeVoiceSendEvidence: jest.fn(() => () => {}),
   getPentacleStreamState: jest.fn(),
   subscribePentacleStream: jest.fn(),
   setPentacleWsUrl: jest.fn(),

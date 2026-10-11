@@ -1,3 +1,4 @@
+import { useSharedVoiceControlsActive } from '../../voice/VoiceRecordingOverlay';
 import React, { useEffect, useState } from 'react';
 import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
 
@@ -44,6 +45,7 @@ export default function VoiceAnswerBar({ k, n, confirming, finishing, onDone, on
   onDiscard: () => void;
 }) {
   const snapshot = useRecorderSnapshot();
+  const sharedControls = useSharedVoiceControlsActive();
   const blink = useStepBlink();
   if (confirming) {
     return (
@@ -64,7 +66,7 @@ export default function VoiceAnswerBar({ k, n, confirming, finishing, onDone, on
       <Text testID="questions-voice-elapsed" style={styles.elapsed}>{formatDuration(snapshot?.durationS ?? 0)}</Text>
       <VoiceWave levels={snapshot?.displayLevels ?? []} />
       <Text testID="questions-voice-progress" numberOfLines={1} style={styles.progress}>{`${k} of ${n} answered by voice`}</Text>
-      <Pressable
+      {!sharedControls ? <Pressable
         testID="questions-voice-done"
         accessibilityRole="button"
         accessibilityState={{ disabled: finishing }}
@@ -72,14 +74,16 @@ export default function VoiceAnswerBar({ k, n, confirming, finishing, onDone, on
         onPress={onDone}
         style={[styles.done, finishing && styles.disabled]}
       >
-        <Text style={styles.doneText}>Done</Text>
-      </Pressable>
+        <Text style={styles.doneText}>Send</Text>
+      </Pressable> : null}
     </View>
   );
 }
 
 // The header mic: one recording for the whole overlay. While recording it stops like Done.
 export function VoiceMicButton({ recording, onPress }: { recording: boolean; onPress: () => void }) {
+  const sharedControls = useSharedVoiceControlsActive();
+  if (recording && sharedControls) return null;
   return (
     <Pressable
       testID="questions-voice-mic"
@@ -112,14 +116,14 @@ const styles = StyleSheet.create({
   elapsed: { color: Tokens.palette.text, fontFamily: Fonts.jetBrainsMono.medium, fontSize: 11, fontVariant: ['tabular-nums'], flexShrink: 0 },
   wave: { flexDirection: 'row', alignItems: 'center', gap: 2.5, height: WAVE_H, flexShrink: 0 },
   progress: { flex: 1, minWidth: 0, color: Tokens.palette.dim, fontFamily: Fonts.rajdhani.medium, fontSize: 12.5 },
-  done: { backgroundColor: GREEN, borderWidth: 1, borderColor: GREEN, borderRadius: 4, paddingVertical: 5, paddingHorizontal: 9, flexShrink: 0 },
+  done: { minWidth: 44, minHeight: 44, justifyContent: 'center', backgroundColor: GREEN, borderWidth: 1, borderColor: GREEN, borderRadius: 4, paddingVertical: 5, paddingHorizontal: 9, flexShrink: 0 },
   disabled: { opacity: 0.6 },
   doneText: { color: Tokens.palette.ink, fontFamily: Fonts.rajdhani.bold, fontSize: 13 },
-  secondary: { borderWidth: 1, borderColor: Tokens.palette.line, borderRadius: 4, paddingVertical: 5, paddingHorizontal: 9 },
+  secondary: { minWidth: 44, minHeight: 44, justifyContent: 'center', borderWidth: 1, borderColor: Tokens.palette.line, borderRadius: 4, paddingVertical: 5, paddingHorizontal: 9 },
   secondaryText: { color: Tokens.palette.dim, fontFamily: Fonts.rajdhani.bold, fontSize: 13 },
-  danger: { borderWidth: 1, borderColor: Tokens.palette.red, borderRadius: 4, paddingVertical: 5, paddingHorizontal: 9 },
+  danger: { minWidth: 44, minHeight: 44, justifyContent: 'center', borderWidth: 1, borderColor: Tokens.palette.red, borderRadius: 4, paddingVertical: 5, paddingHorizontal: 9 },
   dangerText: { color: Tokens.palette.red, fontFamily: Fonts.rajdhani.bold, fontSize: 13 },
-  mic: { width: 34, height: 34, borderRadius: 17, borderWidth: 1, borderColor: Tokens.palette.line, alignItems: 'center', justifyContent: 'center' },
+  mic: { width: 44, height: 44, borderRadius: 17, borderWidth: 1, borderColor: Tokens.palette.line, alignItems: 'center', justifyContent: 'center' },
   micActive: { borderColor: GREEN, backgroundColor: `${GREEN}22` },
   pageLabel: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   pageLabelText: { fontFamily: Fonts.jetBrainsMono.medium, fontSize: 9.5, letterSpacing: 1 },

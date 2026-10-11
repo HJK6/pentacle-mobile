@@ -11,7 +11,8 @@ import RecordingStrip from '../src/components/voice/RecordingStrip';
 import RecordingPill from '../src/components/voice/RecordingPill';
 import VoiceBubble from '../src/components/voice/VoiceBubble';
 import Bevel from '../src/components/Bevel';
-import { voiceRecorder } from '../src/services/voiceRecordingEngine';
+import { voiceRecorder, setVoiceLifecycle } from '../src/services/voiceRecordingEngine';
+import { uuid } from 'expo-modules-core';
 import { voiceDelivery, voiceTakeRow } from '../src/services/voiceDelivery';
 import { initialPentacleStreamState } from 'pentacle-chat-core';
 import { Tokens } from '../constants/Colors';
@@ -20,21 +21,31 @@ const G = Tokens.palette.green;
 const mockState = { ...initialPentacleStreamState, connected: true, hasHydrated: true,
   sessions: [{ stream_id: 'hoste:origin', host: 'hoste', session_name: 'origin', provider: 'codex', title: 'Origin', last_event_at: '2026-09-26T08:00:00Z', online: true }],
   events: [] };
-jest.mock('../src/services/pentacleStream', () => ({
-  getPentacleStreamState: () => mockState,
-  appendOptimisticUserMessage: jest.fn(() => 'optimistic-voice'),
-  sendPentacleMessage: jest.fn().mockResolvedValue(true),
-  uploadBlobBase64: jest.fn().mockResolvedValue({ blob_sha: 'voice-sha' }),
-  transcribeBlob: jest.fn(() => new Promise(() => {})),
-  usePentacleStreamSelectorWhen: (_enabled: boolean, selector: any) => selector(mockState),
-  usePentacleStreamActions: () => ({}),
-}));
+jest.mock('../src/services/pentacleStream', () => require('./questions/voiceHarness').makeVoiceTransportMock(() => mockState, () => new Promise(() => {}), async () => ({ delivery: 'landed' })));
 jest.mock('../src/hooks/usePentacleToken', () => () => ({ isReady: true, token: 'test-token' }));
-jest.mock('expo-file-system/legacy', () => ({
-  readAsStringAsync: jest.fn().mockResolvedValue('AUDIO'),
-  deleteAsync: jest.fn().mockResolvedValue(undefined),
-  EncodingType: { Base64: 'base64' },
-}));
+jest.mock('expo-file-system/legacy', () => require('./questions/voiceHarness').makeVoiceCaptureFsMock());
+jest.mock('../modules/pentacle-voice-capture', () => {
+  let next = 0; let admission = 0;
+  let status: any = { state: 'idle', reason: null, recordingId: null, pauseEpoch: 0, capturedMs: 0, uri: null, metering: -20 };
+  const contract = { contract: 'pentacle-voice-capture', revision: 1, nativeBuild: '101' };
+  const native = {
+    getCaptureContract: () => contract, getStatus: () => ({ ...status }),
+    getAdmission: () => admission, revokeAdmissions: () => { admission++; },
+    getPermission: async () => ({ granted: true, canAskAgain: true }), requestPermission: async () => ({ granted: true, canAskAgain: true }),
+    start: async (id: string, token: number) => {
+      if (token !== admission) throw new Error('cancelled');
+      const uri = `file:///cache/voice-${++next}.m4a`;
+      const box = (kind: string, payload: string) => { const b = Buffer.alloc(8 + payload.length); b.writeUInt32BE(b.length); b.write(kind, 4); b.write(payload, 8); return b; };
+      require('expo-file-system/legacy').__files.set(uri, Buffer.concat([box('ftyp', 'M4A \0\0\0\0'), box('moov', 'synthetic'), box('mdat', 'audio')]));
+      status = { state: 'recording', reason: null, recordingId: id, pauseEpoch: 0, capturedMs: 3000, uri, metering: -20 }; return { ...status };
+    },
+    pause: async () => { if (status.state === 'recording') { status.state = 'paused'; status.pauseEpoch++; } return { ...status }; },
+    resume: async (_id: string, epoch: number, token: number) => { if (token !== admission || epoch !== status.pauseEpoch) throw new Error('cancelled'); status.state = 'recording'; return { ...status }; },
+    stop: async () => { status.state = 'stopped'; return { ...status }; }, discard: async () => { status.state = 'discarded'; },
+  };
+  return { ACCEPTED_CAPTURE_REVISION: 1, getCaptureContract: () => contract, nativeVoiceCapture: () => native };
+});
+jest.mock('../src/config/appIdentity', () => ({ getAppIdentity: () => ({ version: '1', buildNumber: '101' }) }));
 jest.mock('expo-router', () => require('./helpers/mocks/expoRouter').makeMock());
 jest.mock('@expo/vector-icons/FontAwesome', () => 'FontAwesome');
 jest.mock('@react-navigation/native', () => ({ useIsFocused: () => true }));
@@ -43,11 +54,12 @@ jest.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({
 const props = { host: 'hoste', chrome: hostChrome('hoste'), disabled: false, dismissToken: 0, refocusToken: 0, onFocus: jest.fn(), onSend: jest.fn().mockResolvedValue(undefined), onError: jest.fn() };
 const flat = (node: any) => StyleSheet.flatten(node.props.style) ?? {};
 
-beforeEach(() => jest.useFakeTimers());
+let fixtureId = 0;
+beforeEach(() => { jest.useFakeTimers(); jest.spyOn(uuid, 'v4').mockImplementation(() => `123e4567-e89b-42d3-a456-${String(++fixtureId).padStart(12, '0')}`); setVoiceLifecycle({ foreground: true, unlocked: true }); });
 afterEach(async () => {
   await act(async () => {
     await voiceRecorder.discard();
-    for (const take of voiceDelivery.snapshot().takes) voiceDelivery.discard(take.recordingId);
+    for (const take of voiceDelivery.snapshot().takes) await voiceDelivery.discard(take.recordingId);
     voiceDelivery.clearLast();
   });
   jest.useRealTimers();
