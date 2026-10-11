@@ -246,6 +246,11 @@ const voiceEvidence = new Map<string, VoiceSendEvidence>();
 const voiceEvidenceListeners = new Set<(evidence: VoiceSendEvidence) => void>();
 const voiceDispatches = new Map<string, Promise<VoiceSendEvidence>>();
 const voiceReceiptWaiters = new Map<string, { promise: Promise<VoiceSendEvidence>; finish: (evidence: VoiceSendEvidence) => void }>();
+// A canonical USER echo that arrived before landed proof is withheld from the row, then
+// replayed once a send.result or receipt proves landing. Landed rows stay retirable by a later
+// stamped echo, fetch or snapshot after the delivery owner forgets the intent.
+const withheldVoiceEchoes = new Map<string, PentacleEvent>();
+const landedVoiceOptimisticIds = new Set<string>();
 
 function voiceError(code: string) { return Object.assign(new Error(code), { code }); }
 function voiceJsonHash(value: unknown): string { return bytesToHex(sha256(utf8ToBytes(JSON.stringify(value)))); }
@@ -323,6 +328,7 @@ function resetVoiceScope() {
   voiceScopeGeneration += 1;
   for (const entry of [...voiceIntents.values()]) voiceReceiptWaiters.get(entry.intent.requestId)?.finish(voiceUnknown(entry.intent));
   voiceIntents.clear(); voiceEvidence.clear(); voiceDispatches.clear();
+  withheldVoiceEchoes.clear(); landedVoiceOptimisticIds.clear();
   voiceLastOrigins = new Map(); voiceCurrentOrigins = new Map(); voiceClosedOrigins.clear();
   voiceOrigins = []; voiceSnapshotCache = undefined;
 }
@@ -480,6 +486,7 @@ function publishVoiceEvidence(intent: VoiceDispatchIntent, evidence: VoiceSendEv
   const prior = voiceEvidence.get(intent.requestId);
   if (prior?.state === 'landed' || (prior?.state === 'not_landed' && evidence.state === 'unknown')) return prior;
   voiceEvidence.set(intent.requestId, evidence);
+  if (evidence.state === 'landed') landedVoiceOptimisticIds.add(intent.optimisticId);
   voiceReceiptWaiters.get(intent.requestId)?.finish(evidence);
   for (const listener of voiceEvidenceListeners) listener(evidence);
   return evidence;
@@ -500,8 +507,14 @@ function applyVoiceSendFrame(frame: Record<string, unknown>, source: 'send.resul
   setState(evidence.state === 'landed' ? markOptimisticAckedByRequestId(accepted, intent.requestId, Date.now())
     : evidence.state === 'not_landed' ? markOptimisticFailedByRequestId(accepted, intent.requestId, 'not_landed', Date.now())
       : markOptimisticIndeterminateByRequestId(accepted, intent.requestId, Date.now()));
+  if (evidence.state === 'landed') replayWithheldVoiceEcho(intent.optimisticId);
   settlePendingRequest(intent.requestId)?.resolve(evidence);
   return true;
+}
+function replayWithheldVoiceEcho(optimisticId: string) {
+  const echo = withheldVoiceEchoes.get(optimisticId);
+  withheldVoiceEchoes.delete(optimisticId);
+  if (echo && state.optimisticSends?.[optimisticId]) setState(reconcileOptimisticSendWithServerEvent(state, optimisticId, echo));
 }
 function publishVoiceUser(event: PentacleEvent) {
   for (const { intent } of voiceIntents.values()) {
@@ -518,6 +531,9 @@ function preserveUnprovedVoiceRows(before: PentacleStreamState, after: PentacleS
     const intent = activeVoiceIntent(row.request_id);
     if (!intent || voiceEvidence.get(row.request_id)?.state === 'landed' || events.some(event => voiceUserProof(intent, event))) continue;
     const priorEvent = peekEventsForStream(before, row.stream_id).find(event => event.client_origin && event.optimistic_id === row.optimistic_id);
+    const echo = [...peekEventsForStream(after, row.stream_id), ...events].filter(event => event.kind === 'USER' && !event.client_origin
+      && event.stream_id === row.stream_id && event.optimistic_id === row.optimistic_id).at(-1);
+    if (echo) withheldVoiceEchoes.set(row.optimistic_id, echo);
     next = { ...next, optimisticSends: { ...next.optimisticSends, [row.optimistic_id]: row },
       optimisticByRequestId: { ...next.optimisticByRequestId, [row.request_id]: row.optimistic_id } };
     if (priorEvent) {
@@ -2111,7 +2127,8 @@ function findMatchingOptimisticId(event: PentacleEvent, baseState = state) {
     const optimistic = baseState.optimisticSends?.[event.optimistic_id];
     if (
       optimistic &&
-      (!isVoiceOwnedSend(optimistic) || !!activeVoiceIntent(optimistic.request_id) && voiceUserProof(activeVoiceIntent(optimistic.request_id)!, event)) &&
+      (!isVoiceOwnedSend(optimistic) || landedVoiceOptimisticIds.has(event.optimistic_id)
+        || !!activeVoiceIntent(optimistic.request_id) && voiceUserProof(activeVoiceIntent(optimistic.request_id)!, event)) &&
       optimistic.stream_id === event.stream_id &&
       // A daemon-stamped echo carries THIS row's optimistic_id, which is proof
       // the send actually landed — so it must clear even a 'failed' row. This

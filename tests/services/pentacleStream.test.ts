@@ -6952,6 +6952,60 @@ describe('durable voice late evidence and origin closure', () => {
     expect(stream.getPentacleStreamState().optimisticSends?.[intent.optimisticId]).toBeDefined();
     off(); unsubscribe();
   });
+
+  const voiceRows = (stream: ReturnType<typeof loadStream>, optimisticId: string) => {
+    const core = require('pentacle-chat-core') as typeof import('pentacle-chat-core');
+    core.invalidateSessionDetailCache(VOICE_STREAM_ID);
+    return (core.selectSessionDetail(stream.getPentacleStreamState(), VOICE_STREAM_ID, { visibleCount: 'all' })?.transcriptItems ?? [])
+      .filter(item => item.optimisticId === optimisticId);
+  };
+  const canonicalUser = (session: Record<string, unknown>, optimisticId: string) => pentacleEvent({
+    stream_id: VOICE_STREAM_ID, session_id: VOICE_STREAM_ID, host: session.host, session_name: session.session_name,
+    daemon_seq: 2, kind: 'USER', text: 'synthetic voice transcript', optimistic_id: optimisticId, raw: {},
+  });
+
+  test('an echo withheld before landed proof retires the row once a lost send.result is proved by receipt', async () => {
+    const { stream, socket, session, prepare, unsubscribe } = readyVoiceTransport({ session_kind: undefined });
+    const intent = prepare(); stream.hydrateVoiceDispatchIntent(intent);
+    const sent = stream.dispatchVoiceDispatchIntent(intent);
+    // The canonical echo arrives before any landed proof, so it cannot retire the row yet.
+    socket.message({ type: 'chat.event', event: canonicalUser(session, intent.optimisticId) });
+    jest.advanceTimersByTime(300); await flushMicrotasks();
+    expect(stream.getPentacleStreamState().optimisticSends?.[intent.optimisticId]).toBeDefined();
+    // send.result is lost; the receipt then proves landing and the delivery owner forgets the intent.
+    socket.message({ type: 'send.result', request_id: intent.requestId, to_stream_id: VOICE_STREAM_ID, state: 'landed', delivery: 'landed' });
+    await expect(sent).resolves.toMatchObject({ state: 'landed' });
+    stream.forgetVoiceDispatchIntent(intent);
+    jest.advanceTimersByTime(300); await flushMicrotasks();
+    expect(stream.getPentacleStreamState().optimisticSends?.[intent.optimisticId]).toBeUndefined();
+    const rows = voiceRows(stream, intent.optimisticId);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].receiptCaption).not.toBe('sending');
+    expect(sentFrames(socket, 'send')).toHaveLength(1);
+    unsubscribe();
+  });
+
+  test('a forgotten landed row is retired by a later canonical echo after a reconnect snapshot without it', async () => {
+    const { stream, socket, session, prepare, unsubscribe } = readyVoiceTransport({ session_kind: undefined });
+    const intent = prepare(); stream.hydrateVoiceDispatchIntent(intent);
+    const sent = stream.dispatchVoiceDispatchIntent(intent);
+    socket.message({ type: 'chat.event', event: canonicalUser(session, intent.optimisticId) });
+    jest.advanceTimersByTime(300); await flushMicrotasks();
+    socket.message({ type: 'send.result', request_id: intent.requestId, to_stream_id: VOICE_STREAM_ID, state: 'landed', delivery: 'landed' });
+    await expect(sent).resolves.toMatchObject({ state: 'landed' });
+    stream.forgetVoiceDispatchIntent(intent);
+    socket.message({ type: 'snapshot', sessions: [session], events: [] });
+    jest.advanceTimersByTime(300); await flushMicrotasks();
+    socket.message({ type: 'chat.event', event: canonicalUser(session, intent.optimisticId) });
+    jest.advanceTimersByTime(300); await flushMicrotasks();
+    expect(stream.getPentacleStreamState().optimisticSends?.[intent.optimisticId]).toBeUndefined();
+    const rows = voiceRows(stream, intent.optimisticId);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].receiptCaption).not.toBe('sending');
+    expect(stream.getPentacleStreamState().events.filter(event => event.optimistic_id === intent.optimisticId)).toHaveLength(1);
+    expect(sentFrames(socket, 'send')).toHaveLength(1);
+    unsubscribe();
+  });
 });
 
 describe('durable voice upload reconnect ownership', () => {
