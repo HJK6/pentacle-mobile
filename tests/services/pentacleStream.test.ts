@@ -7022,3 +7022,168 @@ describe('durable voice generic drain isolation', () => {
     unsubscribe();
   });
 });
+
+describe('voice image upload scope repair MOB-02', () => {
+  const image = 'aW1hZ2U=';
+  const imageScope = (stream: typeof import('../../src/services/pentacleStream')) => {
+    const current = stream.voiceTransportSnapshot();
+    return { serverIdentity: current.serverIdentity, credentialId: current.credentialId!,
+      scopeGeneration: current.scopeGeneration, socketGeneration: current.socketGeneration };
+  };
+  const allImageFrames = () => MockWebSocket.instances.flatMap(socket => [
+    ...sentFrames(socket, 'upload_blob_init'), ...sentFrames(socket, 'upload_blob_chunk'),
+  ]);
+  type Fault = 'endpoint' | 'credential' | 'scope-generation' | 'socket-generation' | 'discard' | 'background';
+  function fault(
+    kind: Fault, setup: ReturnType<typeof readyVoiceTransport>, cancelled: { value: boolean },
+  ) {
+    if (kind === 'discard' || kind === 'background') { cancelled.value = true; return; }
+    if (kind === 'endpoint') setup.stream.setPentacleWsUrl('ws://replacement.example/ws');
+    else if (kind === 'credential') {
+      const credential = JSON.parse(Buffer.from(OPERATOR_V2_ENVELOPE.split(':')[1], 'base64url').toString());
+      credential.credential_id = '223e4567-e89b-12d3-a456-426614174000';
+      setup.stream.setPentacleAuthToken(`pentacle-auth-v2:${Buffer.from(JSON.stringify(credential)).toString('base64url')}`);
+    } else setup.stream.reconnectPentacleStream(kind === 'scope-generation' ? 'credential-change' : 'refresh');
+    const next = MockWebSocket.instances.at(-1)!;
+    expect(next).not.toBe(setup.socket);
+    next.open(); next.message(operatorV2Welcome());
+    next.message({ type: 'snapshot', sessions: [setup.session], events: [] });
+  }
+
+  test.each<Fault>(['endpoint', 'credential', 'scope-generation', 'socket-generation', 'discard', 'background'])(
+    '%s loss while local image read is pending emits no upload frame', async kind => {
+      const setup = readyVoiceTransport();
+      const cancelled = { value: false };
+      const scope = imageScope(setup.stream);
+      let resolveRead!: (value: string) => void;
+      const read = new Promise<string>(resolve => { resolveRead = resolve; });
+      // Production delivery captures this scope before awaiting its image read.
+      const upload = read.then(data => setup.stream.uploadVoiceImageBase64(data, 5, {
+        scope, isCancelled: () => cancelled.value,
+      })).catch(error => error as Error);
+      fault(kind, setup, cancelled);
+      resolveRead(image);
+      expect(await upload).toBeInstanceOf(Error);
+      expect(allImageFrames()).toEqual([]);
+      setup.unsubscribe();
+    },
+  );
+
+  test.each<Fault>(['endpoint', 'credential', 'scope-generation', 'socket-generation', 'discard', 'background'])(
+    '%s loss immediately after init ACK emits no image chunk', async kind => {
+      const setup = readyVoiceTransport();
+      const cancelled = { value: false };
+      const upload = setup.stream.uploadVoiceImageBase64(image, 5, {
+        scope: imageScope(setup.stream), isCancelled: () => cancelled.value,
+      }).catch(error => error as Error);
+      const init = sentFrames(setup.socket, 'upload_blob_init').at(-1)!;
+      setup.socket.message({ type: 'upload_blob.init.ok', request_id: init.request_id });
+      // ACK settles the RPC, but its continuation has not run yet.
+      fault(kind, setup, cancelled);
+      expect(await upload).toBeInstanceOf(Error);
+      expect(allImageFrames()).toEqual([init]);
+      setup.unsubscribe();
+    },
+  );
+
+  test.each([1, 2])('cancellation after chunk %i stops every subsequent chunk/final frame', async stopAfter => {
+    const setup = readyVoiceTransport();
+    const cancelled = { value: false };
+    let chunks = 0;
+    const originalSend = setup.socket.send.bind(setup.socket);
+    setup.socket.send = data => {
+      originalSend(data);
+      if (JSON.parse(data).type === 'upload_blob_chunk' && ++chunks === stopAfter) cancelled.value = true;
+    };
+    const upload = setup.stream.uploadVoiceImageBase64('A'.repeat(2 * 1024 * 1024 + 4), 1_572_867, {
+      scope: imageScope(setup.stream), isCancelled: () => cancelled.value,
+    }).catch(error => error as Error);
+    const init = sentFrames(setup.socket, 'upload_blob_init').at(-1)!;
+    setup.socket.message({ type: 'upload_blob.init.ok', request_id: init.request_id });
+    expect(await upload).toMatchObject({ code: 'voice_cancelled' });
+    const sent = sentFrames(setup.socket, 'upload_blob_chunk');
+    expect(sent).toHaveLength(stopAfter);
+    expect(sent.every(frame => frame.final === false)).toBe(true);
+    setup.unsubscribe();
+  });
+
+  test('replacement socket during a nonfinal chunk receives none of the remaining image', async () => {
+    const setup = readyVoiceTransport();
+    const cancelled = { value: false };
+    const originalSend = setup.socket.send.bind(setup.socket);
+    setup.socket.send = data => {
+      originalSend(data);
+      if (JSON.parse(data).type === 'upload_blob_chunk') fault('endpoint', setup, cancelled);
+    };
+    const upload = setup.stream.uploadVoiceImageBase64('A'.repeat(1024 * 1024 + 4), 786_435, {
+      scope: imageScope(setup.stream), isCancelled: () => cancelled.value,
+    }).catch(error => error as Error);
+    const init = sentFrames(setup.socket, 'upload_blob_init').at(-1)!;
+    setup.socket.message({ type: 'upload_blob.init.ok', request_id: init.request_id });
+    expect(await upload).toMatchObject({ code: 'voice_scope_mismatch' });
+    expect(sentFrames(setup.socket, 'upload_blob_chunk')).toHaveLength(1);
+    expect(sentFrames(MockWebSocket.instances.at(-1)!, 'upload_blob_chunk')).toEqual([]);
+    setup.unsubscribe();
+  });
+
+  test.each<Fault>(['endpoint', 'credential', 'scope-generation', 'socket-generation', 'discard', 'background'])(
+    '%s loss immediately after final ACK cannot return usable image references', async kind => {
+      const setup = readyVoiceTransport();
+      const cancelled = { value: false };
+      const upload = setup.stream.uploadVoiceImageBase64(image, 5, {
+        scope: imageScope(setup.stream), isCancelled: () => cancelled.value,
+      }).catch(error => error as Error);
+      const init = sentFrames(setup.socket, 'upload_blob_init').at(-1)!;
+      setup.socket.message({ type: 'upload_blob.init.ok', request_id: init.request_id });
+      await flushMicrotasks();
+      expect(sentFrames(setup.socket, 'upload_blob_chunk')).toHaveLength(1);
+      setup.socket.message({ type: 'upload_blob.ok', request_id: init.request_id, blob_sha: 'a'.repeat(64), size_bytes: 5 });
+      fault(kind, setup, cancelled);
+      expect(await upload).toBeInstanceOf(Error);
+      expect(allImageFrames()).toHaveLength(2);
+      setup.unsubscribe();
+    },
+  );
+
+  test('mutating the caller scope after init cannot retarget the captured image leg', async () => {
+    const setup = readyVoiceTransport();
+    const scope = imageScope(setup.stream);
+    const cancelled = { value: false };
+    const upload = setup.stream.uploadVoiceImageBase64(image, 5, { scope, isCancelled: () => false }).catch(error => error as Error);
+    const init = sentFrames(setup.socket, 'upload_blob_init').at(-1)!;
+    setup.socket.message({ type: 'upload_blob.init.ok', request_id: init.request_id });
+    fault('endpoint', setup, cancelled);
+    Object.assign(scope, imageScope(setup.stream));
+    expect(await upload).toMatchObject({ code: 'voice_scope_mismatch' });
+    expect(allImageFrames()).toEqual([init]);
+    setup.unsubscribe();
+  });
+
+  test('guarded success keeps the existing v1 image payload and final-result contract', async () => {
+    const setup = readyVoiceTransport();
+    const timerSpy = jest.spyOn(global, 'setTimeout');
+    const data = 'A'.repeat(1024 * 1024 + 4);
+    const run = async (voice: boolean) => {
+      const before = setup.socket.sent.length;
+      const upload = voice ? setup.stream.uploadVoiceImageBase64(data, 786_435, {
+        scope: imageScope(setup.stream), isCancelled: () => false,
+      }) : setup.stream.uploadBlobBase64(data, 786_435);
+      const init = sentFrames(setup.socket, 'upload_blob_init').at(-1)!;
+      setup.socket.message({ type: 'upload_blob.init.ok', request_id: init.request_id });
+      await flushMicrotasks();
+      setup.socket.message({ type: 'upload_blob.ok', request_id: init.request_id, blob_sha: 'a'.repeat(64), size_bytes: 786_435 });
+      await expect(upload).resolves.toEqual({ blob_sha: 'a'.repeat(64), size_bytes: 786_435 });
+      return setup.socket.sent.slice(before).map(raw => { const { request_id: _, ...wire } = JSON.parse(raw); return wire; });
+    };
+    const ordinaryFrames = await run(false);
+    timerSpy.mockClear();
+    const voiceFrames = await run(true);
+    expect(voiceFrames).toEqual(ordinaryFrames);
+    expect(voiceFrames).toHaveLength(3);
+    expect(voiceFrames[0]).toEqual({ type: 'upload_blob_init', size_hint_bytes: 786_435 });
+    expect(voiceFrames[1].final).toBe(false);
+    expect(voiceFrames[2].final).toBe(true);
+    expect(timerSpy.mock.calls.filter(([, delay]) => delay === 30_000)).toHaveLength(2);
+    timerSpy.mockRestore(); setup.unsubscribe();
+  });
+});

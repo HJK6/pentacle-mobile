@@ -6476,6 +6476,59 @@ export async function uploadBlobBase64(
   return sendBlobChunk(request_id, chunks[chunks.length - 1], true);
 }
 
+/** A voice take's images use v1 bytes, but remain bound to its original scope.
+ * The caller captures scope before reading an owned image and supplies its
+ * capture/delivery epoch guard. Generic/photo uploads deliberately retain the
+ * existing uploadBlobBase64 contract.
+ */
+export async function uploadVoiceImageBase64(
+  dataBase64: string,
+  sizeHintBytes: number | undefined,
+  options: {
+    isCancelled: () => boolean;
+    scope: {
+      serverIdentity: string;
+      credentialId: string;
+      scopeGeneration: number;
+      socketGeneration: number;
+    };
+  },
+): Promise<UploadBlobResult> {
+  // Copy caller-owned scope so a later mutable snapshot cannot retarget a leg.
+  const scope = { ...options.scope };
+  const isCancelled = options.isCancelled;
+  const socket = ws;
+  const guard = () => {
+    if (isCancelled()) throw voiceError('voice_cancelled');
+    const current = voiceTransportSnapshot();
+    if (current.serverIdentity !== scope.serverIdentity || current.credentialId !== scope.credentialId
+      || current.scopeGeneration !== scope.scopeGeneration) throw voiceError('voice_scope_mismatch');
+    if (current.authNeeded) throw voiceError('auth_needed');
+    if (!current.ready || !socket || ws !== socket || socket.readyState !== WebSocket.OPEN
+      || current.socketGeneration !== scope.socketGeneration) throw voiceError('voice_transport_not_ready');
+  };
+  guard();
+  const request_id = requestId('upload_blob');
+  await sendCommand<boolean>(
+    {
+      type: 'upload_blob_init',
+      ...(typeof sizeHintBytes === 'number' ? { size_hint_bytes: sizeHintBytes } : {}),
+    },
+    'upload_blob',
+    { requestId: request_id },
+  );
+  guard();
+  const chunks = base64Chunks(dataBase64);
+  for (let index = 0; index < chunks.length - 1; index += 1) {
+    guard();
+    sendBlobChunk(request_id, chunks[index], false);
+  }
+  guard();
+  const result = await sendBlobChunk(request_id, chunks[chunks.length - 1], true);
+  guard();
+  return result;
+}
+
 export interface TranscribeBlobResult {
   text: string;
   duration_s?: number;

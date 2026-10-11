@@ -3,7 +3,7 @@ import { BackHandler } from 'react-native';
 import { agentQuestionStreamId, agentQuestionSurfaceStreamId } from '../../../services/agentQuestionNotifications';
 import { PermissionDeniedError, RecorderBusyError, NoVoiceAnswersError } from '../../../services/voiceRecording';
 import { voiceRecorder, sendVoiceTake, discardVoiceTake } from '../../../services/voiceRecordingEngine';
-import { getPentacleStreamState } from '../../../services/pentacleStream';
+import { getPentacleStreamState, voiceTransportSnapshot } from '../../../services/pentacleStream';
 import { BART_STREAM_ID } from '../../status/statusSelectors';
 import type { QuestionDeckEntry } from '../questionSelectors';
 import {
@@ -59,18 +59,23 @@ export function useVoiceAnswers({ deck, currentKey, onFinished, onDiscarded, not
   const processSession = activeVoiceQuestionSession();
   const session = processSession && recorder.isOwnedByCurrentScope(processSession.recordingId) ? processSession : null;
   const [localPhase, setLocalPhase] = useState<VoicePhase>('idle');
-  const phase = processSession && !session ? 'idle' : localPhase === 'idle' && session ? 'recording' : localPhase;
+  const phase = processSession && !session && localPhase !== 'starting' ? 'idle' : localPhase === 'idle' && session ? 'recording' : localPhase;
   const phaseRef = useRef(phase); phaseRef.current = phase;
   const callbacks = useRef({ onFinished, onDiscarded, notify }); callbacks.current = { onFinished, onDiscarded, notify };
   const inputs = useRef({ deck, currentKey, navigation }); inputs.current = { deck, currentKey, navigation };
   const observedId = useRef<string | null>(session?.recordingId ?? null);
   if (session) observedId.current = session.recordingId;
+  else if (processSession) observedId.current = null;
   const mounted = useRef(true);
   const pendingRemoval = useRef<{ action: unknown } | null>(null);
   const setPhase = useCallback((next: VoicePhase) => { phaseRef.current = next; if (mounted.current) setLocalPhase(next); }, []);
   const recording = !!session && phase !== 'starting';
   const eligibleCount = useMemo(() => deck.filter(isVoiceEligible).length, [deck]);
   const available = recording || phase === 'starting' || (isVoiceAnswersCarrierInstalled() && eligibleCount > 0);
+
+  useEffect(() => {
+    if (processSession && !session && localPhase !== 'idle' && localPhase !== 'starting') setPhase('idle');
+  }, [processSession?.recordingId, session?.recordingId, localPhase, setPhase]);
 
   useEffect(() => subscribeVoiceQuestionCompletion(event => {
     if (event.recordingId !== observedId.current || phaseRef.current === 'starting') return;
@@ -83,7 +88,9 @@ export function useVoiceAnswers({ deck, currentKey, onFinished, onDiscarded, not
   }), [setPhase]);
 
   const start = useCallback(async () => {
-    if (phaseRef.current !== 'idle' || activeVoiceQuestionSession() || !isVoiceAnswersCarrierInstalled()) return;
+    const prior = activeVoiceQuestionSession();
+    if (phaseRef.current !== 'idle' || !isVoiceAnswersCarrierInstalled()
+      || (prior && (recorder.isActive() || recorder.isOwnedByCurrentScope(prior.recordingId)))) return;
     const current = inputs.current;
     const eligibleItems = current.deck.filter(isVoiceEligible).map(entry => {
       const { segment: _, ...item } = bindingItem(entry, { start_s: 0, end_s: 0 }); return item;
@@ -108,7 +115,9 @@ export function useVoiceAnswers({ deck, currentKey, onFinished, onDiscarded, not
   useEffect(() => {
     const active = activeVoiceQuestionSession(); if (!active || !recorder.isOwnedByCurrentScope(active.recordingId)) return;
     const at = recorder.snapshot()?.recordingId === active.recordingId ? recorder.capturedAudioMs() : active.snapshot.capturedAudioMs;
-    updateVoiceQuestionPage(active.recordingId, currentKey, deck.map(entry => entry.key), at);
+    const transport = voiceTransportSnapshot();
+    const authoritative = getPentacleStreamState().hasHydrated && transport.ready && transport.inventoryFresh && !transport.authNeeded;
+    updateVoiceQuestionPage(active.recordingId, currentKey, authoritative ? deck.map(entry => entry.key) : active.snapshot.liveKeys, at);
   }, [currentKey, deck, session?.recordingId, recorder]);
 
   const done = useCallback(async () => {

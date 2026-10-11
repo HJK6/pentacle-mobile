@@ -1,3 +1,4 @@
+import { Platform } from 'react-native';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { bytesToHex, utf8ToBytes } from '@noble/hashes/utils.js';
 import {
@@ -94,7 +95,7 @@ function fixture() {
 beforeEach(() => {
   counter = 0;
 });
-test('U1 ownership copies images and atomically publishes only after manifest rename', async () => {
+test('U1 ownership copies images and publishes only after the iOS atomic text replacement', async () => {
   const { store, io, files, calls } = fixture();
   await store.setScope(scope);
   files.set('file:///picker/photo.jpg', 'photo');
@@ -121,7 +122,13 @@ test('U1 ownership copies images and atomically publishes only after manifest re
   expect(t.draft.images[0].bytes).toBe(5);
   expect(files.get(store.images(t)[0].uri)).toBe('photo');
   expect(files.has('file:///picker/photo.jpg')).toBe(true);
-  expect(calls.at(-1)).toContain('manifest.tmp.json:');
+  expect(calls.some((call) => call.startsWith('write:') && call.endsWith('/manifest.json'))).toBe(
+    true,
+  );
+  expect(calls.some((call) => call.startsWith('move:') && call.includes('manifest.tmp.json'))).toBe(
+    false,
+  );
+  expect(calls.at(-1)).toContain('remove:');
   expect(t.operation).toMatchObject({
     operation_id: t.recordingId,
     origin_generation: origin.generation,
@@ -599,4 +606,177 @@ test('U1 lifecycle rejects unsafe identifiers/states and strips non-enum or inje
     'subsystem',
   ]);
   telemetry.setTelemetrySink(null);
+});
+
+test.each(['ios', 'android'] as const)(
+  'MOB-01 %s uses its locked native atomic manifest primitive',
+  async (platform) => {
+    const original = Platform.OS;
+    (Platform as any).OS = platform;
+    try {
+      const f = fixture();
+      const t = await f.create();
+      await f.finish(t.recordingId);
+      f.calls.length = 0;
+      await f.store.checkpointUpload(t.recordingId, { nextOffset: 1, complete: false });
+      const staged = f.calls.findIndex(
+        (call) => call.startsWith('write:') && call.endsWith('/manifest.tmp.json'),
+      );
+      const committed = f.calls.findIndex((call) =>
+        platform === 'ios'
+          ? call.startsWith('write:') && call.endsWith('/manifest.json')
+          : call.startsWith('move:') && call.endsWith('/manifest.json'),
+      );
+      expect(staged).toBeGreaterThanOrEqual(0);
+      expect(committed).toBeGreaterThan(staged);
+      expect(f.store.get(t.recordingId)?.upload?.nextOffset).toBe(1);
+      if (platform === 'ios') expect(f.calls.some((call) => call.startsWith('move:'))).toBe(false);
+    } finally {
+      (Platform as any).OS = original;
+    }
+  },
+);
+
+test('MOB-01 failed iOS final atomic write keeps old committed truth and unpublished progress', async () => {
+  const f = fixture();
+  const t = await f.create();
+  await f.finish(t.recordingId);
+  const manifest = [...f.files.keys()].find((p) => p.endsWith('/manifest.json'))!;
+  const prior = f.files.get(manifest);
+  const write = f.io.write;
+  f.io.write = async (p, text) => {
+    if (p === manifest) throw Error('atomic commit refused');
+    await write(p, text);
+  };
+  await expect(
+    f.store.checkpointUpload(t.recordingId, { nextOffset: 1, complete: false }),
+  ).rejects.toThrow('atomic commit refused');
+  expect(f.store.get(t.recordingId)?.upload).toBeUndefined();
+  expect(f.files.get(manifest)).toBe(prior);
+  expect(f.files.has(manifest.replace('manifest.json', 'manifest.tmp.json'))).toBe(true);
+  f.io.write = write;
+  const recovered = new VoiceTakeStore(f.io);
+  await recovered.setScope(scope);
+  expect(recovered.snapshot().recoveryFailures).toEqual([]);
+  expect(recovered.get(t.recordingId)?.upload).toBeUndefined();
+  await recovered.checkpointUpload(t.recordingId, { nextOffset: 2, complete: false });
+  expect(recovered.get(t.recordingId)?.upload?.nextOffset).toBe(2);
+});
+
+test('MOB-03 discard tombstones a not-yet-checkpointed native URI and retries failed cleanup', async () => {
+  const f = fixture();
+  const t = await f.create();
+  const uri = 'file:///cache/new-native.m4a';
+  f.files.set(uri, 'native audio');
+  f.files.set('file:///cache/unrelated.m4a', 'unrelated');
+  const remove = f.io.remove;
+  f.io.remove = async (p) => {
+    if (p === uri) throw Error('cleanup blocked');
+    await remove(p);
+  };
+  await expect(f.store.discard(t.recordingId, { nativeUri: uri })).rejects.toThrow(
+    'cleanup blocked',
+  );
+  const manifest = [...f.files.keys()].find((p) => p.endsWith('/manifest.json'))!;
+  expect(JSON.parse(f.files.get(manifest)!)).toMatchObject({
+    storage: 'discarded',
+    nativeUri: uri,
+  });
+  expect(f.store.snapshot().takes).toEqual([]);
+  expect(f.files.has(uri)).toBe(true);
+  f.io.remove = remove;
+  const recovered = new VoiceTakeStore(f.io);
+  await recovered.setScope(scope);
+  expect(f.files.has(uri)).toBe(false);
+  expect(f.files.get('file:///cache/unrelated.m4a')).toBe('unrelated');
+});
+
+test('MOB-03 discard rejects an unrelated native URI and never deletes outside cache ownership', async () => {
+  const f = fixture();
+  const t = await f.create();
+  await f.store.noteCapture(t.recordingId, {
+    nativeUri: 'file:///cache/own.m4a',
+    capturedAudioMs: 100,
+    phase: 'paused',
+  });
+  await expect(
+    f.store.discard(t.recordingId, { nativeUri: 'file:///cache/other.m4a' }),
+  ).rejects.toThrow('invalid_native_path');
+  await expect(
+    f.store.discard(t.recordingId, { nativeUri: 'file:///picker/image.jpg' }),
+  ).rejects.toThrow('invalid_native_path');
+  expect(f.store.get(t.recordingId)).toBeDefined();
+});
+
+test.each(['manifest', 'cleanup'] as const)(
+  'CAP-05 held terminal notifications respect a partial %s failure',
+  async (failure) => {
+    const f = fixture();
+    const first = await f.create();
+    const second = await f.create();
+    await f.store.setScope({ ...scope, credentialId: 'operator-b' });
+    const write = f.io.write,
+      remove = f.io.remove;
+    const notified: string[] = [];
+    f.io.write = async (p, text) => {
+      if (
+        failure === 'manifest' &&
+        p.includes(second.recordingId) &&
+        JSON.parse(text).storage === 'discarded'
+      )
+        throw Error('terminal write blocked');
+      await write(p, text);
+    };
+    f.io.remove = async (p) => {
+      if (failure === 'cleanup' && p.includes(first.recordingId) && p.endsWith('/manifest.json'))
+        throw Error('cleanup blocked');
+      await remove(p);
+    };
+    await expect(f.store.discardHeld((id) => notified.push(id))).rejects.toThrow();
+    expect(notified).toEqual([first.recordingId]);
+    await f.store.setScope(scope);
+    expect(f.store.get(second.recordingId)).toBeDefined();
+    f.io.write = write;
+    f.io.remove = remove;
+    await f.store.setScope({ ...scope, credentialId: 'operator-b' });
+    await f.store.discardHeld((id) => notified.push(id));
+    expect(notified).toContain(second.recordingId);
+  },
+);
+
+test('CAP-05 terminal callback observes durable truth before a blocked cleanup', async () => {
+  const f = fixture();
+  const created = await f.create();
+  const take = await f.finish(created.recordingId);
+  await f.store.setScope({ ...scope, credentialId: 'operator-b' });
+  let release!: () => void;
+  const pending = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const remove = f.io.remove;
+  let cleanupStarted = false;
+  f.io.remove = async (path) => {
+    if (path.endsWith('/audio.m4a')) {
+      cleanupStarted = true;
+      await pending;
+    }
+    await remove(path);
+  };
+  const observations: any[] = [];
+  const work = f.store.discardHeld((id) => {
+    const path = [...f.files.keys()].find((p) => p.endsWith('/manifest.json'))!;
+    observations.push({
+      id,
+      storage: JSON.parse(f.files.get(path)!).storage,
+      audioPresent: f.files.has(f.store.audioUri(take)),
+      cleanupStarted,
+    });
+  });
+  for (let i = 0; i < 100; i++) await Promise.resolve();
+  expect(observations).toEqual([
+    { id: take.recordingId, storage: 'discarded', audioPresent: true, cleanupStarted: false },
+  ]);
+  expect(cleanupStarted).toBe(true);
+  release();
+  await work;
 });

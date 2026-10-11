@@ -1,4 +1,5 @@
 import * as FileSystem from 'expo-file-system/legacy';
+import { Platform } from 'react-native';
 import { uuid } from 'expo-modules-core';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { bytesToHex, utf8ToBytes } from '@noble/hashes/utils.js';
@@ -418,9 +419,19 @@ export class VoiceTakeStore {
     guard();
     await this.io.mkdir(dir);
     guard();
-    await this.io.write(`${dir}manifest.tmp.json`, JSON.stringify(next));
+    const json = JSON.stringify(next);
+    await this.io.write(`${dir}manifest.tmp.json`, json);
     guard();
-    await this.io.move(`${dir}manifest.tmp.json`, `${dir}manifest.json`);
+    if (Platform.OS === 'ios') {
+      // Locked legacy iOS text writes use Foundation atomically:true. Its moveAsync
+      // unlinks the destination first, so it is NOT an atomic manifest replacement.
+      await this.io.write(`${dir}manifest.json`, json);
+      guard();
+      await this.io.remove(`${dir}manifest.tmp.json`).catch(() => undefined);
+    } else {
+      // Locked Android file:// moveAsync uses same-directory File.renameTo.
+      await this.io.move(`${dir}manifest.tmp.json`, `${dir}manifest.json`);
+    }
     guard();
     const committed = freeze(clone(next));
     this.records.set(next.recordingId, committed);
@@ -879,18 +890,32 @@ export class VoiceTakeStore {
   async landed(id: string): Promise<void> {
     await this.terminate(id, 'landed');
   }
-  async discard(id: string): Promise<void> {
-    await this.terminate(id, 'discarded');
+  async discard(id: string, options: { nativeUri?: string } = {}): Promise<void> {
+    await this.terminate(id, 'discarded', options);
   }
-  private terminate(id: string, storage: 'landed' | 'discarded'): Promise<void> {
+  private terminate(
+    id: string,
+    storage: 'landed' | 'discarded',
+    options: { nativeUri?: string } = {},
+    onTerminalized?: (recordingId: string) => void,
+  ): Promise<void> {
     const t = this.records.get(id);
     if (!t) return Promise.resolve();
+    const nativeUri = options.nativeUri ? this.nativeUri(options.nativeUri) : undefined;
+    if (nativeUri && t.nativeUri && nativeUri !== t.nativeUri)
+      throw new VoiceStorageError('invalid_native_path');
     const epoch = this.epoch(id) + 1;
     this.epochs.set(id, epoch);
     return this.serial(id, async () => {
       const current = this.records.get(id);
       if (!current) return;
-      const tombstone = await this.commit({ ...current, epoch, storage });
+      const tombstone = await this.commit({
+        ...current,
+        ...(nativeUri ? { nativeUri } : {}),
+        epoch,
+        storage,
+      });
+      onTerminalized?.(id);
       await this.cleanup(tombstone);
     });
   }
@@ -908,9 +933,12 @@ export class VoiceTakeStore {
     this.records.delete(t.recordingId);
     this.publish();
   }
-  async discardHeld(): Promise<void> {
-    for (const t of [...this.records.values()])
-      if (t.scopeHash !== this.currentScope) await this.discard(t.recordingId);
+  async discardHeld(onTerminalized?: (recordingId: string) => void): Promise<void> {
+    for (const t of [...this.records.values()]) {
+      if (t.scopeHash === this.currentScope) continue;
+      // Notify at durable terminalization, before any potentially blocked cleanup.
+      await this.terminate(t.recordingId, 'discarded', {}, onTerminalized);
+    }
     for (const f of [...this.failures.values()])
       if (f.scopeHash !== this.currentScope) await this.removeRecoveryFailure(f.id);
   }

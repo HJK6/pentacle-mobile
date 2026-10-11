@@ -2,6 +2,7 @@ import VoiceRecordingOverlay from '../../src/components/voice/VoiceRecordingOver
 import { useIsFocused } from '@react-navigation/native';
 import React from 'react';
 import { Stack, useLocalSearchParams, useNavigation } from 'expo-router';
+import { StyleSheet, View } from 'react-native';
 
 import { QuestionsScreen } from '../../src/components/questions';
 import type { RemovalGuardNavigation } from '../../src/components/questions/voice/useVoiceAnswers';
@@ -17,8 +18,16 @@ export default function QuestionsRoute() {
   return (
     <>
       <Stack.Screen options={{ presentation: 'transparentModal', animation: 'fade' }} />
-      <QuestionsScreen notificationId={raw || undefined} navigation={navigation as unknown as RemovalGuardNavigation} />
-      <VoiceRecordingOverlay visible={focused} priority={1} hostName="questions" />
+      <View accessibilityViewIsModal={focused} style={styles.host}>
+        {/* Keep the screen's own modal view below a real native parent, so it
+            cannot exclude the shared controls from this inclusive modal host. */}
+        <View collapsable={false} style={styles.host}>
+          <QuestionsScreen notificationId={raw || undefined} navigation={navigation as unknown as RemovalGuardNavigation} />
+        </View>
+        <VoiceRecordingOverlay visible={focused} priority={1} hostName="questions" />
+      </View>
     </>
   );
 }
+
+const styles = StyleSheet.create({ host: { flex: 1 } });

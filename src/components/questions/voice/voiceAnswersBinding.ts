@@ -113,9 +113,10 @@ export function freezeVoiceQuestionAnswers(recordingId: string, capturedAudioMs:
   registerVoiceAnswersBinding(recordingId, items); return items;
 }
 export function completeVoiceQuestionSession(recordingId: string, reason: 'sent' | 'discarded' | 'no_answers') {
+  // Terminal callbacks may arrive after the active session was released at enqueue.
+  if (reason !== 'sent') bindings.delete(recordingId);
   if (!sessions.has(recordingId)) return;
   sessions.delete(recordingId); if (activeQuestionId === recordingId) activeQuestionId = null;
-  if (reason !== 'sent') bindings.delete(recordingId);
   changed(); for (const fn of completionListeners) fn({ recordingId, reason });
 }
 

@@ -5,7 +5,8 @@ import {
   voiceTranscribeFailureMessage,
   NOTHING_RECOGNIZED_MESSAGE,
 } from './voiceSendUnit';
-import { uploadStagedAttachments } from './attachmentUpload';
+import { readAttachmentBase64 } from './attachmentUpload';
+import type { ProcessedAsset } from './imageCapture';
 import type { VoiceUploadTranscribeResult } from './voiceSendUnit';
 import type { FinishedRecording } from './voiceRecording';
 import * as stream from './pentacleStream';
@@ -21,6 +22,7 @@ import {
 import {
   installVoiceAnswersCarrier,
   releaseVoiceAnswersBinding,
+  completeVoiceQuestionSession,
   type VoiceAnswersItem,
 } from '../components/questions/voice/voiceAnswersBinding';
 
@@ -50,7 +52,18 @@ export type VoiceDeliverySnapshot = {
 type TransportSnapshot = ReturnType<typeof stream.voiceTransportSnapshot>;
 export interface VoiceDeliveryIO {
   transcribe: typeof runVoiceUploadTranscribe;
-  uploadImages?: typeof uploadStagedAttachments;
+  uploadImages?: (
+    assets: ProcessedAsset[],
+    context: {
+      isCancelled: () => boolean;
+      scope: {
+        serverIdentity: string;
+        credentialId: string;
+        scopeGeneration: number;
+        socketGeneration: number;
+      };
+    },
+  ) => Promise<ChatAttachment[]>;
   prepare: typeof stream.prepareVoiceDispatchIntent;
   hydrate: typeof stream.hydrateVoiceDispatchIntent;
   dispatch: typeof stream.dispatchVoiceDispatchIntent;
@@ -449,10 +462,10 @@ export class VoiceDelivery {
     this.clearStorageFailure();
     await this.drain();
   };
-  discard = async (id: string): Promise<void> => {
+  discard = async (id: string, options: { nativeUri?: string } = {}): Promise<void> => {
     const t = this.store.get(id);
     if (!t) return;
-    const work = this.store.discard(id); // Invalidates the operation epoch synchronously.
+    const work = this.store.discard(id, options); // Invalidates the operation epoch synchronously.
     releaseVoiceAnswersBinding(id);
     if (t.dispatchIntent) this.io.forget(t.dispatchIntent);
     try {
@@ -466,7 +479,10 @@ export class VoiceDelivery {
     void this.drain();
   };
   discardHeld = async () => {
-    await this.store.discardHeld();
+    await this.store.discardHeld((id) => {
+      completeVoiceQuestionSession(id, 'discarded');
+      releaseVoiceAnswersBinding(id);
+    });
   };
   removeRecoveryFailure = async (id: string) => {
     await this.store.removeRecoveryFailure(id);
@@ -591,7 +607,31 @@ export class VoiceDelivery {
       if (take.draft.images.length && !take.attachments) {
         if (!this.io.uploadImages) throw new VoiceStorageError('image_upload_unavailable');
         const images = this.store.images(take);
-        const uploaded = await this.io.uploadImages(images);
+        const transport = this.io.transport();
+        if (!transport.credentialId) throw new VoiceStorageError('auth_needed');
+        if (
+          voiceScopeHash({
+            serverIdentity: transport.serverIdentity,
+            credentialId: transport.credentialId,
+          }) !== take.scopeHash
+        )
+          throw new VoiceStorageError('voice_suspended');
+        const uploaded = await this.io.uploadImages(images, {
+          isCancelled: () => {
+            try {
+              guard();
+              return false;
+            } catch {
+              return true;
+            }
+          },
+          scope: {
+            serverIdentity: transport.serverIdentity,
+            credentialId: transport.credentialId,
+            scopeGeneration: transport.scopeGeneration,
+            socketGeneration: transport.socketGeneration,
+          },
+        });
         guard();
         // Persist only wire attachment references. Owned image URIs stay local to the take projection.
         await this.store.saveAttachments(
@@ -796,7 +836,27 @@ export class VoiceDelivery {
 }
 const defaultIO: VoiceDeliveryIO = {
   transcribe: runVoiceUploadTranscribe,
-  uploadImages: uploadStagedAttachments,
+  uploadImages: async (assets, context) => {
+    const attachments: ChatAttachment[] = [];
+    const guard = () => {
+      if (context.isCancelled()) throw new VoiceStorageError('voice_cancelled');
+    };
+    for (const asset of assets) {
+      guard();
+      const dataBase64 = await readAttachmentBase64(asset.uri);
+      guard();
+      const uploaded = await stream.uploadVoiceImageBase64(dataBase64, asset.bytes, context);
+      guard();
+      attachments.push({
+        key: uploaded.blob_sha,
+        mime: asset.mimeType,
+        width: asset.width ?? undefined,
+        height: asset.height ?? undefined,
+        bytes: asset.bytes,
+      });
+    }
+    return attachments;
+  },
   prepare: (...args) => stream.prepareVoiceDispatchIntent(...args),
   hydrate: (...args) => stream.hydrateVoiceDispatchIntent(...args),
   dispatch: (...args) => stream.dispatchVoiceDispatchIntent(...args),

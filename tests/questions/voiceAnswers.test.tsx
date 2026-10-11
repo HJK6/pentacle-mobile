@@ -1,10 +1,11 @@
 import React from 'react';
+import { uuid } from 'expo-modules-core';
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 
 import QuestionsRoute from '../../app/pentacle/questions';
 import { QuestionsScreen, selectPendingQuestionCount, selectQuestionDeck } from '../../src/components/questions';
 import {
-  buildVoiceAnswersMeta, validVoiceAnswersItems, validVoiceQuestionSnapshot, createVoiceQuestionSnapshot,
+  buildVoiceAnswersMeta, refreshVoiceQuestionSession, activeVoiceQuestionSession, voiceQuestionSnapshot, startVoiceQuestionSession, completeVoiceQuestionSession, freezeVoiceQuestionAnswers, voiceAnswersItemCount, validVoiceAnswersItems, validVoiceQuestionSnapshot, createVoiceQuestionSnapshot,
   installVoiceAnswersCarrier,
   resetVoiceAnswersForTests,
 } from '../../src/components/questions/voice/voiceAnswersBinding';
@@ -73,6 +74,7 @@ jest.mock('../../src/services/pentacleStream', () => {
   return {
     ...actual,
     getPentacleStreamState: () => mockState,
+    voiceTransportSnapshot: () => ({ ready: mockState.connected, inventoryFresh: mockState.hasHydrated, authNeeded: false }),
     usePentacleStreamSelector: (selector: (state: unknown) => unknown) => {
       const [, force] = ReactActual.useReducer((value: number) => value + 1, 0);
       ReactActual.useEffect(() => {
@@ -147,7 +149,7 @@ beforeEach(() => {
   mockHarness = makeRecorderHarness();
   resetVoiceAnswersForTests();
   installVoiceAnswersCarrier();
-  mockState = threeDurableOneLegacy();
+  mockState = { connected: true, hasHydrated: true, ...threeDurableOneLegacy() };
 });
 afterEach(() => {
   jest.useRealTimers();
@@ -613,4 +615,44 @@ test('R8 durable validators reject malformed visits and duplicate answer keys wi
   expect(validVoiceAnswersItems([answer], 2000)).toBe(true);
   expect(validVoiceAnswersItems([answer, answer], 2000)).toBe(false);
   expect(validVoiceAnswersItems([answer], 1999)).toBe(false);
+});
+
+test('CAP-05 a held finalized question session does not block current-scope capture; terminal cleanup releases only the held binding', async () => {
+  const held = '123e4567-e89b-42d3-a456-000000000999';
+  const item = { key: 'held:0', question_id: 'held-q', notification_id: 'held', producer_stream_id: 'hosta:worker', surface_stream_id: BART, prompt: 'Held synthetic question' };
+  startVoiceQuestionSession(held, { ...createVoiceQuestionSnapshot([item], 1, item.key, [item.key]), phase: 'finalized', capturedAudioMs: 2500, visits: [{ key: item.key, startMs: 0, endMs: 2500 }] });
+  freezeVoiceQuestionAnswers(held, 2500);
+  jest.spyOn(mockHarness.recorder, 'isOwnedByCurrentScope').mockImplementation(id => id !== held);
+  render(<QuestionsScreen />); await startVoice();
+  const current = mockHarness.recorder.snapshot()!.recordingId;
+  expect(current).not.toBe(held); expect(voiceAnswersItemCount(held)).toBe(1); expect(voiceQuestionSnapshot(held)).toBeDefined();
+  await act(async () => { completeVoiceQuestionSession(held, 'discarded'); });
+  expect(voiceAnswersItemCount(held)).toBe(0); expect(voiceQuestionSnapshot(held)).toBeUndefined();
+  expect(activeVoiceQuestionSession()?.recordingId).toBe(current);
+  await act(async () => { await mockHarness.recorder.discard(); });
+});
+
+test('CAP-05 capped answers then scope switch and committed held discard permit the next question take', async () => {
+  render(<QuestionsScreen />); await startVoice(); dwell(2500);
+  const held = mockHarness.recorder.snapshot()!.recordingId;
+  await act(async () => { await mockHarness.recorder.stop('cap'); });
+  expect(mockHarness.recorder.isActive()).toBe(false);
+  jest.spyOn(mockHarness.recorder, 'isOwnedByCurrentScope').mockImplementation(id => id !== held);
+  await act(async () => { refreshVoiceQuestionSession(held); });
+  await act(async () => { completeVoiceQuestionSession(held, 'discarded'); });
+  expect(activeVoiceQuestionSession()).toBeNull(); expect(voiceAnswersItemCount(held)).toBe(0);
+  jest.mocked(uuid.v4).mockReturnValueOnce('123e4567-e89b-42d3-a456-000000000123');
+  await startVoice(); expect(mockHarness.recorder.isActive()).toBe(true);
+  expect(screen.getByTestId('questions-voice-bar')).toBeTruthy();
+  await act(async () => { await mockHarness.recorder.discard(); });
+});
+
+test('CAP-03 unavailable question inventory cannot erase previously covered capture eligibility', async () => {
+  render(<QuestionsScreen />); await startVoice(); dwell(2500);
+  const id = mockHarness.recorder.snapshot()!.recordingId;
+  const prior = voiceQuestionSnapshot(id)!;
+  setState({ ...mockState, sessions: [], notifications: [], connected: false, hasHydrated: false });
+  expect(voiceQuestionSnapshot(id)!.liveKeys).toEqual(prior.liveKeys);
+  await act(async () => { await mockHarness.recorder.send(); });
+  expect(buildVoiceAnswersMeta(id, { blobSha: 'synthetic', durationS: 3 })?.items.length).toBeGreaterThan(0);
 });

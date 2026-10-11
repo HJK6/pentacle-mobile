@@ -1,5 +1,5 @@
 import React from 'react';
-import { Animated, Modal, StyleSheet } from 'react-native';
+import { Animated, Modal, StyleSheet, View } from 'react-native';
 import { act, cleanup, fireEvent, render } from '@testing-library/react-native';
 import { initialPentacleStreamState, type PentacleStreamState } from 'pentacle-chat-core';
 import type { RecordingSnapshot } from '../src/services/voiceRecording';
@@ -17,6 +17,12 @@ import BartStatusOverlay from '../src/components/bart/BartStatusOverlay';
 import UnifiedScreen from '../app/(tabs)/unified';
 import QuestionsRoute from '../app/pentacle/questions';
 import LanesRoute from '../app/pentacle/lanes';
+import { selectQuestionDeck } from '../src/components/questions/questionSelectors';
+import {
+  completeVoiceQuestionSession, createVoiceQuestionSnapshot, resetVoiceAnswersForTests,
+  startVoiceQuestionSession,
+} from '../src/components/questions/voice/voiceAnswersBinding';
+import type { RemovalGuardNavigation } from '../src/components/questions/voice/useVoiceAnswers';
 
 // This suite tests real control projection, native-modal ownership and navigation.
 // Recorder, durable-delivery and authenticated stream snapshots are stable synthetic
@@ -29,6 +35,15 @@ const mockResume = jest.fn(async () => undefined);
 const mockSend = jest.fn(async (_id: string) => undefined);
 const mockDiscard = jest.fn(async (_id: string) => undefined);
 const mockRouter = { push: jest.fn(), replace: jest.fn(), back: jest.fn(), canGoBack: () => true };
+type RemovalListener = Parameters<RemovalGuardNavigation['addListener']>[1];
+const mockRemovalListeners = new Set<RemovalListener>();
+const mockNavigation = {
+  addListener: jest.fn((_type: string, listener: RemovalListener) => {
+    mockRemovalListeners.add(listener);
+    return () => { mockRemovalListeners.delete(listener); };
+  }),
+  dispatch: jest.fn(),
+};
 let mockCapture: RecordingSnapshot;
 let mockDelivery: VoiceDeliverySnapshot;
 let mockLifecycle = { foreground: true, unlocked: true };
@@ -49,7 +64,7 @@ jest.mock('expo-constants', () => require('./helpers/stubs/expoConstants.cjs'));
 jest.mock('expo-router', () => ({
   ...require('./helpers/mocks/expoRouter').makeMock(),
   useRouter: () => mockRouter,
-  useNavigation: () => ({ addListener: () => () => undefined, dispatch: jest.fn() }),
+  useNavigation: () => mockNavigation,
 }));
 jest.mock('@expo/vector-icons/FontAwesome', () => 'FontAwesome');
 jest.mock('@expo/vector-icons', () => ({ FontAwesome: 'FontAwesome', Ionicons: 'Ionicons' }));
@@ -62,6 +77,7 @@ jest.mock('../src/hooks/usePentacleToken', () => ({ __esModule: true, default: (
 jest.mock('../src/services/voiceRecordingEngine', () => ({
   voiceRecorder: {
     snapshot: () => mockCapture,
+    capturedAudioMs: () => mockCapture.capturedAudioMs,
     isOwnedByCurrentScope: () => mockCurrentTransportScopeMatches,
     subscribe: (fn: (value: RecordingSnapshot) => void) => mockSubscribeCapture(fn),
     resume: () => mockResume(),
@@ -129,6 +145,7 @@ const ACTIONS = ['Return to original chat', 'Resume recording', 'Send recording'
 beforeEach(() => {
   jest.useFakeTimers();
   resetChatOpenNavigationIntents();
+  resetVoiceAnswersForTests();
   mockScopeMatches = true;
   mockCurrentTransportScopeMatches = true;
   mockFocused = true;
@@ -157,6 +174,8 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   resetChatOpenNavigationIntents();
+  resetVoiceAnswersForTests();
+  expect(mockRemovalListeners.size).toBe(0);
   expect(mockCaptureListeners.size).toBe(0);
   expect(mockLifecycleListeners.size).toBe(0);
   expect(mockDeliveryListeners.size).toBe(0);
@@ -308,7 +327,9 @@ describe.each(NATIVE_HOSTS)('native shared host: $name', host => {
 
 describe.each([{ name: 'questions', Component: QuestionsRoute }, { name: 'lanes', Component: LanesRoute }])('covering route: $name', ({ name, Component }) => {
   test('route focus owns one reachable control set and losing focus restores the root', async () => {
-    const tree = () => <><VoiceRecordingOverlay /><Component /></>;
+    // A Fragment root cannot model accessibilityViewIsModal's native sibling
+    // exclusion. Keep the real route below a host View for every route check.
+    const tree = () => <View><VoiceRecordingOverlay /><Component /></View>;
     const view = render(tree());
     await settle();
     assertControlSet(view, name);
@@ -321,16 +342,31 @@ describe.each([{ name: 'questions', Component: QuestionsRoute }, { name: 'lanes'
     expect(mockSend).not.toHaveBeenCalled();
     expect(mockDiscard).not.toHaveBeenCalled();
   });
+  test('locked and background route controls hide all origin details and return without automatic Resume', async () => {
+    const view = render(<View><VoiceRecordingOverlay /><Component /></View>);
+    await settle();
+    assertControlSet(view, name);
+    for (const lifecycle of [{ foreground: true, unlocked: false }, { foreground: false, unlocked: true }]) {
+      act(() => { mockLifecycle = lifecycle; mockLifecycleListeners.forEach(fn => fn()); });
+      expect(view.queryByTestId('voice-recording-overlay', { includeHiddenElements: true })).toBeNull();
+      expect(view.queryByText(ORIGIN_LABEL, { includeHiddenElements: true })).toBeNull();
+      ACTIONS.forEach(action => expect(view.queryByLabelText(action, { includeHiddenElements: true })).toBeNull());
+    }
+    act(() => { mockLifecycle = { foreground: true, unlocked: true }; mockLifecycleListeners.forEach(fn => fn()); });
+    assertControlSet(view, name);
+    expect(mockResume).not.toHaveBeenCalled();
+    expect(mockSend).not.toHaveBeenCalled();
+    expect(mockDiscard).not.toHaveBeenCalled();
+  });
 });
 
-
-test('native modal priority beats a later route host and latest covering modal restores the previous host', async () => {
-  const tree = (image: boolean, rename: boolean) => <>
-    <VoiceRecordingOverlay />
+test.each([{ name: 'questions', Component: QuestionsRoute }, { name: 'lanes', Component: LanesRoute }])('native modal priority beats later $name route host and latest covering modal restores the previous host', async ({ name, Component }) => {
+  const tree = (image: boolean, rename: boolean) => <View>
     <ImageViewerModal uri={image ? 'file:///synthetic/image.jpg' : null} onClose={noop} />
-    <LanesRoute />
+    {/* The navigator screen and presented RN Modal have separate native parents. */}
+    <View><VoiceRecordingOverlay /><Component /></View>
     <RenameChatModal visible={rename} initialName="Visible chat" onSubmit={noop} onClose={noop} />
-  </>;
+  </View>;
   const view = render(tree(true, false));
   await settle();
   assertControlSet(view, 'image-viewer');
@@ -342,7 +378,7 @@ test('native modal priority beats a later route host and latest covering modal r
   assertControlSet(view, 'image-viewer');
   view.rerender(tree(false, false));
   await settle();
-  assertControlSet(view, 'lanes');
+  assertControlSet(view, name);
   mockFocused = false;
   view.rerender(tree(false, false));
   await settle();
@@ -350,6 +386,65 @@ test('native modal priority beats a later route host and latest covering modal r
   expect(mockResume).not.toHaveBeenCalled();
   expect(mockSend).not.toHaveBeenCalled();
   expect(mockDiscard).not.toHaveBeenCalled();
+});
+
+test.each([false, true])('questions inclusive modal keeps controls accessible with empty deck=%s', async empty => {
+  if (empty) mockState = { ...mockState, notifications: [] };
+  const view = render(<View><VoiceRecordingOverlay /><QuestionsRoute /></View>);
+  await settle();
+  assertControlSet(view, 'questions');
+  expect(view.getByRole('button', { name: 'Close questions' })).toBeTruthy();
+  if (empty) expect(view.getByText('No questions waiting')).toBeTruthy();
+  else expect(view.getByTestId('questions-counter')).toBeTruthy();
+  const screen = view.getByTestId('questions-overlay');
+  let contentParent = screen.parent;
+  while (contentParent && typeof contentParent.type !== 'string') contentParent = contentParent.parent;
+  // A layout-only wrapper would be flattened on native, restoring CAP-04.
+  expect(contentParent?.props.collapsable).toBe(false);
+  let inclusiveParent = contentParent?.parent ?? null;
+  while (inclusiveParent && typeof inclusiveParent.type !== 'string') inclusiveParent = inclusiveParent.parent;
+  expect(inclusiveParent?.props.accessibilityViewIsModal).toBe(true);
+  expect(inclusiveParent?.findAll(node => node === view.getByTestId('voice-recording-overlay'))).toHaveLength(1);
+  expect(mockSend).not.toHaveBeenCalled();
+  expect(mockDiscard).not.toHaveBeenCalled();
+});
+
+test('questions route keeps its beforeRemove discard guard inside the inclusive control host', async () => {
+  const current = selectQuestionDeck(mockState)[0];
+  const item = {
+    key: current.key, question_id: 'synthetic-question', notification_id: 'synthetic-question',
+    producer_stream_id: OTHER_CHAT, surface_stream_id: OTHER_CHAT, prompt: 'Choose a synthetic path',
+  };
+  startVoiceQuestionSession(RECORDING_ID, {
+    ...createVoiceQuestionSnapshot([item], 1, item.key, [item.key]),
+    phase: 'paused', capturedAudioMs: mockCapture.capturedAudioMs,
+  });
+  const view = render(<View><VoiceRecordingOverlay /><QuestionsRoute /></View>);
+  await settle();
+  assertControlSet(view, 'questions');
+  expect(view.queryByTestId('questions-voice-mic', { includeHiddenElements: true })).toBeNull();
+  expect(view.queryByTestId('questions-voice-done', { includeHiddenElements: true })).toBeNull();
+  expect(mockRemovalListeners.size).toBe(1);
+  const action = { type: 'POP', source: 'synthetic-swipe' };
+  const event = { data: { action }, preventDefault: jest.fn() };
+  act(() => mockRemovalListeners.forEach(listener => listener(event)));
+  expect(event.preventDefault).toHaveBeenCalledTimes(1);
+  expect(view.getByTestId('questions-voice-confirm')).toBeTruthy();
+  assertControlSet(view, 'questions');
+  expect(mockNavigation.dispatch).not.toHaveBeenCalled();
+  expect(mockDiscard).not.toHaveBeenCalled();
+  fireEvent.press(view.getByTestId('questions-voice-keep'));
+  expect(view.queryByTestId('questions-voice-confirm')).toBeNull();
+  act(() => mockRemovalListeners.forEach(listener => listener(event)));
+  fireEvent.press(view.getByTestId('questions-voice-discard'));
+  await settle();
+  expect(mockDiscard).toHaveBeenCalledTimes(1);
+  expect(mockSend).not.toHaveBeenCalled();
+  // The command boundary emits completion only once its deletion has succeeded.
+  act(() => completeVoiceQuestionSession(RECORDING_ID, 'discarded'));
+  expect(mockNavigation.dispatch).toHaveBeenCalledTimes(1);
+  expect(mockNavigation.dispatch).toHaveBeenCalledWith(action);
+  expect(mockRouter.back).not.toHaveBeenCalled();
 });
 
 test('ChatsDrawer retains reachable controls until native closing animation completes', async () => {

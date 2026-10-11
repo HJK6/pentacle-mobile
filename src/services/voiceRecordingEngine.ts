@@ -121,7 +121,10 @@ export function setVoiceLifecycle(value: { foreground: boolean; unlocked: boolea
   for (const listener of lifecycleListeners) listener();
 }
 function refreshQuestionKeys(id: string) {
-  if (voiceQuestionSnapshot(id)) updateVoiceQuestionLiveKeys(id, selectQuestionDeck(getPentacleStreamState()).map(page => page.key));
+  const state = getPentacleStreamState(); const transport = voiceTransportSnapshot();
+  // An offline/unhydrated deck is not evidence that original questions disappeared.
+  if (voiceQuestionSnapshot(id) && state.hasHydrated && transport.ready && transport.inventoryFresh && !transport.authNeeded)
+    updateVoiceQuestionLiveKeys(id, selectQuestionDeck(state).map(page => page.key));
 }
 function ownsCurrentScope(recordingId: string) {
   const take = voiceTakeStore.get(recordingId); const context = voiceTransportSnapshot();
@@ -161,7 +164,7 @@ export const voiceRecorder = new VoiceRecorder(new ExpoAudioEngine(state => {
     await voiceDelivery.enqueue(take.recordingId, { frozenAnswers: take.frozenAnswers });
   },
   invalidate: id => { voiceTakeStore.invalidate(id); },
-  discard: id => voiceTakeStore.get(id) ? voiceDelivery.discard(id) : voiceTakeStore.discard(id),
+  discard: (id, options) => voiceTakeStore.get(id) ? voiceDelivery.discard(id, options) : voiceTakeStore.discard(id, options),
   ownsScope: ownsCurrentScope,
   originAvailable: (streamId, generation, recordingId) => !!recordingId && ownsCurrentScope(recordingId)
     && !voiceTransportSnapshot().authNeeded && !!generation && voiceOriginStatus(streamId, generation) === 'available',
@@ -172,9 +175,14 @@ voiceRecorder.setLifecycle(lifecycle);
 export async function sendVoiceTake(id: string) {
   if (voiceRecorder.snapshot()?.recordingId === id) { await voiceRecorder.send(); return; }
   const take = voiceTakeStore.get(id); if (!take) return;
-  if (take.questionBinding && !voiceQuestionSnapshot(id)) startVoiceQuestionSession(id, take.questionBinding);
-  refreshQuestionKeys(id);
-  const frozenAnswers = freezeVoiceQuestionAnswers(id, take.capturedAudioMs) ?? take.frozenAnswers;
+  // Finalized persisted answers are already the committed immutable Send input.
+  // Restoring UI bindings must never reinterpret their eligibility from a cold deck.
+  let frozenAnswers = take.frozenAnswers;
+  if (frozenAnswers === undefined) {
+    if (take.questionBinding && !voiceQuestionSnapshot(id)) startVoiceQuestionSession(id, take.questionBinding);
+    refreshQuestionKeys(id);
+    frozenAnswers = freezeVoiceQuestionAnswers(id, take.capturedAudioMs);
+  }
   if (take.operation.operation_kind === 'voice_answer' && !frozenAnswers?.length) {
     await voiceDelivery.discard(id); completeVoiceQuestionSession(id, 'no_answers'); throw new NoVoiceAnswersError();
   }

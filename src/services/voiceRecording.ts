@@ -56,7 +56,7 @@ export interface RecordingOwnership {
   finalize(take: FinishedRecording): Promise<void>;
   requestSend(take: FinishedRecording): Promise<void>;
   invalidate?(recordingId: string): void;
-  discard(recordingId: string): Promise<void>;
+  discard(recordingId: string, options?: { nativeUri?: string }): Promise<void>;
   ownsScope?(recordingId: string): boolean;
   originAvailable(streamId: string, generation?: string | null, recordingId?: string): boolean;
 }
@@ -64,6 +64,7 @@ type ActiveRecording = {
   draft?: RecordingDraft; streamId: string; recordingId: string; levels: number[];
   durationMs: number; status: CapturePhase; pauseReason?: PauseReason; error?: string;
   finished?: FinishedRecording;
+  discardUri?: string;
   releaseDraft?: () => void; draftTransferred?: boolean;
 };
 type Listener = (snapshot: RecordingSnapshot | null) => void;
@@ -166,10 +167,19 @@ export class VoiceRecorder {
             this.emit();
           }
         } else if (created) {
-          try { await this.engine.discard(); } catch { /* never claim capture began */ }
-          if (this.ownership) await this.ownership.discard(created.recordingId).catch(() => undefined);
-          completeVoiceQuestionSession(created.recordingId, 'discarded');
-          if (this.active?.recordingId === created.recordingId) { this.active = null; this.emit(); }
+          const nativeUri = this.active?.discardUri ?? this.engine.nativeUri;
+          if (this.active?.recordingId === created.recordingId) this.active.discardUri = nativeUri;
+          try {
+            await this.engine.discard();
+            if (this.ownership) await this.ownership.discard(created.recordingId, { nativeUri });
+            completeVoiceQuestionSession(created.recordingId, 'discarded');
+            if (this.active?.recordingId === created.recordingId) { this.active = null; this.emit(); }
+          } catch {
+            // A failed tombstone/cleanup keeps the only URI handoff retryable.
+            if (this.active?.recordingId === created.recordingId) {
+              this.active.status = 'paused'; this.active.error = 'Could not discard recording. Try again.'; this.emit();
+            }
+          }
         }
         throw error;
       } finally { this.starting = false; }
@@ -201,7 +211,15 @@ export class VoiceRecorder {
   }
   pause(reason: PauseReason = 'interrupted'): Promise<void> {
     const a = this.active;
-    if (a && (a.finished || a.status === 'stopping')) return Promise.resolve();
+    if (a?.status === 'stopping') {
+      // Finalization owns its epoch. Lifecycle loss must still promptly disarm,
+      // without cancelling that stop or waiting for the persistence queue.
+      return this.engine.pause().catch(error => {
+        if (this.active === a) { a.error = 'Could not pause safely. Retry Send or Discard.'; this.emit(); }
+        throw error;
+      });
+    }
+    if (a?.finished) return Promise.resolve();
     // Invalidate pending permission/arming synchronously; a stale await cannot record.
     const epoch = ++this.epoch;
     if (!a) return Promise.resolve();
@@ -253,12 +271,15 @@ export class VoiceRecorder {
     const a = this.active; if (!a) return Promise.reject(new Error('no_active_recording'));
     const epoch = ++this.epoch;
     this.capturedAudioMs(); this.stopTick(); a.status = 'stopping'; this.emit();
+    // Close capture eligibility now, even if start/checkpoint still owns the disk tail.
+    const nativePause = this.engine.pause(); nativePause.catch(() => undefined);
     const work = this.serial(async () => {
       try {
-        this.guard(epoch, a);
+        this.guard(epoch, a); await nativePause; this.guard(epoch, a);
         if (reason === 'tap' && voiceQuestionSnapshot(a.recordingId) && coveredVoiceQuestionItems(a.recordingId, a.durationMs).length === 0) {
+          a.discardUri = a.discardUri ?? this.engine.nativeUri;
           await this.engine.discard(); this.guard(epoch, a);
-          if (this.ownership) { await this.ownership.discard(a.recordingId); this.guard(epoch, a); }
+          if (this.ownership) { await this.ownership.discard(a.recordingId, { nativeUri: a.discardUri }); this.guard(epoch, a); }
           this.active = null; completeVoiceQuestionSession(a.recordingId, 'no_answers'); this.emit(); throw new NoVoiceAnswersError();
         }
         if (!a.finished) {
@@ -300,7 +321,7 @@ export class VoiceRecorder {
   }
   discard(): Promise<void> {
     const epoch = ++this.epoch; const a = this.active; this.stopTick();
-    if (a) { a.status = 'stopping'; this.emit(); }
+    if (a) { a.discardUri = a.discardUri ?? this.engine.nativeUri; a.status = 'stopping'; this.emit(); }
     // Synchronous store epoch invalidation blocks an in-flight requestSend/dispatch.
     const pause = a ? this.engine.pause().catch(() => undefined) : Promise.resolve();
     if (a) this.ownership?.invalidate?.(a.recordingId);
@@ -308,7 +329,7 @@ export class VoiceRecorder {
       try {
         await pause; this.guard(epoch, a ?? undefined);
         await this.engine.discard(); this.guard(epoch, a ?? undefined);
-        if (a && this.ownership) { await this.ownership.discard(a.recordingId); this.guard(epoch, a); }
+        if (a && this.ownership) { await this.ownership.discard(a.recordingId, { nativeUri: a.discardUri }); this.guard(epoch, a); }
         if (a) { completeVoiceQuestionSession(a.recordingId, 'discarded'); this.telemetry(a.recordingId, 'cancelled'); }
         this.active = null; this.emit();
       } catch (error) {

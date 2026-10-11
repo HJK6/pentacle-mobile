@@ -17,6 +17,7 @@ import {
 
 class FakeEngine implements RecordingEngine {
   readonly mime = 'audio/mp4';
+  nativeUri: string | undefined = 'file:///cache/test-owned.m4a';
   permission: VoicePermission = 'granted';
   requested = false;
   started = false;
@@ -357,4 +358,28 @@ test('R10 failed start checkpoint keeps composer draft; explicit recovery sends 
   await expect(recorder.start('hosta:origin', draft, release)).rejects.toThrow('disk'); draft.textPrefix = 'newer edit';
   expect(release).not.toHaveBeenCalled(); expect(ownership.requestSend).not.toHaveBeenCalled(); expect(recorder.snapshot()?.status).toBe('paused');
   await recorder.send(); expect(release).toHaveBeenCalledTimes(1); expect(ownership.requestSend.mock.calls[0][0].draft.textPrefix).toBe('original');
+});
+
+test('CAP-02 Send preempts native capture while the initial checkpoint is pending; lock preserves exactly one stop and send', async () => {
+  const { recorder, engine, ownership } = owned(); const checkpoint = deferred<void>();
+  const pause = jest.spyOn(engine, 'pause'); const stop = jest.spyOn(engine, 'stop');
+  ownership.checkpoint.mockReturnValueOnce(checkpoint.promise);
+  const starting = recorder.start('hosta:origin').catch(error => error); await flushCapture();
+  const sending = recorder.send(); expect(pause).toHaveBeenCalledTimes(1); expect(stop).not.toHaveBeenCalled();
+  recorder.setLifecycle({ foreground: false, unlocked: false }); expect(pause).toHaveBeenCalledTimes(2);
+  recorder.setLifecycle({ foreground: true, unlocked: false });
+  checkpoint.resolve(); await starting; await sending;
+  expect(stop).toHaveBeenCalledTimes(1); expect(ownership.finalize).toHaveBeenCalledTimes(1); expect(ownership.requestSend).toHaveBeenCalledTimes(1);
+});
+test('MOB-03 Discard carries native URI across a cancelled first checkpoint and retryable tombstone failure', async () => {
+  const { recorder, engine, ownership } = owned(); const checkpoint = deferred<void>();
+  ownership.checkpoint.mockReturnValueOnce(checkpoint.promise);
+  jest.spyOn(engine, 'discard').mockImplementation(async () => { engine.nativeUri = undefined; });
+  const starting = recorder.start('hosta:origin').catch(error => error); await flushCapture();
+  ownership.discard.mockRejectedValueOnce(new Error('tombstone failed'));
+  const discard = recorder.discard().catch(error => error); checkpoint.resolve(); await starting; expect((await discard).message).toBe('tombstone failed');
+  expect(recorder.snapshot()?.status).toBe('paused'); expect(engine.nativeUri).toBeUndefined();
+  expect(ownership.discard).toHaveBeenLastCalledWith(expect.any(String), { nativeUri: 'file:///cache/test-owned.m4a' });
+  await recorder.discard(); expect(ownership.discard).toHaveBeenLastCalledWith(expect.any(String), { nativeUri: 'file:///cache/test-owned.m4a' });
+  expect(recorder.snapshot()).toBeNull();
 });

@@ -1,7 +1,12 @@
+jest.mock('../src/services/attachmentUpload', () => ({
+  ...jest.requireActual('../src/services/attachmentUpload'),
+  readAttachmentBase64: jest.fn(),
+}));
 // Durable delivery tests use real manifests/atomic operations and deterministic IO.
 // Only the native filesystem and socket boundaries are synthetic.
 jest.mock('../src/services/pentacleStream', () => ({
   ...jest.requireActual('../src/services/pentacleStream'),
+  uploadVoiceImageBase64: jest.fn(async () => ({ blob_sha: 'synthetic-image-sha' })),
   subscribeVoiceTransport: () => () => {},
   subscribeVoiceSendEvidence: () => () => {},
   voiceTransportSnapshot: () => ({
@@ -17,12 +22,25 @@ jest.mock('../src/services/pentacleStream', () => ({
 }));
 import { sha256 } from '@noble/hashes/sha2.js';
 import { bytesToHex, utf8ToBytes } from '@noble/hashes/utils.js';
-import { VoiceDelivery, type VoiceDeliveryIO } from '../src/services/voiceDelivery';
+import {
+  VoiceDelivery,
+  voiceDelivery as defaultVoiceDelivery,
+  type VoiceDeliveryIO,
+} from '../src/services/voiceDelivery';
 import {
   VoiceTakeStore,
   type VoiceTakeIO,
   type VoiceTakeManifest,
 } from '../src/services/voiceTakeStore';
+import { readAttachmentBase64 } from '../src/services/attachmentUpload';
+import { uploadVoiceImageBase64 } from '../src/services/pentacleStream';
+import {
+  startVoiceQuestionSession,
+  freezeVoiceQuestionAnswers,
+  voiceQuestionSnapshot,
+  voiceAnswersItemCount,
+  resetVoiceAnswersForTests,
+} from '../src/components/questions/voice/voiceAnswersBinding';
 import type { VoiceDispatchIntent, VoiceSendEvidence } from '../src/services/pentacleStream';
 
 const hash = (s: string) => bytesToHex(sha256(utf8ToBytes(s)));
@@ -789,4 +807,125 @@ test('U3 origin verification lost between selection and work stays queued until 
   await h.delivery.drain();
   expect(h.io.dispatch).toHaveBeenCalledTimes(1);
   h.delivery.dispose();
+});
+
+test.each(['scope', 'discard', 'background'] as const)(
+  'MOB-02 production image read is fenced after %s change',
+  async (change) => {
+    const h = harness();
+    const read = deferred<string>();
+    const reader = readAttachmentBase64 as jest.Mock;
+    const upload = uploadVoiceImageBase64 as jest.Mock;
+    reader.mockReset().mockReturnValue(read.promise);
+    upload.mockClear();
+    h.io.uploadImages = (defaultVoiceDelivery as any).io.uploadImages;
+    await h.ready();
+    const take = await h.take({ images: true });
+    const work = h.delivery.send(take.recordingId);
+    await flush();
+    expect(reader).toHaveBeenCalledTimes(1);
+    expect(upload).not.toHaveBeenCalled();
+    if (change === 'scope') {
+      h.transport.credentialId = '123e4567-e89b-12d3-a456-426614174999';
+      h.transport.scopeGeneration++;
+      h.notify();
+    } else if (change === 'discard') await h.delivery.discard(take.recordingId);
+    else h.delivery.setLifecycle({ foreground: false, unlocked: false });
+    read.resolve('aW1hZ2U=');
+    await work;
+    await flush();
+    expect(upload).not.toHaveBeenCalled();
+    expect(h.io.dispatch).not.toHaveBeenCalled();
+    if (change === 'scope')
+      expect(h.delivery.snapshot()).toMatchObject({ takes: [], heldCount: 1 });
+    h.delivery.dispose();
+  },
+);
+
+test('MOB-02 production image path freezes scope and retains ordinary attachment shape', async () => {
+  const h = harness();
+  const reader = readAttachmentBase64 as jest.Mock;
+  const upload = uploadVoiceImageBase64 as jest.Mock;
+  reader.mockReset().mockResolvedValue('aW1hZ2U=');
+  upload.mockReset().mockResolvedValue({ blob_sha: 'synthetic-image-sha' });
+  h.io.uploadImages = (defaultVoiceDelivery as any).io.uploadImages;
+  h.io.dispatch = jest.fn(async (intent) => h.proofs(intent, 'unknown'));
+  await h.ready();
+  const take = await h.take({ images: true });
+  await h.delivery.send(take.recordingId);
+  expect(upload).toHaveBeenCalledWith(
+    'aW1hZ2U=',
+    5,
+    expect.objectContaining({
+      scope: { ...SCOPE, scopeGeneration: 1, socketGeneration: 1 },
+      isCancelled: expect.any(Function),
+    }),
+  );
+  expect(h.store.get(take.recordingId)?.attachments).toEqual([
+    { key: 'synthetic-image-sha', mime: 'image/jpeg', width: 1, height: 1, bytes: 5 },
+  ]);
+  expect(h.prepare).toHaveBeenCalledWith(
+    expect.objectContaining({
+      attachments: [
+        { key: 'synthetic-image-sha', mime: 'image/jpeg', width: 1, height: 1, bytes: 5 },
+      ],
+      text: 'photo note\nspoken detail',
+    }),
+  );
+  h.delivery.dispose();
+});
+
+test('CAP-05 real held discard releases only committed question bindings across a partial batch', async () => {
+  resetVoiceAnswersForTests();
+  const h = harness();
+  await h.ready();
+  const bind = (id: string) => {
+    const item = {
+      key: 'n:0',
+      question_id: 'q',
+      notification_id: 'n',
+      producer_stream_id: 'hosta:worker',
+      surface_stream_id: 'hosta:origin',
+      prompt: 'Synthetic question?',
+    };
+    startVoiceQuestionSession(id, {
+      version: 1,
+      eligibleItems: [item],
+      durableTotal: 1,
+      currentKey: null,
+      liveKeys: [item.key],
+      visits: [{ key: item.key, startMs: 0, endMs: 2000 }],
+      capturedAudioMs: 300000,
+      phase: 'finalized',
+    });
+    freezeVoiceQuestionAnswers(id, 300000);
+  };
+  const first = await h.take({ question: true }),
+    second = await h.take({ question: true });
+  bind(first.recordingId);
+  bind(second.recordingId);
+  h.transport.credentialId = '123e4567-e89b-12d3-a456-426614174999';
+  h.notify();
+  await flush();
+  const current = await h.take({ question: true });
+  bind(current.recordingId);
+  const write = h.disk.write;
+  h.disk.write = async (p, value) => {
+    if (p.includes(second.recordingId) && JSON.parse(value).storage === 'discarded')
+      throw Error('second tombstone failed');
+    await write(p, value);
+  };
+  await expect(h.delivery.discardHeld()).rejects.toThrow('second tombstone failed');
+  expect(voiceQuestionSnapshot(first.recordingId)).toBeUndefined();
+  expect(voiceAnswersItemCount(first.recordingId)).toBe(0);
+  expect(voiceQuestionSnapshot(second.recordingId)).toBeDefined();
+  expect(voiceAnswersItemCount(second.recordingId)).toBe(1);
+  expect(voiceQuestionSnapshot(current.recordingId)).toBeDefined();
+  expect(h.store.get(current.recordingId)).toBeDefined();
+  h.disk.write = write;
+  await h.delivery.discardHeld();
+  expect(voiceQuestionSnapshot(second.recordingId)).toBeUndefined();
+  expect(voiceQuestionSnapshot(current.recordingId)).toBeDefined();
+  h.delivery.dispose();
+  resetVoiceAnswersForTests();
 });

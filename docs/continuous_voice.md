@@ -7,8 +7,14 @@ question overlays, and app-owned modal hosts project its state; they do not crea
 recorders or independent delivery queues. In-app navigation never changes the
 recording's destination, pauses capture, or sends a take.
 
-Background, lock, and interruption pause the existing native recorder and then
-disarm recording audio mode. Foreground or unlock alone does not resume it. Resume
+The JS controller responds to observed background, lock, and interruption by pausing
+the existing recorder and disarming recording audio mode. It does not request resume
+on foreground or unlock. **Known locked-native blocker:** Expo Audio 1.1.1 can resume
+a paused recorder on interruption-end or native foreground while `allowsRecording`
+remains true. An interruption entirely between JS polls, or delayed JS execution,
+can bypass the explicit-Resume policy. No supported synchronous JS opt-out was found;
+this requires requester disposition and is not fixed by this source implementation.
+The native timed-limit interaction is not established by source inspection. Resume
 requires an explicit action, unlocked foreground, the same credential/server scope,
 and no authoritative closure or replacement of the captured origin. It re-arms and
 records with the same native recorder without preparing a new file. Missing network
@@ -46,8 +52,12 @@ original draft, operation kind and build identity are captured once. Image asset
 are copied into the owned directory and verified before the composer transfers its
 draft. The store never deletes picker originals.
 
-Manifests are version 1 JSON, written to a same-directory temporary file and then
-renamed to `manifest.json`. Writes are serialized per take; a required commit must
+Manifests are version 1 JSON, staged in a same-directory temporary file. On iOS the
+locked Expo legacy text-write API replaces `manifest.json` via Foundation
+`String.write(atomically: true)`; the staged file is subsequently removed. The iOS
+legacy move API is deliberately not used for replacement because it unlinks the old
+destination first. Android uses the locked same-directory `renameTo` move primitive.
+Writes are serialized per take; a required commit must
 succeed before its new snapshot is published. Temporary JSON is not recovery truth.
 Audio finalization first journals its expected owned path/size/hash, moves the single
 native file into documents, verifies it, and commits the finalized state. Both sides
@@ -56,8 +66,9 @@ the already moved artifact without recording again.
 
 Finalized audio, copied images, uploaded references, transcript, and exact send intent
 are retained across ordinary process restart, termination and reboot on the same
-installation. Expo's existing filesystem API supplies the same-directory move; this
-source return does not independently certify physical storage barriers or iOS
+installation. The platform-specific primitives above preserve committed JSON across
+ordinary process interruption; this source return does not independently certify
+physical storage barriers or iOS
 scheduling. Active/native-paused M4A is only best-effort recovery. A recovered readable
 container is Interrupted and unsent; a missing, truncated, or unreadable container is
 an actionable failure. There is no same-file native resume after process death and
@@ -76,7 +87,10 @@ Landed and discarded states are durable tombstones before owned files are remove
 Cleanup is retried after restart; tombstones are removed only after files are gone.
 Corrupt/missing manifests remain quarantined, visible as a generic recovery failure,
 and are never uploaded blindly. Deletion is limited to the corresponding owned take
-and its validated, recorded cache URI.
+and its validated, recorded cache URI. Discard includes a captured native URI in the
+tombstone even when its first checkpoint is still pending. Held question bindings
+are released by recording ID immediately after their tombstone commits, before
+cleanup; an uncommitted or later failed batch member keeps its binding.
 
 Credential or server changes hold prior scopes. Their transcript and destination
 are hidden; only a generic retained count and deliberate local deletion are exposed.

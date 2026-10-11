@@ -3,8 +3,9 @@ import { AudioModule, setAudioModeAsync } from 'expo-audio';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { bytesToHex, utf8ToBytes } from '@noble/hashes/utils.js';
 import { VoiceTakeStore, type VoiceTakeIO } from '../src/services/voiceTakeStore';
+import { createVoiceQuestionSnapshot, resetVoiceAnswersForTests } from '../src/components/questions/voice/voiceAnswersBinding';
 import { MAX_DURATION_MS } from '../src/services/voiceRecording';
-import { ExpoAudioEngine, voiceRecorder, setVoiceLifecycle } from '../src/services/voiceRecordingEngine';
+import { ExpoAudioEngine, voiceRecorder, setVoiceLifecycle, sendVoiceTake } from '../src/services/voiceRecordingEngine';
 
 let mockStore: VoiceTakeStore;
 const mockFiles = new Map<string, string>();
@@ -24,7 +25,7 @@ jest.mock('../src/services/voiceDelivery', () => ({ voiceDelivery: {
   accept: (...args: unknown[]) => mockAccept(...args), setLifecycle: jest.fn(),
   initialize: async () => { await mockStore.setScope(scope); },
   enqueue: (id: string, options: unknown) => mockSend(id, options),
-  discard: (id: string) => mockStore.discard(id),
+  discard: (id: string, options?: { nativeUri?: string }) => mockStore.discard(id, options),
 } }));
 jest.mock('../src/services/pentacleStream', () => ({
   voiceTransportSnapshot: () => ({ ...mockCurrentScope, authNeeded: mockAuthNeeded, origins: [{ stream_id: 'hosta:origin', session_generation: 'generation-1', title: 'Origin' }] }),
@@ -67,7 +68,7 @@ function fixture() {
 beforeAll(() => {
   jest.spyOn(AppState, 'addEventListener').mockImplementation((_event, listener) => { listeners.add(listener); return { remove: () => { listeners.delete(listener); } }; });
 });
-beforeEach(() => { jest.useFakeTimers(); mockFiles.clear(); mockDirs.clear(); mockModes.length = 0; mockDuration = 3000; mockPrepare = null; mockStore = fixture(); mockCurrentScope = scope; mockAuthNeeded = false; setVoiceLifecycle({ foreground: true, unlocked: true }); });
+beforeEach(() => { resetVoiceAnswersForTests(); jest.useFakeTimers(); mockFiles.clear(); mockDirs.clear(); mockModes.length = 0; mockDuration = 3000; mockPrepare = null; mockStore = fixture(); mockCurrentScope = scope; mockAuthNeeded = false; setVoiceLifecycle({ foreground: true, unlocked: true }); });
 afterEach(async () => { await voiceRecorder.discard(); for (const take of mockStore.snapshot().takes) await mockStore.discard(take.recordingId); jest.useRealTimers(); });
 
 test('R1 foreground route subscriber removal preserves the singleton capture and immutable origin', async () => {
@@ -152,4 +153,17 @@ test('R11 revoked credentials pause capture and block rearm while retaining same
   mockAuthNeeded = true; mockTransportListeners.forEach(listener => listener()); await flush();
   expect(voiceRecorder.snapshot()?.status).toBe('paused'); expect(voiceRecorder.isOwnedByCurrentScope(id)).toBe(true);
   await expect(voiceRecorder.resume()).rejects.toThrow('Original chat unavailable'); expect(native.record).toHaveBeenCalledTimes(1);
+});
+
+test('CAP-03 restored finalized question Send preserves committed frozen answers with an unavailable deck', async () => {
+  await mockStore.setScope(scope);
+  const item = { key: 'question:0', question_id: 'question', notification_id: 'notification', producer_stream_id: 'hosta:worker', surface_stream_id: 'hosta:origin', prompt: 'Synthetic choice?' };
+  const questionBinding = { ...createVoiceQuestionSnapshot([item], 1, item.key, [item.key]), phase: 'finalized' as const, capturedAudioMs: 2500, visits: [{ key: item.key, startMs: 0, endMs: 2500 }] };
+  const take = await mockStore.create({ scope, origin: { streamId: 'hosta:origin', generation: 'generation-1', label: 'Origin' }, operationKind: 'voice_answer', questionBinding });
+  const uri = 'file:///cache/restored-answer.m4a'; mockFiles.set(uri, 'synthetic-audio');
+  const frozenAnswers = [{ ...item, segment: { start_s: 0, end_s: 2.5 } }];
+  await mockStore.adoptFinalized(take.recordingId, { uri, mime: 'audio/mp4', capturedAudioMs: 2500, questionBinding, frozenAnswers });
+  resetVoiceAnswersForTests(); await sendVoiceTake(take.recordingId);
+  expect(mockStore.get(take.recordingId)).toMatchObject({ storage: 'finalized', frozenAnswers, sendRequestedAt: expect.any(Number) });
+  expect(mockSend).toHaveBeenCalledWith(take.recordingId, { frozenAnswers });
 });
