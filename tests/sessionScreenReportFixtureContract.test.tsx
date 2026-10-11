@@ -56,6 +56,14 @@ jest.mock('../src/hooks/usePentacleToken', () => ({
   reloadPentacleToken: jest.fn().mockResolvedValue(undefined),
 }));
 jest.mock('../src/services/pentacleStream', () => ({
+  // This non-voice fixture has no authenticated voice transport or retained work.
+  voiceTransportSnapshot: () => ({
+    serverIdentity: 'wss://synthetic.invalid/ws', credentialId: null,
+    ready: false, inventoryFresh: false, authNeeded: false,
+    scopeGeneration: 0, socketGeneration: 0, origins: [],
+  }),
+  subscribeVoiceTransport: jest.fn(() => () => {}),
+  subscribeVoiceSendEvidence: jest.fn(() => () => {}),
   usePentacleStreamActions: () => mockActions,
   usePentacleStreamSelector: (selector: (state: any) => any) => selector(mockState),
   usePentacleStreamSelectorWhen: (_enabled: boolean, selector: (state: any) => any) => selector(mockState),
