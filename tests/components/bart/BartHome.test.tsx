@@ -1,8 +1,8 @@
 // Bart home mount contract (docs/bart_home_contracts.md): the session screen embeds with a caller header.
 import React from 'react';
-import { assistantAccent } from '../../../src/components/bart/assistantIdentity';
+import { assistantAccent } from '../../../src/components/assistant/assistantIdentity';
 import { Modal } from 'react-native';
-import ChatsDrawer from '../../../src/components/bart/ChatsDrawer';
+import ChatsDrawer from '../../../src/components/assistant/ChatsDrawer';
 import SummonModal from '../../../src/components/SummonModal';
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import BartScreen from '../../../app/(tabs)/bart';
@@ -155,7 +155,7 @@ test('Bart renders its synthetic transcript and composer through the real embedd
     timestamp: '2026-05-16T12:00:00Z', text: 'Synthetic assistant greeting', publish_kind: 'prose' }];
   render(<BartScreen />);
   await act(async () => {});
-  expect(screen.getByTestId('bart-header')).toBeTruthy();
+  expect(screen.getByTestId('assistant-header')).toBeTruthy();
   expect(screen.queryByTestId('combined-session-header')).toBeNull();
   expect(screen.getByText('Synthetic assistant greeting')).toBeTruthy();
   expect(screen.getByTestId('composer-input')).toBeTruthy();
@@ -176,7 +176,7 @@ test('the header lanes tap opens the lanes route once per focus visit without lo
   fireEvent.press(lanes);
   expect(router.push).toHaveBeenCalledTimes(1);
   expect(router.push).toHaveBeenCalledWith('/pentacle/lanes');
-  expect(screen.queryByTestId('bart-status-overlay')).toBeNull();
+  expect(screen.queryByTestId('assistant-status-overlay')).toBeNull();
   expect(registration).toHaveBeenCalledTimes(1);
   mockIsFocused = false;
   view.rerender(<BartScreen />);
@@ -232,7 +232,7 @@ test('both badges derive from real fixture state, include Bart deck pages, and r
   view.rerender(<BartScreen />);
   expect(screen.getByLabelText('Lews status, 3 open lanes, 1 blocked')).toBeTruthy();
   expect(screen.getByText('3 LANES')).toBeTruthy();
-  expect(screen.getByTestId('bart-lanes-blocked').props.children).toEqual([1, ' BLOCKED']);
+  expect(screen.getByTestId('assistant-lanes-blocked').props.children).toEqual([1, ' BLOCKED']);
   expect(screen.getByLabelText('Questions, 3 pending')).toBeTruthy();
   mockOptimistic = [{ notificationId: `question-${STREAM_ID}`, questionId: `q-${STREAM_ID}-0` }];
   mockState = { ...mockState };
@@ -241,8 +241,8 @@ test('both badges derive from real fixture state, include Bart deck pages, and r
   expect(screen.getByLabelText('Sessions, 1 need you')).toBeTruthy();
   mockState = { ...mockState, notifications: [] };
   view.rerender(<BartScreen />);
-  expect(screen.queryByTestId('bart-sessions-badge')).toBeNull();
-  expect(screen.queryByTestId('bart-questions-badge')).toBeNull();
+  expect(screen.queryByTestId('assistant-sessions-badge')).toBeNull();
+  expect(screen.queryByTestId('assistant-questions-badge')).toBeNull();
 });
 
 
@@ -266,7 +266,7 @@ test('drawer rows open once and immediate return permits opening the same row ag
   await act(async () => {});
   for (let cycle = 0; cycle < 2; cycle += 1) {
     fireEvent.press(screen.getByLabelText('Sessions, 1 need you'));
-    const row = screen.getByTestId(`bart-drawer-row-${other}`);
+    const row = screen.getByTestId(`assistant-drawer-row-${other}`);
     fireEvent.press(row);
     fireEvent.press(row);
     expect(expoRouter.useRouter().push).toHaveBeenCalledTimes(cycle + 1);
@@ -341,7 +341,7 @@ test('live assistant name and host changes update the header through the single 
   const view = render(<BartScreen />);
   await act(async () => {});
   expect(screen.getByLabelText('Lews status, 0 open lanes')).toBeTruthy();
-  const Header = require('../../../src/components/bart/BartHeader').default;
+  const Header = require('../../../src/components/assistant/BartHeader').default;
   expect(view.UNSAFE_getByType(Header).props.identity).toMatchObject({ hostId: 'hostc', sigilKind: 'djinni' });
   expect(assistantAccent(view.UNSAFE_getByType(Header).props.identity)).toBe('#1f5bff');
   mockState = { ...mockState, sessions: [{ ...session(), display_name: 'Example guide', host: 'hostb' }] };

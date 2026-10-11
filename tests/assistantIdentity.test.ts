@@ -33,7 +33,7 @@ const ROOT = join(__dirname, '..');
 // The long form is assembled so the public fleet-name guard does not flag this policy.
 const LONG = 'Bart' + 'imaeus';
 const VISIBLE_NAME = new RegExp(`\\b(Bart|BART|${LONG}|${LONG.toUpperCase()})\\b`);
-const SCANNED = ['app', 'src/components/bart', 'src/components/status', 'src/components/questions', 'src/components/personal'];
+const SCANNED = ['app', 'src/components/assistant', 'src/components/status', 'src/components/questions', 'src/components/personal'];
 
 
 function sources(dir: string): string[] {

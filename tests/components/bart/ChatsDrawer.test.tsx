@@ -3,7 +3,7 @@ import { Keyboard, Modal, PanResponder, ScrollView } from 'react-native';
 import { act, fireEvent, render } from '@testing-library/react-native';
 import { initialPentacleStreamState } from 'pentacle-chat-core';
 import { selectSmartChatList } from '../../../app/(tabs)/chats';
-import ChatsDrawer from '../../../src/components/bart/ChatsDrawer';
+import ChatsDrawer from '../../../src/components/assistant/ChatsDrawer';
 import { resetChatOpenNavigationIntents } from '../../../src/services/chatOpenNavigationIntent';
 
 jest.mock('expo-router', () => require('../../helpers/mocks/expoRouter').makeMock());
@@ -31,7 +31,7 @@ test('drawer keeps approved row content, dimensions, and amber attention preview
   expect(view.getByText('Synthetic session')).toHaveStyle({ fontSize: 15.5 });
   expect(view.getByText('Synthetic preview')).toHaveStyle({ fontSize: 12.5, color: '#ffb53d' });
   expect(view.getByText('Synthetic preview').props.numberOfLines).toBe(1);
-  expect(view.getByTestId('bart-drawer-panel')).toHaveStyle({ width: '86%', backgroundColor: '#0d1411' });
+  expect(view.getByTestId('assistant-drawer-panel')).toHaveStyle({ width: '86%', backgroundColor: '#0d1411' });
   expect(view.getByLabelText('New session')).toHaveStyle({ width: 32, height: 32, backgroundColor: '#3dff66' });
   expect(view.queryByText('✕')).toBeNull();
 });
@@ -66,7 +66,7 @@ test('swipe capture respects vertical scrolling and requires strictly more than 
 
 test('row dispatch is duplicate-safe and closes before pushing; plus opens the supplied flow once', () => {
   const view = render(draw());
-  const row = view.getByTestId('bart-drawer-row-hostc:codex:drawer');
+  const row = view.getByTestId('assistant-drawer-row-hostc:codex:drawer');
   fireEvent.press(row);
   fireEvent.press(row);
   const router = require('expo-router').router;
@@ -89,7 +89,7 @@ test('opening dismisses the composer keyboard and lets a row handle the first ta
   const view = render(draw());
   expect(dismiss).toHaveBeenCalledTimes(1);
   expect(view.UNSAFE_getByType(ScrollView).props.keyboardShouldPersistTaps).toBe('handled');
-  fireEvent.press(view.getByTestId('bart-drawer-row-hostc:codex:drawer'));
+  fireEvent.press(view.getByTestId('assistant-drawer-row-hostc:codex:drawer'));
   expect(require('expo-router').router.push).toHaveBeenCalledTimes(1);
   dismiss.mockRestore();
 });

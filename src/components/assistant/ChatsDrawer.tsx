@@ -57,7 +57,7 @@ export default function ChatsDrawer({ open, groups, canStart, onClose, onNewSess
       <Animated.View style={[StyleSheet.absoluteFill, { opacity: fade }]}>
         <Pressable accessibilityLabel="Close sessions" accessibilityRole="button" onPress={onClose} style={styles.scrim} />
       </Animated.View>
-      <Animated.View testID="bart-drawer-panel" {...pan.panHandlers} style={[styles.panel, {
+      <Animated.View testID="assistant-drawer-panel" {...pan.panHandlers} style={[styles.panel, {
         paddingTop: Math.max(insets.top, 52) + 4, paddingBottom: Math.max(insets.bottom, 20),
         transform: [{ translateX: slide.interpolate({ inputRange: [0, 1], outputRange: [-width * 0.86 * 1.02, 0] }) }],
       }]}>
@@ -70,7 +70,7 @@ export default function ChatsDrawer({ open, groups, canStart, onClose, onNewSess
         <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
           {groups.filter((group) => group.chats.length > 0).map((group) => <View key={group.title}>
             <Text accessibilityRole="header" style={styles.group}>{group.title} · {group.chats.length}</Text>
-            {group.chats.map((chat) => <Pressable key={chat.streamId} testID={`bart-drawer-row-${chat.streamId}`}
+            {group.chats.map((chat) => <Pressable key={chat.streamId} testID={`assistant-drawer-row-${chat.streamId}`}
               accessibilityRole="button" accessibilityLabel={`Open ${chat.title}, ${chat.statusLabel}, ${chat.hostTitle}`}
               onPress={() => { if (open) performChatOpenNavigation(chat.streamId, router, onClose); }} style={styles.row}>
               <MachineMark machine={chat.machineName} />

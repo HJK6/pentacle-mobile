@@ -7,7 +7,8 @@ import { TOP_INSET, Tokens } from '@/constants/Colors';
 import { peekEventsForStream } from 'pentacle-chat-core';
 import Starfield from '../Starfield';
 import StatusSurface from '../status/StatusSurface';
-import { BART_STREAM_ID, selectOpenLanes, selectStatusUpdates } from '../status/statusSelectors';
+import { selectOpenLanes, selectStatusUpdates } from '../status/statusSelectors';
+import { ASSISTANT_STREAM_ID } from '../../services/assistantIdentity';
 import {
   getPentacleStreamState, requestStreamEvents, selectStreamEventsLoadState,
   selectStreamSlice, usePentacleStreamSelectorWhen,
@@ -40,8 +41,8 @@ export default function BartStatusOverlay({ onClose }: { onClose(): void }) {
   const pendingHistoryDemand = useRef(false);
   if (!logActive.current) pendingHistoryDemand.current = false;
   const hasOlderHistoryPage = usePentacleStreamSelectorWhen(isFocused, (snapshot) =>
-    selectStreamSlice(snapshot, BART_STREAM_ID, { visibleCount: 0, includeDraft: false }).hasOlderHistoryPage);
-  const historyLoad = usePentacleStreamSelectorWhen(isFocused, (snapshot) => selectStreamEventsLoadState(snapshot, BART_STREAM_ID));
+    selectStreamSlice(snapshot, ASSISTANT_STREAM_ID, { visibleCount: 0, includeDraft: false }).hasOlderHistoryPage);
+  const historyLoad = usePentacleStreamSelectorWhen(isFocused, (snapshot) => selectStreamEventsLoadState(snapshot, ASSISTANT_STREAM_ID));
 
   useEffect(() => {
     if (!isFocused) return;
@@ -64,7 +65,7 @@ export default function BartStatusOverlay({ onClose }: { onClose(): void }) {
     let cancelled = false;
     setLoading(true);
     setError(false);
-    void requestStreamEvents(BART_STREAM_ID, 300, { purpose: 'mount-fetch' })
+    void requestStreamEvents(ASSISTANT_STREAM_ID, 300, { purpose: 'mount-fetch' })
       .catch(() => { if (!cancelled) setError(true); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
@@ -76,18 +77,18 @@ export default function BartStatusOverlay({ onClose }: { onClose(): void }) {
     pendingHistoryDemand.current = false;
     if (!hasOlderHistoryPage) return;
     olderInFlight.current = true;
-    let oldest = Math.min(...peekEventsForStream(getPentacleStreamState(), BART_STREAM_ID)
+    let oldest = Math.min(...peekEventsForStream(getPentacleStreamState(), ASSISTANT_STREAM_ID)
       .map((event) => event.daemon_seq).filter(Number.isFinite));
     try {
       // A filtered-out page leaves the list height unchanged, so onEndReached
       // will not fire again. Continue this one demand until a status is found.
       do {
-        const page = await requestStreamEvents(BART_STREAM_ID, 300, { purpose: 'older-page' });
+        const page = await requestStreamEvents(ASSISTANT_STREAM_ID, 300, { purpose: 'older-page' });
         if (!logActive.current || page.some((event) => event.publish_kind === 'status')) break;
         const nextOldest = Math.min(...page.map((event) => event.daemon_seq));
         if (!Number.isFinite(nextOldest) || nextOldest >= oldest) break;
         oldest = nextOldest;
-      } while (selectStreamSlice(getPentacleStreamState(), BART_STREAM_ID).hasOlderHistoryPage);
+      } while (selectStreamSlice(getPentacleStreamState(), ASSISTANT_STREAM_ID).hasOlderHistoryPage);
     } catch {
       if (logActive.current) setError(true);
     } finally {
@@ -105,12 +106,12 @@ export default function BartStatusOverlay({ onClose }: { onClose(): void }) {
 
   return <Modal visible presentationStyle="fullScreen" animationType="none" onRequestClose={onClose}>
     <View style={styles.container}>
-    <Animated.View testID="bart-status-overlay" style={[styles.container, {
+    <Animated.View testID="assistant-status-overlay" style={[styles.container, {
       opacity: rise, transform: [{ translateY: rise.interpolate({ inputRange: [0, 1], outputRange: [4, 0] }) }],
     }]}>
     <Starfield />
     <StatusSurface updates={updates} lanes={lanes} now={now}
-      working={state.sessions.find((session) => session.stream_id === BART_STREAM_ID)?.working === true}
+      working={state.sessions.find((session) => session.stream_id === ASSISTANT_STREAM_ID)?.working === true}
       top={Math.max(insets.top, TOP_INSET)} bottom={Math.max(insets.bottom, 18)}
       showLog={showLog} onShowLog={setShowLog} loading={loading} error={error} onOpen={openSession} onLoadEarlier={loadEarlier} />
     <Pressable accessibilityRole="button" accessibilityLabel="Close status" onPress={onClose}

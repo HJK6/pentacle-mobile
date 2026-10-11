@@ -1,7 +1,7 @@
 import { initialPentacleStreamState, type PentacleSessionSummary } from 'pentacle-chat-core';
 import { MACHINES } from '../../../constants/Colors';
 import { BART_STREAM_ID } from '../../../src/components/status/statusSelectors';
-import { assistantAccent } from '../../../src/components/bart/assistantIdentity';
+import { assistantAccent } from '../../../src/components/assistant/assistantIdentity';
 import { selectAssistantIdentity } from '../../../src/services/assistantIdentity';
 function bartSession(streamId: string, overrides: Partial<PentacleSessionSummary> = {}): PentacleSessionSummary {
   return { stream_id: streamId, host: 'hostc', provider: 'claude', session_name: 'assistant',

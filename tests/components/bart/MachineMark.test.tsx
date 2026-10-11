@@ -1,6 +1,6 @@
 import React from 'react';
 import { render } from '@testing-library/react-native';
-import MachineMark from '../../../src/components/bart/MachineMark';
+import MachineMark from '../../../src/components/assistant/MachineMark';
 import MachineSigil from '../../../src/components/MachineSigil';
 import { Circle } from 'react-native-svg';
 import { Fonts, Tokens } from '../../../constants/Colors';

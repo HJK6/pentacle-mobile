@@ -5,7 +5,7 @@ import { Tabs } from 'expo-router';
 import { PlatformPressable } from '@react-navigation/elements';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Fonts, Tokens } from '@/constants/Colors';
-import { AssistantIcon } from '../../src/components/bart/assistantIdentity';
+import { AssistantIcon } from '../../src/components/assistant/assistantIdentity';
 import { useAssistantIdentity } from '../../src/services/assistantIdentity';
 import { logTabPressed } from '../../src/services/mobileTabsTelemetry';
 
