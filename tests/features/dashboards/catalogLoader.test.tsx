@@ -9,9 +9,9 @@ import type { PentacleReport } from '../../../src/services/pentacleAssets';
 jest.mock('@react-native-async-storage/async-storage', () => ({ getItem: jest.fn(), setItem: jest.fn() }));
 jest.mock('expo-constants', () => ({ expoConfig: { extra: {} } }));
 jest.mock('../../../src/utils/harnessRuntime', () => ({ getParam: jest.fn() }));
-// Byte-for-byte HJK6/pentacle commit c5671adbcf6f40b03cbc486d554792d656e1a8c9
+// Byte-for-byte HJK6/pentacle commit 7da06fb8862ee3e27d4fe9f78422389733dcc00f (on main since PR 179)
 // test/fixtures/dashboard_catalog/catalog_cases.json
-// SHA256 69eb4e98dbef4bd027e239d57bce9b46b5b9bed268183c28ebce2e4eff9277b2
+// SHA256 75c8a8302ed8de303f00d28991c1fc9241929ca2ee5ab823b989d9a5cb23eb31
 const catalogCases = require('./fixtures/catalog_cases.json');
 // Byte-for-byte HJK6/pentacle:test/fixtures/dashboard_catalog/report_retrieval_cases.json
 // SHA256 ce4c8ec61ec42e2f8113310add075a2d73a71f3898ca8f102b9a20d58e9c0235
@@ -48,7 +48,7 @@ for (const fixture of retrieval.cases) test(`shared retrieval fixture: ${fixture
   for (const [field, value] of Object.entries(fixture.outcome)) expect(outcome[field as keyof typeof outcome]).toEqual(value);
 });
 test('shared fixture bytes have exact documented source digests', () => {
-  for (const [file, hash] of [['catalog_cases.json', '69eb4e98dbef4bd027e239d57bce9b46b5b9bed268183c28ebce2e4eff9277b2'], ['report_retrieval_cases.json', 'ce4c8ec61ec42e2f8113310add075a2d73a71f3898ca8f102b9a20d58e9c0235']]) expect(crypto.createHash('sha256').update(fs.readFileSync(path.join(__dirname, 'fixtures', file))).digest('hex')).toBe(hash);
+  for (const [file, hash] of [['catalog_cases.json', '75c8a8302ed8de303f00d28991c1fc9241929ca2ee5ab823b989d9a5cb23eb31'], ['report_retrieval_cases.json', 'ce4c8ec61ec42e2f8113310add075a2d73a71f3898ca8f102b9a20d58e9c0235']]) expect(crypto.createHash('sha256').update(fs.readFileSync(path.join(__dirname, 'fixtures', file))).digest('hex')).toBe(hash);
 });
 test('host API above two is unsupported including large integers, after whole-schema validation', async () => {
   const h = harness(), c = full(); c.requires.host_api = 9007199254740992; h.get.mockResolvedValue({ ...meta, body: JSON.stringify(c) });
