@@ -37,7 +37,7 @@ its content is unchanged (the Chats list rebuilds rows, and legacy actions, on e
 safe store selector. Opening, closing or paging never changes the count.
 
 `QuestionDeckEntry` carries `key`, `streamId`, `isBart` (`streamId === BART_STREAM_ID`),
-`machineLabel`, `machineName`, `sessionTitle`, `accent` (Bart = `#3dff66`, else the machine accent),
+`machineLabel`, `machineName`, `sessionTitle`, `accent` (assistant = `#3dff66`, else the machine accent),
 `action`, `itemIndex`, `question`, `questionId` (durable resolver id; `null` for legacy; the voice binding is built from `key` + `streamId` + `questionId` + the notification's producer, see Voice answers) and `locked` (scan-incomplete legacy item, counted
 answered exactly as on Chats).
 
@@ -98,7 +98,7 @@ only when a multi-item legacy action is partly answered (it cannot be sent, so i
 
 - Header: source ring (djinni sigil in lamp green for Bart, the host's machine sigil in its accent
   ring otherwise), `QUESTION i / n` in the page's accent, subtitle `Machine · session title`
-  (for the assistant's own questions: the shared assistant identity name from `useAssistantIdentity()` — the assistant session's display name, then title, then `Assistant`; operator requirement R-ident forbids a literal name, contracts § Assistant identity; the source mark uses the same identity's `sigilKind`), **See chat ›** (hidden for Bart; `performChatOpenNavigation(streamId,
+  (for the assistant's own questions: the shared assistant identity name from `useAssistantIdentity()` — the assistant session's display name, then title, then `Zephyr`; operator requirement R-ident forbids a literal name, contracts § Assistant identity; the source mark uses the same identity's `sigilKind`), **See chat ›** (hidden for the assistant; `performChatOpenNavigation(streamId,
   router)`, never a direct href), the accessory slot (the voice mic when voice answers are available, otherwise empty), ✕.
 - Body: `MobileQuestionOne` for the page's item (options with descriptions, custom, free-text note),
   scrollable and keyboard-avoiding. A `qc-rise` entrance (250 ms opacity + 4 px) plays on mount and on

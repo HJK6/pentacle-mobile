@@ -351,5 +351,5 @@ test('live assistant name and host changes update the header through the single 
   expect(assistantAccent(view.UNSAFE_getByType(Header).props.identity)).toBe('#ff2e3e');
   mockState = { ...mockState, sessions: [{ ...session(), display_name: '', title: '' }] };
   view.rerender(<BartScreen />);
-  expect(screen.getByLabelText('Assistant status, 0 open lanes')).toBeTruthy();
+  expect(screen.getByLabelText('Zephyr status, 0 open lanes')).toBeTruthy();
 });

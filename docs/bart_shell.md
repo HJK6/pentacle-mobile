@@ -1,7 +1,7 @@
 # Assistant tab shell
 
 The tab bar is implemented in [`app/(tabs)/_layout.tsx`](../app/(tabs)/_layout.tsx):
-**Assistant · Personal · Dashboards · Settings**, using the configured assistant
+**Zephyr · Personal · Dashboards · Settings**, using the configured assistant
 name instead of the default. The `bart` route is the navigator’s initial tab.
 Chats, Unified, and Updates remain registered routes with `href: null`; they are
 not shown in the bar. Existing Dashboards content is unchanged.
@@ -10,7 +10,7 @@ not shown in the bar. Existing Dashboards content is unchanged.
 for `BART_STREAM_ID`. Transcript rendering, composer, session questions, and voice
 remain the existing session implementation. It does not fork a session screen,
 create a store, or change the daemon. The tab and header read one local [identity adapter](../src/components/assistant/assistantIdentity.tsx):
-the canonical session’s `display_name`, then `title`, then **Assistant**. Its
+the canonical session’s `display_name`, then `title`, then **Zephyr**. Its
 icon uses that session’s configured host accent with the `djinni` identity
 glyph; the tab retains its active/inactive tint. The adapter is the single
 replacement point for a future shared identity selector.

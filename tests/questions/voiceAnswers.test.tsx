@@ -111,7 +111,7 @@ function threeDurableOneLegacy(extraNotifications: unknown[] = []) {
       session(SESSION_C, 'Deploy lane', { last_event_at: '2026-10-06T12:05:00.000Z' }),
       session(SESSION_B, 'Code review', { last_event_at: '2026-10-06T12:04:00.000Z' }),
       session(LEGACY_SESSION, 'Legacy chat', { last_event_at: '2026-10-06T12:03:00.000Z', question: legacyQuestion() }),
-      session(BART, 'Bart', { last_event_at: '2026-10-06T12:00:00.000Z' }),
+      session(ASSISTANT_STREAM_ID, 'Zephyr', { last_event_at: '2026-10-06T12:00:00.000Z' }),
     ],
     notifications: [
       durableQuestion(SESSION_C, 'n-deploy'),
@@ -305,7 +305,7 @@ describe('Done (V1 selected set, V2 binding, V5 no false answers)', () => {
   test('a surfaced hidden-seat question binds producer and surface ids separately', async () => {
     const surfaced = durableQuestion(HIDDEN_SEAT, 'n-hidden', { surfaced_to_stream_id: BART });
     mockState = baseState({
-      sessions: [session(BART, 'Bart'), session(HIDDEN_SEAT, 'Hidden seat', { visibility: 'hidden' })],
+      sessions: [session(ASSISTANT_STREAM_ID, 'Zephyr'), session(HIDDEN_SEAT, 'Hidden seat', { visibility: 'hidden' })],
       notifications: [surfaced],
     });
     render(<QuestionsScreen />);
@@ -520,7 +520,7 @@ describe('n is the full durable deck at recording start (V1, legacy excluded onl
         session(SESSION_C, 'Deploy lane', { last_event_at: '2026-10-06T12:05:00.000Z' }),
         session(SESSION_B, 'Code review', { last_event_at: '2026-10-06T12:04:00.000Z' }),
         session(LEGACY_SESSION, 'Legacy chat', { last_event_at: '2026-10-06T12:03:00.000Z', question: legacyQuestion() }),
-        session(BART, 'Bart', { last_event_at: '2026-10-06T12:00:00.000Z' }),
+        session(ASSISTANT_STREAM_ID, 'Zephyr', { last_event_at: '2026-10-06T12:00:00.000Z' }),
       ],
       notifications: [durableQuestion(SESSION_C, 'n-deploy'), unbindable],
     });

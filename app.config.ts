@@ -177,6 +177,10 @@ export default function defineConfig(_context: ConfigContext): ExpoConfig {
         'android.permission.USE_FINGERPRINT',
       ],
       package: config.apple.androidPackage,
+      adaptiveIcon: {
+        foregroundImage: './assets/images/adaptive-icon.png',
+        backgroundColor: '#07090d',
+      },
     },
     owner: config.apple.expoOwner,
   };

@@ -719,15 +719,15 @@ test('smart chat selector leaves assistant roles unpinned unless configured and 
 });
 
 test.each(['', 'assistant'])('composite Bart stays first with assistant role config %j', (assistantRole) => {
-  const bart = { ...session('hostc:assistant', 'Bart'), provider: 'composite', role: 'assistant_composite', session_kind: 'assistant_composite', last_event_at: '2026-07-05T07:00:00.000Z' };
+  const primary = { ...session('hostc:assistant', 'Zephyr'), provider: 'composite', role: 'assistant_composite', session_kind: 'assistant_composite', last_event_at: '2026-07-05T07:00:00.000Z' };
   const action = { ...session('hostc:codex:action', 'Needs answer'), last_event_at: '2026-07-05T10:00:00.000Z' };
   const working = { ...session('hostc:codex:working', 'Still working'), working: true, last_event_at: '2026-07-05T09:00:00.000Z' };
   const legacy = { ...session('hostc:codex:legacy', 'Legacy assistant'), role: 'assistant', last_event_at: '2026-07-05T08:00:00.000Z' };
-  mockState.sessions = [action, working, legacy, bart];
+  mockState.sessions = [action, working, legacy, primary];
   mockState.notifications = [agentQuestionNotification('hostc:codex:action')];
 
   const rows = selectSmartChatList(mockState, 'all', undefined, assistantRole);
-  expect(rows.map((item) => item.streamId)).toEqual(assistantRole ? [bart.stream_id, legacy.stream_id, action.stream_id, working.stream_id] : [bart.stream_id, action.stream_id, working.stream_id, legacy.stream_id]);
+  expect(rows.map((item) => item.streamId)).toEqual(assistantRole ? [primary.stream_id, legacy.stream_id, action.stream_id, working.stream_id] : [primary.stream_id, action.stream_id, working.stream_id, legacy.stream_id]);
   expect(rows[0].isCompositeChat).toBe(true);
   expect(rows[0].role).toBe('assistant_composite');
 });
@@ -736,7 +736,7 @@ test('rendered chat list pins composite Bart above a newer question and working 
   mockState.sessions = [
     { ...session('hostc:codex:action', 'Needs answer'), last_event_at: '2026-07-05T10:00:00.000Z' },
     { ...session('hostc:codex:working', 'Still working'), working: true, last_event_at: '2026-07-05T09:00:00.000Z' },
-    { ...session('hostc:assistant', 'Bart'), provider: 'composite', role: 'assistant_composite', session_kind: 'assistant_composite', last_event_at: '2026-07-05T07:00:00.000Z' },
+    { ...session('hostc:assistant', 'Zephyr'), provider: 'composite', role: 'assistant_composite', session_kind: 'assistant_composite', last_event_at: '2026-07-05T07:00:00.000Z' },
   ];
   mockState.notifications = [agentQuestionNotification('hostc:codex:action')];
   render(<ChatsScreen />);

@@ -19,12 +19,12 @@ test('display-name customization wins over title and the lamp takes the canonica
   expect(assistantAccent(identity)).toBe(MACHINES.hostc.accent);
 });
 
-test('missing or blank names default to Assistant and keep the identity lamp', () => {
+test('missing or blank names default to Zephyr and keep the identity lamp', () => {
   const empty = selectAssistantIdentity(initialPentacleStreamState);
-  expect(empty.name).toBe('Assistant');
+  expect(empty.name).toBe('Zephyr');
   expect(empty.sigilKind).toBe('djinni');
   expect(selectAssistantIdentity({ ...initialPentacleStreamState,
-    sessions: [bartSession(BART_STREAM_ID, { display_name: ' ', title: ' ' })] }).name).toBe('Assistant');
+    sessions: [bartSession(empty.streamId, { display_name: ' ', title: ' ' })] }).name).toBe('Zephyr');
 });
 
 test('title fallback and live rename update one identity, while unrelated changes preserve its reference', () => {

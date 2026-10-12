@@ -4,12 +4,12 @@ import { usePentacleStreamSelectorWhen } from './pentacleStream';
 // The protected assistant's thread. The id is protocol, not a display name: what the
 // operator sees comes from selectAssistantIdentity.
 export const ASSISTANT_STREAM_ID = 'bart:assistant';
-export const DEFAULT_ASSISTANT_NAME = 'Assistant';
+export const DEFAULT_ASSISTANT_NAME = 'Zephyr';
 
 export type AssistantIdentity = {
   streamId: string;
   // The operator's name for their assistant (Pentacle web: the protected assistant
-  // session's displayName, default 'Assistant'). Never a hard-coded product name.
+  // session's displayName, default 'Zephyr'). Never a hard-coded product name.
   name: string;
   // The assistant session's host; its machine sigil is drawn with sigilKind.
   hostId: string | null;

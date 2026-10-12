@@ -83,7 +83,7 @@ test('legacy multiline report keeps summary bytes and strips only the final trai
     'summary=interior summary-looking content',
     'Final summary line',
   ].join('\n');
-  const result = interpretPentacleEvent(event(reportEnvelope(summary, { qa: true })), 'Bart');
+  const result = interpretPentacleEvent(event(reportEnvelope(summary, { qa: true })), 'Zephyr');
 
   assert.equal(result.caseId, 'subagent-report');
   assert.equal(result.text, summary);

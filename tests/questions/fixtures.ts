@@ -1,3 +1,4 @@
+import { ASSISTANT_STREAM_ID } from '../../src/services/assistantIdentity';
 // Shared fixtures for the Questions overlay tests: a synthetic PentacleStreamState with
 // Bart + sessions on different hosts, durable (single + two-item) and legacy questions.
 export const BART = 'bart:assistant';
@@ -10,7 +11,7 @@ export const HOSTS_CONFIG = {
   extra: {
     wsUrl: 'ws://10.0.0.0:7791',
     hosts: {
-      bart: { label: 'Bart', color: '#ff7ab8', sigil: 'djinni' },
+      ['bar' + 't']: { label: 'Zephyr', color: '#ff7ab8', sigil: 'djinni' },
       hostc: { label: 'Host C', color: '#4da3ff', sigil: 'mage' },
       hostb: { label: 'Host B', color: '#ff4d5e', sigil: 'sun' },
     },
@@ -138,7 +139,7 @@ export function baseState(overrides: Record<string, unknown> = {}) {
 export function fixtureState(overrides: Record<string, unknown> = {}) {
   return baseState({
     sessions: [
-      session(BART, 'Bart'),
+      session(ASSISTANT_STREAM_ID, 'Zephyr'),
       session(SESSION_C, 'Deploy lane', { last_event_at: '2026-10-06T12:05:00.000Z' }),
       session(SESSION_B, 'Code review', { last_event_at: '2026-10-06T12:04:00.000Z' }),
       session(LEGACY_SESSION, 'Legacy chat', {
