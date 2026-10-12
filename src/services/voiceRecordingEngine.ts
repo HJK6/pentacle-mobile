@@ -6,7 +6,6 @@ import { VoiceRecorder, MAX_DURATION_MS, type RecordingEngine, type VoicePermiss
 import { voiceDelivery } from './voiceDelivery';
 import { voiceTakeStore, voiceScopeHash, VoiceStorageError } from './voiceTakeStore';
 import { voiceTransportSnapshot, voiceOriginStatus, subscribeVoiceTransport, getPentacleStreamState } from './pentacleStream';
-import { selectQuestionDeck } from '../components/questions/questionSelectors';
 import { voiceQuestionSnapshot, updateVoiceQuestionLiveKeys, freezeVoiceQuestionAnswers, startVoiceQuestionSession, completeVoiceQuestionSession } from '../components/questions/voice/voiceAnswersBinding';
 
 export { ACCEPTED_CAPTURE_REVISION } from '../../modules/pentacle-voice-capture';
@@ -145,41 +144,52 @@ export function setVoiceLifecycle(value: { foreground: boolean; unlocked: boolea
   for (const listener of lifecycleListeners) listener();
 }
 function refreshQuestionKeys(id: string) {
+  if (!voiceQuestionSnapshot(id)) return;
   const state = getPentacleStreamState(); const transport = voiceTransportSnapshot();
   // An offline/unhydrated deck is not evidence that original questions disappeared.
-  if (voiceQuestionSnapshot(id) && state.hasHydrated && transport.ready && transport.inventoryFresh && !transport.authNeeded)
+  if (state.hasHydrated && transport.ready && transport.inventoryFresh && !transport.authNeeded) {
+    // Idle/global controls must not import app screens through the legacy deck.
+    const { selectQuestionDeck } = require('../components/questions/questionSelectors') as typeof import('../components/questions/questionSelectors');
     updateVoiceQuestionLiveKeys(id, selectQuestionDeck(state).map(page => page.key));
+  }
 }
 function ownsCurrentScope(recordingId: string) {
   const take = voiceTakeStore.get(recordingId); const context = voiceTransportSnapshot();
   return !!take && !!context.credentialId && !!context.serverIdentity
     && take.scopeHash === voiceScopeHash({ serverIdentity: context.serverIdentity, credentialId: context.credentialId });
 }
+function currentCaptureScope(): string {
+  const context = voiceTransportSnapshot();
+  if (!context.credentialId || !context.serverIdentity || context.authNeeded) throw new VoiceStorageError('auth_needed');
+  return `${voiceScopeHash({ serverIdentity: context.serverIdentity, credentialId: context.credentialId })}:${context.scopeGeneration ?? 0}`;
+}
 export const voiceRecorder = new VoiceRecorder(new NativeCaptureEngine(state => {
   setVoiceLifecycle({ foreground: state === 'active', unlocked: state === 'active' ? lifecycle.unlocked : false });
 }), undefined, {
-  create: async (streamId, draft) => {
-    ensureOriginSubscription();
-    await voiceDelivery.initialize();
+  captureScope: currentCaptureScope,
+  create: async (streamId, draft, expectedScope) => {
+    const checkScope = () => { if (expectedScope !== undefined && currentCaptureScope() !== expectedScope) throw new Error('Account or connection changed. Start recording again.'); };
+    checkScope(); ensureOriginSubscription();
+    await voiceDelivery.initialize(); checkScope();
     const context = voiceTransportSnapshot();
     const origin = context.origins.find(row => row.stream_id === streamId);
     if (!context.credentialId || context.authNeeded) throw new VoiceStorageError('auth_needed');
     if (!origin?.session_generation || voiceOriginStatus(streamId, origin.session_generation) !== 'available') throw new VoiceStorageError('origin_unverifiable');
     if (draft?.originGeneration && draft.originGeneration !== origin.session_generation) throw new VoiceStorageError('origin_unverifiable');
-    const captured: RecordingDraft = { originGeneration: origin.session_generation, originLabel: origin.title || draft?.originLabel || streamId,
+    const captured: RecordingDraft = { originGeneration: origin.session_generation, originLabel: draft?.originLabel || origin.title || 'Chat',
       textPrefix: draft?.textPrefix ?? '', images: draft?.images.slice() ?? [], operationKind: draft?.operationKind ?? 'voice_chat', questionBinding: draft?.questionBinding };
     const take = await voiceTakeStore.create({ scope: { serverIdentity: context.serverIdentity, credentialId: context.credentialId },
       origin: { streamId, generation: origin.session_generation, label: captured.originLabel }, draft: captured, operationKind: captured.operationKind, questionBinding: captured.questionBinding });
     return { recordingId: take.recordingId, draft: { ...captured, images: voiceTakeStore.images(take) } };
   },
   checkpoint: async (snapshot, nativeUri, questionBinding) => {
-    await voiceTakeStore.noteCapture(snapshot.recordingId, { nativeUri, capturedAudioMs: snapshot.capturedAudioMs, phase: snapshot.status === 'recording' ? 'recording' : 'paused', levels: snapshot.levels, questionBinding });
+    await voiceTakeStore.noteCapture(snapshot.recordingId, { nativeUri, capturedAudioMs: snapshot.capturedAudioMs, phase: snapshot.status === 'recording' ? 'recording' : 'paused', levels: snapshot.levels, questionBinding, context_v1: snapshot.context_v1 });
   },
   finalize: async take => {
     refreshQuestionKeys(take.recordingId);
     const frozenAnswers = freezeVoiceQuestionAnswers(take.recordingId, take.capturedAudioMs ?? take.durationS * 1000) ?? take.frozenAnswers;
     take.frozenAnswers = frozenAnswers; take.questionBinding = voiceQuestionSnapshot(take.recordingId);
-    await voiceTakeStore.adoptFinalized(take.recordingId, { uri: take.uri, mime: take.mime, capturedAudioMs: take.capturedAudioMs ?? take.durationS * 1000, levels: take.levels, frozenAnswers, questionBinding: take.questionBinding });
+    await voiceTakeStore.adoptFinalized(take.recordingId, { uri: take.uri, mime: take.mime, capturedAudioMs: take.capturedAudioMs ?? take.durationS * 1000, levels: take.levels, frozenAnswers, questionBinding: take.questionBinding, context_v1: take.context_v1 });
   },
   requestSend: async take => {
     if (take.draft?.operationKind === 'voice_answer' && !take.frozenAnswers?.length) {

@@ -19,6 +19,7 @@ import {
   type TranscribeBlobResult,
 } from './pentacleStream';
 import { inspectVoiceAudio } from './voiceUpload';
+import { finalizeVoiceContext, validVoiceContext, type VoiceContextV1 } from './voiceContext';
 
 export const VOICE_TAKE_VERSION = 1;
 export const VOICE_MAX_TAKES = 10;
@@ -85,6 +86,7 @@ export type VoiceTakeManifest = {
   operation: VoiceOperation;
   nativeUri?: string;
   capturedAudioMs: number;
+  context_v1?: VoiceContextV1;
   levels: number[];
   audio?: VoiceAudio;
   upload?: VoiceUploadProgress;
@@ -300,6 +302,11 @@ function validManifest(
         t.sendRequestedAt === null)
     )
       return false;
+    if (t.context_v1 !== undefined && !validVoiceContext(t.context_v1, t.capturedAudioMs)) return false;
+    if (t.dispatchIntent) {
+      const meta = t.dispatchIntent.payload.meta as { voice?: { context_v1?: unknown } } | undefined;
+      if (JSON.stringify(meta?.voice?.context_v1) !== JSON.stringify(t.context_v1)) return false;
+    }
     if (t.frozenAnswers && !validVoiceAnswersItems(t.frozenAnswers, t.capturedAudioMs))
       return false;
     if (t.questionBinding && !validVoiceQuestionSnapshot(t.questionBinding)) return false;
@@ -720,20 +727,26 @@ export class VoiceTakeStore {
       phase: 'recording' | 'paused';
       levels?: number[];
       questionBinding?: VoiceQuestionSessionSnapshot;
+      context_v1?: VoiceContextV1;
     },
   ): Promise<VoiceTakeManifest> {
-    return this.mutate(id, (t) => ({
-      ...t,
-      storage: values.phase,
-      nativeUri: values.nativeUri ? this.nativeUri(values.nativeUri) : t.nativeUri,
-      capturedAudioMs: Math.min(
-        VOICE_MAX_CAPTURED_MS,
-        Math.max(0, Math.floor(values.capturedAudioMs)),
-      ),
-      levels: values.levels?.slice() ?? t.levels,
-      ...(values.questionBinding ? { questionBinding: clone(values.questionBinding) } : {}),
-    }));
+    const context = values.context_v1 ? clone(values.context_v1) : undefined;
+    return this.mutate(id, (t) => {
+      // A late capture checkpoint must not reopen a finalized take or change the
+      // frozen metadata while Send/transcription owns the same manifest.
+      if (values.nativeUri) this.nativeUri(values.nativeUri);
+      if (!['recording', 'paused'].includes(t.storage) || t.sendRequestedAt !== null) return t;
+      const capturedAudioMs = Math.min(VOICE_MAX_CAPTURED_MS, Math.max(0, Math.floor(values.capturedAudioMs)));
+      return {
+        ...t, storage: values.phase,
+        nativeUri: values.nativeUri ? this.nativeUri(values.nativeUri) : t.nativeUri,
+        capturedAudioMs, levels: values.levels?.slice() ?? t.levels,
+        ...(values.questionBinding ? { questionBinding: clone(values.questionBinding) } : {}),
+        ...(context ? { context_v1: finalizeVoiceContext(context, capturedAudioMs) } : {}),
+      };
+    });
   }
+
   adoptFinalized(
     id: string,
     values: {
@@ -743,9 +756,11 @@ export class VoiceTakeStore {
       levels?: number[];
       frozenAnswers?: VoiceAnswersItem[];
       questionBinding?: VoiceQuestionSessionSnapshot;
+      context_v1?: VoiceContextV1;
     },
   ): Promise<VoiceTakeManifest> {
     const epoch = this.epoch(id);
+    const context = values.context_v1 ? clone(values.context_v1) : undefined;
     return this.serial(id, async () => {
       let t = this.get(id);
       const guard = () => {
@@ -793,6 +808,7 @@ export class VoiceTakeStore {
           Math.max(0, Math.floor(values.capturedAudioMs)),
         ),
         levels: values.levels?.slice() ?? t!.levels,
+        ...((context ?? t!.context_v1) ? { context_v1: finalizeVoiceContext((context ?? t!.context_v1)!, values.capturedAudioMs) } : {}),
         ...(values.frozenAnswers ? { frozenAnswers: clone(values.frozenAnswers) } : {}),
         ...(values.questionBinding ? { questionBinding: clone(values.questionBinding) } : {}),
       });

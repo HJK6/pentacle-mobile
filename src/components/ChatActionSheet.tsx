@@ -1,3 +1,4 @@
+import { useVoiceSurface } from '../services/voicePresentation';
 import VoiceRecordingOverlay from './voice/VoiceRecordingOverlay';
 import React from 'react';
 import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
@@ -20,6 +21,7 @@ type Props = {
  * action does (rename modal, delete confirm) and is responsible for closing.
  */
 export default function ChatActionSheet({ visible, reportCount = 0, reportUnreadCount = 0, onReports, onRename, onDelete, onClose }: Props) {
+  useVoiceSurface({ page_id: 'other', title: 'Chat actions' }, visible, { priority: 2, bottom: 24 });
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <Pressable style={styles.backdrop} onPress={onClose} testID="chat-action-sheet">

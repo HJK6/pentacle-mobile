@@ -1,3 +1,4 @@
+import HeaderVoiceMic from '../voice/HeaderVoiceMic';
 // README § 9 list detail (`ListDetail2`): priority-then-order rows, 5 s check/undo, ✕ removes now,
 // add row. Every row is a Cosmo list item; nothing is stored here.
 import React, { useEffect, useState } from 'react';
@@ -47,7 +48,7 @@ export default function ListDetail({ listId }: { listId: ListId }) {
         <Pressable accessibilityRole="button" accessibilityLabel="Lists" onPress={() => router.back()} hitSlop={8}>
           <Text style={styles.back}>‹</Text>
         </Pressable>
-        <Text style={styles.name}>{meta.name}</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 }}><Text numberOfLines={1} style={[styles.name, { flex: 0, flexShrink: 1 }]}>{meta.name}</Text><HeaderVoiceMic /></View>
         <Text style={styles.openCount}>{`${open} OPEN`}</Text>
       </View>
       <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">

@@ -906,7 +906,7 @@ test.each(["list", "map"] as const)(
       ),
     );
     const globalLog = within(view.getByTestId("lanes-update-log"));
-    fireEvent.press(globalLog.getByRole("button"));
+    fireEvent.press(globalLog.getByRole("button", { name: "Open lane log: Published lane milestone" }));
     await act(async () => {});
     expect(view.getByTestId(`lane-log-${baseLane.lane_id}`)).toBeTruthy();
     expect(readShow).toHaveBeenCalledWith(baseLane.lane_id);
@@ -967,7 +967,7 @@ test("global publication for a lane absent from the projection reports unavailab
   );
   fireEvent.press(view.getByTestId("lanes-all-updates"));
   fireEvent.press(
-    within(view.getByTestId("lanes-update-log")).getByRole("button"),
+    within(view.getByTestId("lanes-update-log")).getByRole("button", { name: "Open lane log: Published lane milestone" }),
   );
   expect(view.getByTestId("lanes-update-log-unavailable")).toHaveTextContent(
     "Lane log unavailable: lane-absent is not in the current open lanes",

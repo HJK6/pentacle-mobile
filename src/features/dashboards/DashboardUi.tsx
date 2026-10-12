@@ -1,3 +1,4 @@
+import HeaderVoiceMic from '../../components/voice/HeaderVoiceMic';
 import React from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Fonts, Tokens } from '../../../constants/Colors';
@@ -27,7 +28,7 @@ export function DashboardHeader({ title, subtitle }: { title: string; subtitle: 
   return (
     <View style={styles.header}>
       <Text style={styles.eyebrow}>DASHBOARD HUB</Text>
-      <Text style={styles.title}>{title}</Text>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}><Text numberOfLines={1} style={[styles.title, { flexShrink: 1 }]}>{title}</Text><HeaderVoiceMic /></View>
       <Text style={styles.subtitle}>{subtitle}</Text>
     </View>
   );

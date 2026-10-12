@@ -1,3 +1,4 @@
+import HeaderVoiceMic from '../voice/HeaderVoiceMic';
 import React, { useEffect, useRef, useState } from 'react';
 import { Animated, FlatList, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import type { PentacleEvent } from 'pentacle-chat-core';
@@ -81,7 +82,7 @@ export default function StatusSurface({ updates, lanes, working, now, top, botto
     <View style={[styles.header, { paddingTop: top }]}>
       <ArcaneRingFrame identity kind={assistant.sigilKind} size={38} sigilSize={26}
         machine={assistant.hostId ? getHostMachineName(assistant.hostId) : undefined} />
-      <View style={styles.copy}><Text testID="status-assistant-name" style={styles.name}>{assistant.name}</Text>
+      <View style={styles.copy}><View style={styles.inline}><Text testID="status-assistant-name" numberOfLines={1} style={[styles.name, { flexShrink: 1 }]}>{assistant.name}</Text><HeaderVoiceMic /></View>
         <View style={styles.inline}><View testID="bart-status-tag" style={styles.inline}>
           <StatusTag status={working ? 'working' : 'idle'} />
           <Text style={[styles.status, { color: working ? Tokens.palette.green : Tokens.palette.amber }]}>{working ? 'WORKING' : 'IDLE'}</Text>
@@ -89,9 +90,9 @@ export default function StatusSurface({ updates, lanes, working, now, top, botto
       </View>
     </View>
     {showLog ? <>
-      <Pressable accessibilityRole="button" accessibilityLabel="Back to status" onPress={() => onShowLog(false)} style={styles.back}>
+      <View style={styles.back}><Pressable accessibilityRole="button" accessibilityLabel="Back to status" onPress={() => onShowLog(false)} style={styles.inline}>
         <Text style={styles.caretText}>‹</Text><Text style={styles.label}>UPDATE LOG</Text>
-      </Pressable>
+      </Pressable><HeaderVoiceMic /></View>
       <FlatList data={updates} keyExtractor={(item) => `${item.stream_id}:${item.daemon_seq}`}
         contentContainerStyle={[styles.log, { paddingBottom: bottom }]} onEndReached={onLoadEarlier} onEndReachedThreshold={0.3}
         ListEmptyComponent={empty} renderItem={({ item, index }) => <View testID={`status-update-${item.daemon_seq}`} style={styles.logRow}>

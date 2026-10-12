@@ -1,3 +1,4 @@
+import { useVoiceSurface } from '../../src/services/voicePresentation';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { useIsFocused } from '@react-navigation/native';
@@ -26,6 +27,7 @@ export default function UpdatesScreen() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
   const [showLog, setShowLog] = useState(false);
+  useVoiceSurface({ page_id: showLog ? 'updates' : 'status', title: showLog ? 'Update log' : 'Status' }, isFocused, { priority: 0, bottom: 47 + Math.max(insets.bottom, 22) + 17, top: Math.max(insets.top, TOP_INSET) + 72 });
   const logActive = useRef(false);
   logActive.current = isFocused && state.connected && showLog;
   useEffect(() => () => { logActive.current = false; }, []);

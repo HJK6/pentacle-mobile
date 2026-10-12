@@ -1,3 +1,5 @@
+import HeaderVoiceMic from '../../src/components/voice/HeaderVoiceMic';
+import { useVoiceSurface } from '../../src/services/voicePresentation';
 import React, { useEffect, useMemo, useState } from 'react';
 import { Pressable, RefreshControl, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import { useIsFocused } from '@react-navigation/native';
@@ -72,6 +74,7 @@ const MACHINE_STATS_STALE_REEVAL_MS = 30 * 1000;
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
   const isFocused = useIsFocused();
+  useVoiceSurface({ page_id: 'settings', title: 'Settings' }, isFocused, { bottom: 47 + Math.max(insets.bottom, 22) + 17, top: Math.max(insets.top, 10) + 72 });
   const { token, isReady, clearToken } = usePentacleToken();
   const [refreshing, setRefreshing] = useState(false);
   const [activeHost, setActiveHost] = useState<string>('');
@@ -149,6 +152,10 @@ export default function SettingsScreen() {
         ]}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={P.green} />}
       >
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+          <Text numberOfLines={1} style={{ color: P.text, fontFamily: Fonts.rajdhani.bold, fontSize: 26, flexShrink: 1 }}>Settings</Text>
+          <HeaderVoiceMic />
+        </View>
         <LimitsSection limits={limits} health={limitsHealth} />
 
         <ChatSettingsSection

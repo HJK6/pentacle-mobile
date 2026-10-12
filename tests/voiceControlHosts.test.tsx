@@ -422,7 +422,8 @@ test('questions route keeps its beforeRemove discard guard inside the inclusive 
   const view = render(<View><VoiceRecordingOverlay /><QuestionsRoute /></View>);
   await settle();
   assertControlSet(view, 'questions');
-  expect(view.queryByTestId('questions-voice-mic', { includeHiddenElements: true })).toBeNull();
+  expect(view.getAllByTestId('questions-voice-mic', { includeHiddenElements: true })).toHaveLength(1);
+  expect(view.getByTestId('questions-voice-mic').props.accessibilityLabel).toBe('Send active recording');
   expect(view.queryByTestId('questions-voice-done', { includeHiddenElements: true })).toBeNull();
   expect(mockRemovalListeners.size).toBe(1);
   const action = { type: 'POP', source: 'synthetic-swipe' };

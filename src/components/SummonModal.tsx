@@ -1,3 +1,4 @@
+import { useVoiceSurface } from '../services/voicePresentation';
 import VoiceRecordingOverlay from './voice/VoiceRecordingOverlay';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
@@ -49,6 +50,7 @@ export default function SummonModal({
   onRetryCatalog,
   onPick,
 }: Props) {
+  useVoiceSurface({ page_id: 'agents', title: 'Summon' }, visible, { priority: 2, bottom: 24 });
   const [selected, setSelected] = useState<SummonMachine | null>(null);
   const [provider, setProvider] = useState<SpawnProvider>('codex');
   const [byProvider, setByProvider] = useState<Partial<Record<SpawnProvider, { model: string; effort: string }>>>({});

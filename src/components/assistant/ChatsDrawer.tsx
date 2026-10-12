@@ -1,3 +1,5 @@
+import HeaderVoiceMic from '../voice/HeaderVoiceMic';
+import { useVoiceSurface } from '../../services/voicePresentation';
 import VoiceRecordingOverlay from '../voice/VoiceRecordingOverlay';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, Easing, Keyboard, Modal, PanResponder, Platform, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
@@ -17,6 +19,7 @@ export default function ChatsDrawer({ open, groups, canStart, onClose, onNewSess
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const [mounted, setMounted] = useState(open);
+  useVoiceSurface({ page_id: 'sessions', title: 'Sessions' }, mounted, { priority: 2, bottom: Math.max(insets.bottom, 14) + 10, top: Math.max(insets.top, 52) + 64 });
   const slide = useRef(new Animated.Value(0)).current;
   const fade = useRef(new Animated.Value(0)).current;
   const newOpening = useRef(false);
@@ -64,7 +67,7 @@ export default function ChatsDrawer({ open, groups, canStart, onClose, onNewSess
         transform: [{ translateX: slide.interpolate({ inputRange: [0, 1], outputRange: [-width * 0.86 * 1.02, 0] }) }],
       }]}>
         <View style={styles.heading}>
-          <Text accessibilityRole="header" style={styles.title}>Sessions</Text>
+          <Text accessibilityRole="header" numberOfLines={1} style={styles.title}>Sessions</Text><HeaderVoiceMic /><View style={{ flex: 1 }} />
           <Pressable accessibilityRole="button" accessibilityLabel="New session" disabled={!canStart} accessibilityState={{ disabled: !canStart }} onPress={startSession} style={[styles.plus, !canStart && styles.disabled]}>
             <Text style={styles.plusText}>+</Text>
           </Pressable>
@@ -98,7 +101,7 @@ const styles = StyleSheet.create({
   panel: { position: 'absolute', top: 0, bottom: 0, left: 0, width: '86%', backgroundColor: Tokens.palette.panel,
     borderRightWidth: 1, borderRightColor: Tokens.palette.line, paddingHorizontal: 18 },
   heading: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  title: { flex: 1, fontFamily: Fonts.rajdhani.bold, fontSize: 20, color: Tokens.palette.text },
+  title: { flexShrink: 1, fontFamily: Fonts.rajdhani.bold, fontSize: 20, color: Tokens.palette.text },
   plus: { width: 32, height: 32, borderRadius: 4, backgroundColor: Tokens.palette.green, alignItems: 'center', justifyContent: 'center' },
   disabled: { opacity: 0.4 },
   plusText: { fontSize: 25, lineHeight: 28, color: Tokens.palette.ink },

@@ -1,6 +1,6 @@
 import React, { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useComposerDraft, draftRevision, restoreDraft } from '../../../src/services/composerDrafts';
-import { getPentacleStreamState } from '../../../src/services/pentacleStream';
+import { getPentacleStreamState, voiceTransportSnapshot, voiceOriginStatus } from '../../../src/services/pentacleStream';
 import { HOME_ROUTE } from '../../../src/services/homeRoute';
 import {
   ActivityIndicator,
@@ -50,12 +50,15 @@ import Starfield from '../../../src/components/Starfield';
 import StatusTag from '../../../src/components/StatusTag';
 import { StatusOverlay } from '../../../src/components/SessionStatusCard';
 import SendingIndicator from '../../../src/components/SendingIndicator';
-import RecordingStrip from '../../../src/components/voice/RecordingStrip';
+import GlobalVoiceBar from '../../../src/components/voice/GlobalVoiceBar';
+import HeaderVoiceMic from '../../../src/components/voice/HeaderVoiceMic';
+import { useVoiceSurface, useVoiceBarVisible, useVoiceChatStart } from '../../../src/services/voicePresentation';
+import { ASSISTANT_STREAM_ID, selectAssistantIdentity } from '../../../src/services/assistantIdentity';
 import VoiceBubble from '../../../src/components/voice/VoiceBubble';
 import { VoiceAnswersStatusNote, voiceAnswersItemCount } from '../../../src/components/questions/voice';
 import { DiscardGlyph, MicGlyph, VoiceRecordFace, VoiceSpinner, recordButtonStyle } from '../../../src/components/voice/VoiceGlyphs';
 import { voiceRecorder } from '../../../src/services/voiceRecordingEngine';
-import { useSharedVoiceControlsActive } from '../../../src/components/voice/VoiceRecordingOverlay';
+import VoiceRecordingOverlay, { useSharedVoiceControlsActive } from '../../../src/components/voice/VoiceRecordingOverlay';
 import { formatDuration, PermissionDeniedError, CaptureUnsupportedError, type RecordingSnapshot } from '../../../src/services/voiceRecording';
 import { voiceDelivery, useVoiceDelivery, voiceTakeRow, retryVoiceMessage } from '../../../src/services/voiceDelivery';
 
@@ -1071,6 +1074,7 @@ export function SessionScreen(props: SessionScreenProps) {
   const [questionSubmitError, setQuestionSubmitError] = useState<string | null>(null);
   const [questionPageIndex, setQuestionPageIndex] = useState(0);
   const [questionOverlayOpen, setQuestionOverlayOpen] = useState(false);
+  const [questionVoiceFooterBottom, setQuestionVoiceFooterBottom] = useState<number | null>(null);
   const [questionAnswerProjections, setQuestionAnswerProjections] = useState<Record<string, SessionQuestionAnswerProjection>>({});
   const [locallyResolvedNotificationIds, setLocallyResolvedNotificationIds] = useState<Set<string>>(() => new Set());
   const [locallyDismissedQuestionKey, setLocallyDismissedQuestionKey] = useState<string | null>(null);
@@ -1329,6 +1333,7 @@ export function SessionScreen(props: SessionScreenProps) {
   const historyFetchInFlight = historyLoadState.requestStatus === 'loading' ||
     historyLoadState.requestStatus === 'prefetching';
   const session = selectedSession ?? shellSlice.session;
+  const title = detail?.title || (session ? displayTitleForShell(session) : 'Chat');
   const statusOverlayCard = session?.status_card ?? {
     goal: 'Nexus status',
     plan: [],
@@ -1366,6 +1371,11 @@ export function SessionScreen(props: SessionScreenProps) {
     setAgentThreadTarget({ parentStreamId: streamId, parentGeneration: session.session_generation ?? null, child });
   }, [params.agentHistoryGeneration, routeAgentHistoryId, session?.agents, session?.role, session?.session_generation, streamId]);
   const sessionSendEligible = isPentacleSessionSendEligible(shellSlice.session ?? selectedSession);
+  const voiceSurfaceId = useVoiceSurface({
+    page_id: streamId === ASSISTANT_STREAM_ID ? 'assistant' : 'chat',
+    title: streamId === ASSISTANT_STREAM_ID ? selectAssistantIdentity({ sessions: getPentacleStreamState?.()?.sessions ?? [] }).name : title,
+    ...(streamId === ASSISTANT_STREAM_ID ? {} : { entity_id: streamId }),
+  }, isFocused && !!session && !statusOverlayOpen && !questionOverlayOpen && !menuVisible && !renameVisible && !reportsVisible && !viewerUri && !agentThreadTarget, { chat: true });
   const connecting = streamConnecting || shellSlice.connecting;
   useEffect(() => {
     if (!isFocused || !connectionSlice.connected || !streamId) return;
@@ -1576,6 +1586,12 @@ export function SessionScreen(props: SessionScreenProps) {
     allAnswered: canonicalQuestionEntries.length > 0 && visibleUnansweredQuestionCount === 0,
   };
   const activeQuestionPageIndex = Math.min(questionPageIndex, Math.max(0, canonicalQuestionEntries.length - 1));
+  const visibleVoiceQuestion = canonicalQuestionEntries[activeQuestionPageIndex];
+  const visibleVoiceQuestionId = visibleVoiceQuestion?.source.kind === 'durable'
+    ? visibleVoiceQuestion.source.model.items[visibleVoiceQuestion.source.itemIndex]?.questionId
+    : undefined;
+  useVoiceSurface({ page_id: 'questions', title: 'Questions', ...(visibleVoiceQuestionId ? { question_id: visibleVoiceQuestionId } : {}) },
+    isFocused && questionOverlayOpen, { priority: 1, bottom: questionVoiceFooterBottom ?? 112 + insets.bottom, top: Math.max(insets.top, 12) + 80 });
   const questionPagerIdentity = canonicalQuestionEntries.map((entry) => entry.key).join('|');
 
   useEffect(() => {
@@ -3210,7 +3226,6 @@ export function SessionScreen(props: SessionScreenProps) {
   const composerInset = keyboardHeight > 0
     ? COMPOSER_KEYBOARD_BOTTOM_INSET
     : COMPOSER_CLOSED_BOTTOM_INSET;
-  const title = detail?.title || displayTitleForShell(session);
   const hostTitle = detail?.hostTitle || chrome.title;
   const dismissComposer = () => {
     setDismissComposerToken((current) => current + 1);
@@ -3343,12 +3358,17 @@ export function SessionScreen(props: SessionScreenProps) {
         <Pressable style={styles.headerBackButton} onPress={returnToChats} hitSlop={10} accessibilityLabel="Back to chats" accessibilityRole="button">
           <Text {...NON_SELECTABLE_TEXT} style={styles.headerBackGlyph}>‹</Text>
         </Pressable>
-        <Pressable testID="session-status-overlay-trigger" onPress={() => setStatusOverlayOpen(true)} accessibilityRole="button" accessibilityLabel="Open session status" style={styles.headerStatusTrigger}>
-          <ArcaneRingFrame identity={session?.session_kind === 'assistant_composite'} machine={chrome.machineName} size={42} sigilSize={26} />
+        <View style={styles.headerStatusTrigger}>
+          <Pressable accessible={false} onPress={() => setStatusOverlayOpen(true)}>
+            <ArcaneRingFrame identity={session?.session_kind === 'assistant_composite'} machine={chrome.machineName} size={42} sigilSize={26} />
+          </Pressable>
           <View style={styles.headerTitleBlock}>
-            <Text {...NON_SELECTABLE_TEXT} style={styles.headerTitle} numberOfLines={1}>
-              {title}
-            </Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, maxWidth: '100%' }}>
+              <Pressable testID="session-status-overlay-trigger" onPress={() => setStatusOverlayOpen(true)} accessibilityRole="button" accessibilityLabel="Open session status" style={{ flexShrink: 1, minHeight: 44, justifyContent: 'center' }}>
+                <Text {...NON_SELECTABLE_TEXT} style={styles.headerTitle} numberOfLines={1}>{title}</Text>
+              </Pressable>
+              <HeaderVoiceMic testID="session-header-voice-mic" />
+            </View>
             <View style={styles.headerMetaRow}>
               <ProviderTag provider={session.provider} color={chrome.accent} />
               <StatusTag
@@ -3364,7 +3384,7 @@ export function SessionScreen(props: SessionScreenProps) {
               />
             </View>
           </View>
-        </Pressable>
+        </View>
         <Pressable
           testID="session-header-menu-button"
           style={styles.headerMoreButton}
@@ -3407,6 +3427,7 @@ export function SessionScreen(props: SessionScreenProps) {
       <ImageViewerModal uri={viewerUri} onClose={() => setViewerUri(null)} />
       <ReportViewerModal visible={reportsVisible || (process.env.EXPO_PUBLIC_SCREENSHOT_HARNESS === '1' && params.reportHarness === '1')} streamId={streamId} accent={chrome.accent} onClose={() => setReportsVisible(false)} />
       {statusOverlayOpen && (session.status_card || session.role === 'nexus') ? <StatusOverlay
+        active={isFocused}
         session={session}
         card={statusOverlayCard}
         specStatuses={specStatuses}
@@ -3430,7 +3451,10 @@ export function SessionScreen(props: SessionScreenProps) {
             <View style={styles.headerStatusTrigger}>
               <ArcaneRingFrame identity={session?.session_kind === 'assistant_composite'} machine={chrome.machineName} size={42} sigilSize={26} />
               <View style={styles.headerTitleBlock}>
-                <Text {...NON_SELECTABLE_TEXT} style={styles.headerTitle} numberOfLines={1}>{title}</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, maxWidth: '100%' }}>
+                  <Text {...NON_SELECTABLE_TEXT} style={[styles.headerTitle, { flexShrink: 1 }]} numberOfLines={1}>{title}</Text>
+                  <HeaderVoiceMic testID="status-header-voice-mic" />
+                </View>
                 <View style={styles.headerMetaRow}>
                   <ProviderTag provider={session.provider} color={chrome.accent} />
                   <StatusTag
@@ -3649,6 +3673,8 @@ export function SessionScreen(props: SessionScreenProps) {
           ) : null}
           <ComposerBar
             streamId={streamId}
+            voiceSurfaceId={voiceSurfaceId}
+            voiceOriginLabel={title}
             host={hostTitle}
             chrome={chrome}
             disabled={false}
@@ -3674,6 +3700,9 @@ export function SessionScreen(props: SessionScreenProps) {
             identity={session?.session_kind === 'assistant_composite'}
             machineName={chrome.machineName}
             title={currentTitle}
+            headerAccessory={<HeaderVoiceMic testID="session-questions-header-voice-mic" />}
+            overlayAccessory={<VoiceRecordingOverlay visible={isFocused} priority={1} hostName="session-questions" />}
+            onFooterTop={(windowY) => setQuestionVoiceFooterBottom(windowDimensions.height - windowY + 12)}
             submitting={questionSubmitting}
             error={questionSubmitError}
             onIndexChange={setQuestionPageIndex}
@@ -4797,6 +4826,8 @@ export function AnimatedSpinnerGlyph({ style }: { style: any }) {
 
 export function ComposerBar({
   streamId,
+  voiceSurfaceId,
+  voiceOriginLabel,
   host,
   chrome,
   disabled,
@@ -4813,6 +4844,8 @@ export function ComposerBar({
   onRegisterSendHandler,
 }: {
   streamId?: string;
+  voiceSurfaceId?: string;
+  voiceOriginLabel?: string;
   host: string;
   chrome: HostChrome;
   disabled: boolean;
@@ -4836,9 +4869,17 @@ export function ComposerBar({
   onError: (message: string) => void;
   onRegisterSendHandler?: (fn: ((request: HarnessSendRequest) => Promise<void>) | null) => void;
 }) {
+  const focused = useIsFocused();
+  const voiceSessions = getPentacleStreamState?.()?.sessions ?? [];
+  const visibleVoiceSession = voiceSessions.find(session => session.stream_id === streamId);
+  const visibleVoiceTitle = streamId === ASSISTANT_STREAM_ID ? selectAssistantIdentity({ sessions: voiceSessions }).name : visibleVoiceSession?.display_name || visibleVoiceSession?.title || 'Chat';
+  const ownVoiceSurfaceId = useVoiceSurface({ page_id: streamId === ASSISTANT_STREAM_ID ? 'assistant' : 'chat', title: visibleVoiceTitle, ...(streamId === ASSISTANT_STREAM_ID ? {} : { entity_id: streamId }) }, !voiceSurfaceId && focused && !!streamId, { chat: true });
+  const surfaceId = voiceSurfaceId ?? ownVoiceSurfaceId;
+  const voiceBarVisible = useVoiceBarVisible(surfaceId);
+  const [composerSlotHeight, setComposerSlotHeight] = useState<number | null>(null);
   const [processRecording, setRecording] = useState<RecordingSnapshot | null>(() => voiceRecorder.snapshot());
-  const recording = processRecording && processRecording.streamId === streamId && voiceRecorder.isOwnedByCurrentScope(processRecording.recordingId) ? processRecording : null;
-  const sharedVoiceControls = useSharedVoiceControlsActive();
+  const recording = processRecording && voiceRecorder.isOwnedByCurrentScope(processRecording.recordingId) ? processRecording : null;
+  const voiceHidesComposer = voiceBarVisible || !!recording;
   const [microphoneDenied, setMicrophoneDenied] = useState(false);
   const [voiceBusy, setVoiceBusy] = useState(false);
   const voiceBusyRef = useRef(false);
@@ -4849,10 +4890,6 @@ export function ComposerBar({
     setVoiceBusy(true);
     try {
       if (voiceRecorder.isActive()) {
-        if (voiceRecorder.activeStreamId() !== streamId) {
-          onError('A recording is already active in another chat. Use Return or the recording controls.');
-          return;
-        }
         await voiceRecorder.send();
       } else {
         if (disabled || submissionDisabled || !streamId || picking || sendInFlightRef.current) return;
@@ -4860,11 +4897,17 @@ export function ComposerBar({
         Keyboard.dismiss();
         setMoreExpanded(false);
         const origin = getPentacleStreamState().sessions.find(session => session.stream_id === streamId);
+        const transport = voiceTransportSnapshot();
+        const capturedOrigin = transport.origins.find(session => session.stream_id === streamId);
+        if (!transport.ready || transport.authNeeded || !capturedOrigin?.session_generation || voiceOriginStatus(streamId, capturedOrigin.session_generation) !== 'available') {
+          onError('The original chat is not ready for recording. Check your connection and sign-in.');
+          return;
+        }
         const revision = draftRevision(streamId);
         const capturedImages = stagedAttachments;
         await voiceRecorder.start(streamId, {
-          originGeneration: origin?.session_generation ?? null,
-          originLabel: origin?.title || streamId,
+          originGeneration: capturedOrigin.session_generation,
+          originLabel: streamId === ASSISTANT_STREAM_ID ? selectAssistantIdentity(getPentacleStreamState()).name : voiceOriginLabel || (origin?.title || origin?.display_name ? displayTitleForShell(origin) : 'Chat'),
           textPrefix: composer.trim(),
           images: capturedImages.slice(),
         }, () => {
@@ -4892,6 +4935,8 @@ export function ComposerBar({
   // Mirrors altum's `sendInFlightRef` (commit 8ad1987).
   const sendInFlightRef = useRef(false);
   const inputRef = useRef<TextInputInstance | null>(null);
+  useEffect(() => { if (voiceHidesComposer) inputRef.current?.blur(); }, [voiceHidesComposer]);
+  useVoiceChatStart(surfaceId, handleVoicePress, voiceBusy || disabled || submissionDisabled || !streamId || picking || sendInFlightRef.current);
 
   useEffect(() => {
     inputRef.current?.blur();
@@ -5127,16 +5172,23 @@ export function ComposerBar({
   // Send is active when there is text OR at least one staged photo (a photo-only
   // message is allowed), unless the composer is disabled (connection/editable).
   // B1: the working state no longer disables send — sending mid-turn is allowed.
-  const sendInactive = (!composer.trim() && stagedAttachments.length === 0) || disabled || submissionDisabled;
+  const sendInactive = (!composer.trim() && stagedAttachments.length === 0) || disabled || submissionDisabled || voiceHidesComposer;
 
+  // Measure the real draft layout even on a cold chat handoff. The retained
+  // layout is inert and inaccessible while the single bar occupies its slot;
+  // multiline/attachment heights never fall back to a guessed recording height.
   return (
     <View
-      style={styles.composerShell}
+      style={[styles.composerShell, voiceHidesComposer && composerSlotHeight !== null ? { height: composerSlotHeight } : null]}
       testID="composer-bar"
       accessibilityLabel="Message composer"
       accessible={false}
       collapsable={false}
     >
+      <View testID="composer-draft-layout" pointerEvents={voiceHidesComposer ? 'none' : 'auto'}
+        accessibilityElementsHidden={voiceHidesComposer} importantForAccessibility={voiceHidesComposer ? 'no-hide-descendants' : 'auto'}
+        style={voiceHidesComposer ? { opacity: 0 } : undefined}
+        onLayout={(event) => { const height = event.nativeEvent.layout.height; if (height > 0) setComposerSlotHeight(height); }}>
       {stagedAttachments.length ? (
         // A1: in-draft preview strip — each staged photo with a per-photo remove
         // affordance. The user can keep typing in the composer-input alongside.
@@ -5177,18 +5229,14 @@ export function ComposerBar({
             borderColor: `${chrome.accent}54`,
             shadowColor: chrome.accent,
           },
-          // Voice mode: the capsule is the mock's field, so it takes the
-          // recording tint itself (no framed strip nested inside it).
-          recording ? styles.composerCapsuleRecording : null,
         ]}
       >
-        {recording ? <View pointerEvents="none" style={[StyleSheet.absoluteFill, styles.composerCapsuleRecordingTint]} /> : null}
         <View
           pointerEvents="none"
           testID="composer-capsule-hairline"
           style={[StyleSheet.absoluteFill, styles.composerCapsuleHairline, { borderColor: `${chrome.accent}0f` }]}
         />
-        <View style={[styles.composerBar, moreExpanded ? styles.composerBarExpanded : null, recording ? styles.composerBarRecording : null]}>
+        <View style={[styles.composerBar, moreExpanded ? styles.composerBarExpanded : null]}>
         {moreExpanded ? (
           // Tap-away: catches presses on the bar background (the gaps not
           // covered by the input or the on-top action buttons) and collapses
@@ -5202,7 +5250,7 @@ export function ComposerBar({
             style={styles.composerTapAway}
           />
         ) : null}
-        {recording ? <RecordingStrip displayLevels={recording.displayLevels} sampleCount={recording.levels.length} durationS={recording.durationS} error={recording.error || (recording.status === 'paused' ? 'Paused' : undefined)} showDiscard={!sharedVoiceControls} onDiscard={() => { void voiceRecorder.discard().catch(() => onError('Could not discard recording.')); }} /> : <TextInput
+        <TextInput
           testID="composer-input"
           accessibilityLabel="Message input"
           ref={inputRef}
@@ -5220,7 +5268,7 @@ export function ComposerBar({
           textAlignVertical="center"
           autoCorrect={false}
           keyboardAppearance="dark"
-          editable={!disabled}
+          editable={!disabled && !voiceHidesComposer}
           returnKeyType="default"
           blurOnSubmit={false}
           onFocus={() => {
@@ -5228,8 +5276,8 @@ export function ComposerBar({
             onFocus();
           }}
           onPressIn={collapseMore}
-        />}
-        {!recording && !moreExpanded ? (
+        />
+        {!moreExpanded ? (
           <Pressable
             testID="composer-plus-button"
             accessibilityLabel="More actions"
@@ -5250,7 +5298,7 @@ export function ComposerBar({
             </Svg>
           </Pressable>
         ) : null}
-        {!recording && moreExpanded ? (
+        {moreExpanded ? (
           <Pressable
             testID="composer-camera-button"
             accessibilityLabel="Take photo"
@@ -5275,7 +5323,7 @@ export function ComposerBar({
             </Svg>
           </Pressable>
         ) : null}
-        {!recording && moreExpanded ? (
+        {moreExpanded ? (
           <Pressable
             testID="composer-photo-button"
             accessibilityLabel="Choose photo"
@@ -5300,12 +5348,12 @@ export function ComposerBar({
             </Svg>
           </Pressable>
         ) : null}
-        {(!(recording && sharedVoiceControls) && (recording || !composer.trim() || stagedAttachments.length > 0)) ? (
-          <Pressable testID="composer-mic-button" accessibilityRole="button" accessibilityLabel={recording ? 'Stop and send' : 'Voice mode'} accessibilityState={{ disabled: voiceBusy || (!recording && (disabled || submissionDisabled || !streamId)) }} disabled={voiceBusy || (!recording && (disabled || submissionDisabled || !streamId))} onPress={() => { void handleVoicePress(); }} style={recording ? recordButtonStyle(40) : [styles.sendButton, stagedAttachments.length > 0 && { right: 50 }]} hitSlop={8}>
-            <VoiceRecordFace recording={Boolean(recording)} />
+        {(!composer.trim() || stagedAttachments.length > 0) ? (
+          <Pressable testID="composer-mic-button" accessibilityRole="button" accessibilityLabel="Voice mode" accessibilityState={{ disabled: voiceBusy || voiceHidesComposer || disabled || submissionDisabled || !streamId }} disabled={voiceBusy || voiceHidesComposer || disabled || submissionDisabled || !streamId} onPress={() => { void handleVoicePress(); }} style={[styles.sendButton, stagedAttachments.length > 0 && { right: 50 }]} hitSlop={8}>
+            <VoiceRecordFace recording={false} />
           </Pressable>
         ) : null}
-        {!recording && (composer.trim() || stagedAttachments.length > 0) ? <Pressable
+        {(composer.trim() || stagedAttachments.length > 0) ? <Pressable
           testID="composer-send-button"
           accessibilityLabel="Send message"
           accessibilityRole="button"
@@ -5322,6 +5370,10 @@ export function ComposerBar({
         </Pressable> : null}
         </View>
       </View>
+      </View>
+      {voiceBarVisible ? <View pointerEvents="box-none" style={[StyleSheet.absoluteFill, { justifyContent: 'center' }]}>
+        <GlobalVoiceBar anchored surfaceId={surfaceId} />
+      </View> : null}
     </View>
   );
 }

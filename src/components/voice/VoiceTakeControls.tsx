@@ -14,7 +14,7 @@ export function VoiceControlButton({ label, children, onPress, disabled, testID 
   return <Pressable accessibilityRole="button" accessibilityLabel={label} accessibilityState={{ disabled: !!disabled }} disabled={disabled} onPress={onPress} testID={testID} style={[styles.button, disabled && styles.disabled]}><Text style={styles.action}>{children}</Text></Pressable>;
 }
 /** Pure projection; commands return to the single recorder/durable scheduler. */
-export default function VoiceTakeControls({ recording, take, onReturn, storageError }: { recording?: RecordingSnapshot | null; take?: VoiceTake; onReturn(streamId: string): void; storageError?: string }) {
+export default function VoiceTakeControls({ recording, take, onReturn, storageError, primaryControls = true }: { recording?: RecordingSnapshot | null; take?: VoiceTake; onReturn(streamId: string): void; storageError?: string; primaryControls?: boolean }) {
   const target = recording ?? take; if (!target) return null;
   const id = target.recordingId;
   const paused = recording?.status === 'paused';
@@ -37,10 +37,10 @@ export default function VoiceTakeControls({ recording, take, onReturn, storageEr
     <View style={styles.actions}>
       <VoiceControlButton label="Return to original chat" onPress={() => onReturn(target.streamId)}>Return</VoiceControlButton>
       {paused ? <VoiceControlButton label="Resume recording" disabled={recording?.pauseReason === 'origin'} onPress={() => run(() => voiceRecorder.resume())}>Resume</VoiceControlButton> : null}
-      {recording || take?.status === 'unsent' ? <VoiceControlButton label="Send recording" testID="voice-overlay-stop" disabled={busy} onPress={() => run(() => sendVoiceTake(id))}>Send</VoiceControlButton>
+      {primaryControls && (recording || take?.status === 'unsent') ? <VoiceControlButton label="Send recording" testID="voice-overlay-stop" disabled={busy} onPress={() => run(() => sendVoiceTake(id))}>Send</VoiceControlButton>
         : unknown ? <VoiceControlButton label="Check recording delivery again" onPress={() => run(() => voiceDelivery.checkAgain(id))}>Check again</VoiceControlButton>
-        : take && (['failed','auth_needed','origin_unavailable','not_landed'].includes(take.status) || !!storageError) ? <VoiceControlButton label="Retry recording delivery" onPress={() => run(() => voiceDelivery.retry(id))}>Retry</VoiceControlButton> : null}
-      <VoiceControlButton label={take?.manifest.dispatchIntent ? 'Remove local recording copy' : 'Discard recording'} onPress={discard}>{take?.manifest.dispatchIntent ? 'Remove local copy' : 'Discard'}</VoiceControlButton>
+        : primaryControls && take && (['failed','auth_needed','origin_unavailable','not_landed'].includes(take.status) || !!storageError) ? <VoiceControlButton label="Retry recording delivery" onPress={() => run(() => voiceDelivery.retry(id))}>Retry</VoiceControlButton> : null}
+      {primaryControls || take?.manifest.dispatchIntent ? <VoiceControlButton label={take?.manifest.dispatchIntent ? 'Remove local recording copy' : 'Discard recording'} onPress={discard}>{take?.manifest.dispatchIntent ? 'Remove local copy' : 'Discard'}</VoiceControlButton> : null}
     </View>
   </View>;
 }

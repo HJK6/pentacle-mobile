@@ -122,12 +122,12 @@ async function connect(sessions: Record<string, unknown>[] = [origin, other]) {
   return { stream, voiceDelivery, retryVoiceMessage, store, binding, socket, cleanup: () => { voiceDelivery.dispose(); unfocus(); unsubscribe(); for (const ws of MockWebSocket.instances) ws.close(); } };
 }
 type Journey = Awaited<ReturnType<typeof connect>>;
-async function retain(journey: Journey, options: { withImage?: boolean; streamId?: string; originGeneration?: string; seconds?: number; answers?: VoiceAnswersItem[] } = {}) {
+async function retain(journey: Journey, options: { withImage?: boolean; streamId?: string; originGeneration?: string; seconds?: number; answers?: VoiceAnswersItem[]; context?: import('../src/services/voiceContext').VoiceContextV1 } = {}) {
   const sendsBefore = journey.socket.sends().length;
   const streamId = options.streamId ?? originId, seconds = options.seconds ?? 3;
   const take = await journey.store.create({ scope, origin: { streamId, generation: options.originGeneration ?? (streamId === otherId ? other.session_generation : generation), label: 'Original chat' }, draft: { textPrefix: options.withImage ? 'Photo note' : '', images: options.withImage ? [image] : [] }, operationKind: options.answers ? 'voice_answer' : 'voice_chat' });
   const uri = `file:///cache/${take.recordingId}.wav`; mockDisk.set(uri, audioBytes(seconds));
-  await journey.voiceDelivery.accept({ streamId, recordingId: take.recordingId, uri, mime: 'audio/wav', durationS: seconds, levels: [], interrupted: false });
+  await journey.voiceDelivery.accept({ streamId, recordingId: take.recordingId, uri, mime: 'audio/wav', durationS: seconds, levels: [], interrupted: false, ...(options.context ? { context_v1: options.context } : {}) });
   if (options.answers) { journey.binding.registerVoiceAnswersBinding(take.recordingId, options.answers); }
   expect(journey.store.get(take.recordingId)).toMatchObject({ storage: 'finalized', sendRequestedAt: null });
   expect(journey.socket.sends()).toHaveLength(sendsBefore);
@@ -187,6 +187,44 @@ test('ordinary voice and ordinary text preserve their existing route encoding', 
     const textFrame = j.socket.sends()[1]; expect(textFrame).toMatchObject({ host: 'hostb', session_name: 'other', text: 'plain text' });
     expect(textFrame).not.toHaveProperty('meta'); land(j.socket, textFrame, otherId); await text;
     expect(j.voiceDelivery.snapshot().last).toBeNull();
+  } finally { j.cleanup(); }
+});
+
+const contextFixture = { visits: [
+  { offset_ms: 0, page_id: 'personal', title: 'Personal' },
+  { offset_ms: 3100, page_id: 'calendar', title: 'Calendar' },
+  { offset_ms: 7200, page_id: 'questions', title: 'Questions', question_id: 'q-example-1' },
+  { offset_ms: 11000, page_id: 'questions', title: 'Questions', question_id: 'q-example-2' },
+] };
+test.each([originId, otherId])('context_v1 reaches the immutable real request frame for %s and an ignoring daemon still lands voice', async streamId => {
+  const j = await connect();
+  try {
+    expect(Buffer.byteLength(JSON.stringify(contextFixture), 'utf8')).toBe(306);
+    const take = await retain(j, { streamId, seconds: 15, context: contextFixture });
+    expect(j.store.get(take.recordingId)?.context_v1).toEqual(contextFixture);
+    const work = j.voiceDelivery.send(take.recordingId);
+    await until(() => j.socket.sends().length === 1);
+    const frame = j.socket.sends()[0];
+    expect(frame.meta).toEqual({ voice: { duration_s: 15, context_v1: contextFixture } });
+    expect(frame.meta.voice_answers).toBeUndefined();
+    expect(JSON.stringify(frame.meta)).not.toContain('hosta');
+    expect(JSON.stringify(frame.meta)).not.toContain('hostb');
+    expect(JSON.stringify(frame.meta)).not.toContain('synthetic-private-device');
+    expect(JSON.stringify(frame.meta)).not.toMatch(/prompt|answer text|question body|token|uri|path/);
+    const captured = JSON.stringify(j.store.get(take.recordingId)!.dispatchIntent!.payload);
+    const { setVoiceContextPage } = require('../src/services/voiceContext') as typeof import('../src/services/voiceContext');
+    setVoiceContextPage({ page_id: 'settings', title: 'Settings' });
+    expect(JSON.stringify(j.store.get(take.recordingId)!.dispatchIntent!.payload)).toBe(captured);
+    if (process.env.VOICE_CONTEXT_EVIDENCE_DIR) {
+      const fs = require('node:fs'); const path = require('node:path');
+      fs.mkdirSync(process.env.VOICE_CONTEXT_EVIDENCE_DIR, { recursive: true });
+      fs.writeFileSync(path.join(process.env.VOICE_CONTEXT_EVIDENCE_DIR, `context-${streamId === originId ? 'composite' : 'ordinary'}-request.json`), JSON.stringify({ synthetic: true, source: 'voiceStableTarget real transport request', contextBytes: 306, frame }, null, 2) + '\n');
+    }
+    // This counterpart intentionally ignores optional context; only its existing
+    // authoritative send.result proves ordinary voice landed, never context visibility.
+    land(j.socket, frame, streamId); await work; await flush();
+    expect(j.store.get(take.recordingId)).toBeUndefined();
+    expect(j.socket.sends()).toHaveLength(1);
   } finally { j.cleanup(); }
 });
 

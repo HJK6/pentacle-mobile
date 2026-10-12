@@ -49,6 +49,10 @@ export type VoiceDeliverySnapshot = {
   }[];
   storageError?: string;
 };
+/** Process-only presentation evidence. Created solely by the landed proof path. */
+export type VoiceLandedReceipt = {
+  recordingId: string; streamId: string; originLabel: string; landedAt: number;
+};
 type TransportSnapshot = ReturnType<typeof stream.voiceTransportSnapshot>;
 export interface VoiceDeliveryIO {
   transcribe: typeof runVoiceUploadTranscribe;
@@ -156,6 +160,7 @@ export class VoiceDelivery {
     recoveryFailures: [],
   };
   private listeners = new Set<() => void>();
+  private landedListeners = new Set<(receipt: VoiceLandedReceipt) => void>();
   private foreground = false;
   private unlocked = false;
   private runtimeEpoch = 0;
@@ -204,6 +209,9 @@ export class VoiceDelivery {
       this.listeners.delete(fn);
     };
   };
+  subscribeLanded = (fn: (receipt: VoiceLandedReceipt) => void) => {
+    this.landedListeners.add(fn); return () => { this.landedListeners.delete(fn); };
+  };
   clearLast = () => {};
   private project() {
     const snapshot = this.store.snapshot();
@@ -221,6 +229,7 @@ export class VoiceDelivery {
           mime: t.audio?.mime ?? 'audio/mp4',
           durationS: t.capturedAudioMs / 1000,
           capturedAudioMs: t.capturedAudioMs,
+          ...(t.context_v1 ? { context_v1: t.context_v1 } : {}),
           bytes: t.audio?.bytes,
           levels: t.levels.slice(),
           interrupted: t.storage === 'interrupted',
@@ -383,6 +392,7 @@ export class VoiceDelivery {
             ? recording.capturedAudioMs
             : recording.durationS * 1000,
         levels: recording.levels,
+        context_v1: recording.context_v1,
       });
     this.project();
   };
@@ -669,7 +679,7 @@ export class VoiceDelivery {
         .filter(Boolean)
         .join('\n');
       const meta = {
-        voice: { duration_s: take.capturedAudioMs / 1000 },
+        voice: { duration_s: take.capturedAudioMs / 1000, ...(take.context_v1 ? { context_v1: take.context_v1 } : {}) },
         ...(take.operation.operation_kind === 'voice_answer'
           ? {
               voice_answers: {
@@ -794,11 +804,18 @@ export class VoiceDelivery {
           return;
         if (evidence.msgId && intent.msgId && evidence.msgId !== intent.msgId) return;
         if (evidence.state === 'landed') {
+          const landedAt = this.now(), proofEpoch = this.runtimeEpoch;
           await this.store.landed(t.recordingId);
           this.clearStorageFailure();
           releaseVoiceAnswersBinding(t.recordingId);
           this.io.forget(intent);
           voiceLifecycle(t.recordingId, 'receipt', 'landed');
+          // Never infer Sent from row disappearance or show proof across a lock,
+          // logout or changed scope while the durable cleanup was pending.
+          if (this.enabled() && proofEpoch === this.runtimeEpoch && this.store.scopeHash() === t.scopeHash) {
+            const receipt = Object.freeze({ recordingId: t.recordingId, streamId: t.origin.streamId, originLabel: t.origin.label, landedAt });
+            for (const listener of this.landedListeners) listener(receipt);
+          }
         } else if (evidence.state === 'not_landed') {
           await this.store.setDelivery(t.recordingId, {
             phase: 'not_landed',
@@ -848,6 +865,7 @@ export class VoiceDelivery {
     this.stopTimer();
     for (const stop of this.stopSubscriptions) stop();
     this.stopSubscriptions = [];
+    this.landedListeners.clear();
   }
 }
 const defaultIO: VoiceDeliveryIO = {

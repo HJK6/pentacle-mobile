@@ -1,3 +1,5 @@
+import HeaderVoiceMic from './voice/HeaderVoiceMic';
+import { useVoiceSurface } from '../services/voicePresentation';
 import VoiceRecordingOverlay from './voice/VoiceRecordingOverlay';
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { logTelemetry } from "pentacle-chat-core";
@@ -626,6 +628,7 @@ export default function ReportViewerModal({
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
   const [activeBlock, setActiveBlock] = useState<ActiveBlock | null>(null);
   const [deleteConfirmVisible, setDeleteConfirmVisible] = useState(false);
+  useVoiceSurface({ page_id: 'report', title: fullReport?.title || 'Reports', ...(activeId ? { entity_id: activeId } : {}) }, visible, { priority: 2, bottom: 24 });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const activeMeta =
@@ -833,13 +836,14 @@ export default function ReportViewerModal({
               <Text style={styles.closeGlyph}>×</Text>
             </Pressable>
             <View style={styles.headerCopy}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
               <Text
                 testID="report-reader-title"
-                style={styles.readerTitle}
+                style={[styles.readerTitle, { flexShrink: 1 }]}
                 numberOfLines={1}
               >
                 {body?.title || fullReport?.title || "Reports"}
-              </Text>
+              </Text><HeaderVoiceMic /></View>
               {fullReport ? (
                 <Text
                   testID="report-header-meta"

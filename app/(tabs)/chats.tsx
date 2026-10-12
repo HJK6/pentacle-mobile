@@ -1,3 +1,5 @@
+import HeaderVoiceMic from '../../src/components/voice/HeaderVoiceMic';
+import { useVoiceSurface } from '../../src/services/voicePresentation';
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -606,6 +608,7 @@ export default function ChatsScreen() {
   const params = useLocalSearchParams<{ reportHarness?: string }>();
   const insets = useSafeAreaInsets();
   const isFocused = useIsFocused();
+  useVoiceSurface({ page_id: 'agents', title: 'Agents' }, isFocused, { bottom: 47 + Math.max(insets.bottom, 22) + 17, top: Math.max(insets.top, 10) + 72 });
   const harnessReady = harnessRuntime.useHarnessReady();
   const allChatsHarnessActive = process.env.EXPO_PUBLIC_HARNESS === '1' &&
     harnessReady && harnessRuntime.hasAction(ALL_CHATS_HARNESS_ACTION);
@@ -1183,7 +1186,8 @@ export default function ChatsScreen() {
       </View>
 
       <View style={styles.titleBar}>
-        <Text {...SELECTABLE_TEXT} style={styles.screenTitle}>Agents</Text>
+        <Text {...SELECTABLE_TEXT} numberOfLines={1} style={[styles.screenTitle, { flexShrink: 1 }]}>Agents</Text>
+        <HeaderVoiceMic />
         {unresolvedActionCount > 0 ? (
           <View style={styles.actionCountPill} testID="chats-action-count">
             <View style={styles.actionCountDot} />

@@ -1,3 +1,5 @@
+import HeaderVoiceMic from '../voice/HeaderVoiceMic';
+import { useVoiceSurface } from '../../services/voicePresentation';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
@@ -8,8 +10,10 @@ import {
   StyleSheet,
   Text,
   View,
+  useWindowDimensions,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import { useIsFocused } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Path } from 'react-native-svg';
 
@@ -28,7 +32,7 @@ import { selectQuestionDeck, type QuestionDeckEntry } from './questionSelectors'
 import { useAssistantIdentity } from '../../services/assistantIdentity';
 import SourceMark from './SourceMark';
 import { sendableKeys, submitDeckAnswers } from './submitDeckAnswers';
-import VoiceAnswerBar, { VoiceMicButton, VoicePageLabel } from './voice/VoiceAnswerBar';
+import VoiceAnswerBar, { VoicePageLabel } from './voice/VoiceAnswerBar';
 import { useVoiceAnswers, type RemovalGuardNavigation } from './voice/useVoiceAnswers';
 
 const TOAST_MS = 2200;
@@ -55,7 +59,14 @@ function initialPageKey(deck: readonly QuestionDeckEntry[], notificationId?: str
 // every open durable question (Bart and sessions), with partial submit.
 export default function QuestionsScreen({ notificationId, navigation }: { notificationId?: string; navigation?: RemovalGuardNavigation }) {
   const router = useRouter();
+  const isFocused = useIsFocused();
   const insets = useSafeAreaInsets();
+  const { height: windowHeight } = useWindowDimensions();
+  const footerRef = useRef<View>(null);
+  const [footerClearance, setFooterClearance] = useState<number | null>(null);
+  const measureFooter = () => footerRef.current?.measureInWindow((_x, y) => {
+    if (Number.isFinite(y) && y > 0) setFooterClearance(windowHeight - y + 12);
+  });
   const actions = usePentacleStreamActions();
   const assistant = useAssistantIdentity();
   const liveDeck = usePentacleStreamSelector(selectQuestionDeck);
@@ -92,6 +103,7 @@ export default function QuestionsScreen({ notificationId, navigation }: { notifi
   const index = found >= 0 ? found : Math.min(lastIndexRef.current, Math.max(0, deck.length - 1));
   lastIndexRef.current = index;
   const current: QuestionDeckEntry | undefined = deck[index];
+  useVoiceSurface({ page_id: 'questions', title: 'Questions', ...(current?.questionId ? { question_id: current.questionId } : {}) }, isFocused, { priority: 1, bottom: current ? footerClearance ?? 112 + insets.bottom : Math.max(insets.bottom, 14) + 10, top: Math.max(insets.top, 12) + 80 });
 
   useEffect(() => {
     // The deck can load after mount (notification backfill): honour the entry param once.
@@ -272,9 +284,7 @@ export default function QuestionsScreen({ notificationId, navigation }: { notifi
       onDiscard={() => { void voice.confirmDiscard(); }}
     />
   ) : null;
-  const voiceAccessory = voice.available ? (
-    <VoiceMicButton recording={voice.recording} onPress={() => { void (voice.recording ? voice.done() : voice.start()); }} />
-  ) : null;
+  const voiceAccessory = <HeaderVoiceMic testID="questions-voice-mic" />;
 
   const closeButton = (
     <Pressable
@@ -293,8 +303,7 @@ export default function QuestionsScreen({ notificationId, navigation }: { notifi
       <View testID="questions-overlay" accessibilityViewIsModal style={styles.root}>
         <Starfield />
         <View style={[styles.header, { paddingTop: topPad, borderBottomColor: Tokens.palette.line }]}>
-          <View style={styles.headerCopy} />
-          <View testID="questions-header-accessory" style={styles.accessory}>{voiceAccessory}</View>
+          <View style={styles.headerCopy}><View style={styles.titleRow}><Text numberOfLines={1} style={styles.subtitle}>Questions</Text><View testID="questions-header-accessory" style={styles.accessory}>{voiceAccessory}</View></View></View>
           {closeButton}
         </View>
         <View testID="questions-empty" style={styles.empty}>
@@ -317,7 +326,10 @@ export default function QuestionsScreen({ notificationId, navigation }: { notifi
       <View style={[styles.header, { paddingTop: topPad, borderBottomColor: `${accent}33` }]}>
         <SourceMark isBart={current.isBart} assistantSigil={assistant.sigilKind} machineName={current.machineName} accent={accent} size={32} />
         <View style={styles.headerCopy}>
-          <Text testID="questions-counter" style={[styles.counter, { color: accent }]}>{`QUESTION ${index + 1} / ${total}`}</Text>
+          <View style={styles.titleRow}>
+            <Text testID="questions-counter" numberOfLines={1} style={[styles.counter, { color: accent }, { flexShrink: 1 }]}>{`QUESTION ${index + 1} / ${total}`}</Text>
+            <View testID="questions-header-accessory" style={styles.accessory}>{voiceAccessory}</View>
+          </View>
           <Text testID="questions-subtitle" numberOfLines={1} style={styles.subtitle}>
             {current.isBart ? assistant.name : `${current.machineLabel} · ${current.sessionTitle}`}
           </Text>
@@ -332,7 +344,6 @@ export default function QuestionsScreen({ notificationId, navigation }: { notifi
             <Text style={styles.seeChatText}>See chat ›</Text>
           </Pressable>
         )}
-        <View testID="questions-header-accessory" style={styles.accessory}>{voiceAccessory}</View>
         {closeButton}
       </View>
       <Animated.View style={[styles.bodyWrap, riseStyle]}>
@@ -364,7 +375,7 @@ export default function QuestionsScreen({ notificationId, navigation }: { notifi
           <Text testID="questions-toast" style={styles.toast}>{toast}</Text>
         </View>
       ) : null}
-      <View style={[styles.footer, { borderTopColor: `${accent}22`, paddingBottom: 26 + insets.bottom }]}>
+      <View ref={footerRef} onLayout={measureFooter} style={[styles.footer, { borderTopColor: `${accent}22`, paddingBottom: 26 + insets.bottom }]}>
         {voiceBar}
         <DeckDots entries={deck} activeIndex={index} answered={answeredKeys} onChange={(next) => setPageKey(deck[next]?.key ?? null)} />
         <View style={styles.actions}>
@@ -427,6 +438,7 @@ export default function QuestionsScreen({ notificationId, navigation }: { notifi
 }
 
 const styles = StyleSheet.create({
+  titleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   root: { flex: 1, backgroundColor: Tokens.palette.ink },
   header: { paddingHorizontal: 16, paddingBottom: 13, borderBottomWidth: 1, flexDirection: 'row', alignItems: 'center', gap: 10, zIndex: 1 },
   headerCopy: { flex: 1, minWidth: 0, gap: 1 },

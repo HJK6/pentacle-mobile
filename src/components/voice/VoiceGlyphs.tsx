@@ -65,7 +65,7 @@ export function useStepBlink(): Animated.Value {
   return blink;
 }
 
-function PulseRing({ delay, testID }: { delay: number; testID: string }) {
+export function PulseRing({ delay, testID }: { delay: number; testID: string }) {
   // 1.4 s ease-out cycle; a delayed ring stays invisible until its first cycle.
   const t = React.useRef(new Animated.Value(delay ? 1 : 0)).current;
   React.useEffect(() => {
@@ -115,6 +115,29 @@ export function VoiceRecordFace({ recording, size = 40 }: { recording: boolean; 
       <MicGlyph color={Tokens.palette.ink} size={Math.round(size * 0.42)} />
     </>
   );
+}
+
+/** Header uses the original single ring; the bar retains two staggered rings. */
+export function HeaderVoiceRecordFace({ recording }: { recording: boolean }) {
+  const scale = React.useRef(new Animated.Value(1)).current;
+  React.useEffect(() => {
+    if (!recording) { scale.setValue(1); return; }
+    const animation = Animated.loop(Animated.sequence([
+      Animated.timing(scale, { toValue: 1.07, duration: 800, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+      Animated.timing(scale, { toValue: 1, duration: 800, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+    ]));
+    animation.start(); return () => animation.stop();
+  }, [recording, scale]);
+  return <Animated.View style={{ alignItems: 'center', justifyContent: 'center', width: 34, height: 34, borderRadius: 17, backgroundColor: recording ? G : 'transparent', transform: [{ scale }] }}>
+    {recording ? <PulseRing delay={0} testID="header-voice-pulse" /> : null}
+    <MicGlyph color={recording ? Tokens.palette.ink : G} size={14} />
+  </Animated.View>;
+}
+export function VoiceSendGlyph({ retry = false }: { retry?: boolean }) {
+  return <Svg width={18} height={18} viewBox="0 0 24 24"><Path d={retry ? 'M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7' : 'M21 3L3 11l7 2 2 7z'} fill="none" stroke={Tokens.palette.ink} strokeWidth={retry ? 2.4 : 2.2} strokeLinecap="round" strokeLinejoin="round" /></Svg>;
+}
+export function VoiceCheckGlyph() {
+  return <Svg width={14} height={14} viewBox="0 0 24 24"><Path d="M5 12.5l4.5 4.5L19 7" fill="none" stroke={G} strokeWidth={2.6} strokeLinecap="round" strokeLinejoin="round" /></Svg>;
 }
 
 const styles = StyleSheet.create({

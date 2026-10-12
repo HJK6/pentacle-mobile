@@ -8,6 +8,15 @@ import UnifiedScreen from '../app/(tabs)/unified';
 import { voiceRecorder, setVoiceLifecycle } from '../src/services/voiceRecordingEngine';
 import { uuid } from 'expo-modules-core';
 import { voiceDelivery, voiceTakeRow } from '../src/services/voiceDelivery';
+import { voiceTakeStore } from '../src/services/voiceTakeStore';
+import HeaderVoiceMic from '../src/components/voice/HeaderVoiceMic';
+import VoiceRecordingOverlay from '../src/components/voice/VoiceRecordingOverlay';
+import PersonalHome from '../src/components/personal/PersonalHome';
+import CalendarView from '../src/components/personal/CalendarView';
+import QuestionsScreen from '../src/components/questions/QuestionsScreen';
+import { twoItemQuestion } from './questions/fixtures';
+import { resetVoicePresentationForTests } from '../src/services/voicePresentation';
+import { ASSISTANT_STREAM_ID } from '../src/services/assistantIdentity';
 import { initialPentacleStreamState, setTelemetrySink, type TelemetryPayload } from 'pentacle-chat-core';
 
 const mockState = { ...initialPentacleStreamState, connected: true, hasHydrated: true,
@@ -22,7 +31,15 @@ const mockState = { ...initialPentacleStreamState, connected: true, hasHydrated:
 const mockSend = jest.fn().mockResolvedValue({ delivery: 'landed' });
 const mockTranscribe = jest.fn();
 const mockDelete = jest.fn().mockResolvedValue(undefined);
-jest.mock('../src/services/pentacleStream', () => require('./questions/voiceHarness').makeVoiceTransportMock(() => mockState, (...args: unknown[]) => mockTranscribe(...args), (...args: unknown[]) => mockSend(...args)));
+let mockPermissionPromise: Promise<{ granted: boolean; canAskAgain?: boolean }> | null = null;
+let mockNativeStarts = 0;
+let mockCapturedMs = 3000;
+let mockPathname = '/personal';
+jest.mock('../src/services/pentacleStream', () => ({
+  ...require('./questions/voiceHarness').makeVoiceTransportMock(() => mockState, (...args: unknown[]) => mockTranscribe(...args), (...args: unknown[]) => mockSend(...args)),
+  usePentacleStreamSelector: (selector: (state: unknown) => unknown) => selector(mockState),
+  selectOptimisticQuestionAnswerIdentities: () => [],
+}));
 jest.mock('../src/hooks/usePentacleToken', () => () => ({ isReady: true, token: 'test-token' }));
 jest.mock('expo-file-system/legacy', () => require('./questions/voiceHarness').makeVoiceCaptureFsMock((...args: unknown[]) => mockDelete(...args)));
 jest.mock('../modules/pentacle-voice-capture', () => {
@@ -30,10 +47,11 @@ jest.mock('../modules/pentacle-voice-capture', () => {
   let status: any = { state: 'idle', reason: null, recordingId: null, pauseEpoch: 0, capturedMs: 0, uri: null, metering: -20 };
   const contract = { contract: 'pentacle-voice-capture', revision: 1, nativeBuild: '101' };
   const native = {
-    getCaptureContract: () => contract, getStatus: () => ({ ...status }),
+    getCaptureContract: () => contract, getStatus: () => ({ ...status, capturedMs: mockCapturedMs }),
     getAdmission: () => admission, revokeAdmissions: () => { admission++; },
-    getPermission: async () => ({ granted: true, canAskAgain: true }), requestPermission: async () => ({ granted: true, canAskAgain: true }),
+    getPermission: async () => mockPermissionPromise ?? ({ granted: true, canAskAgain: true }), requestPermission: async () => ({ granted: true, canAskAgain: true }),
     start: async (id: string, token: number) => {
+      mockNativeStarts++;
       if (token !== admission) throw new Error('cancelled');
       const uri = `file:///cache/voice-${++next}.m4a`;
       const box = (kind: string, payload: string) => { const b = Buffer.alloc(8 + payload.length); b.writeUInt32BE(b.length); b.write(kind, 4); b.write(payload, 8); return b; };
@@ -42,12 +60,12 @@ jest.mock('../modules/pentacle-voice-capture', () => {
     },
     pause: async () => { if (status.state === 'recording') { status.state = 'paused'; status.pauseEpoch++; } return { ...status }; },
     resume: async (_id: string, epoch: number, token: number) => { if (token !== admission || epoch !== status.pauseEpoch) throw new Error('cancelled'); status.state = 'recording'; return { ...status }; },
-    stop: async () => { status.state = 'stopped'; return { ...status }; }, discard: async () => { status.state = 'discarded'; },
+    stop: async () => { status.state = 'stopped'; return { ...status, capturedMs: mockCapturedMs }; }, discard: async () => { status.state = 'discarded'; },
   };
   return { ACCEPTED_CAPTURE_REVISION: 1, getCaptureContract: () => contract, nativeVoiceCapture: () => native };
 });
 jest.mock('../src/config/appIdentity', () => ({ getAppIdentity: () => ({ version: '1', buildNumber: '101' }) }));
-jest.mock('expo-router', () => require('./helpers/mocks/expoRouter').makeMock());
+jest.mock('expo-router', () => ({ ...require('./helpers/mocks/expoRouter').makeMock(), usePathname: () => mockPathname, useFocusEffect: jest.fn() }));
 jest.mock('@expo/vector-icons/FontAwesome', () => 'FontAwesome');
 jest.mock('@react-navigation/native', () => ({ useIsFocused: () => true }));
 jest.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ bottom: 0, left: 0, right: 0, top: 0 }) }));
@@ -56,6 +74,11 @@ let resolveTranscript: (value: any) => void;
 let telemetry: TelemetryPayload[];
 let fixtureId = 0;
 beforeEach(() => {
+  resetVoicePresentationForTests();
+  mockPermissionPromise = null;
+  mockNativeStarts = 0;
+  mockCapturedMs = 3000;
+  mockPathname = '/personal';
   jest.spyOn(uuid, 'v4').mockImplementation(() => `123e4567-e89b-42d3-a456-${String(++fixtureId).padStart(12, '0')}`);
   setVoiceLifecycle({ foreground: true, unlocked: true });
   jest.useFakeTimers();
@@ -86,17 +109,14 @@ test('shared composer swaps empty draft to mic, records while destination change
   expect(view.getByTestId('voice-recording-strip')).toBeTruthy();
   expect(view.queryByTestId('composer-input')).toBeNull();
   view.rerender(<ComposerBar {...props} streamId="hosta:other" />);
-  expect(view.queryByTestId('voice-recording-strip')).toBeNull();
-  await act(async () => fireEvent.press(view.getByTestId('composer-mic-button')));
+  expect(view.getByTestId('voice-recording-strip')).toBeTruthy();
+  expect(view.queryByTestId('composer-input')).toBeNull();
   expect(voiceRecorder.activeStreamId()).toBe('hosta:origin');
-  expect(voiceDelivery.snapshot().takes).toHaveLength(0);
-  expect(props.onError).toHaveBeenCalledWith(expect.stringContaining('already'));
-  view.rerender(<ComposerBar {...props} streamId="hosta:origin" />);
-  await act(async () => fireEvent.press(view.getByTestId('composer-mic-button')));
+  await act(async () => fireEvent.press(view.getByLabelText('Stop and send')));
   expect(voiceDelivery.snapshot().takes[0].streamId).toBe('hosta:origin');
   await act(async () => { resolveTranscript({ text: 'Hello Juniper', model: 'large-v3', vocabulary_version: 'fleet-v1', duration_s: 3 }); await voiceDelivery.drain(); });
   expect(mockSend).toHaveBeenCalledTimes(1);
-  expect(mockSend).toHaveBeenCalledWith({ streamId: 'hosta:origin', text: 'Hello Juniper', optimisticId: 'optimistic-voice', originGeneration: 'generation-1', meta: { voice: { duration_s: 3 } } });
+  expect(mockSend).toHaveBeenCalledWith({ streamId: 'hosta:origin', text: 'Hello Juniper', optimisticId: 'optimistic-voice', originGeneration: 'generation-1', meta: { voice: { duration_s: 3, context_v1: expect.objectContaining({ visits: expect.any(Array) }) } } });
   expect(mockDelete).toHaveBeenCalledWith(expect.stringContaining('audio.m4a'), { idempotent: true });
   expect(telemetry.filter(e => String(e.message) === 'voice_delivery:lifecycle' && e.data.stage === 'receipt').map(e => e.data.state)).toEqual(['landed']);
 });
@@ -128,19 +148,140 @@ test('unified real composer pins selected destination through closing/reselectin
   fireEvent.press(view.getByLabelText('Close reply composer'));
   fireEvent.press(view.getByTestId('unified-reply-hosta:other'));
   await act(async () => fireEvent.press(view.getByTestId('composer-mic-button')));
-  expect(voiceRecorder.activeStreamId()).toBe('hosta:origin');
-  expect(voiceDelivery.snapshot().takes).toHaveLength(0);
-  fireEvent.press(view.getByLabelText('Close reply composer'));
-  fireEvent.press(view.getByTestId('unified-reply-hosta:origin'));
-  await act(async () => fireEvent.press(view.getByTestId('composer-mic-button')));
+  expect(voiceDelivery.snapshot().takes[0].streamId).toBe('hosta:origin');
   await act(async () => { resolveTranscript({ text: 'origin unified', model: 'large-v3', vocabulary_version: 'v1' }); await voiceDelivery.drain(); });
-  expect(mockSend).toHaveBeenCalledWith(expect.objectContaining({ streamId: 'hosta:origin', text: 'origin unified', meta: { voice: { duration_s: 3 } } }));
+  expect(mockSend).toHaveBeenCalledWith(expect.objectContaining({ streamId: 'hosta:origin', text: 'origin unified', meta: { voice: { duration_s: 3, context_v1: expect.any(Object) } } }));
   expect(mockSend).toHaveBeenCalledTimes(1);
 });
 
 test('mic without a selected destination is disabled', () => {
   const view = render(<ComposerBar {...props} />);
   expect(view.getByTestId('composer-mic-button').props.accessibilityState.disabled).toBe(true);
+});
+
+test('header freezes draft and generation before permission; cross-chat handoff preserves the visible draft and measured slot', async () => {
+  let permit!: (permission: { granted: boolean; canAskAgain?: boolean }) => void;
+  mockPermissionPromise = new Promise(resolve => { permit = resolve; });
+  const tree = (streamId: string) => <><HeaderVoiceMic testID="chat-header-mic" /><ComposerBar {...props} streamId={streamId} /></>;
+  const view = render(tree('hosta:origin'));
+  fireEvent.changeText(view.getByTestId('composer-input'), 'Captured original draft');
+  fireEvent(view.getByTestId('composer-draft-layout'), 'layout', { nativeEvent: { layout: { width: 374, height: 96, x: 0, y: 0 } } });
+  await act(async () => fireEvent.press(view.getByTestId('chat-header-mic')));
+  expect(voiceRecorder.snapshot()).toBeNull();
+  expect(mockNativeStarts).toBe(0);
+  view.rerender(tree('hosta:other'));
+  fireEvent.changeText(view.getByTestId('composer-input'), 'Other chat draft stays');
+  await act(async () => { permit({ granted: true, canAskAgain: true }); });
+  expect(voiceRecorder.snapshot()).toMatchObject({ streamId: 'hosta:origin', originLabel: 'Origin', status: 'recording' });
+  expect(mockNativeStarts).toBe(1);
+  expect(view.getAllByTestId('global-voice-bar')).toHaveLength(1);
+  expect(require('react-native').StyleSheet.flatten(view.getByTestId('composer-bar').props.style).height).toBe(96);
+  expect(view.queryByTestId('voice-bar-drag-region')).toBeNull();
+  expect(view.queryByTestId('composer-input')).toBeNull();
+  await act(async () => fireEvent.press(view.getByTestId('chat-header-mic')));
+  await act(async () => { resolveTranscript({ text: 'Spoken addition', model: 'synthetic', duration_s: 3 }); await voiceDelivery.drain(); });
+  expect(mockSend).toHaveBeenCalledWith(expect.objectContaining({ streamId: 'hosta:origin', originGeneration: 'generation-1', text: 'Captured original draft\nSpoken addition' }));
+  await act(async () => jest.advanceTimersByTime(2800));
+  expect(view.getByTestId('composer-input').props.value).toBe('Other chat draft stays');
+  view.rerender(tree('hosta:origin'));
+  expect(view.getByTestId('composer-input').props.value).toBe('');
+  view.rerender(tree('hosta:other'));
+  fireEvent.changeText(view.getByTestId('composer-input'), '');
+});
+
+test('real Personal, Calendar and Questions ownership produces exact captured-clock visits through next/back and paused chat handoff', async () => {
+  mockState.sessions.push({ stream_id: ASSISTANT_STREAM_ID, host: 'hosta', session_name: 'assistant', provider: 'codex', title: 'Guide', last_event_at: '2026-10-12T00:00:00Z', online: true });
+  mockState.notifications = [twoItemQuestion('hosta:origin', 'example', { a: { question_id: 'q-example-1' }, b: { question_id: 'q-example-2' } })] as any;
+  mockCapturedMs = 0;
+  const tree = (page: 'personal' | 'calendar' | 'questions' | 'chat') => <><VoiceRecordingOverlay />
+    {page === 'personal' ? <PersonalHome /> : page === 'calendar' ? <CalendarView /> : page === 'questions' ? <QuestionsScreen /> : <ComposerBar {...props} streamId="hosta:other" />}
+  </>;
+  const view = render(tree('personal'));
+  try {
+    await act(async () => fireEvent.press(view.getByTestId('header-voice-mic')));
+    const recordingId = voiceRecorder.snapshot()!.recordingId;
+    expect(voiceRecorder.snapshot()?.streamId).toBe(ASSISTANT_STREAM_ID);
+    mockCapturedMs = 3100; mockPathname = '/personal/calendar';
+    view.rerender(tree('calendar'));
+    mockCapturedMs = 7200;
+    view.rerender(tree('questions'));
+    mockCapturedMs = 11000;
+    fireEvent.press(view.getByTestId('questions-next'));
+    const fourVisits = [
+      { offset_ms: 0, page_id: 'personal', title: 'Personal' },
+      { offset_ms: 3100, page_id: 'calendar', title: 'Calendar' },
+      { offset_ms: 7200, page_id: 'questions', title: 'Questions', question_id: 'q-example-1' },
+      { offset_ms: 11000, page_id: 'questions', title: 'Questions', question_id: 'q-example-2' },
+    ];
+    expect(voiceRecorder.snapshot()?.context_v1).toEqual({ visits: fourVisits });
+    expect(Buffer.byteLength(JSON.stringify({ visits: fourVisits }), 'utf8')).toBe(306);
+    mockCapturedMs = 12000;
+    await act(async () => voiceRecorder.pause('background'));
+    view.rerender(tree('chat'));
+    await act(async () => jest.advanceTimersByTime(30000));
+    expect(voiceRecorder.snapshot()?.context_v1).toEqual({ visits: fourVisits });
+    expect(view.getAllByTestId('global-voice-bar')).toHaveLength(1);
+    expect(view.queryByTestId('voice-bar-drag-region')).toBeNull();
+    view.rerender(tree('questions'));
+    fireEvent.press(view.getByTestId('questions-next'));
+    await act(async () => voiceRecorder.resume());
+    expect(voiceRecorder.snapshot()?.context_v1).toEqual({ visits: fourVisits });
+    mockCapturedMs = 14000;
+    fireEvent.press(view.getByTestId('questions-back'));
+    const expected = { visits: [...fourVisits, { offset_ms: 14000, page_id: 'questions', title: 'Questions', question_id: 'q-example-1' }] };
+    expect(voiceRecorder.snapshot()?.context_v1).toEqual(expected);
+    expect(voiceRecorder.snapshot()).toMatchObject({ recordingId, streamId: ASSISTANT_STREAM_ID });
+    expect(mockNativeStarts).toBe(1);
+    mockCapturedMs = 15000;
+    await act(async () => fireEvent.press(view.getByTestId('questions-voice-mic')));
+    await act(async () => { resolveTranscript({ text: 'One plain voice message', model: 'synthetic', duration_s: 15 }); await voiceDelivery.drain(); });
+    expect(mockSend).toHaveBeenCalledTimes(1);
+    expect(mockSend).toHaveBeenCalledWith(expect.objectContaining({ streamId: ASSISTANT_STREAM_ID, originGeneration: 'generation-1', meta: { voice: { duration_s: 15, context_v1: expected } } }));
+    expect(mockSend.mock.calls[0][0].meta.voice_answers).toBeUndefined();
+  } finally {
+    mockState.sessions.pop(); mockState.notifications = [];
+  }
+});
+
+test('untitled chat capture never copies a host/device display fallback into context or the recipient label', async () => {
+  mockState.sessions.push({ stream_id: 'hosta:untitled', host: 'synthetic-private-device', session_name: 'untitled', provider: 'codex', title: '', last_event_at: '2026-10-12T00:00:00Z', online: true });
+  const view = render(<ComposerBar {...props} host="synthetic-private-device" streamId="hosta:untitled" />);
+  try {
+    await act(async () => fireEvent.press(view.getByTestId('composer-mic-button')));
+    expect(voiceRecorder.snapshot()).toMatchObject({ originLabel: 'Chat', context_v1: { visits: [{ offset_ms: 0, page_id: 'chat', title: 'Chat', entity_id: 'hosta:untitled' }] } });
+    await act(async () => fireEvent.press(view.getByTestId('composer-mic-button')));
+    await act(async () => { resolveTranscript({ text: 'Private-host-safe message', model: 'synthetic', duration_s: 3 }); await voiceDelivery.drain(); });
+    expect(JSON.stringify(mockSend.mock.calls[0][0].meta)).not.toContain('synthetic-private-device');
+  } finally { mockState.sessions.pop(); }
+});
+
+test('cold chat handoff measures the retained multiline draft, hides every draft control, and follows later layout changes', async () => {
+  const saved = render(<ComposerBar {...props} streamId="hosta:other" />);
+  fireEvent.changeText(saved.getByTestId('composer-input'), 'A saved\nmultiline\ndraft');
+  saved.unmount();
+  const origin = render(<ComposerBar {...props} streamId="hosta:origin" />);
+  await act(async () => fireEvent.press(origin.getByTestId('composer-mic-button')));
+  const id = voiceRecorder.snapshot()!.recordingId;
+  origin.unmount();
+  const cold = render(<ComposerBar {...props} streamId="hosta:other" />);
+  expect(cold.getAllByTestId('global-voice-bar')).toHaveLength(1);
+  expect(cold.queryByTestId('composer-input')).toBeNull();
+  expect(cold.queryByTestId('composer-send-button')).toBeNull();
+  const layout = cold.getByTestId('composer-draft-layout', { includeHiddenElements: true });
+  const input = cold.getByTestId('composer-input', { includeHiddenElements: true });
+  expect(layout.props).toMatchObject({ pointerEvents: 'none', accessibilityElementsHidden: true, importantForAccessibility: 'no-hide-descendants' });
+  expect(input.props).toMatchObject({ editable: false, value: 'A saved\nmultiline\ndraft' });
+  expect(require('react-native').StyleSheet.flatten(cold.getByTestId('composer-bar').props.style).height).toBeUndefined();
+  for (const height of [125, 94, 75]) {
+    fireEvent(layout, 'layout', { nativeEvent: { layout: { width: 374, height, x: 0, y: 0 } } });
+    expect(require('react-native').StyleSheet.flatten(cold.getByTestId('composer-bar').props.style).height).toBe(height);
+  }
+  expect(cold.queryByTestId('voice-bar-drag-region')).toBeNull();
+  expect(voiceRecorder.snapshot()).toMatchObject({ recordingId: id, streamId: 'hosta:origin' });
+  expect(mockNativeStarts).toBe(1);
+  await act(async () => voiceRecorder.discard());
+  expect(cold.getByTestId('composer-input').props.value).toBe('A saved\nmultiline\ndraft');
+  fireEvent.changeText(cold.getByTestId('composer-input'), '');
 });
 
 
@@ -205,17 +346,59 @@ test('a replacement origin generation cannot receive an in-flight voice transcri
 });
 
 test('R10 a queued take awaiting ASR does not block a new independently owned capture', async () => {
-  const view = render(<ComposerBar {...props} streamId="hosta:origin" />);
+  const view = render(<><HeaderVoiceMic testID="queued-start-mic" /><ComposerBar {...props} streamId="hosta:origin" /></>);
   fireEvent.changeText(view.getByTestId('composer-input'), '');
-  await act(async () => fireEvent.press(view.getByTestId('composer-mic-button')));
+  await act(async () => fireEvent.press(view.getByTestId('queued-start-mic')));
   const first = voiceRecorder.snapshot()!.recordingId;
   await act(async () => fireEvent.press(view.getByTestId('composer-mic-button')));
   expect(voiceDelivery.snapshot().takes.find(take => take.recordingId === first)?.status).toBe('transcribing');
   const firstTranscript = resolveTranscript;
-  await act(async () => fireEvent.press(view.getByTestId('composer-mic-button')));
+  await act(async () => fireEvent.press(view.getByTestId('queued-start-mic')));
   expect(voiceRecorder.snapshot()).toMatchObject({ streamId: 'hosta:origin', status: 'recording' });
   expect(voiceRecorder.snapshot()!.recordingId).not.toBe(first);
   expect(mockSend).not.toHaveBeenCalled();
   await act(async () => { await voiceRecorder.discard(); firstTranscript({ text: 'First take', model: 'test', duration_s: 3 }); await voiceDelivery.drain(); });
   expect(mockSend).toHaveBeenCalledTimes(1);
+});
+
+
+test('ordinary header capture uses the visible summary title rather than display_name', async () => {
+  const original = { ...mockState.sessions[0] };
+  try {
+    Object.assign(mockState.sessions[0], { title: 'Design review', display_name: 'Analysis session' });
+    const view = render(<><HeaderVoiceMic testID="title-header-mic" /><ComposerBar {...props} streamId="hosta:origin" /></>);
+    await act(async () => fireEvent.press(view.getByTestId('title-header-mic')));
+    const capture = voiceRecorder.snapshot()!;
+    expect(capture).toMatchObject({ streamId: 'hosta:origin', originLabel: 'Design review', status: 'recording' });
+    expect(voiceTakeStore.get(capture.recordingId)?.origin.label).toBe('Design review');
+    expect(mockNativeStarts).toBe(1);
+  } finally { mockState.sessions[0] = original; }
+});
+
+test('visible detail label freezes before permission and remains frozen after a later rename', async () => {
+  const original = { ...mockState.sessions[0] };
+  let permit!: (permission: { granted: boolean; canAskAgain?: boolean }) => void;
+  mockPermissionPromise = new Promise(resolve => { permit = resolve; });
+  try {
+    Object.assign(mockState.sessions[0], { title: 'Summary title', display_name: 'Default session name' });
+    const tree = (streamId: string, visibleLabel: string) => <><HeaderVoiceMic testID="title-header-mic" /><ComposerBar {...{ ...props, voiceOriginLabel: visibleLabel }} streamId={streamId} /></>;
+    const view = render(tree('hosta:origin', 'Hydrated visible title'));
+    fireEvent.changeText(view.getByTestId('composer-input'), 'Original nonempty draft');
+    await act(async () => fireEvent.press(view.getByTestId('title-header-mic')));
+    expect(voiceRecorder.snapshot()).toBeNull();
+    expect(mockNativeStarts).toBe(0);
+    Object.assign(mockState.sessions[0], { title: 'Renamed during permission' });
+    view.rerender(tree('hosta:other', 'Other visible title'));
+    fireEvent.changeText(view.getByTestId('composer-input'), 'Untouched other-chat draft');
+    await act(async () => { permit({ granted: true, canAskAgain: true }); });
+    const capture = voiceRecorder.snapshot()!;
+    expect(capture).toMatchObject({ streamId: 'hosta:origin', originLabel: 'Hydrated visible title', status: 'recording' });
+    expect(voiceTakeStore.get(capture.recordingId)).toMatchObject({ origin: { streamId: 'hosta:origin', generation: 'generation-1', label: 'Hydrated visible title' }, draft: { textPrefix: 'Original nonempty draft' } });
+    view.rerender(tree('hosta:other', 'Renamed after capture'));
+    expect(voiceRecorder.snapshot()).toMatchObject({ recordingId: capture.recordingId, originLabel: 'Hydrated visible title' });
+    expect(voiceTakeStore.get(capture.recordingId)?.origin.label).toBe('Hydrated visible title');
+    expect(mockNativeStarts).toBe(1);
+    await act(async () => voiceRecorder.discard());
+    expect(view.getByTestId('composer-input').props.value).toBe('Untouched other-chat draft');
+  } finally { mockState.sessions[0] = original; }
 });

@@ -1,3 +1,4 @@
+import { useVoiceSurface } from '../../src/services/voicePresentation';
 import VoiceRecordingOverlay from '../../src/components/voice/VoiceRecordingOverlay';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
@@ -36,6 +37,7 @@ export default function LanesRoute() {
   const identity = selectAssistantIdentity(state);
   const top = Math.max(insets.top, TOP_INSET);
   const bottom = Math.max(insets.bottom, 18);
+  useVoiceSurface({ page_id: history ? 'lane_history' : 'lanes', title: history?.title || 'Work lanes' }, isFocused && !!history, { priority: 2, bottom: bottom + 10, top: top + 72 });
 
   const close = useCallback(() => { router.back(); }, [router]);
   const openLane = useCallback((model: LaneCardViewModel) => {
@@ -50,7 +52,7 @@ export default function LanesRoute() {
 
   return <View style={styles.root}>
     <Starfield />
-    <LanesOverlay lanes={lanes} inventory={state.workLanes} assistantName={identity.name} connected={state.connected} updates={updates}
+    <LanesOverlay active={isFocused && !history} lanes={lanes} inventory={state.workLanes} assistantName={identity.name} connected={state.connected} updates={updates}
       top={top} bottom={bottom} onChat={openLane} onClose={close} />
     {history
       ? <View style={StyleSheet.absoluteFill}>

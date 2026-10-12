@@ -1,3 +1,5 @@
+import HeaderVoiceMic from '../../src/components/voice/HeaderVoiceMic';
+import { useVoiceSurface } from '../../src/services/voicePresentation';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Linking, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useIsFocused } from '@react-navigation/native';
@@ -49,6 +51,7 @@ export default function DashboardsScreen() {
   const selectedId = activeId && Object.prototype.hasOwnProperty.call(registry, activeId) ? activeId : order[0] ?? null;
   const definition = selectedId ? registry[selectedId] ?? null : null;
   const Renderer = definition?.render;
+  useVoiceSurface({ page_id: 'dashboards', title: definition?.label || 'Dashboards', ...(selectedId ? { entity_id: selectedId } : {}) }, isFocused, { bottom: 47 + Math.max(insets.bottom, 22) + 17, top: Math.max(insets.top, TOP_INSET) + 72 });
   const snapshot = definition && !definition.catalogBoard
     ? definition.resolve(client.getEnvelope(definition.hubKey), connectionState === 'connected', { batch: foreclosureBatch })
     : null;
@@ -210,7 +213,7 @@ export default function DashboardsScreen() {
         testID="dashboards-scroll"
       >
         <View style={styles.topRow}>
-          <Text style={styles.screenTitle}>DASHBOARDS</Text>
+          <Text numberOfLines={1} style={[styles.screenTitle, { flexShrink: 1 }]}>DASHBOARDS</Text><HeaderVoiceMic /><View style={{ flex: 1 }} />
           {hasHubBoards ? <Text style={styles.connection}>{connectionState.toUpperCase()}</Text> : null}
         </View>
         {catalogResult.message ? <View style={styles.statusCard} testID={catalogResult.status === 'unavailable' ? 'dashboard-catalog-unavailable' : 'dashboard-catalog-error'}>
@@ -249,7 +252,7 @@ export default function DashboardsScreen() {
 const styles = StyleSheet.create({
   container: { backgroundColor: Tokens.palette.ink, flex: 1 },
   content: { paddingHorizontal: 14 },
-  topRow: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12 },
+  topRow: { alignItems: 'center', flexDirection: 'row', gap: 8, justifyContent: 'space-between', marginBottom: 12 },
   screenTitle: { color: Tokens.palette.text, fontFamily: Fonts.jetBrainsMono.bold, fontSize: 12, letterSpacing: 1.7 },
   connection: { color: Tokens.palette.muted, fontFamily: Fonts.jetBrainsMono.regular, fontSize: 9 },
   statusCard: { backgroundColor: Tokens.palette.panel, borderColor: Tokens.palette.line, borderRadius: 8, borderWidth: 1, padding: 12, marginBottom: 12 },

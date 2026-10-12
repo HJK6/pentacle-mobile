@@ -406,7 +406,7 @@ export function MobileQuestionOne({ entry, draft, accent, disabled, onChange, on
   );
 }
 
-export function QuestionOverlay<T>({ entries, activeIndex, flow, accent, machineName, identity, title, submitting, error, onIndexChange, onCancel, onSend }: {
+export function QuestionOverlay<T>({ entries, activeIndex, flow, accent, machineName, identity, title, submitting, error, onIndexChange, onCancel, onSend, headerAccessory, overlayAccessory, onFooterTop }: {
   entries: readonly MobileQuestionEntry<T>[];
   activeIndex: number;
   flow: ReturnType<typeof useMobileQuestionFlow<T>>;
@@ -419,9 +419,14 @@ export function QuestionOverlay<T>({ entries, activeIndex, flow, accent, machine
   onIndexChange: (index: number) => void;
   onCancel: () => void;
   onSend: () => void;
+  headerAccessory?: React.ReactNode;
+  overlayAccessory?: React.ReactNode;
+  onFooterTop?: (windowY: number) => void;
 }) {
   const entry = entries[Math.min(activeIndex, Math.max(0, entries.length - 1))];
   const scrollRef = useRef<ScrollView>(null);
+  const footerRef = useRef<View>(null);
+  const measureFooter = () => footerRef.current?.measureInWindow((_x, y) => { if (Number.isFinite(y) && y >= 0) onFooterTop?.(y); });
   const focusedTargetRef = useRef<number | null>(null);
   const focusedAlignEndRef = useRef(false);
   const [keyboardClearance, setKeyboardClearance] = useState(0);
@@ -466,6 +471,7 @@ export function QuestionOverlay<T>({ entries, activeIndex, flow, accent, machine
       clearTimeout(afterAnimation);
     };
   }, [keyboardClearance]); // Re-scroll after the keyboard clearance has affected layout.
+  useEffect(() => { measureFooter(); }, [keyboardClearance, activeIndex]);
   if (!entry) return null;
   const last = activeIndex === entries.length - 1;
   const revealFocusedInput = (target: number, alignEnd = false) => {
@@ -480,7 +486,10 @@ export function QuestionOverlay<T>({ entries, activeIndex, flow, accent, machine
         <ArcaneRingFrame identity={identity} machine={machineName} color={accent} size={32} sigilSize={18} />
         <View style={styles.headerCopy}>
           <Text testID="question-page-label" style={[styles.counter, { color: accent }]}>QUESTION {activeIndex + 1} / {entries.length}</Text>
-          <Text numberOfLines={1} style={styles.chatTitle}>{title}</Text>
+          {headerAccessory ? <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, maxWidth: '100%' }}>
+            <Text numberOfLines={1} style={[styles.chatTitle, { flexShrink: 1 }]}>{title}</Text>
+            {headerAccessory}
+          </View> : <Text numberOfLines={1} style={styles.chatTitle}>{title}</Text>}
         </View>
         <Pressable testID="question-overlay-cancel" accessibilityRole="button" accessibilityLabel="Close questions" onPress={onCancel} style={styles.closeButton}>
           <Text style={styles.closeText}>×</Text>
@@ -499,7 +508,7 @@ export function QuestionOverlay<T>({ entries, activeIndex, flow, accent, machine
           {error ? <Text testID="question-submit-error" style={styles.warning}>{error}</Text> : null}
         </ScrollView>
       </KeyboardAvoidingView>
-      <View style={[styles.footer, { borderTopColor: `${accent}22` }]}>
+      <View ref={footerRef} onLayout={measureFooter} style={[styles.footer, { borderTopColor: `${accent}22` }]}>
         <QuestionDots entries={entries} activeIndex={activeIndex} answered={flow.answered} accent={accent} onChange={onIndexChange} />
         <View style={styles.footerActions}>
           <Pressable testID="question-cancel" onPress={onCancel} style={styles.secondaryButton}><Text style={styles.secondaryText}>Cancel</Text></Pressable>
@@ -522,6 +531,7 @@ export function QuestionOverlay<T>({ entries, activeIndex, flow, accent, machine
           )}
         </View>
       </View>
+      {overlayAccessory}
     </View>
   );
 }

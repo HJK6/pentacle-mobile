@@ -1,3 +1,4 @@
+import { useVoiceSurface } from '../../services/voicePresentation';
 import VoiceRecordingOverlay from '../voice/VoiceRecordingOverlay';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, Easing, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
@@ -35,6 +36,7 @@ export default function BartStatusOverlay({ onClose }: { onClose(): void }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
   const [showLog, setShowLog] = useState(false);
+  useVoiceSurface({ page_id: showLog ? 'updates' : 'status', title: showLog ? 'Update log' : 'Status' }, isFocused, { priority: 2, bottom: Math.max(insets.bottom, 14) + 10, top: Math.max(insets.top, TOP_INSET) + 72 });
   const logActive = useRef(false);
   logActive.current = isFocused && state.connected && showLog;
   useEffect(() => () => { logActive.current = false; }, []);
