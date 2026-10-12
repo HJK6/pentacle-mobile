@@ -41,7 +41,7 @@ test('the actual tab bar applies compact icon/label/button geometry within the s
   </Tabs.Navigator></NavigationContainer></SafeAreaProvider>);
   const button = view.getByTestId('bart-tab-button');
   expect(StyleSheet.flatten(button.props.style)).toMatchObject({ padding: 0, gap: 3 });
-  expect(view.getByText('ASSISTANT')).toHaveStyle({ fontSize: 9, lineHeight: 11 });
+  expect(view.getByText('ZEPHYR')).toHaveStyle({ fontSize: 9, lineHeight: 11 });
   expect(view.getByText('PERSONAL')).toBeTruthy();
   expect(view.getByText('DASHBOARDS')).toBeTruthy();
   expect(view.getByText('SETTINGS')).toBeTruthy();

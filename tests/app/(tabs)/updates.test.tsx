@@ -130,7 +130,7 @@ test('selects only assistant-stream status publications and renders the latest l
   expect(selectStatusUpdates(mockState).map((row) => row.daemon_seq)).toEqual([30, 20, 10]);
   render(<UpdatesScreen />);
   await act(async () => {});
-  expect(screen.getByTestId('status-assistant-name').props.children).toBe('Assistant');
+  expect(screen.getByTestId('status-assistant-name').props.children).toBe('Zephyr');
   expect(screen.getByText('All updates · 3 ›')).toBeTruthy();
   expect(within(screen.getByTestId('latest-update')).getByText('Latest synthetic status')).toBeTruthy();
   expect(screen.queryByText('Middle synthetic status')).toBeNull();

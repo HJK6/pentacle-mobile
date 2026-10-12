@@ -172,7 +172,7 @@ describe('header (T2–T7)', () => {
     expect(screen.queryByTestId('questions-see-chat')).toBeNull();
   });
 
-  test('the assistant page follows a renamed assistant session and defaults to Assistant', () => {
+  test('the assistant page follows a renamed assistant session and defaults to Zephyr', () => {
     const renamed = (patch: Record<string, unknown>) => ({ ...mockState,
       sessions: mockState.sessions.map((item: any) => (item.stream_id === 'bart:assistant' ? { ...item, ...patch } : item)) });
     mockState = renamed({ display_name: 'Lews' });
@@ -183,7 +183,7 @@ describe('header (T2–T7)', () => {
     mockState = renamed({ display_name: '', title: '' });
     render(<QuestionsScreen />);
     goTo(2);
-    expect(text('questions-subtitle')).toBe('Assistant');
+    expect(text('questions-subtitle')).toBe('Zephyr');
   });
 
   test('T5: See chat navigates through performChatOpenNavigation to the entry stream and never pushes an href', () => {
