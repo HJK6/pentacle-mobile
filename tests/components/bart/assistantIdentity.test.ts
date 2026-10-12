@@ -24,7 +24,7 @@ test('missing or blank names default to Zephyr and keep the identity lamp', () =
   expect(empty.name).toBe('Zephyr');
   expect(empty.sigilKind).toBe('djinni');
   expect(selectAssistantIdentity({ ...initialPentacleStreamState,
-    sessions: [bartSession(BART_STREAM_ID, { display_name: ' ', title: ' ' })] }).name).toBe('Zephyr');
+    sessions: [bartSession(empty.streamId, { display_name: ' ', title: ' ' })] }).name).toBe('Zephyr');
 });
 
 test('title fallback and live rename update one identity, while unrelated changes preserve its reference', () => {
