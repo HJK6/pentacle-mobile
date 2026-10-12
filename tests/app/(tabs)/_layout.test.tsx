@@ -34,7 +34,7 @@ test('Bart is the initial tab and the four visible tabs have the contract order 
   render(<TabLayout />);
   expect(mockTabs).toHaveBeenCalledWith(expect.objectContaining({ initialRouteName: 'bart' }));
   expect(visible().map((screen: any) => [screen.name, screen.options.title, screen.options.tabBarLabel])).toEqual([
-    ['bart', 'Assistant', 'ASSISTANT'], ['personal', 'Personal', 'PERSONAL'],
+    ['bart', 'Zephyr', 'ZEPHYR'], ['personal', 'Personal', 'PERSONAL'],
     ['dashboards', 'Dashboards', 'DASHBOARDS'], ['settings', 'Settings', 'SETTINGS'],
   ]);
 });
@@ -66,7 +66,7 @@ test('every visible tab logs its route name without marking notifications read',
 
 test('a renamed assistant updates the home title and uppercase label without changing tab tint', () => {
   const view = render(<TabLayout />);
-  expect(visible()[0].options.title).toBe('Assistant');
+  expect(visible()[0].options.title).toBe('Zephyr');
   mockIdentityState = { sessions: [{ stream_id: 'bart:assistant', display_name: 'Lews', title: 'Older name', host: 'hostc' }] };
   require('expo-router').__mock.tabScreens.mockClear();
   view.rerender(<TabLayout />);

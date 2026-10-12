@@ -10,7 +10,7 @@ beforeEach(() => {
     extra: {
       wsUrl: 'ws://10.0.0.0:7791',
       hosts: {
-        bart: { label: 'Bartimaeus', color: '#ff7ab8', sigil: 'djinni' },
+        bart: { label: 'Zephyr', color: '#ff7ab8', sigil: 'djinni' },
         merlin: { label: 'Merlin', color: '#4da3ff', sigil: 'mage' },
         amaterasu: { label: 'Amaterasu', color: '#ff4d5e', sigil: 'sun' },
       },

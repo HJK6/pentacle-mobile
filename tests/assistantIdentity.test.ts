@@ -18,13 +18,13 @@ test('name follows the assistant session display name, then title, then the defa
   expect(selectAssistantIdentity({ sessions: [session({ display_name: '  ', title: 'Nynaeve' })] }).name).toBe('Nynaeve');
   expect(selectAssistantIdentity({ sessions: [session({})] }).name).toBe(DEFAULT_ASSISTANT_NAME);
   expect(selectAssistantIdentity({ sessions: [] })).toEqual({
-    streamId: ASSISTANT_STREAM_ID, name: 'Assistant', hostId: null, sigilKind: 'djinni',
+    streamId: ASSISTANT_STREAM_ID, name: 'Zephyr', hostId: null, sigilKind: 'djinni',
   });
 });
 
 test('other sessions never supply the assistant identity', () => {
   const other = { stream_id: 'hostc:claude:one', host: 'hostc', display_name: 'Lews' } as any;
-  expect(selectAssistantIdentity({ sessions: [other] }).name).toBe('Assistant');
+  expect(selectAssistantIdentity({ sessions: [other] }).name).toBe('Zephyr');
 });
 
 const ROOT = join(__dirname, '..');

@@ -31,7 +31,7 @@ ids such as `'bart'`, the protocol id `bart:assistant` and `testID` values are n
 
 - `selectAssistantIdentity(state): { streamId, name, hostId, sigilKind }` — `streamId` is
   `ASSISTANT_STREAM_ID` (`'bart:assistant'`, equal to `BART_STREAM_ID`); `name` is the assistant
-  session's `display_name`, else its `title`, else `'Assistant'` (blank values skipped); `hostId` is
+  session's `display_name`, else its `title`, else `'Zephyr'` (blank values skipped); `hostId` is
   the session's host (`null` before the session arrives); `sigilKind` is `'djinni'`. Draw the icon as
   that host's machine sigil with kind `djinni`: `AssistantIcon` / `assistantAccent(identity)` in
   `src/components/assistant/assistantIdentity.tsx`.
