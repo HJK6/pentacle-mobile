@@ -37,7 +37,7 @@ its content is unchanged (the Chats list rebuilds rows, and legacy actions, on e
 safe store selector. Opening, closing or paging never changes the count.
 
 `QuestionDeckEntry` carries `key`, `streamId`, `isBart` (`streamId === BART_STREAM_ID`),
-`machineLabel`, `machineName`, `sessionTitle`, `accent` (Bart = `#3dff66`, else the machine accent),
+`machineLabel`, `machineName`, `sessionTitle`, `accent` (assistant = `#3dff66`, else the machine accent),
 `action`, `itemIndex`, `question`, `questionId` (durable resolver id; `null` for legacy; the voice binding is built from `key` + `streamId` + `questionId` + the notification's producer, see Voice answers) and `locked` (scan-incomplete legacy item, counted
 answered exactly as on Chats).
 

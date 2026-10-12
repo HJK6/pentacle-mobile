@@ -1,3 +1,4 @@
+import { ASSISTANT_STREAM_ID } from '../../src/services/assistantIdentity';
 import React from 'react';
 import { StyleSheet } from 'react-native';
 import { act, fireEvent, render, screen, within } from '@testing-library/react-native';
@@ -55,8 +56,8 @@ jest.mock('../../src/services/pentacleStream', () => {
 
 const expoRouter = jest.requireMock('expo-router');
 // The fixture's assistant session title; the overlay shows the shared assistant identity
-// (display_name, then title, then 'Assistant'; docs/bart_home_contracts.md § Assistant identity).
-const FIXTURE_ASSISTANT_TITLE = 'Bart';
+// (display_name, then title, then the public default; docs/QUESTIONS_OVERLAY.md § Assistant identity).
+const FIXTURE_ASSISTANT_TITLE = 'Zephyr';
 const { back: mockBack } = expoRouter.__mock;
 const mockNavigate = performChatOpenNavigation as jest.Mock;
 
@@ -109,7 +110,7 @@ function threeState() {
     sessions: [
       session(SESSION_C, 'Deploy lane', { last_event_at: '2026-10-06T12:05:00.000Z' }),
       session(SESSION_B, 'Code review', { last_event_at: '2026-10-06T12:04:00.000Z' }),
-      session(BART, 'Bart', { last_event_at: '2026-10-06T12:00:00.000Z' }),
+      session(ASSISTANT_STREAM_ID, 'Zephyr', { last_event_at: '2026-10-06T12:00:00.000Z' }),
     ],
     notifications: [
       durableQuestion(SESSION_C, 'n-deploy'),
@@ -461,7 +462,7 @@ describe('send all (T15, AC5)', () => {
 
 describe('empty state and entry param (C5)', () => {
   test('zero pending shows "No questions waiting" with a working close', async () => {
-    mockState = baseState({ sessions: [session(BART, 'Bart')] });
+    mockState = baseState({ sessions: [session(ASSISTANT_STREAM_ID, 'Zephyr')] });
     render(<QuestionsScreen />);
     expect(within(screen.getByTestId('questions-empty')).getByText('No questions waiting')).toBeTruthy();
     expect(screen.queryByTestId('questions-counter')).toBeNull();

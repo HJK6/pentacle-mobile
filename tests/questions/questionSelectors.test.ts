@@ -1,3 +1,4 @@
+import { ASSISTANT_STREAM_ID } from '../../src/services/assistantIdentity';
 import { selectSmartChatList } from '../../app/(tabs)/chats';
 import { mobileQuestionItems } from '../../src/components/MobileQuestions';
 import { BART_STREAM_ID } from '../../src/components/status/statusSelectors';
@@ -140,7 +141,7 @@ describe('selectQuestionDeck (C1)', () => {
   });
 
   test('empty state yields an empty deck', () => {
-    expect(selectQuestionDeck(baseState({ sessions: [session(BART, 'Bart')] }))).toEqual([]);
+    expect(selectQuestionDeck(baseState({ sessions: [session(ASSISTANT_STREAM_ID, 'Zephyr')] }))).toEqual([]);
   });
 });
 
@@ -227,7 +228,7 @@ describe('selectPendingQuestionCount (C2)', () => {
   const states: Array<[string, () => any]> = [
     ['empty', () => baseState()],
     ['bart only', () => baseState({
-      sessions: [session(BART, 'Bart')],
+      sessions: [session(ASSISTANT_STREAM_ID, 'Zephyr')],
       notifications: [durableQuestion(BART, 'n-bart')],
     })],
     ['full fixture', () => fixtureState()],
