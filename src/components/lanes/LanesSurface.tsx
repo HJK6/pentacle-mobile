@@ -1,3 +1,4 @@
+import HeaderVoiceMic from '../voice/HeaderVoiceMic';
 import { LeafLoading, LeafText } from "./LaneAtoms";
 import React from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
@@ -35,7 +36,7 @@ export default function LanesSurface({
     <View testID="lanes-surface" style={styles.root}>
       <View style={[styles.header, { paddingTop: top }]}>
         <View style={styles.copy}>
-          <Text style={styles.title}>Work lanes</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}><Text numberOfLines={1} style={[styles.title, { flexShrink: 1 }]}>Work lanes</Text><HeaderVoiceMic /></View>
           <LeafText
             id="lanes-count"
             text={`${counts.open} LANES${counts.blocked ? ` · ${counts.blocked} BLOCKED` : ""}`}

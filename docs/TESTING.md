@@ -1,5 +1,12 @@
 # Testing
 
+The mobile global-voice extension has focused real-owner capture/delivery and
+bounded-context coverage in `tests/voiceEverywhere.test.tsx`,
+`tests/voiceContext.test.ts`, `tests/voiceControlHosts.test.tsx`,
+`tests/voiceComposerJourney.test.tsx` and `tests/voiceStableTarget.test.ts`.
+See [voice everywhere](voice_everywhere.md) for portable commands, synthetic
+request-frame export and the rendered/native proof that unit tests cannot supply.
+
 From a fresh checkout, run npm ci, copy pentacle.config.example.ts to
 pentacle.config.local.ts, then run npm run test:unit and npm run typecheck.
 The shared chat core is vendored, so tests need no private repository or daemon.

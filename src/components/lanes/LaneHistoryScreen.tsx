@@ -1,3 +1,4 @@
+import HeaderVoiceMic from '../voice/HeaderVoiceMic';
 import { LeafLoading, LeafText } from "./LaneAtoms";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -129,9 +130,9 @@ export default function LaneHistoryScreen({
     <View testID="lane-history-screen" style={styles.root}>
       <View style={[styles.header, { paddingTop: top }]}>
         <View style={styles.copy}>
-          <Text style={styles.title} numberOfLines={1}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}><Text style={[styles.title, { flexShrink: 1 }]} numberOfLines={1}>
             {target.title}
-          </Text>
+          </Text><HeaderVoiceMic /></View>
           <Text style={styles.caption}>READ-ONLY · CLOSED CHAT</Text>
         </View>
         <Pressable

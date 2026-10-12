@@ -1,3 +1,5 @@
+import HeaderVoiceMic from './voice/HeaderVoiceMic';
+import { useVoiceSurface } from '../services/voicePresentation';
 import VoiceRecordingOverlay from './voice/VoiceRecordingOverlay';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
@@ -48,6 +50,7 @@ export function AgentThreadHistoryModal({
   onBackToChats?: () => void;
   onRowsRendered?: (input: { parentStreamId: string; childStreamId: string; rows: readonly ChildExchangeRow[]; nextCursor: string | null }) => void;
 }) {
+  useVoiceSurface({ page_id: 'sessions', title: 'Agent history' }, target != null, { priority: 2, bottom: 24 });
   const key = targetKey(target);
   const [rows, setRows] = useState<readonly ChildExchangeRow[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
@@ -131,9 +134,9 @@ export function AgentThreadHistoryModal({
       <View testID="agent-thread-modal" style={styles.scrim}>
         <View style={styles.card}>
           <View style={styles.header}>
-            <View>
+            <View style={{ flex: 1, minWidth: 0 }}>
               <Text style={styles.eyebrow}>UPDATES · STATUS · CHAT</Text>
-              <Text style={styles.title} numberOfLines={1}>{target.child.display_name}</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}><Text style={[styles.title, { flexShrink: 1 }]} numberOfLines={1}>{target.child.display_name}</Text><HeaderVoiceMic /></View>
               <Text style={styles.objective} numberOfLines={2}>{target.child.objective || 'Objective unavailable.'}</Text>
             </View>
             <View style={styles.headerActions}>

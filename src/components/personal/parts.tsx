@@ -1,8 +1,13 @@
+import HeaderVoiceMic from '../voice/HeaderVoiceMic';
+import { useVoiceSurface } from '../../services/voicePresentation';
 // Shared atoms for Personal / Lists / Calendar, bound to design original § 7–9
 // (`pentacle-bart-personal.jsx`, `-lists.jsx`, `-calendar.jsx`) and README § Design tokens.
 import React, { useCallback, useEffect } from 'react';
 import { AppState, Pressable, StyleSheet, Text, View } from 'react-native';
-import { useFocusEffect } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams, usePathname } from 'expo-router';
+import { useIsFocused } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { isListId, LIST_META } from '../../services/household/selectors';
 import { Fonts, Tokens } from '../../../constants/Colors';
 import { Spinner } from '../ArcaneAtoms';
 import MachineSigil from '../MachineSigil';
@@ -58,7 +63,7 @@ export function TabHeader({
         ) : sub ? (
           <Text style={styles.sub}>{sub}</Text>
         ) : null}
-        <Text style={styles.title}>{title}</Text>
+        <View style={styles.titleRow}><Text numberOfLines={1} style={[styles.title, { flexShrink: 1 }]}>{title}</Text><HeaderVoiceMic /></View>
       </View>
       {right}
     </View>
@@ -128,6 +133,16 @@ export function StatusLines() {
 
 /** Refetch on screen focus and on app foreground (spec B2: no live relay in this packet). */
 export function useHouseholdRefresh(month?: string, hasMonth = false) {
+  const focused = useIsFocused();
+  const path = usePathname();
+  const params = useLocalSearchParams<{ id?: string }>();
+  const insets = useSafeAreaInsets();
+  const listId = typeof params.id === 'string' && isListId(params.id) ? params.id : null;
+  const page = path.includes('/calendar') ? { page_id: 'calendar', title: 'Calendar' }
+    : path.includes('/list/') && listId ? { page_id: 'list', title: LIST_META[listId].name, entity_id: listId }
+      : path.endsWith('/lists') ? { page_id: 'lists', title: 'Lists' }
+        : { page_id: 'personal', title: 'Personal' };
+  useVoiceSurface(page, focused, { bottom: page.page_id === 'personal' ? 47 + Math.max(insets.bottom, 22) + 17 : Math.max(insets.bottom, 14) + 10, top: insets.top + 72 });
   const refresh = useCallback(() => {
     const { refresh: run } = useHouseholdStore.getState();
     void (hasMonth ? run(month) : run());
@@ -154,6 +169,7 @@ export const styles = StyleSheet.create({
     borderBottomColor: P.line,
   },
   back: { color: P.text, fontSize: 28, fontFamily: Fonts.rajdhani.medium, paddingHorizontal: 6, paddingBottom: 2, lineHeight: 30 },
+  titleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   headerText: { flex: 1, minWidth: 0 },
   sub: { fontFamily: Fonts.jetBrainsMono.regular, fontSize: 10, letterSpacing: 1.4, color: P.muted },
   title: { fontFamily: Fonts.rajdhani.bold, fontSize: 26, color: P.text, lineHeight: 29 },

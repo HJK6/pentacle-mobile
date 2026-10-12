@@ -1,3 +1,4 @@
+import { useVoiceSurface } from '../services/voicePresentation';
 import VoiceRecordingOverlay from './voice/VoiceRecordingOverlay';
 import React, { useEffect, useState } from 'react';
 import { Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
@@ -16,6 +17,7 @@ type Props = {
  * changed. Used by both the session screen and the chats list.
  */
 export default function RenameChatModal({ visible, initialName, onSubmit, onClose }: Props) {
+  useVoiceSurface({ page_id: 'other', title: 'Rename chat' }, visible, { priority: 2, bottom: 24 });
   const [value, setValue] = useState(initialName);
 
   useEffect(() => {

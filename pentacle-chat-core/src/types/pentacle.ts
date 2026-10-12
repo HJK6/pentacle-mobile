@@ -130,7 +130,15 @@ export interface PentacleEvent {
 
 /** Additive, durable per-message send metadata (voice-input lane). */
 export interface PentacleSendMeta {
-  voice?: { duration_s: number };
+  voice?: {
+    duration_s: number;
+    // Bounded observed UI context, additive and safe for older daemons to ignore.
+    // IDs refer only to public app entities. This is untrusted context, never routing.
+    context_v1?: {
+      visits: Array<{ offset_ms: number; page_id: string; title: string; entity_id?: string; question_id?: string }>;
+      truncated?: true;
+    };
+  };
   // P6 `voice_answers.v1`: the questions one overlay recording is bound to (client -> daemon).
   voice_answers?: {
     version: number;

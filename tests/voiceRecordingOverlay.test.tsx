@@ -6,6 +6,7 @@ import { VoiceDelivery, type VoiceDeliveryIO } from '../src/services/voiceDelive
 import { VoiceTakeStore, type VoiceTakeIO, type VoiceTakeManifest } from '../src/services/voiceTakeStore';
 import type { VoiceDispatchIntent, VoiceSendEvidence } from '../src/services/pentacleStream';
 import VoiceRecordingOverlay from '../src/components/voice/VoiceRecordingOverlay';
+import { resetVoicePresentationForTests } from '../src/services/voicePresentation';
 let mockDelivery: VoiceDelivery;
 let mockStore: VoiceTakeStore;
 const mockLifecycle = { foreground: true, unlocked: true };
@@ -19,7 +20,7 @@ jest.mock('../src/services/voiceRecordingEngine', () => ({
   voiceLifecycleSnapshot: () => mockLifecycle, subscribeVoiceLifecycle: () => () => undefined,
   sendVoiceTake: (id: string) => mockDelivery.enqueue(id), discardVoiceTake: (id: string) => mockDelivery.discard(id),
 }));
-jest.mock('../src/services/pentacleStream', () => ({ ...jest.requireActual('../src/services/pentacleStream'), subscribeVoiceTransport: () => () => {}, subscribeVoiceSendEvidence: () => () => {} }));
+jest.mock('../src/services/pentacleStream', () => ({ ...jest.requireActual('../src/services/pentacleStream'), voiceTransportSnapshot: () => ({ serverIdentity: SCOPE.serverIdentity, credentialId: SCOPE.credentialId, authNeeded: false }), subscribeVoiceTransport: () => () => {}, subscribeVoiceSendEvidence: () => () => {} }));
 jest.mock('expo-router', () => ({ usePathname: () => '/settings', useRouter: () => ({ push: jest.fn() }) }));
 jest.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ bottom: 0, left: 0, right: 0, top: 0 }) }));
 jest.mock('expo-constants', () => require('./helpers/stubs/expoConstants.cjs'));
@@ -44,7 +45,7 @@ async function flush() {
 }
 function harness() {
   let next = 0,
-    now = 1000,
+    now = Date.now(),
     transportListener = () => {};
   let evidenceListener: (proof: VoiceSendEvidence) => void = () => {};
   const files = new Map<string, string>(),
@@ -255,14 +256,21 @@ function harness() {
 
 
 function install() { const h = harness(); mockDelivery = h.delivery; mockStore = h.store; return h; }
-test('R4 matching landed completion leaves no Sent or Return overlay away from origin', async () => {
+beforeEach(() => { jest.useFakeTimers(); resetVoicePresentationForTests(); });
+afterEach(() => { resetVoicePresentationForTests(); jest.useRealTimers(); });
+test('authoritative landed completion shows a transient receipt without retaining audio or Return', async () => {
   const h = install(); await h.ready(); const take = await h.take(); const result = deferred<VoiceSendEvidence>();
   (h.io.dispatch as jest.Mock).mockImplementation(intent => result.promise);
   const view = render(<VoiceRecordingOverlay />); let pending!: Promise<void>;
   await act(async () => { pending = h.delivery.send(take.recordingId); await flush(); });
   const intent = h.store.get(take.recordingId)!.dispatchIntent!;
   await act(async () => { result.resolve(h.proofs(intent)); await pending; });
-  expect(view.queryByTestId('voice-recording-overlay')).toBeNull(); expect(view.queryByText('Sent')).toBeNull(); h.delivery.dispose();
+  expect(view.getByText('SENT TO SYNTHETIC ORIGIN')).toBeTruthy();
+  expect(view.queryByLabelText('Return to original chat')).toBeNull();
+  expect(view.queryByLabelText('View sent recording')).toBeNull();
+  expect(h.store.get(take.recordingId)).toBeUndefined();
+  act(() => jest.advanceTimersByTime(2800));
+  expect(view.queryByTestId('voice-recording-overlay')).toBeNull(); h.delivery.dispose();
 });
 test('R4 paired ambiguous send failure remains visible and actionable away from origin', async () => {
   const h = install(); await h.ready(); const take = await h.take();

@@ -869,3 +869,51 @@ test.each(['healthy-cleanup', 'failure-cleanup'] as const)(
     expect(restored.snapshot()).toMatchObject({ takes: [], recoveryFailures: [], heldCount: 1 });
   },
 );
+
+test('context_v1 checkpoint survives interruption/restart and legacy manifests remain valid', async () => {
+  const f = fixture(); const t = await f.create();
+  const context_v1 = { visits: [
+    { offset_ms: 0, page_id: 'personal', title: 'Personal' },
+    { offset_ms: 2000, page_id: 'questions', title: 'Questions', question_id: 'q-example-1' },
+  ] };
+  f.files.set('file:///cache/context.m4a', 'audio-bytes');
+  await f.store.noteCapture(t.recordingId, { nativeUri: 'file:///cache/context.m4a', capturedAudioMs: 2500, phase: 'paused', context_v1 });
+  const restored = new VoiceTakeStore(f.io); await restored.setScope(scope);
+  expect(restored.get(t.recordingId)).toMatchObject({ context_v1, storage: 'interrupted', sendRequestedAt: null });
+  expect(Object.isFrozen(restored.get(t.recordingId)?.context_v1?.visits[0])).toBe(true);
+  const queued = await restored.requestSend(t.recordingId);
+  expect(JSON.stringify(queued.context_v1)).toBe(JSON.stringify(context_v1));
+  const legacy = await restored.create({ scope, origin });
+  expect(legacy.context_v1).toBeUndefined();
+});
+
+test('finalized context is clamped once and later capture checkpoints cannot alter immutable send metadata', async () => {
+  const f = fixture(); const t = await f.create();
+  const context_v1 = { visits: [
+    { offset_ms: 0, page_id: 'personal', title: 'Personal' },
+    { offset_ms: 5000, page_id: 'calendar', title: 'Calendar' },
+  ] };
+  f.files.set('file:///cache/context.m4a', 'audio-bytes');
+  const finalized = await f.store.adoptFinalized(t.recordingId, { uri: 'file:///cache/context.m4a', mime: 'audio/mp4', capturedAudioMs: 4000, context_v1 });
+  expect(finalized.context_v1?.visits.at(-1)?.offset_ms).toBe(4000);
+  await f.store.requestSend(t.recordingId);
+  await f.store.noteCapture(t.recordingId, { capturedAudioMs: 7000, phase: 'recording', context_v1: { visits: [{ offset_ms: 0, page_id: 'settings', title: 'Settings' }] } });
+  expect(f.store.get(t.recordingId)?.context_v1).toEqual(finalized.context_v1);
+  expect(f.store.get(t.recordingId)?.storage).toBe('finalized');
+  const restored = new VoiceTakeStore(f.io); await restored.setScope(scope);
+  expect(JSON.stringify(restored.get(t.recordingId)?.context_v1)).toBe(JSON.stringify(finalized.context_v1));
+});
+
+test('invalid or body-bearing context is never persisted and corruption becomes a recovery failure', async () => {
+  const f = fixture(); const t = await f.create();
+  await expect(f.store.noteCapture(t.recordingId, { capturedAudioMs: 100, phase: 'recording', context_v1: { visits: [{ offset_ms: 0, page_id: 'personal', title: '', body: 'must not leak' }] } as any })).rejects.toThrow('invalid_manifest');
+  expect(f.store.get(t.recordingId)?.context_v1).toBeUndefined();
+  await f.finish(t.recordingId);
+  const path = [...f.files.keys()].find(p => p.endsWith('/manifest.json'))!;
+  const raw = JSON.parse(f.files.get(path)!);
+  raw.context_v1 = { visits: [{ offset_ms: 0, page_id: 'other', title: 'bad', entity_id: 'q/one' }] };
+  f.files.set(path, JSON.stringify(raw));
+  const restored = new VoiceTakeStore(f.io); await restored.setScope(scope);
+  expect(restored.get(t.recordingId)).toBeUndefined();
+  expect(restored.snapshot().recoveryFailures).toHaveLength(1);
+});

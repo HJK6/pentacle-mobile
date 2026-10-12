@@ -7,7 +7,7 @@
 
 import React from 'react';
 import { act, fireEvent, render, screen, within } from '@testing-library/react-native';
-import { FlatList, StyleSheet } from 'react-native';
+import { FlatList, StyleSheet, View } from 'react-native';
 import SessionScreen, { SESSION_QUESTION_SUBMISSION_TIMEOUT_MS } from '../app/pentacle/session/[streamId]';
 import usePentacleToken from '../src/hooks/usePentacleToken';
 import { usePentacleStreamActions, usePentacleStreamSelectorWhen } from '../src/services/pentacleStream';
@@ -23,12 +23,17 @@ import type {
   TelemetryPayload,
 } from 'pentacle-chat-core';
 import { UNANET_QUESTION_PREVIEW_PAYLOAD } from './fixtures/unanetQuestionPreviewPayload';
+import { voiceContextPageSnapshot } from '../src/services/voiceContext';
+import { ImageViewerModal } from '../src/components/ImageViewerModal';
+import VoiceRecordingOverlay from '../src/components/voice/VoiceRecordingOverlay';
+import { voicePresentationSnapshot } from '../src/services/voicePresentation';
 
 const CLAUDE_STREAM_ID = 'hostc:claude:one';
 
 let mockParams: Record<string, unknown> = { streamId: encodeURIComponent(CLAUDE_STREAM_ID) };
 let mockState: PentacleStreamState;
 let mockShowToolActions = false;
+let mockFocused = true;
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -84,7 +89,7 @@ jest.mock('expo-router', () => {
   };
 });
 jest.mock('@expo/vector-icons/FontAwesome', () => 'FontAwesome');
-jest.mock('@react-navigation/native', () => ({ useIsFocused: () => true }));
+jest.mock('@react-navigation/native', () => ({ useIsFocused: () => mockFocused }));
 jest.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ bottom: 0, left: 0, right: 0, top: 0 }) }));
 jest.mock('../src/hooks/usePentacleToken', () => jest.fn());
 jest.mock('../src/services/pentacleStream', () => ({
@@ -318,6 +323,7 @@ function renderQuestionScreen() {
 }
 
 beforeEach(() => {
+  mockFocused = true;
   jest.useFakeTimers({ now: new Date('2026-05-13T12:00:00.000Z') });
   resetState();
   (usePentacleToken as jest.Mock).mockReturnValue({ isReady: true, token: 'test' });
@@ -340,6 +346,59 @@ afterEach(() => {
 test('renders no question card when the session has no pending question', () => {
   renderQuestionScreen();
   expect(screen.queryByTestId('question-card')).toBeNull();
+});
+
+test('inline Questions owns its title mic, accessible voice host and current durable IDs until dismissal', () => {
+  mockState.notifications = [durableQuestionNotification('first'), durableQuestionNotification('second')];
+  const view = renderQuestionScreen();
+  const overlay = view.getByTestId('question-overlay');
+  expect(within(overlay).getByTestId('session-questions-header-voice-mic')).toBeTruthy();
+  expect(voicePresentationSnapshot().host?.name).toBe('session-questions');
+  expect(voiceContextPageSnapshot()).toEqual({ page_id: 'questions', title: 'Questions', question_id: 'question-first' });
+  fireEvent.press(view.getByTestId('question-page-next'));
+  expect(voiceContextPageSnapshot()).toEqual({ page_id: 'questions', title: 'Questions', question_id: 'question-second' });
+  fireEvent.press(view.getByTestId('question-page-prev'));
+  expect(voiceContextPageSnapshot()).toEqual({ page_id: 'questions', title: 'Questions', question_id: 'question-first' });
+  fireEvent.press(view.getByTestId('question-overlay-cancel'));
+  expect(voicePresentationSnapshot().host?.name).not.toBe('session-questions');
+  expect(voiceContextPageSnapshot()).toMatchObject({ page_id: 'chat', title: 'Test chat' });
+});
+
+test('inline Questions releases its route host on focus loss and yields to a native modal', () => {
+  mockState.notifications = [durableQuestionNotification('first')];
+  const tree = (image = false) => <View>
+    <ImageViewerModal uri={image ? 'file:///synthetic/image.jpg' : null} onClose={() => undefined} />
+    <View><VoiceRecordingOverlay /><SessionScreen /></View>
+  </View>;
+  const view = render(tree());
+  fireEvent.press(view.getByTestId('question-fab'));
+  expect(voicePresentationSnapshot().host?.name).toBe('session-questions');
+  view.rerender(tree(true));
+  expect(voicePresentationSnapshot().host?.name).toBe('image-viewer');
+  expect(voiceContextPageSnapshot()).toEqual({ page_id: 'image', title: 'Image' });
+  view.rerender(tree());
+  expect(voiceContextPageSnapshot().page_id).toBe('questions');
+  mockFocused = false;
+  view.rerender(tree());
+  expect(voicePresentationSnapshot().host?.name).toBe('root');
+  expect(voicePresentationSnapshot().surface).toBeNull();
+});
+
+test('an unfocused session Status overlay releases context and yields to a native modal', () => {
+  resetState(CLAUDE_STREAM_ID, { status_card: { goal: 'Synthetic goal', plan: [], updates: [] } as any });
+  const tree = (image = false) => <View>
+    <ImageViewerModal uri={image ? 'file:///synthetic/image.jpg' : null} onClose={() => undefined} />
+    <SessionScreen />
+  </View>;
+  const view = render(tree());
+  fireEvent.press(view.getByTestId('session-status-overlay-trigger'));
+  expect(voiceContextPageSnapshot().page_id).toBe('status');
+  view.rerender(tree(true));
+  expect(voiceContextPageSnapshot()).toEqual({ page_id: 'image', title: 'Image' });
+  view.rerender(tree());
+  mockFocused = false;
+  view.rerender(tree());
+  expect(voicePresentationSnapshot().surface).toBeNull();
 });
 
 test('renders the question card with one tappable row per non-meta option', () => {

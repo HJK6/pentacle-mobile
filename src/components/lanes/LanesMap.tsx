@@ -1,3 +1,5 @@
+import HeaderVoiceMic from '../voice/HeaderVoiceMic';
+import { useVoiceSurface } from '../../services/voicePresentation';
 import { useLaneMembers } from "./useLaneMembers";
 import React, { useEffect, useState, useRef } from "react";
 import {
@@ -117,6 +119,9 @@ function WorkingOrbit({ id, size }: { id: string; size: number }) {
 }
 
 type Props = {
+  active?: boolean;
+  voiceBottom?: number;
+  voiceTop?: number;
   lanes: LaneCardViewModel[];
   assistantName: string;
   assistantSigil?: MachineSigilKind;
@@ -513,6 +518,9 @@ function StackNode({
   );
 }
 export default function LanesMap({
+  active = true,
+  voiceBottom = 24,
+  voiceTop = 100,
   lanes,
   assistantName,
   assistantSigil = "djinni",
@@ -673,6 +681,12 @@ export default function LanesMap({
   useEffect(() => {
     onBackHandler?.(back);
   }, [selected, stack, focusedLaneId, onBackHandler]);
+  const statusAnchor = useRef<View>(null);
+  const [statusClearance, setStatusClearance] = useState<number | null>(null);
+  const measureStatusAnchor = () => statusAnchor.current?.measureInWindow((_x, y) => {
+    if (Number.isFinite(y) && y > 0) setStatusClearance(dimensions.height - y + 10);
+  });
+  useVoiceSurface({ page_id: focused ? 'lane' : 'lanes', title: selMember ? memberTitle(selMember) : focused?.lane.title || 'Work lanes', ...(focused ? { entity_id: selMember?.spec_id || focused.lane.lane_id } : {}) }, active, { priority: 1.5, bottom: !focused && statusClearance !== null ? statusClearance : voiceBottom, top: voiceTop });
   const color = focused ? p[focused.stateTone] : p.green;
   return (
     <View
@@ -976,6 +990,8 @@ export default function LanesMap({
       </ScrollView>
       {!focused ? (
         <View
+          ref={statusAnchor}
+          onLayout={measureStatusAnchor}
           style={{
             position: "absolute",
             left: 14,
@@ -1149,16 +1165,18 @@ export default function LanesMap({
                   <Text style={mono}>· {focused.freshnessLabel}</Text>
                 </View>
                 <View>
-                  <Text
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}><Text
+                    numberOfLines={1}
                     style={{
                       ...body,
+                      flexShrink: 1,
                       fontSize: 19,
                       fontFamily: Fonts.rajdhani.bold,
                       color: p.text,
                     }}
                   >
                     {focused.lane.title}
-                  </Text>
+                  </Text><HeaderVoiceMic /></View>
                   {focused.lane.summary ? (
                     <Text
                       style={{

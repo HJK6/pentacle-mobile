@@ -1,3 +1,5 @@
+import HeaderVoiceMic from '../../src/components/voice/HeaderVoiceMic';
+import { useVoiceSurface } from '../../src/services/voicePresentation';
 import VoiceRecordingOverlay from '../../src/components/voice/VoiceRecordingOverlay';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -404,13 +406,14 @@ function QuestionsDrawer({
   onOpenChat: (streamId: string) => void;
   onSubmit: (item: UnifiedQuestionItem, answers: PentacleQuestionAnswerValue[]) => void;
 }) {
+  useVoiceSurface({ page_id: 'questions', title: 'Pending Questions' }, visible, { priority: 2, bottom: 24 });
   return (
     <Modal animationType="slide" transparent visible={visible} onRequestClose={onClose}>
       <Pressable style={styles.drawerBackdrop} onPress={onClose} />
       <View style={styles.drawer}>
         <View style={styles.drawerHandle} />
         <View style={styles.drawerHeader}>
-          <Text style={styles.drawerTitle}>Pending Questions</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}><Text numberOfLines={1} style={[styles.drawerTitle, { flexShrink: 1 }]}>Pending Questions</Text><HeaderVoiceMic /></View>
           <Pressable accessibilityRole="button" accessibilityLabel="Close questions" onPress={onClose} hitSlop={10}>
             <FontAwesome name="close" size={18} color={Tokens.palette.text} />
           </Pressable>
@@ -489,6 +492,7 @@ export default function UnifiedScreen() {
   const router = useRouter();
   const isFocused = useIsFocused();
   const insets = useSafeAreaInsets();
+  useVoiceSurface({ page_id: 'sessions', title: 'All Chats' }, isFocused, { bottom: 47 + Math.max(insets.bottom, 22) + 17, top: Math.max(insets.top, 10) + 72 });
   const actions = usePentacleStreamActions();
   const { isReady } = usePentacleToken();
   const [selected, setSelected] = useState<UnifiedAgentRow | null>(null);
@@ -658,7 +662,7 @@ export default function UnifiedScreen() {
         <View style={styles.header}>
           <View>
             <Text style={styles.eyebrow}>UNIFIED</Text>
-            <Text style={styles.title}>All Chats</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}><Text numberOfLines={1} style={[styles.title, { flexShrink: 1 }]}>All Chats</Text><HeaderVoiceMic /></View>
           </View>
           <Text style={styles.count}>{slice.rows.length}</Text>
         </View>

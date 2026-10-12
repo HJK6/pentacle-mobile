@@ -43,6 +43,7 @@ export default function RecordingStrip({
   error,
   onDiscard,
   showDiscard = true,
+  destinationLabel,
   testID = 'voice-recording-strip',
 }: {
   displayLevels: number[];
@@ -51,10 +52,11 @@ export default function RecordingStrip({
   error?: string;
   onDiscard: () => void;
   showDiscard?: boolean;
+  destinationLabel?: string;
   testID?: string;
 }) {
   const blink = useStepBlink();
-  const levels = displayLevels ?? [];
+  const levels = (displayLevels ?? []).slice(-46).map(level => Math.max(0, Math.min(1, Number.isFinite(level) ? level : 0)));
   const first = Math.max(0, (sampleCount ?? levels.length) - levels.length);
 
   return (
@@ -66,6 +68,7 @@ export default function RecordingStrip({
       <Text testID={`${testID}-timer`} style={styles.timer}>
         {formatDuration(durationS)}
       </Text>
+      {destinationLabel ? <Text numberOfLines={1} style={styles.destination}>TO {destinationLabel.toUpperCase()}</Text> : null}
       {error ? <Text numberOfLines={1} style={[styles.timer, styles.error]}>{error}</Text> : (
         <View style={styles.bars}>
           {levels.map((v, i) => <Bar key={first + i} level={v} testID={`${testID}-bar-${i}`} />)}
@@ -92,6 +95,7 @@ const styles = StyleSheet.create({
     letterSpacing: 1,
     fontVariant: ['tabular-nums'],
   },
+  destination: { maxWidth: '35%', fontFamily: Fonts.jetBrainsMono.medium, fontSize: 9.5, letterSpacing: 1, color: Tokens.palette.muted },
   error: { flex: 1, color: Tokens.palette.amber, letterSpacing: 0 },
   bars: {
     flex: 1,

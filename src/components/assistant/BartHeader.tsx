@@ -1,3 +1,4 @@
+import HeaderVoiceMic from '../voice/HeaderVoiceMic';
 import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
@@ -27,20 +28,27 @@ function HeaderButton({ kind, count, onPress }: { kind: 'sessions' | 'questions'
 export default function BartHeader({ identity, others, pending, lanes, blocked = 0, working, top, onDrawer, onStatus, onQuestions }: Props) {
   return <View testID="assistant-header" style={[styles.header, { paddingTop: Math.max(top, 52) }]}>
     <HeaderButton kind="sessions" count={others} onPress={onDrawer} />
-    <Pressable accessibilityRole="button" accessibilityLabel={`${identity.name} status, ${lanes} open lanes${blocked > 0 ? `, ${blocked} blocked` : ''}`}
-      onPress={onStatus} style={styles.identity}>
+    <View style={styles.identity}>
+      <Pressable accessibilityRole="button" accessibilityLabel={`${identity.name} status, ${lanes} open lanes${blocked > 0 ? `, ${blocked} blocked` : ''}`}
+      onPress={onStatus} style={styles.identityMark}>
       <ArcaneRingFrame size={38} color={assistantAccent(identity)} identity>
         <AssistantIcon identity={identity} size={38 * 0.64} />
       </ArcaneRingFrame>
+      </Pressable>
       <View style={styles.nameBlock}>
-        <Text style={styles.name} numberOfLines={1}>{identity.name}</Text>
-        <View style={styles.meta}>
+        <View style={styles.titleRow}>
+          <Pressable onPress={onStatus} accessibilityRole="button" accessibilityLabel={`${identity.name} status`} style={{ flexShrink: 1 }}>
+            <Text style={styles.name} numberOfLines={1}>{identity.name}</Text>
+          </Pressable>
+          <HeaderVoiceMic />
+        </View>
+        <Pressable onPress={onStatus} accessibilityRole="button" accessibilityLabel={`${lanes} open lanes${blocked > 0 ? `, ${blocked} blocked` : ''}`} style={styles.meta}>
           <StatusTag status={working ? 'working' : 'idle'} />
           <Text style={styles.lanes}>{lanes} LANES</Text>
           {blocked > 0 ? <Text testID="assistant-lanes-blocked" style={styles.blocked}>{blocked} BLOCKED</Text> : null}
-        </View>
+        </Pressable>
       </View>
-    </Pressable>
+    </View>
     <HeaderButton kind="questions" count={pending} onPress={onQuestions} />
   </View>;
 }
@@ -54,6 +62,8 @@ const styles = StyleSheet.create({
     borderRadius: 999, overflow: 'hidden', textAlign: 'center', lineHeight: 17,
     backgroundColor: Tokens.palette.amber, color: Tokens.palette.ink, fontFamily: Fonts.jetBrainsMono.bold, fontSize: 10 },
   identity: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 9 },
+  identityMark: { flexShrink: 0 },
+  titleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   nameBlock: { flex: 1, minWidth: 0 },
   name: { color: Tokens.palette.text, fontFamily: Fonts.rajdhani.bold, fontSize: 17, lineHeight: 19 },
   meta: { flexDirection: 'row', alignItems: 'center', gap: 9, marginTop: 3 },

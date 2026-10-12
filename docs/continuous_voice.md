@@ -254,3 +254,9 @@ QA, relay/handoff checks, actual daemon gates, signed native Release build, simu
 journeys, and operator-present USB/acoustic/lock/interruption/device-storage proof
 remain requester-owned release gates. No phone or simulator was built or launched
 for this source return.
+# Global header and context extension
+
+The mobile-only global header/bar and additive optional observed-page context
+reuse these capture, ownership and receipt rules. See
+[Voice on every product page](voice_everywhere.md) for the bounded contract,
+older-daemon compatibility and separate rendered/native release evidence.

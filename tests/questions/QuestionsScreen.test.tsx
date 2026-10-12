@@ -25,6 +25,23 @@ let mockState: any;
 const mockListeners = new Set<() => void>();
 let mockOptimisticCounter = 0;
 const mockActions: Record<string, jest.Mock> = {};
+const mockVoiceSurface = jest.fn();
+const mockHeaderVoiceMic = jest.fn();
+jest.mock('../../src/components/voice/VoiceRecordingOverlay', () => ({
+  __esModule: true, default: () => null, useSharedVoiceControlsActive: () => false,
+}));
+jest.mock('../../src/services/voicePresentation', () => ({
+  useVoiceSurface: (...args: unknown[]) => mockVoiceSurface(...args),
+}));
+jest.mock('../../src/components/voice/HeaderVoiceMic', () => ({
+  __esModule: true,
+  default: (props: Record<string, unknown>) => {
+    mockHeaderVoiceMic(props);
+    const ReactActual = require('react');
+    const { Pressable } = require('react-native');
+    return ReactActual.createElement(Pressable, { ...props, accessibilityLabel: 'Start voice recording' });
+  },
+}));
 
 jest.mock('expo-constants', () => require('../helpers/stubs/expoConstants.cjs'));
 jest.mock('expo-router', () => ({
@@ -144,6 +161,8 @@ beforeEach(() => {
   jest.useFakeTimers();
   (globalThis as Record<string, unknown>).__PENTACLE_EXPO_CONFIG__ = HOSTS_CONFIG;
   mockParams = {};
+  mockVoiceSurface.mockClear();
+  mockHeaderVoiceMic.mockClear();
   mockOptimisticCounter = 0;
   mockListeners.clear();
   installActions();
@@ -199,11 +218,27 @@ describe('header (T2–T7)', () => {
     expect(mockNavigate.mock.calls[1][0]).toBe(SESSION_B);
   });
 
-  test('T6/C7: without the voice send leg there is no mic; the accessory slot is empty before the close button (voice: voiceAnswers.test.tsx)', () => {
+  test('T6/C7: generic header mic remains available without legacy segmented-answer carrier', () => {
     resetVoiceAnswersForTests();
     render(<QuestionsScreen />);
-    expect(screen.queryByLabelText(/voice|mic/i)).toBeNull();
-    expect(screen.getByTestId('questions-header-accessory').children).toHaveLength(0);
+    expect(screen.getByTestId('questions-voice-mic')).toBeTruthy();
+    expect(mockHeaderVoiceMic).toHaveBeenLastCalledWith(expect.objectContaining({ testID: 'questions-voice-mic' }));
+    expect(mockHeaderVoiceMic.mock.calls.at(-1)?.[0].onPress).toBeUndefined();
+    expect(screen.queryByTestId('questions-voice-bar')).toBeNull();
+  });
+
+  test('visible Questions context changes only its public question identity while paging', () => {
+    render(<QuestionsScreen />);
+    expect(mockVoiceSurface).toHaveBeenLastCalledWith(
+      { page_id: 'questions', title: 'Questions', question_id: 'q-n-deploy' }, true,
+      expect.objectContaining({ priority: 1, bottom: expect.any(Number) }),
+    );
+    goTo(1);
+    expect(mockVoiceSurface.mock.calls.at(-1)?.[0]).toEqual({ page_id: 'questions', title: 'Questions', question_id: 'q-n-review' });
+    goTo(0);
+    expect(mockVoiceSurface.mock.calls.at(-1)?.[0]).toEqual({ page_id: 'questions', title: 'Questions', question_id: 'q-n-deploy' });
+    expect(mockActions.answerPrompt).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('questions-voice-bar')).toBeNull();
   });
 
   test('T7/AC7: close calls router.back() once, sends nothing and marks nothing answered', async () => {

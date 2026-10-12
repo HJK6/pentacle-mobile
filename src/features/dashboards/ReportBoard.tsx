@@ -1,3 +1,4 @@
+import HeaderVoiceMic from '../../components/voice/HeaderVoiceMic';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { logTelemetry } from 'pentacle-chat-core';
@@ -138,7 +139,7 @@ export default function ReportBoard({ board, active = true, refreshKey = 0 }: Pr
 
   return (
     <View style={styles.card} testID={`dashboard-board-${board.id}`} accessibilityValue={{ text: state }}>
-      <Text style={styles.title}>{board.name}</Text>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}><Text numberOfLines={1} style={[styles.title, { flexShrink: 1 }]}>{board.name}</Text><HeaderVoiceMic /></View>
       {board.description ? <Text style={styles.muted}>{board.description}</Text> : null}
       {loading ? <Text style={styles.muted}>Loading reports…</Text> : null}
       {error ? <Text style={styles.error} testID="dashboard-board-error">Board failed to load: {error}</Text> : null}

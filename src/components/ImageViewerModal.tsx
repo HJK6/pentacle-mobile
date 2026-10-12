@@ -1,3 +1,4 @@
+import { useVoiceSurface } from '../services/voicePresentation';
 import VoiceRecordingOverlay from './voice/VoiceRecordingOverlay';
 import React from 'react';
 import {
@@ -28,6 +29,7 @@ export interface ImageViewerModalProps {
 }
 
 export function ImageViewerModal({ uri, onClose }: ImageViewerModalProps) {
+  useVoiceSurface({ page_id: 'image', title: 'Image' }, uri != null, { priority: 2, bottom: 24 });
   return (
     <Modal
       visible={uri != null}

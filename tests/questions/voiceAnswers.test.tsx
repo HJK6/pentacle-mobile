@@ -1,4 +1,8 @@
 import React from 'react';
+import { Alert, Linking } from 'react-native';
+import { resetVoicePresentationForTests } from '../../src/services/voicePresentation';
+import { agentQuestionStreamId, agentQuestionSurfaceStreamId } from '../../src/services/agentQuestionNotifications';
+import { isVoiceEligible } from '../../src/components/questions/voice/useVoiceAnswers';
 import { uuid } from 'expo-modules-core';
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 
@@ -30,6 +34,11 @@ let mockOptimisticCounter = 0;
 const mockActions: Record<string, jest.Mock> = {};
 let mockHarness: ReturnType<typeof makeRecorderHarness>;
 const mockDeliveryDiscard = jest.fn();
+const mockLifecycle = { foreground: true, unlocked: true };
+const mockDeliverySnapshot = { takes: [] };
+const mockSendVoiceTake = jest.fn(async (id: string) => {
+  if (mockHarness.recorder.snapshot()?.recordingId === id) await mockHarness.recorder.send();
+});
 
 // A navigation object that emits `beforeRemove` the way react-navigation does for a swipe-dismiss:
 // the removal proceeds (the listener's `defaultPrevented` stays false) unless a listener prevents it.
@@ -64,10 +73,18 @@ jest.mock('@react-navigation/native', () => ({ useIsFocused: () => true }));
 jest.mock('../../src/services/chatOpenNavigation', () => ({ performChatOpenNavigation: jest.fn() }));
 jest.mock('../../src/services/voiceRecordingEngine', () => ({
   get voiceRecorder() { return mockHarness.recorder; },
+  voiceLifecycleSnapshot: () => mockLifecycle,
+  subscribeVoiceLifecycle: () => () => undefined,
+  sendVoiceTake: (id: string) => mockSendVoiceTake(id),
+  discardVoiceTake: async (id: string) => {
+    if (mockHarness.recorder.snapshot()?.recordingId === id) await mockHarness.recorder.discard();
+    else await mockDeliveryDiscard(id);
+  },
 }));
 jest.mock('../../src/components/voice/VoiceRecordingOverlay', () => ({ __esModule: true, default: () => null, useSharedVoiceControlsActive: () => false }));
 jest.mock('../../src/services/voiceDelivery', () => ({
-  voiceDelivery: { discard: (...args: unknown[]) => mockDeliveryDiscard(...args) },
+  voiceDelivery: { discard: (...args: unknown[]) => mockDeliveryDiscard(...args), subscribeLanded: () => () => undefined },
+  useVoiceDelivery: () => mockDeliverySnapshot,
 }));
 jest.mock('../../src/services/pentacleStream', () => {
   const actual = jest.requireActual('../../src/services/pentacleStream');
@@ -75,7 +92,13 @@ jest.mock('../../src/services/pentacleStream', () => {
   return {
     ...actual,
     getPentacleStreamState: () => mockState,
-    voiceTransportSnapshot: () => ({ ready: mockState.connected, inventoryFresh: mockState.hasHydrated, authNeeded: false }),
+    voiceTransportSnapshot: () => ({
+      ready: mockState.connected, inventoryFresh: mockState.hasHydrated, authNeeded: false,
+      serverIdentity: 'wss://synthetic.invalid/ws', credentialId: 'synthetic-credential', scopeGeneration: 1, socketGeneration: 1,
+      origins: mockState.sessions.map((row: any) => ({ ...row, session_generation: row.session_generation ?? 'generation-1' })),
+    }),
+    voiceOriginStatus: (streamId: string, generation: string) => mockState.sessions.some((row: any) => row.stream_id === streamId && (row.session_generation ?? 'generation-1') === generation) ? 'available' : 'unavailable',
+    subscribeVoiceTransport: (listener: () => void) => { mockListeners.add(listener); return () => { mockListeners.delete(listener); }; },
     usePentacleStreamSelector: (selector: (state: unknown) => unknown) => {
       const [, force] = ReactActual.useReducer((value: number) => value + 1, 0);
       ReactActual.useEffect(() => {
@@ -135,7 +158,31 @@ async function press(testID: string) {
   await act(async () => { fireEvent.press(screen.getByTestId(testID)); await flush(); });
 }
 function dwell(ms: number) { act(() => { jest.advanceTimersByTime(ms); }); }
-async function startVoice() { await press('questions-voice-mic'); }
+// Retained legacy captures enter through the real recorder's existing manifest binding.
+// New header starts are plain voice_chat and never create these segmented answers.
+async function seedLegacyVoiceTake() {
+  const deck = selectQuestionDeck(mockState);
+  const selected = screen.getAllByTestId(/^questions-dot-\d+$/).findIndex((dot) => dot.props.accessibilityState.selected);
+  const currentKey = deck[Math.max(0, selected)]?.key ?? null;
+  const items = deck.filter(isVoiceEligible).map((entry) => {
+    const action = entry.action as Extract<typeof entry.action, { kind: 'durable' }>;
+    return {
+      key: entry.key, question_id: entry.questionId!, notification_id: action.id,
+      producer_stream_id: agentQuestionStreamId(action.model.notification),
+      surface_stream_id: agentQuestionSurfaceStreamId(action.model.notification) || entry.streamId,
+      prompt: entry.question.prompt,
+    };
+  });
+  const questionBinding = createVoiceQuestionSnapshot(items, deck.filter((entry) => entry.action.kind === 'durable').length, currentKey, deck.map((entry) => entry.key));
+  const origin = mockState.sessions.find((row: any) => row.stream_id === ASSISTANT_STREAM_ID);
+  await act(async () => {
+    await mockHarness.recorder.start(ASSISTANT_STREAM_ID, {
+      originGeneration: origin?.session_generation ?? null, originLabel: origin?.title || 'Assistant',
+      textPrefix: '', images: [], operationKind: 'voice_answer', questionBinding,
+    });
+    await flush();
+  });
+}
 
 beforeEach(() => {
   jest.useFakeTimers();
@@ -146,6 +193,10 @@ beforeEach(() => {
   installActions();
   mockBack.mockClear();
   mockDeliveryDiscard.mockClear();
+  mockSendVoiceTake.mockClear();
+  resetVoicePresentationForTests();
+  jest.spyOn(Alert, 'alert').mockImplementation(() => undefined);
+  jest.spyOn(Linking, 'openSettings').mockResolvedValue(undefined);
   mockNavigation.reset();
   mockHarness = makeRecorderHarness();
   resetVoiceAnswersForTests();
@@ -153,6 +204,8 @@ beforeEach(() => {
   mockState = { connected: true, hasHydrated: true, ...threeDurableOneLegacy() };
 });
 afterEach(() => {
+  jest.restoreAllMocks();
+  resetVoicePresentationForTests();
   jest.useRealTimers();
   delete (globalThis as Record<string, unknown>).__PENTACLE_EXPO_CONFIG__;
 });
@@ -166,56 +219,76 @@ describe('mic (V1, C7 header accessory)', () => {
     expect(screen.queryByTestId('questions-voice-bar')).toBeNull();
   });
 
-  test('hidden without the voice send leg that carries meta.voice_answers', () => {
+  test('generic mic stays available without the legacy voice_answers carrier', () => {
     resetVoiceAnswersForTests();
     render(<QuestionsScreen />);
-    expect(screen.queryByTestId('questions-voice-mic')).toBeNull();
-    expect(screen.getByTestId('questions-header-accessory').children).toHaveLength(0);
+    expect(screen.getByTestId('questions-voice-mic')).toBeTruthy();
+    expect(screen.getByTestId('questions-header-accessory').children.length).toBeGreaterThan(0);
   });
 
-  test('hidden when the deck has no durable pages (legacy only)', () => {
+  test('generic mic stays available when the deck has no durable pages (legacy only)', () => {
     mockState = baseState({
       sessions: [session(LEGACY_SESSION, 'Legacy chat', { question: legacyQuestion() })],
     });
     render(<QuestionsScreen />);
     expect(screen.getByTestId('questions-counter')).toBeTruthy();
-    expect(screen.queryByTestId('questions-voice-mic')).toBeNull();
+    expect(screen.getByTestId('questions-voice-mic')).toBeTruthy();
   });
 
-  test('starting records one take bound to the assistant thread (V6) and shows the bar', async () => {
+  test('new header start records one plain assistant take without segmented answer UI', async () => {
+    const start = jest.spyOn(mockHarness.recorder, 'start');
     render(<QuestionsScreen />);
-    await startVoice();
-    expect(mockHarness.recorder.activeStreamId()).toBe(BART);
-    expect(screen.getByTestId('questions-voice-bar')).toBeTruthy();
-    expect(text('questions-voice-progress')).toBe('0 of 3 answered by voice');
-    expect(text('questions-voice-elapsed')).toBe('0:00');
-    expect(screen.getByTestId('questions-voice-wave')).toBeTruthy();
-    expect(screen.getByTestId('questions-voice-done')).toBeTruthy();
-    expect(text('questions-voice-page-label')).toBe('RECORDING YOUR ANSWER…');
-  });
-
-  test('a busy recorder (the composer is recording) shows a notice and starts nothing', async () => {
-    await mockHarness.recorder.start('hosta:other');
-    render(<QuestionsScreen />);
-    await startVoice();
+    await press('questions-voice-mic');
+    expect(mockHarness.recorder.activeStreamId()).toBe(ASSISTANT_STREAM_ID);
+    expect(start).toHaveBeenCalledTimes(1);
+    expect(start).toHaveBeenCalledWith(ASSISTANT_STREAM_ID, expect.objectContaining({ operationKind: 'voice_chat', textPrefix: '', images: [] }));
+    expect(start.mock.calls[0][1]?.questionBinding).toBeUndefined();
+    expect(activeVoiceQuestionSession()).toBeNull();
     expect(screen.queryByTestId('questions-voice-bar')).toBeNull();
-    expect(text('questions-toast')).toMatch(/recording/i);
+    expect(screen.queryByTestId('questions-voice-progress')).toBeNull();
+    expect(screen.queryByTestId('questions-voice-elapsed')).toBeNull();
+    expect(screen.queryByTestId('questions-voice-wave')).toBeNull();
+    expect(screen.queryByTestId('questions-voice-done')).toBeNull();
+    expect(screen.queryByTestId('questions-voice-page-label')).toBeNull();
+    expect(mockActions.answerPrompt).not.toHaveBeenCalled();
   });
 
-  test('a denied microphone shows a notice and starts nothing', async () => {
+  test('header controls the same active composer take and never starts a second take', async () => {
+    const id = await mockHarness.recorder.start('hosta:other');
+    const start = jest.spyOn(mockHarness.recorder, 'start');
+    render(<QuestionsScreen />);
+    dwell(2000);
+    await press('questions-voice-mic');
+    expect(mockSendVoiceTake).toHaveBeenCalledTimes(1);
+    expect(mockSendVoiceTake).toHaveBeenCalledWith(id);
+    expect(mockHarness.stopped).toHaveLength(1);
+    expect(mockHarness.stopped[0]).toMatchObject({ recordingId: id, streamId: 'hosta:other', sendRequested: true });
+    expect(start).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('questions-voice-bar')).toBeNull();
+    expect(screen.queryByTestId('questions-toast')).toBeNull();
+  });
+
+  test('denied microphone uses current permission recovery without creating a take', async () => {
     mockHarness.engine.permission = 'denied';
     render(<QuestionsScreen />);
-    await startVoice();
+    await press('questions-voice-mic');
     expect(screen.queryByTestId('questions-voice-bar')).toBeNull();
     expect(mockHarness.recorder.isActive()).toBe(false);
-    expect(text('questions-toast')).toMatch(/microphone/i);
+    expect(Alert.alert).toHaveBeenCalledWith('Microphone permission is denied', 'Enable microphone access in Settings to record.', [
+      expect.objectContaining({ text: 'Cancel', style: 'cancel' }),
+      expect.objectContaining({ text: 'Open Settings', onPress: expect.any(Function) }),
+    ]);
+    const buttons = jest.mocked(Alert.alert).mock.calls.at(-1)?.[2];
+    await act(async () => { buttons?.find((button) => button.text === 'Open Settings')?.onPress?.(); await flush(); });
+    expect(Linking.openSettings).toHaveBeenCalledTimes(1);
+    expect(screen.queryByTestId('questions-toast')).toBeNull();
   });
 });
 
 describe('segments and coverage (V1)', () => {
   test('a page flips to ANSWER RECORDED once its segment reaches 1.5 s', async () => {
     render(<QuestionsScreen />);
-    await startVoice();
+    await seedLegacyVoiceTake();
     dwell(1400);
     expect(text('questions-voice-page-label')).toBe('RECORDING YOUR ANSWER…');
     expect(text('questions-voice-progress')).toBe('0 of 3 answered by voice');
@@ -226,7 +299,7 @@ describe('segments and coverage (V1)', () => {
 
   test('a page flipped through in under 1.5 s is not covered', async () => {
     render(<QuestionsScreen />);
-    await startVoice();
+    await seedLegacyVoiceTake();
     dwell(1000);
     goTo(1);
     dwell(1700);
@@ -239,7 +312,7 @@ describe('segments and coverage (V1)', () => {
     render(<QuestionsScreen />);
     const durable = durableKeys();
     expect(durable).toHaveLength(3);
-    await startVoice();
+    await seedLegacyVoiceTake();
     goToKey(durable[0]); dwell(2000);
     goToKey(legacyKey()); dwell(5000);
     expect(text('questions-voice-page-label')).toBe('ANSWER BY TAP');
@@ -249,7 +322,7 @@ describe('segments and coverage (V1)', () => {
 
   test('arrivals during the recording are excluded from n, k and the page label', async () => {
     render(<QuestionsScreen />);
-    await startVoice();
+    await seedLegacyVoiceTake();
     const before = deckKeys();
     setState({ ...mockState, notifications: [...mockState.notifications, durableQuestion(SESSION_B, 'n-late')] });
     const arrival = deckKeys().find((key) => !before.includes(key))!;
@@ -263,7 +336,7 @@ describe('segments and coverage (V1)', () => {
 describe('Done (V1 selected set, V2 binding, V5 no false answers)', () => {
   async function recordTwoAndDone() {
     const durable = durableKeys();
-    goToKey(durable[0]); await startVoice(); dwell(2000);
+    goToKey(durable[0]); await seedLegacyVoiceTake(); dwell(2000);
     goToKey(durable[1]); dwell(3000);
     await press('questions-voice-done');
     return durable;
@@ -294,7 +367,7 @@ describe('Done (V1 selected set, V2 binding, V5 no false answers)', () => {
   test('legacy pages and uncovered durable pages are never in the binding', async () => {
     render(<QuestionsScreen />);
     const durable = durableKeys();
-    await startVoice();
+    await seedLegacyVoiceTake();
     goToKey(legacyKey()); dwell(3000);
     goToKey(durable[2]); dwell(2000);
     await press('questions-voice-done');
@@ -309,7 +382,7 @@ describe('Done (V1 selected set, V2 binding, V5 no false answers)', () => {
       notifications: [surfaced],
     });
     render(<QuestionsScreen />);
-    await startVoice(); dwell(2000);
+    await seedLegacyVoiceTake(); dwell(2000);
     await press('questions-voice-done');
     const meta = buildVoiceAnswersMeta(mockHarness.stopped[0].recordingId, { blobSha: 's', durationS: 2 })!;
     expect(meta.items).toHaveLength(1);
@@ -319,7 +392,7 @@ describe('Done (V1 selected set, V2 binding, V5 no false answers)', () => {
   test('arrivals are never selected even after a long dwell; pages answered elsewhere drop out of the binding', async () => {
     render(<QuestionsScreen />);
     const durable = durableKeys();
-    goToKey(durable[0]); await startVoice(); dwell(2000);
+    goToKey(durable[0]); await seedLegacyVoiceTake(); dwell(2000);
     goToKey(durable[1]); dwell(2000);
     const before = deckKeys();
     setState({
@@ -353,7 +426,7 @@ describe('Done (V1 selected set, V2 binding, V5 no false answers)', () => {
 
   test('Done with zero covered pages discards the take, closes nothing and registers no binding', async () => {
     render(<QuestionsScreen />);
-    await startVoice();
+    await seedLegacyVoiceTake();
     dwell(1000);
     await press('questions-voice-done');
     expect(mockHarness.engine.discarded).toBe(true);
@@ -366,7 +439,7 @@ describe('Done (V1 selected set, V2 binding, V5 no false answers)', () => {
 
   test('a failed stop keeps the recording open and registers nothing', async () => {
     render(<QuestionsScreen />);
-    await startVoice(); dwell(2500);
+    await seedLegacyVoiceTake(); dwell(2500);
     mockHarness.engine.stopFails = true;
     await press('questions-voice-done');
     expect(mockBack).not.toHaveBeenCalled();
@@ -376,7 +449,7 @@ describe('Done (V1 selected set, V2 binding, V5 no false answers)', () => {
 
   test('a cap freezes the same selection and retains an unsent question take', async () => {
     render(<QuestionsScreen />);
-    await startVoice(); dwell(2500);
+    await seedLegacyVoiceTake(); dwell(2500);
     await act(async () => { await mockHarness.recorder.stop('cap'); await flush(); });
     const meta = buildVoiceAnswersMeta(mockHarness.stopped[0].recordingId, { blobSha: 's', durationS: 3 })!;
     expect(meta.items).toHaveLength(1);
@@ -386,7 +459,7 @@ describe('Done (V1 selected set, V2 binding, V5 no false answers)', () => {
 
   test('an automatic stop with nothing covered retains the unsent take until explicit action', async () => {
     render(<QuestionsScreen />);
-    await startVoice(); dwell(500);
+    await seedLegacyVoiceTake(); dwell(500);
     await act(async () => { await mockHarness.recorder.stop('background'); await flush(); });
     expect(mockDeliveryDiscard).not.toHaveBeenCalled();
     expect(mockBack).not.toHaveBeenCalled();
@@ -396,7 +469,7 @@ describe('Done (V1 selected set, V2 binding, V5 no false answers)', () => {
 describe('discard (V1)', () => {
   test('✕ while recording asks first; keeping continues the take', async () => {
     render(<QuestionsScreen />);
-    await startVoice(); dwell(2000);
+    await seedLegacyVoiceTake(); dwell(2000);
     await press('questions-close');
     expect(screen.getByTestId('questions-voice-confirm')).toBeTruthy();
     expect(mockBack).not.toHaveBeenCalled();
@@ -409,7 +482,7 @@ describe('discard (V1)', () => {
 
   test('confirming the discard drops the take, uploads and marks nothing, and closes the overlay', async () => {
     render(<QuestionsScreen />);
-    await startVoice(); dwell(2000);
+    await seedLegacyVoiceTake(); dwell(2000);
     await press('questions-close');
     await press('questions-voice-discard');
     expect(mockHarness.engine.discarded).toBe(true);
@@ -427,7 +500,7 @@ describe('discard (V1)', () => {
 
   test('unmounting mid-recording preserves the process-owned take', async () => {
     const view = render(<QuestionsScreen />);
-    await startVoice(); dwell(2000);
+    await seedLegacyVoiceTake(); dwell(2000);
     view.unmount();
     await act(async () => { await flush(); });
     expect(mockHarness.engine.discarded).toBe(false);
@@ -441,7 +514,7 @@ describe('route-level dismissal (V1: leaving a live take asks first)', () => {
 
   test('a live take: the dismissal is prevented and the Keep/Discard confirmation shows', async () => {
     render(<QuestionsRoute />);
-    await startVoice(); dwell(2000);
+    await seedLegacyVoiceTake(); dwell(2000);
     let prevented = false;
     act(() => { prevented = mockNavigation.emitBeforeRemove(SWIPE); });
     expect(prevented).toBe(true);
@@ -453,7 +526,7 @@ describe('route-level dismissal (V1: leaving a live take asks first)', () => {
 
   test('Keep keeps recording and the dismissal stays cancelled', async () => {
     render(<QuestionsRoute />);
-    await startVoice(); dwell(2000);
+    await seedLegacyVoiceTake(); dwell(2000);
     act(() => { mockNavigation.emitBeforeRemove(SWIPE); });
     await press('questions-voice-keep');
     expect(screen.queryByTestId('questions-voice-confirm')).toBeNull();
@@ -469,7 +542,7 @@ describe('route-level dismissal (V1: leaving a live take asks first)', () => {
 
   test('Discard drops the take and leaves by dispatching the original removal action', async () => {
     render(<QuestionsRoute />);
-    await startVoice(); dwell(2000);
+    await seedLegacyVoiceTake(); dwell(2000);
     act(() => { mockNavigation.emitBeforeRemove(SWIPE); });
     await press('questions-voice-discard');
     expect(mockHarness.engine.discarded).toBe(true);
@@ -485,7 +558,7 @@ describe('route-level dismissal (V1: leaving a live take asks first)', () => {
 
   test('a dismissal while the ✕ confirmation is already open stays prevented and Discard still leaves by the dismissal', async () => {
     render(<QuestionsRoute />);
-    await startVoice(); dwell(2000);
+    await seedLegacyVoiceTake(); dwell(2000);
     await press('questions-close');
     let prevented = false;
     act(() => { prevented = mockNavigation.emitBeforeRemove(SWIPE); });
@@ -501,7 +574,7 @@ describe('route-level dismissal (V1: leaving a live take asks first)', () => {
     act(() => { prevented = mockNavigation.emitBeforeRemove(SWIPE); });
     expect(prevented).toBe(false);
     expect(screen.queryByTestId('questions-voice-confirm')).toBeNull();
-    await startVoice(); dwell(2000);
+    await seedLegacyVoiceTake(); dwell(2000);
     await press('questions-voice-done');
     // After Done the take belongs to the voice send leg: leaving is not blocked.
     act(() => { prevented = mockNavigation.emitBeforeRemove(SWIPE); });
@@ -532,7 +605,7 @@ describe('n is the full durable deck at recording start (V1, legacy excluded onl
     render(<QuestionsScreen />);
     const bindable = durableKeys().find((key) => key !== unbindableKey())!;
     expect(durableKeys()).toHaveLength(2);
-    await startVoice();
+    await seedLegacyVoiceTake();
     expect(text('questions-voice-progress')).toBe('0 of 2 answered by voice');
     goToKey(bindable); dwell(2000);
     expect(text('questions-voice-progress')).toBe('1 of 2 answered by voice');
@@ -542,7 +615,7 @@ describe('n is the full durable deck at recording start (V1, legacy excluded onl
     mockState = unbindableFixture();
     render(<QuestionsScreen />);
     const bindable = durableKeys().find((key) => key !== unbindableKey())!;
-    await startVoice();
+    await seedLegacyVoiceTake();
     goToKey(unbindableKey()); dwell(5000);
     expect(text('questions-voice-page-label')).toBe('ANSWER BY TAP');
     expect(text('questions-voice-progress')).toBe('0 of 2 answered by voice');
@@ -555,7 +628,7 @@ describe('n is the full durable deck at recording start (V1, legacy excluded onl
 
 test('R8 delayed background observation never freezes question time beyond native captured audio', async () => {
   render(<QuestionsScreen />);
-  await startVoice();
+  await seedLegacyVoiceTake();
   const recordingId = mockHarness.recorder.snapshot()!.recordingId;
   // Native capture ended after 2 seconds, but JS observes the background stop 60 seconds later.
   // This uses the existing stop and hook ingress rather than inventing a baseline pause API.
@@ -569,14 +642,14 @@ test('R8 delayed background observation never freezes question time beyond nativ
 
 test('R8 background stop does not automatically finish question delivery', async () => {
   render(<QuestionsScreen />);
-  await startVoice(); dwell(2000);
+  await seedLegacyVoiceTake(); dwell(2000);
   await act(async () => { await mockHarness.recorder.stop('background'); await flush(); });
   expect(mockBack).not.toHaveBeenCalled();
 });
 
 
 test('R8 conformance: a short visit plus sixty seconds paused contributes no answer', async () => {
-  render(<QuestionsScreen />); await startVoice(); dwell(1000);
+  render(<QuestionsScreen />); await seedLegacyVoiceTake(); dwell(1000);
   await act(async () => { await mockHarness.recorder.pause('background'); await flush(); });
   dwell(60000);
   expect(text('questions-voice-progress')).toBe('0 of 3 answered by voice');
@@ -588,7 +661,7 @@ test('R8 conformance: a short visit plus sixty seconds paused contributes no ans
 });
 
 test('R8 conformance: global Send freezes question binding before the stopped subscriber', async () => {
-  render(<QuestionsScreen />); await startVoice(); dwell(2100);
+  render(<QuestionsScreen />); await seedLegacyVoiceTake(); dwell(2100);
   const id = mockHarness.recorder.snapshot()!.recordingId;
   let observed: unknown;
   mockHarness.recorder.subscribeStopped(take => { observed = buildVoiceAnswersMeta(take.recordingId, { blobSha: 's', durationS: take.durationS }); });
@@ -598,7 +671,7 @@ test('R8 conformance: global Send freezes question binding before the stopped su
 });
 
 test('R8 conformance: global Discard releases the process question session', async () => {
-  render(<QuestionsScreen />); await startVoice(); dwell(2100);
+  render(<QuestionsScreen />); await seedLegacyVoiceTake(); dwell(2100);
   const id = mockHarness.recorder.snapshot()!.recordingId;
   await act(async () => { await mockHarness.recorder.discard(); await flush(); });
   expect(buildVoiceAnswersMeta(id, { blobSha: 's', durationS: 3 })).toBeNull();
@@ -624,7 +697,7 @@ test('CAP-05 a held finalized question session does not block current-scope capt
   startVoiceQuestionSession(held, { ...createVoiceQuestionSnapshot([item], 1, item.key, [item.key]), phase: 'finalized', capturedAudioMs: 2500, visits: [{ key: item.key, startMs: 0, endMs: 2500 }] });
   freezeVoiceQuestionAnswers(held, 2500);
   jest.spyOn(mockHarness.recorder, 'isOwnedByCurrentScope').mockImplementation(id => id !== held);
-  render(<QuestionsScreen />); await startVoice();
+  render(<QuestionsScreen />); await seedLegacyVoiceTake();
   const current = mockHarness.recorder.snapshot()!.recordingId;
   expect(current).not.toBe(held); expect(voiceAnswersItemCount(held)).toBe(1); expect(voiceQuestionSnapshot(held)).toBeDefined();
   await act(async () => { completeVoiceQuestionSession(held, 'discarded'); });
@@ -634,7 +707,7 @@ test('CAP-05 a held finalized question session does not block current-scope capt
 });
 
 test('CAP-05 capped answers then scope switch and committed held discard permit the next question take', async () => {
-  render(<QuestionsScreen />); await startVoice(); dwell(2500);
+  render(<QuestionsScreen />); await seedLegacyVoiceTake(); dwell(2500);
   const held = mockHarness.recorder.snapshot()!.recordingId;
   await act(async () => { await mockHarness.recorder.stop('cap'); });
   expect(mockHarness.recorder.isActive()).toBe(false);
@@ -643,13 +716,13 @@ test('CAP-05 capped answers then scope switch and committed held discard permit 
   await act(async () => { completeVoiceQuestionSession(held, 'discarded'); });
   expect(activeVoiceQuestionSession()).toBeNull(); expect(voiceAnswersItemCount(held)).toBe(0);
   jest.mocked(uuid.v4).mockReturnValueOnce('123e4567-e89b-42d3-a456-000000000123');
-  await startVoice(); expect(mockHarness.recorder.isActive()).toBe(true);
+  await seedLegacyVoiceTake(); expect(mockHarness.recorder.isActive()).toBe(true);
   expect(screen.getByTestId('questions-voice-bar')).toBeTruthy();
   await act(async () => { await mockHarness.recorder.discard(); });
 });
 
 test('CAP-03 unavailable question inventory cannot erase previously covered capture eligibility', async () => {
-  render(<QuestionsScreen />); await startVoice(); dwell(2500);
+  render(<QuestionsScreen />); await seedLegacyVoiceTake(); dwell(2500);
   const id = mockHarness.recorder.snapshot()!.recordingId;
   const prior = voiceQuestionSnapshot(id)!;
   setState({ ...mockState, sessions: [], notifications: [], connected: false, hasHydrated: false });

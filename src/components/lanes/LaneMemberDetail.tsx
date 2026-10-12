@@ -1,3 +1,4 @@
+import HeaderVoiceMic from '../voice/HeaderVoiceMic';
 import React from "react";
 import { Pressable, Text, View } from "react-native";
 import type { LaneCardViewModel } from "../../services/workLanes";
@@ -96,16 +97,18 @@ export function MemberContent({
               · {member.spec_id}
             </Text>
           </View>
-          <Text
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}><Text
+            numberOfLines={1}
             style={{
               ...body,
+              flexShrink: 1,
               fontSize: 19,
               fontFamily: Fonts.rajdhani.bold,
               color: p.text,
             }}
           >
             {memberTitle(member)}
-          </Text>
+          </Text><HeaderVoiceMic /></View>
         </>
       ) : null}
       <ObservationMarker member={member} />

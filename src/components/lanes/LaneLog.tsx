@@ -1,3 +1,4 @@
+import HeaderVoiceMic from '../voice/HeaderVoiceMic';
 import Bevel from "../Bevel";
 import type { WorkLaneSpecChange } from "pentacle-chat-core";
 import React, { useEffect, useMemo, useState } from "react";
@@ -174,18 +175,19 @@ export default function LaneLog({
             <Icon kind="back" size={13} />
           </Pressable>
           <LaneMark model={model} size={30} />
-          <View style={{ flex: 1 }}>
-            <Text
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}><Text
               numberOfLines={1}
               style={{
                 ...body,
                 color: p.text,
                 fontSize: 16,
+                flexShrink: 1,
                 fontFamily: Fonts.rajdhani.bold,
               }}
             >
               {model.lane.title}
-            </Text>
+            </Text><HeaderVoiceMic /></View>
             <View
               style={{
                 flexDirection: "row",

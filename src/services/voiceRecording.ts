@@ -1,4 +1,5 @@
 import { voiceLifecycle } from './voiceTakeStore';
+import { createVoiceContext, appendVoiceContext, finalizeVoiceContext, voiceContextPageSnapshot, subscribeVoiceContextPage, type VoiceContextV1 } from './voiceContext';
 import { uuid } from 'expo-modules-core';
 import type { ProcessedAsset } from './imageCapture';
 import type { VoiceRecordingAsset } from './voiceSendUnit';
@@ -44,14 +45,17 @@ export interface RecordingSnapshot {
   streamId: string; recordingId: string; originLabel: string;
   levels: number[]; displayLevels: number[]; durationS: number; capturedAudioMs: number;
   status: CapturePhase; pauseReason?: PauseReason; error?: string;
+  context_v1?: VoiceContextV1;
 }
 export type FinishedRecording = VoiceRecordingAsset & {
   draft?: RecordingDraft; streamId: string; recordingId: string; levels: number[]; interrupted: boolean;
   capturedAudioMs?: number; reason?: StopReason; sendRequested?: boolean;
-  questionBinding?: VoiceQuestionSessionSnapshot; frozenAnswers?: VoiceAnswersItem[];
+  questionBinding?: VoiceQuestionSessionSnapshot; frozenAnswers?: VoiceAnswersItem[]; context_v1?: VoiceContextV1;
 };
 export interface RecordingOwnership {
-  create(streamId: string, draft?: RecordingDraft): Promise<{ recordingId: string; draft?: RecordingDraft }>;
+  /** Opaque auth/server identity captured synchronously before any permission wait. */
+  captureScope?(): string;
+  create(streamId: string, draft?: RecordingDraft, expectedScope?: string): Promise<{ recordingId: string; draft?: RecordingDraft }>;
   checkpoint(snapshot: RecordingSnapshot, nativeUri?: string, questionBinding?: VoiceQuestionSessionSnapshot): Promise<void>;
   finalize(take: FinishedRecording): Promise<void>;
   requestSend(take: FinishedRecording): Promise<void>;
@@ -64,6 +68,7 @@ type ActiveRecording = {
   draft?: RecordingDraft; streamId: string; recordingId: string; levels: number[];
   durationMs: number; status: CapturePhase; pauseReason?: PauseReason; error?: string;
   finished?: FinishedRecording;
+  context_v1?: VoiceContextV1; stopContextObservation?: () => void;
   nativeInterrupted?: boolean;
   discardUri?: string;
   releaseDraft?: () => void; draftTransferred?: boolean;
@@ -99,9 +104,9 @@ export class VoiceRecorder {
   subscribe(listener: Listener) { this.listeners.add(listener); listener(this.snapshot()); return () => { this.listeners.delete(listener); }; }
   snapshot(): RecordingSnapshot | null {
     const a = this.active; if (!a) return null;
-    return { streamId: a.streamId, recordingId: a.recordingId, originLabel: a.draft?.originLabel || a.streamId,
+    return { streamId: a.streamId, recordingId: a.recordingId, originLabel: a.draft?.originLabel || 'Chat',
       levels: a.levels.slice(), displayLevels: a.levels.slice(-DISPLAY_BARS), durationS: Math.floor(a.durationMs / 1000), capturedAudioMs: a.durationMs,
-      status: a.status, pauseReason: a.pauseReason, error: a.error };
+      status: a.status, pauseReason: a.pauseReason, error: a.error, ...(a.context_v1 ? { context_v1: a.context_v1 } : {}) };
   }
   isActive() { return this.active !== null || this.starting; }
   isOwnedByCurrentScope(recordingId: string) { return this.ownership?.ownsScope?.(recordingId) ?? true; }
@@ -132,14 +137,22 @@ export class VoiceRecorder {
       void this.pause('origin').catch(() => undefined);
     }
   }
-  async ensurePermission(): Promise<VoicePermission> {
-    const epoch = this.epoch;
-    const permission = await this.engine.getPermission(); this.guard(epoch);
+  async ensurePermission(checkScope: () => void = () => {}): Promise<VoicePermission> {
+    const epoch = this.epoch; checkScope();
+    const permission = await this.engine.getPermission(); this.guard(epoch); checkScope();
     if (permission !== 'undetermined') return permission;
-    const requested = await this.engine.requestPermission(); this.guard(epoch); return requested;
+    const requested = await this.engine.requestPermission(); this.guard(epoch); checkScope(); return requested;
   }
   start(streamId: string, draft?: RecordingDraft, releaseDraft?: () => void): Promise<string> {
     if (this.active || this.starting) return Promise.reject(new RecorderBusyError());
+    let capturedScope: string | undefined;
+    try { capturedScope = this.ownership?.captureScope?.(); }
+    catch (error) { return Promise.reject(error); }
+    const scopeMatches = () => {
+      try { return !this.ownership?.captureScope || this.ownership.captureScope() === capturedScope; }
+      catch { return false; }
+    };
+    const checkScope = () => { if (!scopeMatches()) throw new Error('Account or connection changed. Start recording again.'); };
     this.starting = true; const epoch = ++this.epoch;
     const capturedDraft = draft ? copy(draft) : undefined;
     return this.serial(async () => {
@@ -147,16 +160,23 @@ export class VoiceRecorder {
       let nativeStarted = false;
       try {
         this.guard(epoch); if (!this.ready()) throw new Error('Unlock the app before recording.');
-        const permission = await this.ensurePermission(); this.guard(epoch);
+        const permission = await this.ensurePermission(checkScope); this.guard(epoch); checkScope();
         if (permission !== 'granted') throw new PermissionDeniedError();
-        created = this.ownership ? await this.ownership.create(streamId, capturedDraft) : { recordingId: uuid.v4(), draft: capturedDraft };
-        this.guard(epoch);
+        created = this.ownership ? await this.ownership.create(streamId, capturedDraft, capturedScope) : { recordingId: uuid.v4(), draft: capturedDraft };
+        this.guard(epoch); checkScope();
         const a: ActiveRecording = { streamId, recordingId: created.recordingId, draft: created.draft ?? capturedDraft, durationMs: 0, levels: [], status: 'starting', releaseDraft };
         this.active = a; this.checkpointAt = 0;
         if (a.draft?.questionBinding) startVoiceQuestionSession(a.recordingId, a.draft.questionBinding);
         this.emit();
-        await this.engine.start(() => this.current(epoch, a) && this.ready(a)); nativeStarted = true; this.guard(epoch, a);
-        a.status = 'recording'; this.startTick(); this.emit();
+        await this.engine.start(() => this.current(epoch, a) && this.ready(a) && scopeMatches()); nativeStarted = true; this.guard(epoch, a); checkScope();
+        a.status = 'recording';
+        // Capture begins after native arming; permission/arming dwell has no visits.
+        // Legacy segmented takes retain their existing binding-only behavior.
+        if (a.draft?.operationKind !== 'voice_answer') {
+          a.context_v1 = createVoiceContext(voiceContextPageSnapshot());
+          a.stopContextObservation = subscribeVoiceContextPage(() => this.sampleContext(a));
+        }
+        this.startTick(); this.emit();
         if (this.ownership) { await this.ownership.checkpoint(this.snapshot()!, this.engine.nativeUri, voiceQuestionSnapshot(a.recordingId)); this.guard(epoch, a); }
         this.transferDraft(a);
         this.telemetry(a.recordingId, 'started');
@@ -177,6 +197,7 @@ export class VoiceRecorder {
           try {
             await this.engine.discard();
             if (this.ownership) await this.ownership.discard(created.recordingId, { nativeUri });
+            this.active?.stopContextObservation?.();
             completeVoiceQuestionSession(created.recordingId, 'discarded');
             if (this.active?.recordingId === created.recordingId) { this.active = null; this.emit(); }
           } catch {
@@ -204,6 +225,17 @@ export class VoiceRecorder {
       } catch (error) { if (!this.consumeNativeReset(error, a)) throw error; }
     }
     return a.durationMs;
+  }
+  private sampleContext(a: ActiveRecording) {
+    if (this.active !== a || a.status !== 'recording' || !a.context_v1 || !this.ready(a)) return;
+    try {
+      const status = this.engine.poll();
+      // Native pause/reset may precede the JS lifecycle notification. Its page
+      // cannot be recorded while capture is stopped, even if JS says recording.
+      if (status.interrupted || status.capped) return;
+      a.durationMs = Math.min(MAX_DURATION_MS, Math.max(a.durationMs, status.durationMs || 0));
+      a.context_v1 = appendVoiceContext(a.context_v1, voiceContextPageSnapshot(), a.durationMs);
+    } catch (error) { if (!this.consumeNativeReset(error, a)) void this.pause('interrupted').catch(() => undefined); }
   }
   private settleNativePause(a: ActiveRecording) {
     if (this.active !== a || a.nativeInterrupted || a.finished) return;
@@ -299,6 +331,7 @@ export class VoiceRecorder {
         await this.engine.resume(() => this.current(epoch, a) && this.ready(a)); this.guard(epoch, a);
         if (!this.ready(a)) throw cancelled();
         a.status = 'recording'; a.error = undefined; a.pauseReason = undefined; this.telemetry(a.recordingId, 'resumed');
+        this.sampleContext(a);
         updateVoiceQuestionCapture(a.recordingId, a.durationMs, 'recording'); this.startTick(); this.emit();
         if (this.ownership) { await this.ownership.checkpoint(this.snapshot()!, this.engine.nativeUri, voiceQuestionSnapshot(a.recordingId)); this.guard(epoch, a); }
       } catch (error) {
@@ -333,6 +366,7 @@ export class VoiceRecorder {
           a.finished = { streamId: a.streamId, draft: a.draft, recordingId: a.recordingId, uri: result.uri, mime: this.engine.mime,
             durationS: Math.max(1, Math.round(a.durationMs / 1000)), capturedAudioMs: a.durationMs, bytes: result.bytes, levels: a.levels.slice(),
             interrupted: reason !== 'tap' && reason !== 'cap', reason, sendRequested: false,
+            ...(a.context_v1 ? { context_v1: finalizeVoiceContext(a.context_v1, a.durationMs) } : {}),
             ...(frozenAnswers ? { frozenAnswers, questionBinding: voiceQuestionSnapshot(a.recordingId) } : {}) };
         }
         const take = a.finished;
@@ -342,12 +376,12 @@ export class VoiceRecorder {
           if (take.frozenAnswers && !take.frozenAnswers.length) {
             await this.engine.discard(); this.guard(epoch, a);
             if (this.ownership) { await this.ownership.discard(a.recordingId); this.guard(epoch, a); }
-            this.active = null; completeVoiceQuestionSession(a.recordingId, 'no_answers'); this.emit(); throw new NoVoiceAnswersError();
+            a.stopContextObservation?.(); this.active = null; completeVoiceQuestionSession(a.recordingId, 'no_answers'); this.emit(); throw new NoVoiceAnswersError();
           }
           if (this.ownership) { await this.ownership.requestSend(take); this.guard(epoch, a); }
           take.sendRequested = true; completeVoiceQuestionSession(a.recordingId, 'sent');
         }
-        this.active = null; this.emit();
+        a?.stopContextObservation?.(); this.active = null; this.emit();
         this.telemetry(a.recordingId, 'finalized');
         for (const listener of this.stoppedListeners) listener(take);
         return take;
@@ -381,7 +415,7 @@ export class VoiceRecorder {
         await this.engine.discard(); this.guard(epoch, a ?? undefined);
         if (a && this.ownership) { await this.ownership.discard(a.recordingId, { nativeUri: a.discardUri }); this.guard(epoch, a); }
         if (a) { completeVoiceQuestionSession(a.recordingId, 'discarded'); this.telemetry(a.recordingId, 'cancelled'); }
-        this.active = null; this.emit();
+        a?.stopContextObservation?.(); this.active = null; this.emit();
       } catch (error) {
         if (this.current(epoch, a ?? undefined) && a) { a.status = a.finished || a.nativeInterrupted ? 'finalized' : 'paused'; a.error = 'Could not discard recording. Try again.'; this.emit(); }
         throw error;

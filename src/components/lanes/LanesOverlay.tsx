@@ -1,3 +1,5 @@
+import HeaderVoiceMic from '../voice/HeaderVoiceMic';
+import { useVoiceSurface } from '../../services/voicePresentation';
 import React, { useEffect, useRef, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import type { WorkLanesInventory } from "pentacle-chat-core";
@@ -130,6 +132,7 @@ export default function LanesOverlay({
   onClose,
   readShow,
   listVariant = "compact",
+  active = true,
 }: {
   lanes: LaneCardViewModel[];
   inventory: WorkLanesInventory | null | undefined;
@@ -142,6 +145,7 @@ export default function LanesOverlay({
   onClose(): void;
   readShow?: ReadWorkLaneShow;
   listVariant?: ListVariant;
+  active?: boolean;
 }) {
   const [view, setView] = useState<"list" | "map">("list"),
     [focus, setFocus] = useState<string | null>(null),
@@ -186,6 +190,7 @@ export default function LanesOverlay({
     if (model) openLog(model);
   };
   const hidden = !!log || allUpdates;
+  useVoiceSurface({ page_id: log || allUpdates ? 'updates' : focused ? 'lane' : 'lanes', title: log ? log.lane.title : allUpdates ? 'Update log' : focused?.lane.title || 'Work lanes', ...(log || focused ? { entity_id: (log || focused)!.lane.lane_id } : {}) }, active, { priority: 1, bottom: bottom + 10, top: top + 72 });
   return (
     <View testID="lanes-overlay" style={{ flex: 1, backgroundColor: p.ink }}>
       <Starfield />
@@ -230,8 +235,8 @@ export default function LanesOverlay({
             ) : (
               <AssistantMark />
             )}
-            <View style={{ flex: 1 }}>
-              <Text
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}><Text
                 numberOfLines={1}
                 style={{
                   ...body,
@@ -239,10 +244,11 @@ export default function LanesOverlay({
                   fontFamily: Fonts.rajdhani.bold,
                   fontSize: 17,
                   lineHeight: 19,
+                  flexShrink: 1,
                 }}
               >
                 {focused?.lane.title || assistantName}
-              </Text>
+              </Text><HeaderVoiceMic /></View>
               <View
                 style={{
                   flexDirection: "row",
@@ -390,7 +396,7 @@ export default function LanesOverlay({
             </ScrollView>
           </View>
           {view === "map" ? (
-            <LanesMap
+            <LanesMap active={active && !hidden} voiceBottom={bottom + 10} voiceTop={top + 72}
               onBackHandler={(handler) => {
                 mapBack.current = handler;
               }}
@@ -422,7 +428,7 @@ export default function LanesOverlay({
             testID="lanes-update-log"
             contentContainerStyle={{ padding: 16, gap: 14 }}
           >
-            <Text style={label}>Update log</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}><Text style={label}>Update log</Text><HeaderVoiceMic /></View>
             {unavailableLog ? (
               <LeafText
                 id="lanes-update-log-unavailable"

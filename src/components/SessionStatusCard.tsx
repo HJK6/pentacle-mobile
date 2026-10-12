@@ -1,3 +1,5 @@
+import HeaderVoiceMic from './voice/HeaderVoiceMic';
+import { useVoiceSurface } from '../services/voicePresentation';
 import React, { memo } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import type { NativeScrollEvent, NativeSyntheticEvent } from 'react-native';
@@ -258,7 +260,7 @@ export const StatusUpdateLog = memo(function StatusUpdateLog({ updates, onBack }
     <ScrollView ref={scrollRef} testID="status-update-log" contentContainerStyle={overlayStyles.updateLog} accessibilityLabel="Status update history" onScroll={onScroll} scrollEventThrottle={16}>
       <View style={overlayStyles.updateLogHeader}>
         <Pressable testID="status-update-log-back" onPress={onBack} accessibilityRole="button" accessibilityLabel="Back to status card"><Text style={overlayStyles.updateLogBack}>‹</Text></Pressable>
-        <Text {...SELECTABLE_TEXT} style={overlayStyles.updateLogLabel}>UPDATE LOG</Text>
+        <Text {...SELECTABLE_TEXT} style={overlayStyles.updateLogLabel}>UPDATE LOG</Text><HeaderVoiceMic />
       </View>
       {updates.map((update, index) => {
         const latest = index === updates.length - 1;
@@ -272,6 +274,7 @@ export const StatusUpdateLog = memo(function StatusUpdateLog({ updates, onBack }
 });
 
 export const StatusOverlay = memo(function StatusOverlay({
+  active = true,
   session,
   card,
   initialView = 'card',
@@ -281,6 +284,7 @@ export const StatusOverlay = memo(function StatusOverlay({
   renderHeader,
   children,
 }: {
+  active?: boolean;
   session: StatusCardSession;
   card: SessionStatusCard;
   initialView?: 'card' | 'updates';
@@ -298,6 +302,7 @@ export const StatusOverlay = memo(function StatusOverlay({
   const issueCount = specs.filter((spec) => !spec.ok).length;
   const age = formatStatusCardAge(card.updated_at);
   const title = session.session_name || 'Session status';
+  useVoiceSurface({ page_id: view === 'updates' ? 'updates' : 'status', title: view === 'updates' ? 'Update log' : title }, active, { priority: 1, bottom: 24 });
   const modelEffort = [normalizedText(session.model) ? modelDisplayName(normalizedText(session.model)) : '', normalizedText(session.effort)].filter(Boolean).join(' · ');
   const statusesByName = new Map(specStatuses.map((status) => [normalizedText(status.name), status]));
   const close = () => view === 'updates' ? setView('card') : onClose();
@@ -305,7 +310,7 @@ export const StatusOverlay = memo(function StatusOverlay({
     <View style={overlayStyles.backdrop} testID="status-overlay">
       {renderHeader ? renderHeader({ close, backToChats: onBackToChats, viewingUpdates: view === 'updates' }) : <View style={overlayStyles.header}>
         <Pressable testID="status-overlay-back" onPress={onBackToChats} accessibilityRole="button" accessibilityLabel="Back to chats"><Text style={overlayStyles.back}>‹</Text></Pressable>
-        <View style={overlayStyles.headerCopy}><Text {...SELECTABLE_TEXT} style={overlayStyles.title} numberOfLines={1}>{title}</Text><Text {...SELECTABLE_TEXT} style={overlayStyles.subtitle}>{session.provider || 'session'} · {session.status || 'live'}</Text></View>
+        <View style={overlayStyles.headerCopy}><View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}><Text {...SELECTABLE_TEXT} style={[overlayStyles.title, { flexShrink: 1 }]} numberOfLines={1}>{title}</Text><HeaderVoiceMic /></View><Text {...SELECTABLE_TEXT} style={overlayStyles.subtitle}>{session.provider || 'session'} · {session.status || 'live'}</Text></View>
         <Pressable testID="status-overlay-close" onPress={close} accessibilityRole="button" accessibilityLabel={view === 'updates' ? 'Back to status card' : 'Close session status'}><Text style={overlayStyles.close}>✕</Text></Pressable>
       </View>}
       {view === 'updates' ? <StatusUpdateLog updates={updates} onBack={() => setView('card')} /> : <ScrollView contentContainerStyle={overlayStyles.content}>
