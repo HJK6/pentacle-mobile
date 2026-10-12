@@ -36,18 +36,16 @@ export default function BartHeader({ identity, others, pending, lanes, blocked =
       </ArcaneRingFrame>
       </Pressable>
       <View style={styles.nameBlock}>
-        <View style={styles.titleRow}>
-          <Pressable onPress={onStatus} accessibilityRole="button" accessibilityLabel={`${identity.name} status`} style={{ flexShrink: 1 }}>
-            <Text style={styles.name} numberOfLines={1}>{identity.name}</Text>
-          </Pressable>
-          <HeaderVoiceMic />
-        </View>
+        <Pressable onPress={onStatus} accessibilityRole="button" accessibilityLabel={`${identity.name} status`} style={{ flexShrink: 1 }}>
+          <Text style={styles.name} numberOfLines={1}>{identity.name}</Text>
+        </Pressable>
         <Pressable onPress={onStatus} accessibilityRole="button" accessibilityLabel={`${lanes} open lanes${blocked > 0 ? `, ${blocked} blocked` : ''}`} style={styles.meta}>
           <StatusTag status={working ? 'working' : 'idle'} />
           <Text style={styles.lanes}>{lanes} LANES</Text>
           {blocked > 0 ? <Text testID="assistant-lanes-blocked" style={styles.blocked}>{blocked} BLOCKED</Text> : null}
         </Pressable>
       </View>
+      <HeaderVoiceMic />
     </View>
     <HeaderButton kind="questions" count={pending} onPress={onQuestions} />
   </View>;
@@ -63,8 +61,7 @@ const styles = StyleSheet.create({
     backgroundColor: Tokens.palette.amber, color: Tokens.palette.ink, fontFamily: Fonts.jetBrainsMono.bold, fontSize: 10 },
   identity: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 9 },
   identityMark: { flexShrink: 0 },
-  titleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  nameBlock: { flex: 1, minWidth: 0 },
+  nameBlock: { flexShrink: 1, minWidth: 0 },
   name: { color: Tokens.palette.text, fontFamily: Fonts.rajdhani.bold, fontSize: 17, lineHeight: 19 },
   meta: { flexDirection: 'row', alignItems: 'center', gap: 9, marginTop: 3 },
   lanes: { color: Tokens.palette.muted, fontFamily: Fonts.jetBrainsMono.regular, fontSize: 9.5, letterSpacing: 0.5 },
