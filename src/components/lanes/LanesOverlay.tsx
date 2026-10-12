@@ -1,4 +1,5 @@
 import HeaderVoiceMic from '../voice/HeaderVoiceMic';
+import { compactHeaderLayout } from '../headerLayout';
 import { useVoiceSurface } from '../../services/voicePresentation';
 import React, { useEffect, useRef, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
@@ -230,55 +231,58 @@ export default function LanesOverlay({
                 <Icon kind="back" />
               </Pressable>
             ) : null}
-            {focused ? (
-              <LaneMark model={focused} size={38} />
-            ) : (
-              <AssistantMark />
-            )}
-            <View style={{ flex: 1, minWidth: 0 }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}><Text
-                numberOfLines={1}
-                style={{
-                  ...body,
-                  color: p.text,
-                  fontFamily: Fonts.rajdhani.bold,
-                  fontSize: 17,
-                  lineHeight: 19,
-                  flexShrink: 1,
-                }}
-              >
-                {focused?.lane.title || assistantName}
-              </Text><HeaderVoiceMic /></View>
-              <View
-                style={{
-                  flexDirection: "row",
-                  gap: 9,
-                  alignItems: "center",
-                  marginTop: 3,
-                }}
-              >
-                {focused ? (
-                  <>
-                    <LaneGlyph model={focused} size={10} />
-                    <Text
-                      style={{
-                        ...mono,
-                        color: p[focused.stateTone],
-                        letterSpacing: 1,
-                      }}
-                    >
-                      {focused.stateLabel}
-                    </Text>
-                  </>
-                ) : (
-                  <>
-                    <StatusTag status={connected ? "working" : "idle"} />
-                    <Text style={{ ...mono, letterSpacing: 0.5 }}>
-                      {inventory?.counts.open ?? lanes.length} LANES
-                    </Text>
-                  </>
-                )}
+            <View style={compactHeaderLayout.identity}>
+              {focused ? (
+                <LaneMark model={focused} size={38} />
+              ) : (
+                <AssistantMark />
+              )}
+              <View style={compactHeaderLayout.copy}>
+                <Text
+                  numberOfLines={1}
+                  style={{
+                    ...body,
+                    color: p.text,
+                    fontFamily: Fonts.rajdhani.bold,
+                    fontSize: 17,
+                    lineHeight: 19,
+                    flexShrink: 1,
+                  }}
+                >
+                  {focused?.lane.title || assistantName}
+                </Text>
+                <View
+                  style={{
+                    flexDirection: "row",
+                    gap: 9,
+                    alignItems: "center",
+                    marginTop: 3,
+                  }}
+                >
+                  {focused ? (
+                    <>
+                      <LaneGlyph model={focused} size={10} />
+                      <Text
+                        style={{
+                          ...mono,
+                          color: p[focused.stateTone],
+                          letterSpacing: 1,
+                        }}
+                      >
+                        {focused.stateLabel}
+                      </Text>
+                    </>
+                  ) : (
+                    <>
+                      <StatusTag status={connected ? "working" : "idle"} />
+                      <Text style={{ ...mono, letterSpacing: 0.5 }}>
+                        {inventory?.counts.open ?? lanes.length} LANES
+                      </Text>
+                    </>
+                  )}
+                </View>
               </View>
+              <HeaderVoiceMic />
             </View>
             {!allUpdates ? (
               <View

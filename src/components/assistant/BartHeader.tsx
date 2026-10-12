@@ -1,4 +1,5 @@
 import HeaderVoiceMic from '../voice/HeaderVoiceMic';
+import { compactHeaderLayout } from '../headerLayout';
 import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
@@ -59,9 +60,9 @@ const styles = StyleSheet.create({
   badge: { position: 'absolute', top: -6, right: -5, height: 17, minWidth: 17, paddingHorizontal: 4,
     borderRadius: 999, overflow: 'hidden', textAlign: 'center', lineHeight: 17,
     backgroundColor: Tokens.palette.amber, color: Tokens.palette.ink, fontFamily: Fonts.jetBrainsMono.bold, fontSize: 10 },
-  identity: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 9 },
+  identity: compactHeaderLayout.identity,
   identityMark: { flexShrink: 0 },
-  nameBlock: { flexShrink: 1, minWidth: 0 },
+  nameBlock: compactHeaderLayout.copy,
   name: { color: Tokens.palette.text, fontFamily: Fonts.rajdhani.bold, fontSize: 17, lineHeight: 19 },
   meta: { flexDirection: 'row', alignItems: 'center', gap: 9, marginTop: 3 },
   lanes: { color: Tokens.palette.muted, fontFamily: Fonts.jetBrainsMono.regular, fontSize: 9.5, letterSpacing: 0.5 },
