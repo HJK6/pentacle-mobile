@@ -15,6 +15,7 @@ import CalendarView from '../src/components/personal/CalendarView';
 import QuestionsScreen from '../src/components/questions/QuestionsScreen';
 import { twoItemQuestion } from './questions/fixtures';
 import { resetVoicePresentationForTests } from '../src/services/voicePresentation';
+import { ASSISTANT_STREAM_ID } from '../src/services/assistantIdentity';
 import { initialPentacleStreamState, setTelemetrySink, type TelemetryPayload } from 'pentacle-chat-core';
 
 const mockState = { ...initialPentacleStreamState, connected: true, hasHydrated: true,
@@ -188,7 +189,7 @@ test('header freezes draft and generation before permission; cross-chat handoff 
 });
 
 test('real Personal, Calendar and Questions ownership produces exact captured-clock visits through next/back and paused chat handoff', async () => {
-  mockState.sessions.push({ stream_id: 'bart:assistant', host: 'hosta', session_name: 'assistant', provider: 'codex', title: 'Guide', last_event_at: '2026-10-12T00:00:00Z', online: true });
+  mockState.sessions.push({ stream_id: ASSISTANT_STREAM_ID, host: 'hosta', session_name: 'assistant', provider: 'codex', title: 'Guide', last_event_at: '2026-10-12T00:00:00Z', online: true });
   mockState.notifications = [twoItemQuestion('hosta:origin', 'example', { a: { question_id: 'q-example-1' }, b: { question_id: 'q-example-2' } })] as any;
   mockCapturedMs = 0;
   const tree = (page: 'personal' | 'calendar' | 'questions' | 'chat') => <><VoiceRecordingOverlay />
@@ -198,7 +199,7 @@ test('real Personal, Calendar and Questions ownership produces exact captured-cl
   try {
     await act(async () => fireEvent.press(view.getByTestId('header-voice-mic')));
     const recordingId = voiceRecorder.snapshot()!.recordingId;
-    expect(voiceRecorder.snapshot()?.streamId).toBe('bart:assistant');
+    expect(voiceRecorder.snapshot()?.streamId).toBe(ASSISTANT_STREAM_ID);
     mockCapturedMs = 3100; mockPathname = '/personal/calendar';
     view.rerender(tree('calendar'));
     mockCapturedMs = 7200;
@@ -228,13 +229,13 @@ test('real Personal, Calendar and Questions ownership produces exact captured-cl
     fireEvent.press(view.getByTestId('questions-back'));
     const expected = { visits: [...fourVisits, { offset_ms: 14000, page_id: 'questions', title: 'Questions', question_id: 'q-example-1' }] };
     expect(voiceRecorder.snapshot()?.context_v1).toEqual(expected);
-    expect(voiceRecorder.snapshot()).toMatchObject({ recordingId, streamId: 'bart:assistant' });
+    expect(voiceRecorder.snapshot()).toMatchObject({ recordingId, streamId: ASSISTANT_STREAM_ID });
     expect(mockNativeStarts).toBe(1);
     mockCapturedMs = 15000;
     await act(async () => fireEvent.press(view.getByTestId('questions-voice-mic')));
     await act(async () => { resolveTranscript({ text: 'One plain voice message', model: 'synthetic', duration_s: 15 }); await voiceDelivery.drain(); });
     expect(mockSend).toHaveBeenCalledTimes(1);
-    expect(mockSend).toHaveBeenCalledWith(expect.objectContaining({ streamId: 'bart:assistant', originGeneration: 'generation-1', meta: { voice: { duration_s: 15, context_v1: expected } } }));
+    expect(mockSend).toHaveBeenCalledWith(expect.objectContaining({ streamId: ASSISTANT_STREAM_ID, originGeneration: 'generation-1', meta: { voice: { duration_s: 15, context_v1: expected } } }));
     expect(mockSend.mock.calls[0][0].meta.voice_answers).toBeUndefined();
   } finally {
     mockState.sessions.pop(); mockState.notifications = [];

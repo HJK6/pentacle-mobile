@@ -4,6 +4,7 @@ import {
 } from '../src/services/voiceContext';
 import { VoiceRecorder, type RecordingEngine, type Scheduler, type RecordingOwnership } from '../src/services/voiceRecording';
 import { voiceQuestionSnapshot } from '../src/components/questions/voice/voiceAnswersBinding';
+import { ASSISTANT_STREAM_ID } from '../src/services/assistantIdentity';
 
 // Exact owner-amended fixture; SHA-256 1402d54a7cd6609ccaa91d7b1132d0425a2150561e4ad87f11e86acfe48acac6.
 const ID_ALPHABET = {
@@ -132,7 +133,7 @@ test('finalize clamps late tail to final captured duration and rejects malformed
 test('recorder samples real captured time at visible changes, pauses and resumes without question bindings', async () => {
   const h = recorder();
   setVoiceContextPage(fixture.visits[0]);
-  const id = await h.rec.start('assistant:bart');
+  const id = await h.rec.start(ASSISTANT_STREAM_ID);
   for (const page of fixture.visits.slice(1)) { h.at(page.offset_ms); setVoiceContextPage(page); }
   h.at(12000); await h.rec.pause('background');
   setVoiceContextPage({ page_id: 'settings', title: 'Settings' });
@@ -152,7 +153,7 @@ test('permission dwell is absent and current view starts at zero; frozen context
   const h = recorder(), permission = deferred<'granted'>();
   h.engine.getPermission = () => permission.promise;
   setVoiceContextPage({ page_id: 'personal', title: 'Personal' });
-  const start = h.rec.start('assistant:bart');
+  const start = h.rec.start(ASSISTANT_STREAM_ID);
   setVoiceContextPage({ page_id: 'calendar', title: 'Calendar' });
   permission.resolve('granted'); await start;
   h.at(300); h.tick();
@@ -165,7 +166,7 @@ test('permission dwell is absent and current view starts at zero; frozen context
 
 test('native paused/reset state blocks route visits before a delayed JS interruption notification', async () => {
   const h = recorder(); setVoiceContextPage({ page_id: 'personal', title: 'Personal' });
-  await h.rec.start('assistant:bart');
+  await h.rec.start(ASSISTANT_STREAM_ID);
   h.at(1000); h.tick();
   h.engine.poll = () => ({ level: 0, durationMs: 1000, interrupted: true });
   setVoiceContextPage({ page_id: 'calendar', title: 'Calendar' });
@@ -175,12 +176,12 @@ test('native paused/reset state blocks route visits before a delayed JS interrup
 
 test('repeated recorder runs reset the context and permission denial leaves no fake trail', async () => {
   const h = recorder(); setVoiceContextPage({ page_id: 'personal', title: 'Personal' });
-  await h.rec.start('assistant:bart'); h.at(1000); await h.rec.discard();
+  await h.rec.start(ASSISTANT_STREAM_ID); h.at(1000); await h.rec.discard();
   setVoiceContextPage({ page_id: 'settings', title: 'Settings' }); h.at(0);
-  await h.rec.start('assistant:bart'); const take = await h.rec.send();
+  await h.rec.start(ASSISTANT_STREAM_ID); const take = await h.rec.send();
   expect(take.context_v1).toEqual({ visits: [{ offset_ms: 0, page_id: 'settings', title: 'Settings' }] });
   h.engine.getPermission = async () => 'denied';
-  await expect(h.rec.start('assistant:bart')).rejects.toThrow('microphone_permission_denied');
+  await expect(h.rec.start(ASSISTANT_STREAM_ID)).rejects.toThrow('microphone_permission_denied');
   expect(h.rec.snapshot()).toBeNull();
 });
 
@@ -201,7 +202,7 @@ test('owner-amended assistant page ID is fixed context vocabulary, independent o
   const context = createVoiceContext({ page_id: ID_ALPHABET.assistant_page_id, title: 'Assistant' });
   expect(context.visits[0].page_id).toBe('assistant');
   expect(validVoiceContext(context, 0)).toBe(true);
-  expect(validVoiceContext({ visits: [{ offset_ms: 0, page_id: 'bart', title: 'Assistant' }] }, 0)).toBe(false);
+  expect(validVoiceContext({ visits: [{ offset_ms: 0, page_id: 'invalid-page', title: 'Assistant' }] }, 0)).toBe(false);
 });
 
 test.each(ID_ALPHABET.reject)('full-string ID validation rejects amended fixture %p in both optional fields', id => {

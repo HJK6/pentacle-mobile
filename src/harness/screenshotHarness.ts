@@ -16,6 +16,7 @@ import {
 } from "../services/pentacleStream";
 import { DEFAULT_FIXTURE, getFixture } from "./screenshotFixtures";
 import { harnessSeedReports } from "../services/pentacleAssets";
+import { ASSISTANT_STREAM_ID, DEFAULT_ASSISTANT_NAME } from "../services/assistantIdentity";
 
 type PentacleHarnessApi = {
   seed: (screen: string, variant: string) => boolean;
@@ -166,8 +167,8 @@ function installVoiceRenderBoundary() {
   const fixture = {
     ...DEFAULT_FIXTURE.snapshot,
     sessions: [
-      { stream_id: 'bart:assistant', host: 'hosta', session_name: 'assistant', provider: 'codex', title: 'Bart', display_name: 'Bart', session_kind: 'assistant_composite', session_generation: 'voice-render-assistant-1', online: true },
-      ...(DEFAULT_FIXTURE.snapshot.sessions ?? []).filter(row => row.stream_id !== 'bart:assistant').map(row => ({ ...row, session_generation: `voice-render-${row.session_name}-1`, title: row.stream_id === 'hosta:analysis-sample' ? 'Design review' : row.title })),
+      { stream_id: ASSISTANT_STREAM_ID, host: 'hosta', session_name: 'assistant', provider: 'codex', title: DEFAULT_ASSISTANT_NAME, display_name: DEFAULT_ASSISTANT_NAME, session_kind: 'assistant_composite', session_generation: 'voice-render-assistant-1', online: true },
+      ...(DEFAULT_FIXTURE.snapshot.sessions ?? []).filter(row => row.stream_id !== ASSISTANT_STREAM_ID).map(row => ({ ...row, session_generation: `voice-render-${row.session_name}-1`, title: row.stream_id === 'hosta:analysis-sample' ? 'Design review' : row.title })),
     ],
   };
   type Frame = Record<string, any>;
