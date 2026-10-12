@@ -8,6 +8,7 @@ import UnifiedScreen from '../app/(tabs)/unified';
 import { voiceRecorder, setVoiceLifecycle } from '../src/services/voiceRecordingEngine';
 import { uuid } from 'expo-modules-core';
 import { voiceDelivery, voiceTakeRow } from '../src/services/voiceDelivery';
+import { voiceTakeStore } from '../src/services/voiceTakeStore';
 import HeaderVoiceMic from '../src/components/voice/HeaderVoiceMic';
 import VoiceRecordingOverlay from '../src/components/voice/VoiceRecordingOverlay';
 import PersonalHome from '../src/components/personal/PersonalHome';
@@ -358,4 +359,46 @@ test('R10 a queued take awaiting ASR does not block a new independently owned ca
   expect(mockSend).not.toHaveBeenCalled();
   await act(async () => { await voiceRecorder.discard(); firstTranscript({ text: 'First take', model: 'test', duration_s: 3 }); await voiceDelivery.drain(); });
   expect(mockSend).toHaveBeenCalledTimes(1);
+});
+
+
+test('ordinary header capture uses the visible summary title rather than display_name', async () => {
+  const original = { ...mockState.sessions[0] };
+  try {
+    Object.assign(mockState.sessions[0], { title: 'Design review', display_name: 'Analysis session' });
+    const view = render(<><HeaderVoiceMic testID="title-header-mic" /><ComposerBar {...props} streamId="hosta:origin" /></>);
+    await act(async () => fireEvent.press(view.getByTestId('title-header-mic')));
+    const capture = voiceRecorder.snapshot()!;
+    expect(capture).toMatchObject({ streamId: 'hosta:origin', originLabel: 'Design review', status: 'recording' });
+    expect(voiceTakeStore.get(capture.recordingId)?.origin.label).toBe('Design review');
+    expect(mockNativeStarts).toBe(1);
+  } finally { mockState.sessions[0] = original; }
+});
+
+test('visible detail label freezes before permission and remains frozen after a later rename', async () => {
+  const original = { ...mockState.sessions[0] };
+  let permit!: (permission: { granted: boolean; canAskAgain?: boolean }) => void;
+  mockPermissionPromise = new Promise(resolve => { permit = resolve; });
+  try {
+    Object.assign(mockState.sessions[0], { title: 'Summary title', display_name: 'Default session name' });
+    const tree = (streamId: string, visibleLabel: string) => <><HeaderVoiceMic testID="title-header-mic" /><ComposerBar {...{ ...props, voiceOriginLabel: visibleLabel }} streamId={streamId} /></>;
+    const view = render(tree('hosta:origin', 'Hydrated visible title'));
+    fireEvent.changeText(view.getByTestId('composer-input'), 'Original nonempty draft');
+    await act(async () => fireEvent.press(view.getByTestId('title-header-mic')));
+    expect(voiceRecorder.snapshot()).toBeNull();
+    expect(mockNativeStarts).toBe(0);
+    Object.assign(mockState.sessions[0], { title: 'Renamed during permission' });
+    view.rerender(tree('hosta:other', 'Other visible title'));
+    fireEvent.changeText(view.getByTestId('composer-input'), 'Untouched other-chat draft');
+    await act(async () => { permit({ granted: true, canAskAgain: true }); });
+    const capture = voiceRecorder.snapshot()!;
+    expect(capture).toMatchObject({ streamId: 'hosta:origin', originLabel: 'Hydrated visible title', status: 'recording' });
+    expect(voiceTakeStore.get(capture.recordingId)).toMatchObject({ origin: { streamId: 'hosta:origin', generation: 'generation-1', label: 'Hydrated visible title' }, draft: { textPrefix: 'Original nonempty draft' } });
+    view.rerender(tree('hosta:other', 'Renamed after capture'));
+    expect(voiceRecorder.snapshot()).toMatchObject({ recordingId: capture.recordingId, originLabel: 'Hydrated visible title' });
+    expect(voiceTakeStore.get(capture.recordingId)?.origin.label).toBe('Hydrated visible title');
+    expect(mockNativeStarts).toBe(1);
+    await act(async () => voiceRecorder.discard());
+    expect(view.getByTestId('composer-input').props.value).toBe('Untouched other-chat draft');
+  } finally { mockState.sessions[0] = original; }
 });

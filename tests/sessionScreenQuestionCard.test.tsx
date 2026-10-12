@@ -34,6 +34,7 @@ let mockParams: Record<string, unknown> = { streamId: encodeURIComponent(CLAUDE_
 let mockState: PentacleStreamState;
 let mockShowToolActions = false;
 let mockFocused = true;
+let mockVisibleDetailTitle: string | null = null;
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -111,11 +112,12 @@ jest.mock('../src/services/pentacleStream', () => ({
   sameStreamEventsLoadState: jest.fn((a, b) => a.currentGenerationComplete === b.currentGenerationComplete && a.fresh === b.fresh && a.requestStatus === b.requestStatus),
   selectStreamSlice: jest.fn((state, streamId, options = {}) => {
     const core = require('pentacle-chat-core');
+    const detail = streamId ? core.selectSessionDetail(state, streamId, options) : null;
     return {
       connecting: state.connecting,
       hasHydrated: state.hasHydrated,
       session: state.sessions.find((item: any) => item.stream_id === streamId) || null,
-      detail: streamId ? core.selectSessionDetail(state, streamId, options) : null,
+      detail: detail && mockVisibleDetailTitle ? { ...detail, title: mockVisibleDetailTitle } : detail,
       workingState: state.workingStates?.[streamId],
       turn: state.workingByStream?.[streamId] ?? core.IDLE_TURN,
     };
@@ -324,6 +326,7 @@ function renderQuestionScreen() {
 
 beforeEach(() => {
   mockFocused = true;
+  mockVisibleDetailTitle = null;
   jest.useFakeTimers({ now: new Date('2026-05-13T12:00:00.000Z') });
   resetState();
   (usePentacleToken as jest.Mock).mockReturnValue({ isReady: true, token: 'test' });
@@ -1446,4 +1449,20 @@ test('resolved answer stays at its receipt between messages after backfill and l
   render(<SessionScreen />);
   expect(rows().map((row) => row.text)).toEqual(['Newest update', 'After answer', 'Operator answered: Proceed with the checks', 'Before answer']);
   expect(rows().filter((row) => row.text.startsWith('Operator answered:'))).toHaveLength(1);
+});
+
+// Title consistency: normal selector inputs may have a friendly default name distinct from the visible title.
+test('voice context matches the visible session title when display_name differs', () => {
+  resetState(CLAUDE_STREAM_ID, { title: 'Design review', display_name: 'Analysis session' });
+  const view = render(<SessionScreen />);
+  expect(view.getByText('Design review')).toBeTruthy();
+  expect(voiceContextPageSnapshot()).toMatchObject({ page_id: 'chat', title: 'Design review', entity_id: CLAUDE_STREAM_ID });
+});
+
+test('voice context matches the hydrated detail title shown by the real header', () => {
+  resetState(CLAUDE_STREAM_ID, { title: 'Summary title', display_name: 'Default session name' });
+  mockVisibleDetailTitle = 'Hydrated visible title';
+  const view = render(<SessionScreen />);
+  expect(view.getByText('Hydrated visible title')).toBeTruthy();
+  expect(voiceContextPageSnapshot()).toMatchObject({ page_id: 'chat', title: 'Hydrated visible title', entity_id: CLAUDE_STREAM_ID });
 });

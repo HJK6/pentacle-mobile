@@ -1333,6 +1333,7 @@ export function SessionScreen(props: SessionScreenProps) {
   const historyFetchInFlight = historyLoadState.requestStatus === 'loading' ||
     historyLoadState.requestStatus === 'prefetching';
   const session = selectedSession ?? shellSlice.session;
+  const title = detail?.title || (session ? displayTitleForShell(session) : 'Chat');
   const statusOverlayCard = session?.status_card ?? {
     goal: 'Nexus status',
     plan: [],
@@ -1372,7 +1373,7 @@ export function SessionScreen(props: SessionScreenProps) {
   const sessionSendEligible = isPentacleSessionSendEligible(shellSlice.session ?? selectedSession);
   const voiceSurfaceId = useVoiceSurface({
     page_id: streamId === ASSISTANT_STREAM_ID ? 'assistant' : 'chat',
-    title: streamId === ASSISTANT_STREAM_ID ? selectAssistantIdentity({ sessions: getPentacleStreamState?.()?.sessions ?? [] }).name : session?.display_name || session?.title || 'Chat',
+    title: streamId === ASSISTANT_STREAM_ID ? selectAssistantIdentity({ sessions: getPentacleStreamState?.()?.sessions ?? [] }).name : title,
     ...(streamId === ASSISTANT_STREAM_ID ? {} : { entity_id: streamId }),
   }, isFocused && !!session && !statusOverlayOpen && !questionOverlayOpen && !menuVisible && !renameVisible && !reportsVisible && !viewerUri && !agentThreadTarget, { chat: true });
   const connecting = streamConnecting || shellSlice.connecting;
@@ -3225,7 +3226,6 @@ export function SessionScreen(props: SessionScreenProps) {
   const composerInset = keyboardHeight > 0
     ? COMPOSER_KEYBOARD_BOTTOM_INSET
     : COMPOSER_CLOSED_BOTTOM_INSET;
-  const title = detail?.title || displayTitleForShell(session);
   const hostTitle = detail?.hostTitle || chrome.title;
   const dismissComposer = () => {
     setDismissComposerToken((current) => current + 1);
@@ -3674,6 +3674,7 @@ export function SessionScreen(props: SessionScreenProps) {
           <ComposerBar
             streamId={streamId}
             voiceSurfaceId={voiceSurfaceId}
+            voiceOriginLabel={title}
             host={hostTitle}
             chrome={chrome}
             disabled={false}
@@ -4826,6 +4827,7 @@ export function AnimatedSpinnerGlyph({ style }: { style: any }) {
 export function ComposerBar({
   streamId,
   voiceSurfaceId,
+  voiceOriginLabel,
   host,
   chrome,
   disabled,
@@ -4843,6 +4845,7 @@ export function ComposerBar({
 }: {
   streamId?: string;
   voiceSurfaceId?: string;
+  voiceOriginLabel?: string;
   host: string;
   chrome: HostChrome;
   disabled: boolean;
@@ -4904,7 +4907,7 @@ export function ComposerBar({
         const capturedImages = stagedAttachments;
         await voiceRecorder.start(streamId, {
           originGeneration: capturedOrigin.session_generation,
-          originLabel: streamId === ASSISTANT_STREAM_ID ? selectAssistantIdentity(getPentacleStreamState()).name : origin?.display_name || origin?.title || 'Chat',
+          originLabel: streamId === ASSISTANT_STREAM_ID ? selectAssistantIdentity(getPentacleStreamState()).name : voiceOriginLabel || (origin?.title || origin?.display_name ? displayTitleForShell(origin) : 'Chat'),
           textPrefix: composer.trim(),
           images: capturedImages.slice(),
         }, () => {
