@@ -1512,3 +1512,32 @@ test.each([false,true])('Skip uses the ordinary optimistic answer and preserves 
     expect(mockActions.queueOptimisticQuestionAnswer).toHaveBeenCalled();
   }
 });
+
+
+test('Skip of first durable child retains its sibling draft and resolves each child once', async () => {
+  resetState(CLAUDE_STREAM_ID);
+  const notification = durableQuestionNotification('n-skip-multi');
+  mockState.notifications = [{
+    ...notification,
+    question: {
+      ...notification.question,
+      questions: [
+        { question_id: 'q-first', response_mode: 'single_choice', prompt: 'First child?', options: [{ label: 'A', value: 'a' }] },
+        { question_id: 'q-second', response_mode: 'single_choice', prompt: 'Second child?', options: [{ label: 'B', value: 'b' }] },
+      ],
+    },
+  } as PentacleNotification];
+  renderQuestionScreen();
+  fireEvent.press(screen.getByTestId('question-page-next'));
+  fireEvent.press(screen.getByTestId('question-option-1'));
+  fireEvent.press(screen.getByTestId('question-page-prev'));
+  await act(async () => { fireEvent.press(screen.getByTestId('question-skip')); });
+  expect(mockActions.answerPrompt).toHaveBeenCalledTimes(1);
+  expect(mockActions.answerPrompt).toHaveBeenCalledWith({ questionId: 'q-first', text: 'Skipped by operator' });
+  expect(screen.getByText('Second child?')).toBeTruthy();
+  expect(screen.getByTestId('question-option-1').props.accessibilityState?.checked).toBe(true);
+  await act(async () => { fireEvent.press(screen.getByTestId('question-submit')); });
+  expect(mockActions.answerPrompt).toHaveBeenCalledTimes(2);
+  expect(mockActions.answerPrompt).toHaveBeenLastCalledWith({ questionId: 'q-second', selections: ['b'] });
+  expect(screen.queryByTestId('question-skip')).toBeNull();
+});
