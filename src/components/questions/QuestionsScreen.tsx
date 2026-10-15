@@ -1,3 +1,4 @@
+import { QUESTION_SKIP_TEXT } from 'pentacle-chat-core';
 import HeaderVoiceMic from '../voice/HeaderVoiceMic';
 import { useVoiceSurface } from '../../services/voicePresentation';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -175,19 +176,20 @@ export default function QuestionsScreen({ notificationId, navigation }: { notifi
     navigation,
   });
 
-  const submit = async () => {
-    if (sendingRef.current || sendCount === 0) return;
+  const submit = async (skip = false) => {
+    if (sendingRef.current || (skip ? !current?.questionId || current.locked || current.action.kind !== 'durable' : sendCount === 0)) return;
+    const selectedKeys = skip && current ? new Set([current.key]) : sendable;
     sendingRef.current = true;
     setSending(true);
-    setInFlight({ snapshot: deck, pinned: new Set(sendable) });
+    setInFlight({ snapshot: deck, pinned: new Set(selectedKeys) });
     setItemErrors((previous) => {
       const next = { ...previous };
-      sendable.forEach((key) => { delete next[key]; });
+      selectedKeys.forEach((key) => { delete next[key]; });
       return next;
     });
     const snapshot = deck;
     const answers = new Map<string, MobileQuestionAnswer>();
-    flowEntries.forEach((entry) => { if (sendable.has(entry.key)) answers.set(entry.key, flow.answerFor(entry)); });
+    flowEntries.forEach((entry) => { if (selectedKeys.has(entry.key)) answers.set(entry.key, skip ? { text: QUESTION_SKIP_TEXT } : flow.answerFor(entry)); });
     try {
       const result = await submitDeckAnswers({ actions, deck: snapshot, answers });
       if (!mounted.current) return;
@@ -379,6 +381,11 @@ export default function QuestionsScreen({ notificationId, navigation }: { notifi
         {voiceBar}
         <DeckDots entries={deck} activeIndex={index} answered={answeredKeys} onChange={(next) => setPageKey(deck[next]?.key ?? null)} />
         <View style={styles.actions}>
+          {current?.questionId && current.action.kind === 'durable' && !current.locked ? <Pressable
+            testID="questions-skip" accessibilityRole="button" accessibilityState={{ disabled: sending }} disabled={sending}
+            onPress={() => { void submit(true); }} style={[styles.navButton, { borderColor: `${accent}55` }]}>
+            <Text style={[styles.navText, { color: accent }]}>Skip</Text>
+          </Pressable> : null}
           {index > 0 ? (
             <Pressable
               testID="questions-back"

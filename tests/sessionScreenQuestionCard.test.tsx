@@ -1466,3 +1466,49 @@ test('voice context matches the hydrated detail title shown by the real header',
   expect(view.getByText('Hydrated visible title')).toBeTruthy();
   expect(voiceContextPageSnapshot()).toMatchObject({ page_id: 'chat', title: 'Hydrated visible title', entity_id: CLAUDE_STREAM_ID });
 });
+
+
+test.each([false,true])('Skip uses the ordinary optimistic answer and preserves errors (rejected=%s)',async rejected=>{
+  resetState(CLAUDE_STREAM_ID);
+  mockState.notifications = [
+    {
+      notification_id: 'n-free-question',
+      created_at: '2026-05-25T12:00:00.000Z',
+      updated_at: '2026-05-25T12:00:00.000Z',
+      producer: 'agent_question.v1',
+      answer_to_stream_id: CLAUDE_STREAM_ID,
+      severity: 'info',
+      title: 'Explain blocker',
+      body: 'What is blocking?',
+      dedup_key: 'question:free',
+      state: 'open',
+      actions: [{ kind: 'ack', action_id: 'ack-free' }],
+      question: {
+        question_id: 'q-free',
+        producer_stream_id: CLAUDE_STREAM_ID,
+        response_mode: 'single_choice' as any,
+        options: [{ label: 'Keep', value: 'keep' }],
+        state: 'open',
+        answer: null,
+      },
+      resolution: null,
+      ttl_seconds: 3600,
+      expires_at: '2026-05-25T13:00:00.000Z',
+      resolved_at: null,
+    },
+  ];
+  if(rejected) mockActions.answerPrompt.mockRejectedValueOnce(new Error('temporary skip failure'));
+  renderQuestionScreen();
+  await act(async()=>{fireEvent.press(screen.getByTestId('question-skip'));});
+  expect(mockActions.answerPrompt).toHaveBeenCalledTimes(1);
+  expect(mockActions.answerPrompt).toHaveBeenCalledWith({questionId:'q-free',text:'Skipped by operator'});
+  expect(mockActions.beginOptimisticQuestionAnswer).toHaveBeenCalled();
+  if(rejected){
+    expect(screen.getByTestId('question-submit-error')).toHaveTextContent('temporary skip failure');
+    expect(screen.getByTestId('question-skip')).toBeTruthy();
+    expect(mockActions.discardOptimisticQuestionAnswer).toHaveBeenCalled();
+  } else {
+    expect(screen.queryByTestId('question-card')).toBeNull();
+    expect(mockActions.queueOptimisticQuestionAnswer).toHaveBeenCalled();
+  }
+});

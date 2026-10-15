@@ -1246,6 +1246,19 @@ export const FIXTURES: Record<string, HarnessFixture> = {
   "session:loading": { snapshot: {}, opts: LOADING },
   // session:question — the FAB/overlay AskUserQuestion flow (question_flow feature).
   "session:question": { snapshot: QUESTION_SNAPSHOT, opts: SEEDED },
+  "session:question_formatting": { snapshot: {
+    ...POPULATED_SNAPSHOT,
+    notifications: [notification({
+      notification_id: 'question-formatting-fixture', producer: 'agent_question.v1',
+      title: 'Review the next step', body: 'Which lane should run? Review the risks before choosing.',
+      answer_to_stream_id: SESSION_STREAM_ID,
+      actions: [{ kind: 'ack', action_id: 'fixture-answer' }],
+      question: { question_id: 'q-question-formatting', producer_stream_id: SESSION_STREAM_ID,
+        response_mode: 'single_choice', allow_custom: true, state: 'open', answer: null,
+        options: [{ label: 'Stage the update', value: 'stage', description: 'Use the verified candidate. Keep the current drafts! Check the result?' },
+          { label: 'Wait for review', value: 'wait', description: 'Leave the current version running. Review the evidence first.' }].map(option => option) } as NonNullable<PentacleNotification['question']>,
+    })],
+  }, opts: SEEDED },
   // session:rich_markdown — one long assistant bubble exercising the markdown renderer.
   "session:rich_markdown": { snapshot: RICH_MARKDOWN_SNAPSHOT, opts: SEEDED },
   // session:wide_table — wide markdown table + long code line for horizontal pan evidence.

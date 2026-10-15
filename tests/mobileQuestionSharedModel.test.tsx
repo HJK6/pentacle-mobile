@@ -4,6 +4,8 @@ import { StyleSheet } from 'react-native';
 import type { PentacleNotification, PentacleQuestion } from 'pentacle-chat-core';
 
 import {
+  splitPromptHead,
+  splitSentences,
   mobileQuestionAnswered,
   mobileQuestionItems,
   MobileQuestionOne,
@@ -297,4 +299,43 @@ test('pending resolution stays in Updates and shared selectors so surfaces can p
 
   expect(filterUpdatesNotifications([pending])).toEqual([pending]);
   expect(isOpenAgentQuestionNotification(pending)).toBe(true);
+});
+
+test('overlay typography splits prompt context and description bullets to the design sizes', () => {
+  render(<OneHarness question={choiceQuestion({prompt:'Which lane? Review the risks.', options:[{index:1,label:'Lane A',description:'Safer rollout. Keeps drafts! Requires review?'}]})} />);
+  expect(screen.getByTestId('question-prompt')).toHaveTextContent('Which lane?');
+  expect(StyleSheet.flatten(screen.getByTestId('question-prompt').props.style)).toMatchObject({fontSize:16.5,lineHeight:22});
+  expect(screen.getByTestId('question-context')).toHaveTextContent('Review the risks.');
+  expect(StyleSheet.flatten(screen.getByTestId('question-context').props.style)).toMatchObject({fontSize:13.5,lineHeight:20});
+  expect(screen.getByTestId('question-option-description-1')).toHaveTextContent('Safer rollout.');
+  expect(screen.getByText('Keeps drafts!')).toBeTruthy();
+  expect(StyleSheet.flatten(screen.getByText('Keeps drafts!').props.style)).toMatchObject({fontSize:12.5,lineHeight:17.5});
+});
+
+function SkipHarness({durable=true,locked=false,overlay=false,onSkip=jest.fn()}: {durable?:boolean;locked?:boolean;overlay?:boolean;onSkip?:()=>void}) {
+ const {QuestionOverlay}=require('../src/components/MobileQuestions');
+ const entries:MobileQuestionEntry[]=[{key:'one',question:{...mobileQuestionItems(choiceQuestion())[0],...(durable?{question_id:'q-one'}:{})},source:null,locked}];
+ const flow=useMobileQuestionFlow(entries);const Surface=overlay?QuestionOverlay:QuestionCardSurface;
+ return <Surface entries={entries} activeIndex={0} flow={flow} accent="#3dff66" title="Review" onIndexChange={jest.fn()} onCancel={jest.fn()} onSend={jest.fn()} onSkip={onSkip}/>;
+}
+test.each([false,true])('Skip is available only for durable unlocked cards (overlay=%s)',overlay=>{
+ const onSkip=jest.fn();const prefix=overlay?'question':'smart-question';
+ const {rerender}=render(<SkipHarness overlay={overlay} onSkip={onSkip}/>);
+ fireEvent.press(screen.getByTestId(`${prefix}-skip`));expect(onSkip).toHaveBeenCalledTimes(1);
+ rerender(<SkipHarness overlay={overlay} durable={false}/>);expect(screen.queryByTestId(`${prefix}-skip`)).toBeNull();
+ rerender(<SkipHarness overlay={overlay} locked/>);expect(screen.queryByTestId(`${prefix}-skip`)).toBeNull();
+});
+
+test('prompt and sentence helpers preserve punctuation, whitespace and unsplit prompts',()=>{
+ expect(splitPromptHead('No question mark')).toEqual({head:'No question mark',context:''});
+ expect(splitPromptHead('Ready?  First? Then.')).toEqual({head:'Ready?',context:'First? Then.'});
+ expect(splitSentences('First. Next! Last?')).toEqual(['First.','Next!','Last?']);
+ expect(splitSentences('')).toEqual([]);
+ expect(splitSentences('Use e.g. a sample.')).toEqual(['Use e.g.','a sample.']);
+});
+test('compact card retains its original prompt, label and description sizes',()=>{
+ render(<FlowHarness question={choiceQuestion({prompt:'Which? Context.'})}/>);
+ expect(screen.getByTestId('smart-question-prompt')).toHaveTextContent('Which? Context.');
+ expect(StyleSheet.flatten(screen.getByTestId('smart-question-prompt').props.style)).toMatchObject({fontSize:16,lineHeight:20.2});
+ expect(StyleSheet.flatten(screen.getByTestId('smart-question-option-description-1').props.style)).toMatchObject({fontSize:12.5,lineHeight:17.5});
 });

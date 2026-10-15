@@ -1,3 +1,4 @@
+import { QUESTION_SKIP_TEXT } from 'pentacle-chat-core';
 import React, { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useComposerDraft, draftRevision, restoreDraft } from '../../../src/services/composerDrafts';
 import { getPentacleStreamState, voiceTransportSnapshot, voiceOriginStatus } from '../../../src/services/pentacleStream';
@@ -1912,6 +1913,20 @@ export function SessionScreen(props: SessionScreenProps) {
     }
   }, [actions, beginQuestionAnswerProjection, discardQuestionAnswerProjection, settleQuestionAnswerProjection, streamId]);
 
+  const skipCurrentQuestion = useCallback(async () => {
+    const entry = canonicalQuestionEntries[activeQuestionPageIndex];
+    if (!entry || entry.locked || entry.source.kind !== 'durable' || questionSubmissionInFlightRef.current) return;
+    questionSubmissionInFlightRef.current = true;
+    try {
+      const { model, itemIndex } = entry.source;
+      if (await submitDurableQuestionAnswer(model, model.items[itemIndex], [{ text: QUESTION_SKIP_TEXT }])) {
+        setLocallyResolvedNotificationIds(current => new Set(current).add(model.notification.notification_id));
+        setQuestionOverlayOpen(canonicalQuestionEntries.length > 1);
+        logTelemetry(QUESTION_ANSWER_SUBMIT_SENT, { subsystem: 'questions', skipped: true, bug_ref: 'spec_pentacle_mobile__question_card_formatting_and_skip_2026_10' });
+      }
+    } finally { questionSubmissionInFlightRef.current = false; }
+  }, [activeQuestionPageIndex, canonicalQuestionEntries, submitDurableQuestionAnswer]);
+
   const submitAllQuestionAnswers = useCallback(async () => {
     if (!visibleQuestionFlow.allAnswered || questionSubmissionInFlightRef.current) return;
     questionSubmissionInFlightRef.current = true;
@@ -3712,6 +3727,7 @@ export function SessionScreen(props: SessionScreenProps) {
               setQuestionOverlayOpen(false);
             }}
             onSend={() => { void submitAllQuestionAnswers(); }}
+            onSkip={() => { void skipCurrentQuestion(); }}
           />
         </View>
       ) : null}

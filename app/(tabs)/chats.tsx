@@ -1,3 +1,4 @@
+import { QUESTION_SKIP_TEXT } from 'pentacle-chat-core';
 import HeaderVoiceMic from '../../src/components/voice/HeaderVoiceMic';
 import { useVoiceSurface } from '../../src/services/voicePresentation';
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -1693,11 +1694,16 @@ function QuestionPanel({
     if (activeIndex !== clampedIndex) setActiveIndex(clampedIndex);
   }, [activeIndex, clampedIndex]);
 
-  const submit = async () => {
-    if (!flow.allAnswered || submitting) return;
+  const submissionPending = useRef(false);
+  const submit = async (skipEntry?: MobileQuestionEntry<SmartQuestionAction>) => {
+    if ((!skipEntry && !flow.allAnswered) || submitting || submissionPending.current) return;
+    if (skipEntry && (skipEntry.locked || skipEntry.source.kind !== 'durable' || !skipEntry.question.question_id)) return;
+    submissionPending.current = true;
     setSubmitting(true);
     try {
-      const submissions = chat.openQuestions.map((action) => ({
+      const submissions: QuestionSubmission[] = skipEntry && skipEntry.source.kind === 'durable'
+        ? [{ action: skipEntry.source, items: [skipEntry.source.model.items[entries.filter(entry => entry.source.id === skipEntry.source.id).indexOf(skipEntry)]], answers: [{ text: QUESTION_SKIP_TEXT }] }]
+        : chat.openQuestions.map((action) => ({
         action,
         ...(action.kind === 'durable' ? { items: action.model.items } : {}),
         answers: entries
@@ -1708,6 +1714,7 @@ function QuestionPanel({
     } catch {
       // The parent owns the visible error and keeps this card expanded for retry.
     } finally {
+      submissionPending.current = false;
       setSubmitting(false);
     }
   };
@@ -1723,6 +1730,7 @@ function QuestionPanel({
         error={error}
         onIndexChange={setActiveIndex}
         onSend={() => { void submit(); }}
+        onSkip={() => { void submit(entries[clampedIndex]); }}
       />
     </View>
   );

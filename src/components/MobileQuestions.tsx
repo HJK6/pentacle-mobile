@@ -253,6 +253,16 @@ function QuestionDots({ entries, activeIndex, answered, accent, onChange, compac
   );
 }
 
+export function splitPromptHead(prompt: string) {
+  const index = prompt.indexOf('? ');
+  return index < 0 ? { head: prompt, context: '' }
+    : { head: prompt.slice(0, index + 1), context: prompt.slice(index + 2).trim() };
+}
+
+export function splitSentences(description: string) {
+  return (description.match(/[\s\S]*?[.!?]+(?=\s|$)|[\s\S]+$/g) || []).map(sentence => sentence.trim()).filter(Boolean);
+}
+
 export function MobileQuestionOne({ entry, draft, accent, disabled, onChange, onInputFocus, compact = false, testPrefix = 'question' }: {
   entry: MobileQuestionEntry;
   draft: MobileQuestionDraft;
@@ -264,6 +274,7 @@ export function MobileQuestionOne({ entry, draft, accent, disabled, onChange, on
   testPrefix?: string;
 }) {
   const { question } = entry;
+  const { head, context } = splitPromptHead(question.prompt);
   const options = selectableMobileOptions(question);
   const freeText = mobileQuestionIsFreeText(question);
   const allowCustom = mobileQuestionAllowsCustom(question);
@@ -284,7 +295,11 @@ export function MobileQuestionOne({ entry, draft, accent, disabled, onChange, on
   };
   return (
     <View testID={testPrefix === 'question' ? `question-card-${question.index}` : `${testPrefix}-one`} style={styles.questionOne}>
-      <Text testID={`${testPrefix}-prompt`} style={[styles.prompt, compact && styles.compactPrompt]}>{question.prompt}</Text>
+      <View style={styles.promptBlock}>
+        <Text testID={`${testPrefix}-prompt`} style={[styles.prompt, compact && styles.compactPrompt]}>{compact ? question.prompt : head}</Text>
+        {!compact && context ? <Text testID={`${testPrefix}-context`} style={styles.promptContext}>{context}</Text> : null}
+      </View>
+      <View style={[styles.options, compact && styles.compactOptions]}>
       {options.map((option) => {
         const selected = draft.selectedIndices.includes(option.index);
         return (
@@ -305,9 +320,14 @@ export function MobileQuestionOne({ entry, draft, accent, disabled, onChange, on
               <View style={styles.optionCopy}>
                 <Text style={[styles.optionLabel, !selected && { color: accent }, compact && styles.compactOptionLabel]}>{option.label}</Text>
                 {option.description ? (
-                  <Text testID={`${testPrefix}-option-description-${option.index}`} style={[styles.optionDescription, compact && styles.compactOptionDescription]}>
-                    {option.description}
-                  </Text>
+                  compact ? <Text testID={`${testPrefix}-option-description-${option.index}`} style={[styles.optionDescription, styles.compactOptionDescription]}>{option.description}</Text>
+                    : <View style={styles.descriptionBlock}>
+                      <Text testID={`${testPrefix}-option-description-${option.index}`} style={[styles.optionDescription, selected && { color: Tokens.palette.text }]}>{splitSentences(option.description)[0]}</Text>
+                      {splitSentences(option.description).slice(1).map((sentence, index) => <View key={index} style={styles.bulletRow}>
+                        <Text style={[styles.bulletText, { color: accent, opacity: 0.7 }]}>·</Text>
+                        <Text style={[styles.bulletText, { flex: 1 }]}>{sentence}</Text>
+                      </View>)}
+                    </View>
                 ) : null}
               </View>
             </Pressable>
@@ -401,12 +421,13 @@ export function MobileQuestionOne({ entry, draft, accent, disabled, onChange, on
           </View>
         </View>
       ) : null}
+      </View>
       {constraint ? <Text testID={`${testPrefix}-constraint`} style={styles.warning}>{constraint}</Text> : null}
     </View>
   );
 }
 
-export function QuestionOverlay<T>({ entries, activeIndex, flow, accent, machineName, identity, title, submitting, error, onIndexChange, onCancel, onSend, headerAccessory, overlayAccessory, onFooterTop }: {
+export function QuestionOverlay<T>({ entries, activeIndex, flow, accent, machineName, identity, title, submitting, error, onIndexChange, onCancel, onSend, onSkip, headerAccessory, overlayAccessory, onFooterTop }: {
   entries: readonly MobileQuestionEntry<T>[];
   activeIndex: number;
   flow: ReturnType<typeof useMobileQuestionFlow<T>>;
@@ -419,6 +440,7 @@ export function QuestionOverlay<T>({ entries, activeIndex, flow, accent, machine
   onIndexChange: (index: number) => void;
   onCancel: () => void;
   onSend: () => void;
+  onSkip?: () => void;
   headerAccessory?: React.ReactNode;
   overlayAccessory?: React.ReactNode;
   onFooterTop?: (windowY: number) => void;
@@ -512,6 +534,7 @@ export function QuestionOverlay<T>({ entries, activeIndex, flow, accent, machine
         <QuestionDots entries={entries} activeIndex={activeIndex} answered={flow.answered} accent={accent} onChange={onIndexChange} />
         <View style={styles.footerActions}>
           <Pressable testID="question-cancel" onPress={onCancel} style={styles.secondaryButton}><Text style={styles.secondaryText}>Cancel</Text></Pressable>
+          {onSkip && entry.question.question_id && !entry.locked ? <Pressable testID="question-skip" accessibilityRole="button" disabled={!!submitting} accessibilityState={{ disabled: !!submitting }} onPress={onSkip} style={styles.secondaryButton}><Text style={styles.secondaryText}>Skip</Text></Pressable> : null}
           {activeIndex > 0 ? (
             <Pressable testID="question-page-prev" onPress={() => onIndexChange(activeIndex - 1)} style={styles.secondaryButton}><Text style={styles.secondaryText}>Back</Text></Pressable>
           ) : null}
@@ -536,7 +559,7 @@ export function QuestionOverlay<T>({ entries, activeIndex, flow, accent, machine
   );
 }
 
-export function QuestionCardSurface<T>({ entries, activeIndex, flow, accent, submitting, error, onIndexChange, onSend }: {
+export function QuestionCardSurface<T>({ entries, activeIndex, flow, accent, submitting, error, onIndexChange, onSend, onSkip }: {
   entries: readonly MobileQuestionEntry<T>[];
   activeIndex: number;
   flow: ReturnType<typeof useMobileQuestionFlow<T>>;
@@ -545,6 +568,7 @@ export function QuestionCardSurface<T>({ entries, activeIndex, flow, accent, sub
   error?: string | null;
   onIndexChange: (index: number) => void;
   onSend: () => void;
+  onSkip?: () => void;
 }) {
   const entry = entries[Math.min(activeIndex, Math.max(0, entries.length - 1))];
   if (!entry) return null;
@@ -580,6 +604,7 @@ export function QuestionCardSurface<T>({ entries, activeIndex, flow, accent, sub
       />
       {error ? <Text style={styles.warning}>{error}</Text> : null}
       <View style={styles.cardActions}>
+        {onSkip && entry.question.question_id && !entry.locked ? <Pressable testID="smart-question-skip" accessibilityRole="button" disabled={!!submitting} accessibilityState={{ disabled: !!submitting }} onPress={onSkip} style={styles.cardSkipButton}><Text style={styles.secondaryText}>Skip</Text></Pressable> : null}
         {multi ? (
           <Pressable
             testID="smart-question-previous"
@@ -648,15 +673,23 @@ const styles = StyleSheet.create({
   overlayBody: { flex: 1 },
   overlayBodyContent: { paddingVertical: 20, paddingHorizontal: 16 },
   questionOne: { gap: 13 },
-  prompt: { color: Tokens.palette.text, fontFamily: Fonts.rajdhani.semiBold, fontSize: 21, lineHeight: 26.5, marginBottom: 2 },
-  compactPrompt: { fontSize: 16, lineHeight: 20.2 },
+  prompt: { color: Tokens.palette.text, fontFamily: Fonts.rajdhani.semiBold, fontSize: 16.5, lineHeight: 22 },
+  compactPrompt: { fontSize: 16, lineHeight: 20.2, marginBottom: 2 },
+  promptBlock: { gap: 7 },
+  promptContext: { color: Tokens.palette.muted, fontFamily: Fonts.rajdhani.medium, fontSize: 13.5, lineHeight: 20 },
+  options: { gap: 9 },
+  compactOptions: { gap: 13 },
+  descriptionBlock: { gap: 4, marginTop: 2 },
+  bulletRow: { flexDirection: 'row', gap: 7 },
+  bulletText: { color: Tokens.palette.muted, fontFamily: Fonts.rajdhani.medium, fontSize: 12.5, lineHeight: 17.5 },
+  cardSkipButton: { minHeight: 38, paddingHorizontal: 12, borderWidth: 1, borderColor: Tokens.palette.line, borderRadius: 4, justifyContent: 'center' },
   optionContainer: { borderWidth: 1, borderColor: Tokens.palette.line, borderRadius: 4, overflow: 'hidden' },
   option: { minHeight: 58, paddingHorizontal: 14, paddingVertical: 12, flexDirection: 'row', alignItems: 'center', gap: 12 },
   optionMarker: { width: 15, height: 15, borderRadius: 8, borderWidth: 1, borderColor: Tokens.palette.muted },
   optionCopy: { flex: 1, gap: 3 },
-  optionLabel: { color: Tokens.palette.text, fontFamily: Fonts.rajdhani.semiBold, fontSize: 16 },
+  optionLabel: { color: Tokens.palette.text, fontFamily: Fonts.rajdhani.semiBold, fontSize: 15 },
   compactOptionLabel: { fontSize: 14.5 },
-  optionDescription: { color: Tokens.palette.muted, fontFamily: Fonts.rajdhani.medium, fontSize: 13.5, lineHeight: 19 },
+  optionDescription: { color: Tokens.palette.muted, fontFamily: Fonts.rajdhani.medium, fontSize: 13, lineHeight: 18 },
   compactOptionDescription: { fontSize: 12.5, lineHeight: 17.5 },
   optionNoteRow: { paddingHorizontal: 14, paddingBottom: 12, flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
   noteGlyph: { fontSize: 15, lineHeight: 22, opacity: 0.7 },

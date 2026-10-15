@@ -1,3 +1,4 @@
+import { QUESTION_SKIP_TEXT } from 'pentacle-chat-core';
 import HeaderVoiceMic from '../../src/components/voice/HeaderVoiceMic';
 import { useVoiceSurface } from '../../src/services/voicePresentation';
 import VoiceRecordingOverlay from '../../src/components/voice/VoiceRecordingOverlay';
@@ -484,6 +485,7 @@ function UnifiedQuestionCard({ item, submitting, submitError, onSubmit }: {
       error={submitError}
       onIndexChange={setActiveIndex}
       onSend={() => onSubmit(item, entries.map((entry) => flow.answerFor(entry)))}
+      onSkip={() => onSubmit(item, [{ text: QUESTION_SKIP_TEXT }])}
     />
   );
 }
