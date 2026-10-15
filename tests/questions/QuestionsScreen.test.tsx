@@ -638,3 +638,12 @@ describe('final-QA regressions (cycle 1)', () => {
     expect(text('questions-toast')).toBe('Sent 3 answers · 1 left');
   });
 });
+
+test('durable Skip sends only the current reserved answer with ordinary optimistic bookkeeping',async()=>{
+ render(<QuestionsScreen/>);
+ await press('questions-skip');
+ expect(mockActions.answerPrompt).toHaveBeenCalledTimes(1);
+ expect(mockActions.answerPrompt).toHaveBeenCalledWith(expect.objectContaining({text:'Skipped by operator'}));
+ expect(mockActions.beginOptimisticQuestionAnswer).toHaveBeenCalledTimes(1);
+ expect(mockActions.queueOptimisticQuestionAnswer).toHaveBeenCalledTimes(1);
+});

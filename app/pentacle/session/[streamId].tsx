@@ -1,3 +1,4 @@
+import { QUESTION_SKIP_TEXT } from 'pentacle-chat-core';
 import React, { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useComposerDraft, draftRevision, restoreDraft } from '../../../src/services/composerDrafts';
 import { getPentacleStreamState, voiceTransportSnapshot, voiceOriginStatus } from '../../../src/services/pentacleStream';
@@ -1077,6 +1078,7 @@ export function SessionScreen(props: SessionScreenProps) {
   const [questionVoiceFooterBottom, setQuestionVoiceFooterBottom] = useState<number | null>(null);
   const [questionAnswerProjections, setQuestionAnswerProjections] = useState<Record<string, SessionQuestionAnswerProjection>>({});
   const [locallyResolvedNotificationIds, setLocallyResolvedNotificationIds] = useState<Set<string>>(() => new Set());
+  const [locallyResolvedQuestionKeys, setLocallyResolvedQuestionKeys] = useState<Set<string>>(() => new Set());
   const [locallyDismissedQuestionKey, setLocallyDismissedQuestionKey] = useState<string | null>(null);
   // A1 (photo/camera send): the tapped attachment shown full-screen in the viewer.
   const [viewerUri, setViewerUri] = useState<string | null>(null);
@@ -1570,11 +1572,20 @@ export function SessionScreen(props: SessionScreenProps) {
     return [...paneEntries, ...durableEntries];
   }, [activeQuestionHidden, activeQuestionRenderKey, durableQuestionCards, session?.question]);
   const canonicalQuestionEntries = useMemo(
-    () => questionFlowEntries.filter((entry) => (
-      entry.source.kind !== 'durable' ||
-      !pendingDurableNotificationIds.has(entry.source.model.notification.notification_id)
-    )),
-    [pendingDurableNotificationIds, questionFlowEntries],
+    () => questionFlowEntries.filter((entry) => {
+      if (entry.source.kind !== 'durable') return true;
+      const { model, itemIndex } = entry.source;
+      const item = model.items[itemIndex];
+      if (pendingDurableNotificationIds.has(model.notification.notification_id)) return false;
+      if (locallyResolvedQuestionKeys.has(durableAnswerProjectionKey(model.notification.notification_id, item, itemIndex))) return false;
+      if (optimisticQuestionAnswerIdentities.some((identity) => (
+        identity.notificationId === model.notification.notification_id && identity.questionId === item.questionId
+      ))) return false;
+      const rawItems = (model.notification.question as { questions?: { state?: string; answer?: unknown }[] })?.questions;
+      const rawItem = rawItems?.[itemIndex];
+      return !rawItem || ((rawItem.state == null || rawItem.state === 'open') && rawItem.answer == null);
+    }),
+    [locallyResolvedQuestionKeys, optimisticQuestionAnswerIdentities, pendingDurableNotificationIds, questionFlowEntries],
   );
   const questionFlow = useMobileQuestionFlow(questionFlowEntries);
   const visibleUnansweredQuestionCount = canonicalQuestionEntries.filter(
@@ -1911,6 +1922,22 @@ export function SessionScreen(props: SessionScreenProps) {
       setQuestionSubmitting(false);
     }
   }, [actions, beginQuestionAnswerProjection, discardQuestionAnswerProjection, settleQuestionAnswerProjection, streamId]);
+
+  const skipCurrentQuestion = useCallback(async () => {
+    const entry = canonicalQuestionEntries[activeQuestionPageIndex];
+    if (!entry || entry.locked || entry.source.kind !== 'durable' || questionSubmissionInFlightRef.current) return;
+    questionSubmissionInFlightRef.current = true;
+    try {
+      const { model, itemIndex } = entry.source;
+      if (await submitDurableQuestionAnswer(model, model.items[itemIndex], [{ text: QUESTION_SKIP_TEXT }])) {
+        setLocallyResolvedQuestionKeys(current => new Set(current).add(
+          durableAnswerProjectionKey(model.notification.notification_id, model.items[itemIndex], itemIndex),
+        ));
+        setQuestionOverlayOpen(canonicalQuestionEntries.length > 1);
+        logTelemetry(QUESTION_ANSWER_SUBMIT_SENT, { subsystem: 'questions', skipped: true, bug_ref: 'spec_pentacle_mobile__question_card_formatting_and_skip_2026_10' });
+      }
+    } finally { questionSubmissionInFlightRef.current = false; }
+  }, [activeQuestionPageIndex, canonicalQuestionEntries, submitDurableQuestionAnswer]);
 
   const submitAllQuestionAnswers = useCallback(async () => {
     if (!visibleQuestionFlow.allAnswered || questionSubmissionInFlightRef.current) return;
@@ -3712,6 +3739,7 @@ export function SessionScreen(props: SessionScreenProps) {
               setQuestionOverlayOpen(false);
             }}
             onSend={() => { void submitAllQuestionAnswers(); }}
+            onSkip={() => { void skipCurrentQuestion(); }}
           />
         </View>
       ) : null}

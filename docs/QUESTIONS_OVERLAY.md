@@ -207,3 +207,9 @@ needs Metro), start a `test/e2e/harness/log_capture.LogStream`, and call the sce
 `run(config, stream, cap)` with `SIMULATOR_UDID`/`PENTACLE_TARGET_UDID`, `scenario_run_id`, `ws_url`.
 The recorded PASS (run `p4-003416`) used such a composed driver on a macOS host. Wiring `mock_*`
 scenarios into a checked-in runner is outside this packet.
+
+Durable unlocked pages offer Skip. It submits the shared `QUESTION_SKIP_TEXT`
+through the existing `submitDeckAnswers` path for that page alone, preserving
+optimistic bookkeeping, failures, drafts and offline handling. Pane pages do not
+offer Skip. The reserved text is `Skipped by operator`; it is an ordinary answer
+reported to the asking agent.

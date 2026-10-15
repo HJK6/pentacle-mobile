@@ -1,3 +1,4 @@
+import { QUESTION_SKIP_TEXT } from 'pentacle-chat-core';
 import { buildDaemonQuestionAnswer } from '../src/services/daemonQuestionAnswer';
 
 type AnswerCase = {
@@ -93,4 +94,8 @@ describe('buildDaemonQuestionAnswer — canonical prompt.answer messages', () =>
       text: '  ',
     })).toThrow();
   });
+});
+
+test('skip keeps the ordinary prompt.answer wire shape',()=>{
+ expect(buildDaemonQuestionAnswer({request_id:'skip-1',question_id:'q-skip',text:QUESTION_SKIP_TEXT})).toEqual({type:'prompt.answer',request_id:'skip-1',question_id:'q-skip',text:'Skipped by operator'});
 });

@@ -1,3 +1,4 @@
+import { QUESTION_SKIP_TEXT } from 'pentacle-chat-core';
 import HeaderVoiceMic from '../../src/components/voice/HeaderVoiceMic';
 import { useVoiceSurface } from '../../src/services/voicePresentation';
 import VoiceRecordingOverlay from '../../src/components/voice/VoiceRecordingOverlay';
@@ -404,7 +405,7 @@ function QuestionsDrawer({
   submitErrors: Record<string, string | null | undefined>;
   onClose: () => void;
   onOpenChat: (streamId: string) => void;
-  onSubmit: (item: UnifiedQuestionItem, answers: PentacleQuestionAnswerValue[]) => void;
+  onSubmit: (item: UnifiedQuestionItem, answers: PentacleQuestionAnswerValue[], itemIndex?: number) => void;
 }) {
   useVoiceSurface({ page_id: 'questions', title: 'Pending Questions' }, visible, { priority: 2, bottom: 24 });
   return (
@@ -455,7 +456,7 @@ function UnifiedQuestionCard({ item, submitting, submitError, onSubmit }: {
   item: UnifiedQuestionItem;
   submitting: boolean;
   submitError: string | null;
-  onSubmit: (item: UnifiedQuestionItem, answers: PentacleQuestionAnswerValue[]) => void;
+  onSubmit: (item: UnifiedQuestionItem, answers: PentacleQuestionAnswerValue[], itemIndex?: number) => void;
 }) {
   const entries = useMemo<MobileQuestionEntry<UnifiedQuestionItem>[]>(() => {
     const parent = item.model.question;
@@ -484,6 +485,7 @@ function UnifiedQuestionCard({ item, submitting, submitError, onSubmit }: {
       error={submitError}
       onIndexChange={setActiveIndex}
       onSend={() => onSubmit(item, entries.map((entry) => flow.answerFor(entry)))}
+      onSkip={() => onSubmit(item, [{ text: QUESTION_SKIP_TEXT }], clampedIndex)}
     />
   );
 }
@@ -597,6 +599,7 @@ export default function UnifiedScreen() {
   const handleQuestionSubmit = useCallback(async (
     item: UnifiedQuestionItem,
     answers: DurableQuestionAnswer[],
+    itemIndex?: number,
   ) => {
     const answer = answers[0] || {};
     const selections = questionSelections(item.model, answers);
@@ -613,7 +616,9 @@ export default function UnifiedScreen() {
       return;
     }
     const note = questionNote(answers);
-    const questionId = item.model.notification.question?.question_id || (item.model.question as { question_id?: string }).question_id;
+    const questionId = itemIndex === undefined
+      ? item.model.notification.question?.question_id || (item.model.question as { question_id?: string }).question_id
+      : item.model.items[itemIndex]?.questionId;
     setQuestionSubmitErrors((prev) => ({ ...prev, [item.id]: null }));
     setQuestionSubmittingId(item.id);
     try {
@@ -727,8 +732,8 @@ export default function UnifiedScreen() {
           setDrawerVisible(false);
           openChat(streamId);
         }}
-        onSubmit={(item, answers) => {
-          void handleQuestionSubmit(item, answers);
+        onSubmit={(item, answers, itemIndex) => {
+          void handleQuestionSubmit(item, answers, itemIndex);
         }}
       />
     </View>

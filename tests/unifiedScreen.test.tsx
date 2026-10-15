@@ -513,3 +513,25 @@ test('question drawer submits an allowed custom answer through the durable wire 
   });
 });
 
+
+
+test('unified Skip targets the visible child durable identity', async () => {
+  const notification = agentQuestionNotification();
+  mockState.notifications = [{
+    ...notification,
+    question: {
+      ...notification.question,
+      questions: [
+        { question_id: 'q-first', response_mode: 'single_choice', prompt: 'First child?', options: [{ label: 'A', value: 'a' }] },
+        { question_id: 'q-second', response_mode: 'single_choice', prompt: 'Second child?', options: [{ label: 'B', value: 'b' }] },
+      ],
+    },
+  } as PentacleNotification];
+  const view = render(<UnifiedScreen />);
+  fireEvent.press(view.getByTestId('unified-question-badge'));
+  fireEvent.press(view.getByTestId('smart-question-next'));
+  expect(view.getByText('Second child?')).toBeTruthy();
+  await act(async () => { fireEvent.press(view.getByTestId('smart-question-skip')); });
+  expect(mockActions.answerPrompt).toHaveBeenCalledTimes(1);
+  expect(mockActions.answerPrompt).toHaveBeenCalledWith({ questionId: 'q-second', text: 'Skipped by operator' });
+});

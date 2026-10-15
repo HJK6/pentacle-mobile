@@ -475,7 +475,8 @@ test('question overlay uses the mock body, FAB, and single disabled submit affor
 
   const prompt = StyleSheet.flatten(screen.getByTestId('question-prompt').props.style);
   expect(prompt.textTransform).toBeUndefined();
-  expect(prompt.fontSize).toBe(21);
+  expect(prompt.fontSize).toBe(16.5);
+  expect(prompt.lineHeight).toBe(22);
   expect(screen.getByTestId('question-custom-toggle')).toHaveTextContent('Custom');
   expect(screen.getByTestId('question-overlay-cancel').props.accessibilityLabel).toBe('Close questions');
   expect(screen.getByTestId('question-option-1').props.accessibilityState.checked).toBe(false);

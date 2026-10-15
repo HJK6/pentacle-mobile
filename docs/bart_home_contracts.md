@@ -288,3 +288,19 @@ Run by the integration owner on each merged `main` head after a packet lands: `n
 `npm run test:unit`, then the certified harness journey — open app → Bart home → drawer → open a
 session → back → ? → answer one question partially → status surface → Personal → list detail →
 calendar — reported PASS/FAIL per step. Steps whose packet has not landed are reported `N/A`.
+
+### Durable question Skip and overlay formatting
+
+Durable unlocked cards in session, Chats and unified question surfaces offer
+Skip. It submits chat-core `QUESTION_SKIP_TEXT` (`Skipped by operator`) through
+the existing optimistic answer and offline queue path. The prompt becomes
+answered; the asking agent receives the usual answer tell. Errors retain the
+card with its warning. Pane questions have no Skip. The global Questions overlay
+uses its existing `submitDeckAnswers` path for the current durable page only.
+The existing protocol reports a choice Skip in `custom_text` and a free-text
+Skip in `text`; both equal the shared reserved value.
+
+The non-compact question body separates the prompt head at the first `? ` from
+muted context. Descriptions retain their first sentence and show later sentences
+as bullet rows. Compact Chats cards retain their existing text sizes. The
+`session:question_formatting` screenshot fixture covers multi-sentence content.

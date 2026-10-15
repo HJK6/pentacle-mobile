@@ -1,3 +1,4 @@
+import { QUESTION_SKIP_TEXT } from 'pentacle-chat-core';
 import type {
   PentacleAgentQuestionPayload,
   PentacleNotification,
@@ -60,7 +61,7 @@ export function buildDurableQuestionResolution(
   const questionId = item.questionId;
   const note = typeof answer.note === 'string' && answer.note.trim() ? answer.note : undefined;
   const text = typeof answer.text === 'string' && answer.text.trim() ? answer.text : undefined;
-  if (item.responseMode === 'free_text') {
+  if (item.responseMode === 'free_text' || (questionId && text === QUESTION_SKIP_TEXT)) {
     if (!text) throw new Error('Enter an answer before submitting.');
     return {
       notification_id: model.notification.notification_id,
