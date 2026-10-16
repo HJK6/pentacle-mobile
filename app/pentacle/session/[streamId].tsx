@@ -53,7 +53,7 @@ import { StatusOverlay } from '../../../src/components/SessionStatusCard';
 import SendingIndicator from '../../../src/components/SendingIndicator';
 import GlobalVoiceBar from '../../../src/components/voice/GlobalVoiceBar';
 import HeaderVoiceMic from '../../../src/components/voice/HeaderVoiceMic';
-import { useVoiceSurface, useVoiceBarVisible, useVoiceChatStart } from '../../../src/services/voicePresentation';
+import { useVoiceSurface, useVoiceBarVisible, useVoiceBarOccupiesComposer, useVoiceChatStart } from '../../../src/services/voicePresentation';
 import { ASSISTANT_STREAM_ID, selectAssistantIdentity } from '../../../src/services/assistantIdentity';
 import VoiceBubble from '../../../src/components/voice/VoiceBubble';
 import { VoiceAnswersStatusNote, voiceAnswersItemCount } from '../../../src/components/questions/voice';
@@ -4907,7 +4907,9 @@ export function ComposerBar({
   const [composerSlotHeight, setComposerSlotHeight] = useState<number | null>(null);
   const [processRecording, setRecording] = useState<RecordingSnapshot | null>(() => voiceRecorder.snapshot());
   const recording = processRecording && voiceRecorder.isOwnedByCurrentScope(processRecording.recordingId) ? processRecording : null;
-  const voiceHidesComposer = voiceBarVisible || !!recording;
+  const voiceBarOccupies = useVoiceBarOccupiesComposer(surfaceId);
+  const voiceHidesComposer = voiceBarOccupies || !!recording;
+  const voiceBarDocked = voiceBarVisible && !voiceHidesComposer;
   const [microphoneDenied, setMicrophoneDenied] = useState(false);
   const [voiceBusy, setVoiceBusy] = useState(false);
   const voiceBusyRef = useRef(false);
@@ -5213,6 +5215,7 @@ export function ComposerBar({
       accessible={false}
       collapsable={false}
     >
+      {voiceBarDocked ? <View style={styles.voiceDock}><GlobalVoiceBar anchored docked surfaceId={surfaceId} /></View> : null}
       <View testID="composer-draft-layout" pointerEvents={voiceHidesComposer ? 'none' : 'auto'}
         accessibilityElementsHidden={voiceHidesComposer} importantForAccessibility={voiceHidesComposer ? 'no-hide-descendants' : 'auto'}
         style={voiceHidesComposer ? { opacity: 0 } : undefined}
@@ -5399,7 +5402,7 @@ export function ComposerBar({
         </View>
       </View>
       </View>
-      {voiceBarVisible ? <View pointerEvents="box-none" style={[StyleSheet.absoluteFill, { justifyContent: 'center' }]}>
+      {voiceBarVisible && voiceHidesComposer ? <View pointerEvents="box-none" style={[StyleSheet.absoluteFill, { justifyContent: 'center' }]}>
         <GlobalVoiceBar anchored surfaceId={surfaceId} />
       </View> : null}
     </View>
@@ -7438,6 +7441,9 @@ const styles = StyleSheet.create({
   },
   composerShell: {
     alignSelf: 'stretch',
+  },
+  voiceDock: {
+    marginBottom: 6,
   },
   composerCapsule: {
     minHeight: 46,

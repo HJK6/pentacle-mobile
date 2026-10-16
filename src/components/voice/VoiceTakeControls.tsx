@@ -38,6 +38,7 @@ export default function VoiceTakeControls({ recording, take, onReturn, storageEr
       <VoiceControlButton label="Return to original chat" onPress={() => onReturn(target.streamId)}>Return</VoiceControlButton>
       {paused ? <VoiceControlButton label="Resume recording" disabled={recording?.pauseReason === 'origin'} onPress={() => run(() => voiceRecorder.resume())}>Resume</VoiceControlButton> : null}
       {primaryControls && (recording || take?.status === 'unsent') ? <VoiceControlButton label="Send recording" testID="voice-overlay-stop" disabled={busy} onPress={() => run(() => sendVoiceTake(id))}>Send</VoiceControlButton>
+        : unknown && take?.receiptAbsent ? <VoiceControlButton label="Send recording again" onPress={() => run(() => voiceDelivery.sendAgain(id))}>Send again</VoiceControlButton>
         : unknown ? <VoiceControlButton label="Check recording delivery again" onPress={() => run(() => voiceDelivery.checkAgain(id))}>Check again</VoiceControlButton>
         : primaryControls && take && (['failed','auth_needed','origin_unavailable','not_landed'].includes(take.status) || !!storageError) ? <VoiceControlButton label="Retry recording delivery" onPress={() => run(() => voiceDelivery.retry(id))}>Retry</VoiceControlButton> : null}
       {primaryControls || take?.manifest.dispatchIntent ? <VoiceControlButton label={take?.manifest.dispatchIntent ? 'Remove local recording copy' : 'Discard recording'} onPress={discard}>{take?.manifest.dispatchIntent ? 'Remove local copy' : 'Discard'}</VoiceControlButton> : null}

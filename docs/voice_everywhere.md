@@ -19,6 +19,13 @@ admission, account/origin, upload, cancellation and receipt-proof fences.
   draft owner stays mounted as invisible, inaccessible, non-editable measurement
   content while the bar owns that slot, including on a fresh chat handoff. Keyboard offsets and transcript clearance remain owned by the
   existing `composerWrap` measurement.
+- The bar owns the composer slot only while a decision or bounded operation is
+  pending: capture, an Unsent take, Uploading, Transcribing, or the Sent receipt.
+  A Queued, Checking delivery or failed take docks the bar directly above the
+  composer instead, so typing, sending and a new recording stay available. In a
+  chat the bar carries that take's exits: Retry and Discard, or for a dispatched
+  take Remove local copy (with the delivery warning) and Check delivery again,
+  replaced by Send again when the daemon has no receipt for the request.
 - Outside chat, the selected root/modal host projects one 44-pixel field and
   circular microphone. Only the field's non-control region accepts vertical
   dragging. Horizontal placement is fixed. Position is process-only, keyed by

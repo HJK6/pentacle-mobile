@@ -154,6 +154,75 @@ test('unified real composer pins selected destination through closing/reselectin
   expect(mockSend).toHaveBeenCalledTimes(1);
 });
 
+test('a take stuck checking delivery leaves the composer, its mic and Remove local copy usable in every chat', async () => {
+  const alert = jest.spyOn(require('react-native').Alert, 'alert');
+  const view = render(<ComposerBar {...props} streamId="hosta:origin" />);
+  await act(async () => fireEvent.press(view.getByTestId('composer-mic-button')));
+  await act(async () => fireEvent.press(view.getByLabelText('Stop and send')));
+  // A bounded active phase still holds the composer slot.
+  expect(voiceDelivery.snapshot().takes[0]).toMatchObject({ status: 'transcribing' });
+  expect(view.queryByTestId('composer-input')).toBeNull();
+  // The send frame is lost: dispatch proves nothing and the take waits on its receipt.
+  mockSend.mockResolvedValueOnce({ delivery: 'unknown' });
+  await act(async () => { resolveTranscript({ text: 'lost frame', model: 'synthetic', duration_s: 3 }); await voiceDelivery.drain(); });
+  const take = voiceDelivery.snapshot().takes[0];
+  expect(take).toMatchObject({ status: 'checking' });
+  for (const streamId of ['hosta:origin', 'hosta:other']) {
+    view.rerender(<ComposerBar {...props} streamId={streamId} />);
+    expect(view.getByTestId('composer-input').props.editable).toBe(true);
+    expect(view.getByTestId('composer-mic-button').props.accessibilityState.disabled).toBe(false);
+    expect(view.getByText(/CHECKING DELIVERY/)).toBeTruthy();
+    expect(view.getByLabelText('Check delivery again')).toBeTruthy();
+    expect(view.getByLabelText('Remove local copy')).toBeTruthy();
+  }
+  fireEvent.changeText(view.getByTestId('composer-input'), 'typed while waiting');
+  expect(view.getByTestId('composer-input').props.value).toBe('typed while waiting');
+  fireEvent.changeText(view.getByTestId('composer-input'), '');
+  await act(async () => fireEvent.press(view.getByLabelText('Remove local copy')));
+  expect(alert).toHaveBeenCalledWith('Remove local copy?', 'Remove local copy; delivery may already have happened', expect.any(Array));
+  const remove = (alert.mock.calls.at(-1)![2] as { text: string; onPress?: () => void }[]).find(button => button.text === 'Remove local copy')!;
+  await act(async () => { remove.onPress?.(); await voiceDelivery.drain(); });
+  expect(voiceDelivery.snapshot().takes.find(t => t.recordingId === take.recordingId)).toBeUndefined();
+  expect(mockSend).toHaveBeenCalledTimes(1);
+  alert.mockRestore();
+});
+
+test('when the daemon has no receipt the chat bar offers Send again, which resends the identical take once', async () => {
+  const stream = require('../src/services/pentacleStream');
+  const view = render(<ComposerBar {...props} streamId="hosta:origin" />);
+  try {
+    await act(async () => fireEvent.press(view.getByTestId('composer-mic-button')));
+    await act(async () => fireEvent.press(view.getByLabelText('Stop and send')));
+    mockSend.mockResolvedValueOnce({ delivery: 'unknown' });
+    await act(async () => { resolveTranscript({ text: 'resend me', model: 'synthetic', duration_s: 3 }); await voiceDelivery.drain(); });
+    const take = voiceDelivery.snapshot().takes[0];
+    expect(take).toMatchObject({ status: 'checking', receiptAbsent: false });
+    expect(view.getByLabelText('Check delivery again')).toBeTruthy();
+    stream.setVoiceReceiptAbsentForTests(true);
+    await act(async () => fireEvent.press(view.getByLabelText('Check delivery again')));
+    await act(async () => { await voiceDelivery.drain(); });
+    expect(voiceDelivery.snapshot().takes[0]).toMatchObject({ status: 'checking', receiptAbsent: true });
+    expect(view.getByText(/NOT RECEIVED/)).toBeTruthy();
+    await act(async () => fireEvent.press(view.getByLabelText('Send again')));
+    await act(async () => { await voiceDelivery.drain(); });
+    expect(mockSend).toHaveBeenCalledTimes(2);
+    expect(mockSend.mock.calls[1]).toEqual(mockSend.mock.calls[0]);
+    expect(voiceDelivery.snapshot().takes).toHaveLength(0);
+  } finally { stream.setVoiceReceiptAbsentForTests(false); }
+});
+
+test('a parked checking take does not stop a new recording from the composer', async () => {
+  const view = render(<ComposerBar {...props} streamId="hosta:origin" />);
+  await act(async () => fireEvent.press(view.getByTestId('composer-mic-button')));
+  await act(async () => fireEvent.press(view.getByLabelText('Stop and send')));
+  mockSend.mockResolvedValueOnce({ delivery: 'unknown' });
+  await act(async () => { resolveTranscript({ text: 'parked', model: 'synthetic', duration_s: 3 }); await voiceDelivery.drain(); });
+  expect(voiceDelivery.snapshot().takes[0]).toMatchObject({ status: 'checking' });
+  await act(async () => fireEvent.press(view.getByTestId('composer-mic-button')));
+  expect(voiceRecorder.snapshot()).toMatchObject({ streamId: 'hosta:origin', status: 'recording' });
+  expect(view.getByTestId('voice-recording-strip')).toBeTruthy();
+});
+
 test('mic without a selected destination is disabled', () => {
   const view = render(<ComposerBar {...props} />);
   expect(view.getByTestId('composer-mic-button').props.accessibilityState.disabled).toBe(true);
@@ -401,4 +470,16 @@ test('visible detail label freezes before permission and remains frozen after a 
     await act(async () => voiceRecorder.discard());
     expect(view.getByTestId('composer-input').props.value).toBe('Untouched other-chat draft');
   } finally { mockState.sessions[0] = original; }
+});
+
+test('a docked bar beside the live composer never duplicates composer test IDs or shows an inert mic', async () => {
+  const view = render(<ComposerBar {...props} streamId="hosta:origin" />);
+  await act(async () => fireEvent.press(view.getByTestId('composer-mic-button')));
+  await act(async () => fireEvent.press(view.getByLabelText('Stop and send')));
+  mockSend.mockResolvedValueOnce({ delivery: 'unknown' });
+  await act(async () => { resolveTranscript({ text: 'docked', model: 'synthetic', duration_s: 3 }); await voiceDelivery.drain(); });
+  expect(voiceDelivery.snapshot().takes[0]).toMatchObject({ status: 'checking' });
+  expect(view.getAllByTestId('composer-mic-button')).toHaveLength(1);
+  expect(view.getAllByTestId('composer-capsule')).toHaveLength(1);
+  expect(view.getByTestId('global-voice-field')).toBeTruthy();
 });

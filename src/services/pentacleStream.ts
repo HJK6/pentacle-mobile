@@ -217,6 +217,8 @@ export type VoiceDispatchIntent = {
 export type VoiceSendEvidence = {
   recordingId: string; requestId: string; streamId: string; generation: string;
   state: 'landed' | 'not_landed' | 'unknown'; source: 'send.result' | 'receipt' | 'user'; msgId?: string;
+  /** Unknown only: an authenticated lookup found no receipt for this exact request. */
+  absent?: true;
 };
 export type VoiceTransportSnapshot = {
   serverIdentity: string; credentialId: string | null; ready: boolean; inventoryFresh: boolean; authNeeded: boolean;
@@ -245,6 +247,7 @@ const voiceIntents = new Map<string, { intent: VoiceDispatchIntent; json: string
 const voiceEvidence = new Map<string, VoiceSendEvidence>();
 const voiceEvidenceListeners = new Set<(evidence: VoiceSendEvidence) => void>();
 const voiceDispatches = new Map<string, Promise<VoiceSendEvidence>>();
+const settledVoiceDispatches = new Set<string>();
 const voiceReceiptWaiters = new Map<string, { promise: Promise<VoiceSendEvidence>; finish: (evidence: VoiceSendEvidence) => void }>();
 // A canonical USER echo that arrived before landed proof is withheld from the row, then
 // replayed once a send.result or receipt proves landing. Landed rows stay retirable by a later
@@ -327,7 +330,7 @@ function rememberVoiceClose(message: Record<string, unknown>) {
 function resetVoiceScope() {
   voiceScopeGeneration += 1;
   for (const entry of [...voiceIntents.values()]) voiceReceiptWaiters.get(entry.intent.requestId)?.finish(voiceUnknown(entry.intent));
-  voiceIntents.clear(); voiceEvidence.clear(); voiceDispatches.clear();
+  voiceIntents.clear(); voiceEvidence.clear(); voiceDispatches.clear(); settledVoiceDispatches.clear();
   withheldVoiceEchoes.clear(); landedVoiceOptimisticIds.clear();
   voiceLastOrigins = new Map(); voiceCurrentOrigins = new Map(); voiceClosedOrigins.clear();
   voiceOrigins = []; voiceSnapshotCache = undefined;
@@ -419,7 +422,7 @@ export function hydrateVoiceDispatchIntent(intent: VoiceDispatchIntent): void {
       || JSON.stringify({ ...priorEntry.intent.payload, request_id: intent.requestId }) !== JSON.stringify(intent.payload)) throw voiceError('invalid_voice_retry');
     voiceReceiptWaiters.get(priorEntry.intent.requestId)?.finish(voiceUnknown(priorEntry.intent));
     voiceIntents.delete(priorEntry.intent.requestId);
-    voiceEvidence.delete(priorEntry.intent.requestId); voiceDispatches.delete(priorEntry.intent.requestId);
+    voiceEvidence.delete(priorEntry.intent.requestId); voiceDispatches.delete(priorEntry.intent.requestId); settledVoiceDispatches.delete(priorEntry.intent.requestId);
   }
   const saved = freezeVoiceJson(cloneVoiceJson(intent));
   const existing = voiceIntents.get(intent.requestId);
@@ -563,7 +566,21 @@ export async function dispatchVoiceDispatchIntent(intent: VoiceDispatchIntent): 
   }).then(result => result && typeof result === 'object' && ['landed', 'not_landed', 'unknown'].includes(result.state)
     ? result : voiceUnknown(intent, 'send.result')).catch(() => voiceEvidence.get(intent.requestId) ?? voiceUnknown(intent, 'send.result'));
   voiceDispatches.set(intent.requestId, promise);
+  void promise.then(() => { if (voiceDispatches.get(intent.requestId) === promise) settledVoiceDispatches.add(intent.requestId); });
   return promise;
+}
+/**
+ * Resend the identical hydrated intent after a lookup proved the daemon has no receipt for it.
+ * The request ID never changes, so the daemon's exact-request claim (or the composite input
+ * identity) coalesces a frame it already holds. A pending dispatch is returned, never doubled.
+ */
+export function redispatchVoiceDispatchIntent(intent: VoiceDispatchIntent): Promise<VoiceSendEvidence> {
+  const prior = voiceDispatches.get(intent.requestId);
+  if (prior && !settledVoiceDispatches.has(intent.requestId)) return prior;
+  const known = voiceEvidence.get(intent.requestId);
+  if (known && known.state !== 'unknown') return Promise.resolve(known);
+  voiceDispatches.delete(intent.requestId); settledVoiceDispatches.delete(intent.requestId);
+  return dispatchVoiceDispatchIntent(intent);
 }
 export function queryVoiceDispatchReceipt(intent: VoiceDispatchIntent): Promise<VoiceSendEvidence> {
   if (!validateVoiceDispatchIntent(intent) || !activeVoiceIntent(intent.requestId)
@@ -590,9 +607,24 @@ export function queryVoiceDispatchReceipt(intent: VoiceDispatchIntent): Promise<
   drainReceiptQueryQueue();
   return promise;
 }
+/**
+ * Remove local copy of an unproven take: drop its optimistic row so no stale Sending bubble
+ * outlives the take. A withheld canonical echo means delivery happened, so it is shown instead.
+ */
+export function discardVoiceOptimisticSend(intent: VoiceDispatchIntent): void {
+  if (voiceEvidence.get(intent.requestId)?.state === 'landed' || landedVoiceOptimisticIds.has(intent.optimisticId)) return;
+  if (withheldVoiceEchoes.has(intent.optimisticId)) { replayWithheldVoiceEcho(intent.optimisticId); return; }
+  const optimistic = state.optimisticSends?.[intent.optimisticId];
+  if (!optimistic || optimistic.request_id !== intent.requestId) return;
+  let next = pruneOptimisticSend(state, intent.optimisticId);
+  next = mutatePentacleEventBuckets(next, { type: 'optimistic-remove', streamId: optimistic.stream_id, optimisticId: intent.optimisticId });
+  if (next.workingByStream?.[optimistic.stream_id]?.optimisticId === intent.optimisticId) next = clearPentacleTurn(next, optimistic.stream_id);
+  setState(next);
+}
 export function forgetVoiceDispatchIntent(intent: VoiceDispatchIntent): void {
   voiceReceiptWaiters.get(intent.requestId)?.finish(voiceUnknown(intent));
   voiceIntents.delete(intent.requestId); voiceEvidence.delete(intent.requestId); voiceDispatches.delete(intent.requestId);
+  settledVoiceDispatches.delete(intent.requestId);
   queuedOptimisticDispatchRequests.delete(intent.optimisticId);
 }
 
@@ -4504,7 +4536,8 @@ function handleMessageInner(raw: string) {
       receiptQueryInFlight = null;
       if (message.found === true && receipt) applyDurableSendReceipt(receipt, lookup);
       const intent = activeVoiceIntent(lookup.requestId);
-      if (intent) voiceReceiptWaiters.get(lookup.requestId)?.finish(voiceUnknown(intent));
+      if (intent) voiceReceiptWaiters.get(lookup.requestId)?.finish(message.found === false && !receipt
+        ? { ...voiceUnknown(intent), absent: true } : voiceUnknown(intent));
     } else if (receipt) {
       // Authenticated terminal evidence survives loss of an in-memory waiter.
       applyVoiceSendFrame(receipt, 'receipt');
