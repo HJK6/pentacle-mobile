@@ -84,7 +84,14 @@ export function makeVoiceTransportMock(state: () => any, transcribe: (...args: a
   const hash = (text: string) => require('crypto').createHash('sha256').update(text).digest('hex');
   const origins = () => (state()?.sessions ?? []).map((row: any) => ({ ...row, session_generation: row.session_generation ?? 'generation-1' }));
   const evidence = (intent: any, status: string) => ({ recordingId: intent.recordingId, requestId: intent.requestId, streamId: intent.streamId, generation: intent.originGeneration, source: 'send.result', state: status });
+  // Lookup outcome for dispatched takes: unknown, or proven absent (daemon holds no receipt).
+  let receiptAbsent = false;
+  const dispatch = async (intent: any) => {
+    const reply = await send({ streamId: intent.streamId, text: intent.payload.text, optimisticId: intent.optimisticId, originGeneration: intent.originGeneration, meta: intent.payload.meta, ...(intent.payload.attachments ? { attachments: intent.payload.attachments } : {}) });
+    return evidence(intent, reply?.delivery === 'landed' ? 'landed' : 'unknown');
+  };
   return {
+    setVoiceReceiptAbsentForTests: (value: boolean) => { receiptAbsent = value; },
     validateVoiceDispatchIntent: jest.requireActual('../../src/services/pentacleStream').validateVoiceDispatchIntent,
     getPentacleStreamState: state,
     voiceTransportSnapshot: () => ({ ...scope, ready: !!state()?.connected, authNeeded: false, inventoryFresh: true, scopeGeneration: 1, socketGeneration: 1, origins: origins() }),
@@ -103,11 +110,9 @@ export function makeVoiceTransportMock(state: () => any, transcribe: (...args: a
       return { version: 1, ...scope, recordingId: args.recordingId, streamId: args.streamId, originGeneration: args.originGeneration, sequence: args.sequence, optimisticId: 'optimistic-voice', requestId, originalRequest, payload, payloadSha256: hash(JSON.stringify(payload)), createdAt: Date.now() };
     },
     hydrateVoiceDispatchIntent: jest.fn(), forgetVoiceDispatchIntent: jest.fn(),
-    dispatchVoiceDispatchIntent: async (intent: any) => {
-      const reply = await send({ streamId: intent.streamId, text: intent.payload.text, optimisticId: intent.optimisticId, originGeneration: intent.originGeneration, meta: intent.payload.meta, ...(intent.payload.attachments ? { attachments: intent.payload.attachments } : {}) });
-      return evidence(intent, reply?.delivery === 'landed' ? 'landed' : 'unknown');
-    },
-    queryVoiceDispatchReceipt: async (intent: any) => evidence(intent, 'unknown'),
+    dispatchVoiceDispatchIntent: dispatch,
+    redispatchVoiceDispatchIntent: dispatch,
+    queryVoiceDispatchReceipt: async (intent: any) => ({ ...evidence(intent, 'unknown'), source: 'receipt', ...(receiptAbsent ? { absent: true } : {}) }),
     appendOptimisticUserMessage: jest.fn(() => 'optimistic-voice'), sendPentacleMessage: send,
     uploadBlobBase64: jest.fn().mockResolvedValue({ blob_sha: 'image-sha' }), transcribeBlob: transcribe,
     usePentacleStreamSelectorWhen: (_enabled: boolean, selector: any) => selector(state()), usePentacleStreamActions: () => ({}),
