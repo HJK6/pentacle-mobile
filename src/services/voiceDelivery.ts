@@ -37,6 +37,8 @@ export type VoiceTake = FinishedRecording & {
   transcription?: VoiceUploadTranscribeResult;
   attachments?: ChatAttachment[];
   manifest: VoiceTakeManifest;
+  /** The latest lookup on this connection proved the daemon holds no receipt; Send again may resend. */
+  receiptAbsent: boolean;
 };
 export type VoiceDeliverySnapshot = {
   takes: VoiceTake[];
@@ -73,6 +75,7 @@ export interface VoiceDeliveryIO {
   dispatch: typeof stream.dispatchVoiceDispatchIntent;
   query: typeof stream.queryVoiceDispatchReceipt;
   forget: typeof stream.forgetVoiceDispatchIntent;
+  redispatch?: typeof stream.redispatchVoiceDispatchIntent;
   transport: () => TransportSnapshot;
   origin: typeof stream.voiceOriginStatus;
   subscribeTransport?: typeof stream.subscribeVoiceTransport;
@@ -179,6 +182,8 @@ export class VoiceDelivery {
   private readyEpoch = 0;
   private configuration: Promise<void> = Promise.resolve();
   private proofWrites = new Map<string, Promise<void>>();
+  /** recordingId -> reconcile key of the lookup that found no receipt. Process memory only. */
+  private absent = new Map<string, string>();
   constructor(
     private readonly io: VoiceDeliveryIO,
     readonly store: VoiceTakeStore = voiceTakeStore,
@@ -258,9 +263,14 @@ export class VoiceDelivery {
             : undefined,
           attachments: t.attachments,
           manifest: t,
+          receiptAbsent: this.receiptAbsent(t),
         })),
     };
     for (const fn of this.listeners) fn();
+  }
+  private receiptAbsent(t: VoiceTakeManifest): boolean {
+    return !!t.dispatchIntent && t.delivery.phase === 'checking' && this.io.transport().ready
+      && this.absent.get(t.recordingId) === this.reconcileKey(t);
   }
   private clearStorageFailure() {
     if (!this.state.storageError) return;
@@ -304,6 +314,8 @@ export class VoiceDelivery {
     await this.synchronizeTransport();
   }
   private synchronizeTransport(): Promise<void> {
+    // Absence is proven per connection; a changed socket withdraws Send again until re-proven.
+    if (this.absent.size) this.project();
     const snapshot = this.io.transport();
     const scope =
       snapshot.credentialId && snapshot.serverIdentity
@@ -488,9 +500,34 @@ export class VoiceDelivery {
     this.clearStorageFailure();
     await this.drain();
   };
+  /** Resend the identical persisted intent only after this connection's lookup found no receipt. */
+  sendAgain = async (id: string): Promise<void> => {
+    if (this.retrying.has(id)) return;
+    const t = this.store.get(id);
+    if (!t?.dispatchIntent || !this.io.redispatch || !this.enabled() || !this.receiptAbsent(t)) return;
+    this.retrying.add(id);
+    const epoch = this.store.epoch(id),
+      runtime = this.runtimeEpoch;
+    try {
+      this.requireOrigin(t);
+      this.absent.delete(id);
+      this.project();
+      this.io.hydrate(t.dispatchIntent);
+      const evidence = await this.io.redispatch(t.dispatchIntent);
+      this.guard(id, epoch, runtime);
+      await this.applyEvidence(evidence);
+      voiceLifecycle(id, 'delivery', 'retried');
+    } catch (error) {
+      await this.handleFailure(id, error, true);
+    } finally {
+      await this.proofWrites.get(id);
+      this.retrying.delete(id);
+    }
+  };
   discard = async (id: string, options: { nativeUri?: string } = {}): Promise<void> => {
     const t = this.store.get(id);
     if (!t) return;
+    this.absent.delete(id);
     const work = this.store.discard(id, options); // Invalidates the operation epoch synchronously.
     releaseVoiceAnswersBinding(id);
     if (t.dispatchIntent) this.io.forget(t.dispatchIntent);
@@ -584,11 +621,15 @@ export class VoiceDelivery {
     try {
       guard();
       if (initial.dispatchIntent) {
-        this.seenReconciliation.add(this.reconcileKey(initial));
+        const key = this.reconcileKey(initial);
+        this.seenReconciliation.add(key);
         this.io.hydrate(initial.dispatchIntent);
         const evidence = await this.io.query(initial.dispatchIntent);
         guard();
+        if (evidence.state === 'unknown' && evidence.absent && evidence.requestId === initial.dispatchIntent.requestId)
+          this.absent.set(id, key);
         await this.applyEvidence(evidence);
+        this.project();
         return;
       }
       this.requireOrigin(initial);
@@ -803,6 +844,7 @@ export class VoiceDelivery {
         )
           return;
         if (evidence.msgId && intent.msgId && evidence.msgId !== intent.msgId) return;
+        if (!evidence.absent) this.absent.delete(t.recordingId);
         if (evidence.state === 'landed') {
           const landedAt = this.now(), proofEpoch = this.runtimeEpoch;
           await this.store.landed(t.recordingId);
@@ -896,6 +938,7 @@ const defaultIO: VoiceDeliveryIO = {
   dispatch: (...args) => stream.dispatchVoiceDispatchIntent(...args),
   query: (...args) => stream.queryVoiceDispatchReceipt(...args),
   forget: (...args) => stream.forgetVoiceDispatchIntent(...args),
+  redispatch: (...args) => stream.redispatchVoiceDispatchIntent(...args),
   transport: () => stream.voiceTransportSnapshot(),
   origin: (...args) => stream.voiceOriginStatus(...args),
   subscribeTransport: (fn) => stream.subscribeVoiceTransport(fn),

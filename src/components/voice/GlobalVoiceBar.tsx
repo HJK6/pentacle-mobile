@@ -17,8 +17,8 @@ const G = Tokens.palette.green;
 const labels = { unsent: 'UNSENT', queued: 'QUEUED', uploading: 'UPLOADING…', transcribing: 'TRANSCRIBING…', checking: 'CHECKING DELIVERY', failed: 'DELIVERY FAILED', auth_needed: 'SIGN IN REQUIRED', origin_unavailable: 'ORIGINAL CHAT UNAVAILABLE', not_landed: 'NOT DELIVERED' };
 const run = (work: () => Promise<unknown>) => { void work().catch(error => Alert.alert('Voice recording', error instanceof Error ? error.message : 'Could not update recording.')); };
 /** Geometry-only projection. Capture, durable queue and dispatch remain their existing owners. */
-export default function GlobalVoiceBar({ anchored = false, surfaceId, onReturn, bottom, top }: {
-  anchored?: boolean; surfaceId?: string; onReturn?: (streamId: string) => void; bottom?: number; top?: number;
+export default function GlobalVoiceBar({ anchored = false, docked = false, surfaceId, onReturn, bottom, top }: {
+  anchored?: boolean; docked?: boolean; surfaceId?: string; onReturn?: (streamId: string) => void; bottom?: number; top?: number;
 }) {
   const value = useVoicePresentation();
   const { recording, take, receipt } = value;
@@ -48,27 +48,38 @@ export default function GlobalVoiceBar({ anchored = false, surfaceId, onReturn, 
   const dispatched = !!take?.manifest.dispatchIntent && take.status !== 'not_landed';
   const canSend = !!recording && !['starting','stopping'].includes(recording.status) || take?.status === 'unsent';
   const canRetry = failed && !dispatched;
-  const canDiscard = !!target && !take?.manifest.dispatchIntent;
+  // In a chat the bar sits where the composer was, so a dispatched take keeps its own exits there.
+  // Off-chat the overlay recovery card above the floating bar owns them.
+  const canDiscard = !!target && (anchored || !take?.manifest.dispatchIntent);
+  const checking = anchored && take?.status === 'checking' && !!take.manifest.dispatchIntent;
+  const absent = checking && take.receiptAbsent;
+  const discard = () => {
+    if (take?.manifest.dispatchIntent) {
+      Alert.alert('Remove local copy?', 'Remove local copy; delivery may already have happened', [
+        { text: 'Keep', style: 'cancel' }, { text: 'Remove local copy', style: 'destructive', onPress: () => run(() => discardVoiceTake(id)) },
+      ]);
+    } else run(() => discardVoiceTake(id));
+  };
   const connectionFailure = take?.status === 'failed' && /^(?:disconnected|not_connected|not connected|no connection|offline|network error)$/i.test(take.manifest.delivery?.error ?? take.error ?? '');
   const tone = interrupted ? Tokens.palette.amber : failed ? Tokens.palette.red : G;
   const fieldBorder = { borderColor: `${tone}66` };
   const originLabel = recording?.originLabel || take?.draft?.originLabel || receipt?.originLabel || '';
   const stateLabel = recording
     ? recording.status === 'starting' ? 'STARTING…' : recording.status === 'stopping' ? 'SAVING…' : interrupted ? `INTERRUPTED · ${formatDuration(recording.durationS)} KEPT` : `UNSENT · ${formatDuration(recording.durationS)} KEPT`
-    : take ? `${connectionFailure ? 'NO CONNECTION' : labels[take.status]}${failed || take.status === 'unsent' ? ` · ${formatDuration(take.durationS)} KEPT` : ''}` : `SENT TO ${originLabel.toUpperCase()}`;
-  const busy = !!recording && ['starting','stopping'].includes(recording.status) || !!take && ['queued','uploading','transcribing','checking'].includes(take.status);
+    : take ? `${connectionFailure ? 'NO CONNECTION' : absent ? 'NOT RECEIVED' : labels[take.status]}${failed || take.status === 'unsent' ? ` · ${formatDuration(take.durationS)} KEPT` : ''}` : `SENT TO ${originLabel.toUpperCase()}`;
+  const busy = !!recording && ['starting','stopping'].includes(recording.status) || !!take && ['queued','uploading','transcribing','checking'].includes(take.status) && !absent;
   const open = (streamId: string) => { if (onReturn) onReturn(streamId); else performChatOpenNavigation(streamId, router as unknown as Parameters<typeof performChatOpenNavigation>[1]); };
   const content = isRecording ? <RecordingStrip displayLevels={recording.displayLevels} sampleCount={recording.levels.length} durationS={recording.durationS} onDiscard={() => {}} showDiscard={false}
     destinationLabel={recording.streamId !== ASSISTANT_STREAM_ID ? originLabel : undefined} testID="voice-recording-strip" />
     : <View style={styles.status}>{receipt && !target ? <VoiceCheckGlyph /> : busy ? <VoiceSpinner size={12} color={tone} /> : null}<Text numberOfLines={1} style={[styles.state, { color: tone }]}>{stateLabel}</Text></View>;
   return <View pointerEvents="box-none" testID="global-voice-bar" accessibilityLabel={anchored ? 'Voice recording in chat' : 'Floating voice recording'}
-    style={[styles.bar, anchored ? styles.anchored : { position: 'absolute', left: 16, right: 16, bottom: base + dy }]}>
+    style={[styles.bar, anchored ? styles.anchored : { position: 'absolute', left: 16, right: 16, bottom: base + dy }, docked && styles.docked]}>
     <View testID={anchored ? 'composer-capsule' : 'global-voice-field'} style={[styles.field, fieldBorder]} onLayout={event => setWidth(Math.max(1, event.nativeEvent.layout.width))}>
       <Svg pointerEvents="none" width={width} height={44} style={StyleSheet.absoluteFill}>
         <Path d={`M.5 .5H${width - 10}L${width - .5} 10V43.5H10L.5 34Z`} fill="#07100c" />
         <Path d={`M.5 .5H${width - 10}L${width - .5} 10V43.5H10L.5 34Z`} fill={`${tone}12`} stroke={fieldBorder.borderColor} strokeWidth={1} />
       </Svg>
-      {canDiscard ? <Pressable accessibilityRole="button" accessibilityState={{ disabled: false }} accessibilityLabel="Discard recording" testID="voice-recording-strip-discard" onPress={() => run(() => discardVoiceTake(id))} style={styles.discard}><DiscardGlyph /></Pressable> : null}
+      {canDiscard ? <Pressable accessibilityRole="button" accessibilityState={{ disabled: false }} accessibilityLabel={take?.manifest.dispatchIntent ? 'Remove local copy' : 'Discard recording'} testID="voice-recording-strip-discard" onPress={discard} style={styles.discard}><DiscardGlyph /></Pressable> : null}
       <View {...(!anchored ? pan.panHandlers : {})} testID={!anchored ? 'voice-bar-drag-region' : undefined} style={styles.drag}>{content}</View>
       {receipt && !target && receipt.streamId === ASSISTANT_STREAM_ID ? <Pressable accessibilityRole="button" accessibilityState={{ disabled: false }} accessibilityLabel="View sent recording" onPress={() => { clearVoiceReceipt(receipt.recordingId); open(ASSISTANT_STREAM_ID); }} style={styles.view}><Text style={styles.viewText}>View</Text></Pressable> : null}
     </View>
@@ -76,12 +87,18 @@ export default function GlobalVoiceBar({ anchored = false, surfaceId, onReturn, 
       testID={anchored ? 'composer-mic-button' : 'global-voice-send'} onPress={() => run(() => canRetry ? voiceDelivery.retry(id) : sendVoiceTake(id))}
       style={[styles.circle, { borderColor: tone, backgroundColor: tone }]}>
       {isRecording ? <VoiceRecordFace recording size={44} /> : <VoiceSendGlyph retry={canRetry} />}
+    </Pressable> : checking ? <Pressable accessibilityRole="button" accessibilityState={{ disabled: false }}
+      accessibilityLabel={absent ? 'Send again' : 'Check delivery again'} testID={absent ? 'voice-send-again' : 'voice-check-again'}
+      onPress={() => run(() => absent ? voiceDelivery.sendAgain(id) : voiceDelivery.checkAgain(id))}
+      style={[styles.circle, { borderColor: tone, backgroundColor: absent ? tone : `${tone}14` }]}>
+      <VoiceSendGlyph retry />
     </Pressable> : <View style={[styles.circle, { borderColor: `${G}55`, backgroundColor: `${G}14` }]}><MicGlyph color={G} /></View>}
   </View>;
 }
 const styles = StyleSheet.create({
   bar: { zIndex: 10000, flexDirection: 'row', alignItems: 'center', gap: 8, shadowColor: '#000000', shadowOpacity: 0.65, shadowRadius: 18, shadowOffset: { width: 0, height: 6 }, elevation: 10 },
   anchored: { width: '100%', height: 44 },
+  docked: { zIndex: 0, elevation: 0, shadowOpacity: 0 },
   field: { flex: 1, minWidth: 0, height: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14 },
   drag: { flex: 1, minWidth: 0, height: 44, justifyContent: 'center' },
   discard: { minWidth: 44, minHeight: 44, marginHorizontal: -15, justifyContent: 'center', alignItems: 'center' },

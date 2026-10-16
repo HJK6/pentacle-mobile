@@ -236,7 +236,14 @@ USER proof can terminalize the take. Bare true, `send.ok`, accepted/persisted,
 proof-unavailable, empty lookup, and timeout are not landed. Explicit generation
 mismatches are rejected; a wire generation field is not invented when the existing
 receipt omits it. Unknown stays Checking delivery, with Check again or Remove local
-copy. Removing after dispatch warns that delivery may already have happened and
+copy. When an authenticated lookup on the current connection returns `found:false`
+(the daemon holds no receipt for the exact request, for example because the send
+frame was lost with the socket), the take also offers Send again. It re-sends the
+identical persisted intent: same request ID, sequence and payload, with no new
+upload, transcription or request-ID rotation. Replay safety comes from the daemon's
+exact-request-ID claim and the assistant composite's immutable input identity, not
+from absence alone. Absence is process memory, valid only for the connection that
+proved it, and is never automatic: only the explicit action re-sends. Removing after dispatch warns that delivery may already have happened and
 never claims to unsend. Image-bearing outcomes may remain unknown where existing
 proof cannot establish them. Exactly-once claims are limited to the existing durable
 receipt or composite-ID dedup evidence.

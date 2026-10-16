@@ -158,6 +158,14 @@ export function useVoiceBarVisible(surfaceId?: string) {
   const value = useVoicePresentation();
   return value.visible && value.anchored && value.surface?.id === surfaceId;
 }
+/** Phases that hold the composer slot: a local decision is pending or a bounded operation runs. */
+const COMPOSER_PHASES = new Set(['unsent', 'uploading', 'transcribing']);
+/** Waiting, unknown and failed takes leave the composer usable; the bar docks above it instead. */
+export function useVoiceBarOccupiesComposer(surfaceId?: string) {
+  const value = useVoicePresentation();
+  return value.visible && value.anchored && value.surface?.id === surfaceId
+    && (!!value.recording || !!value.receipt || (!!value.take && COMPOSER_PHASES.has(value.take.status)));
+}
 export function setVoiceBarDy(recordingId: string, dy: number) {
   if (!Number.isFinite(dy)) return;
   if (state.recordingId !== recordingId) emit({ recordingId, dy });
