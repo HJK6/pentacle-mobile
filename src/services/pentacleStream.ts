@@ -607,6 +607,20 @@ export function queryVoiceDispatchReceipt(intent: VoiceDispatchIntent): Promise<
   drainReceiptQueryQueue();
   return promise;
 }
+/**
+ * Remove local copy of an unproven take: drop its optimistic row so no stale Sending bubble
+ * outlives the take. A withheld canonical echo means delivery happened, so it is shown instead.
+ */
+export function discardVoiceOptimisticSend(intent: VoiceDispatchIntent): void {
+  if (voiceEvidence.get(intent.requestId)?.state === 'landed' || landedVoiceOptimisticIds.has(intent.optimisticId)) return;
+  if (withheldVoiceEchoes.has(intent.optimisticId)) { replayWithheldVoiceEcho(intent.optimisticId); return; }
+  const optimistic = state.optimisticSends?.[intent.optimisticId];
+  if (!optimistic || optimistic.request_id !== intent.requestId) return;
+  let next = pruneOptimisticSend(state, intent.optimisticId);
+  next = mutatePentacleEventBuckets(next, { type: 'optimistic-remove', streamId: optimistic.stream_id, optimisticId: intent.optimisticId });
+  if (next.workingByStream?.[optimistic.stream_id]?.optimisticId === intent.optimisticId) next = clearPentacleTurn(next, optimistic.stream_id);
+  setState(next);
+}
 export function forgetVoiceDispatchIntent(intent: VoiceDispatchIntent): void {
   voiceReceiptWaiters.get(intent.requestId)?.finish(voiceUnknown(intent));
   voiceIntents.delete(intent.requestId); voiceEvidence.delete(intent.requestId); voiceDispatches.delete(intent.requestId);

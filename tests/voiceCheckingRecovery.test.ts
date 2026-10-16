@@ -246,3 +246,20 @@ test('absent then the daemon reports not_landed: Send again is withdrawn and onl
     await until(() => !j.store.get(take.recordingId));
   } finally { j.cleanup(); }
 });
+
+test('Remove local copy on a never-proven take drops its Sending bubble instead of leaving a stale row', async () => {
+  const j = await connect();
+  try {
+    const { take } = await lostSend(j);
+    const intent = j.store.get(take.recordingId)!.dispatchIntent!;
+    const recovered = await reconnect(j, [origin, other]);
+    await until(() => projected(j, take.recordingId).receiptAbsent === true);
+    const rows = () => j.stream.getPentacleStreamState().events.filter(e => e.optimistic_id === intent.optimisticId);
+    expect(j.stream.getPentacleStreamState().optimisticSends?.[intent.optimisticId]).toBeDefined();
+    await j.voiceDelivery.discard(take.recordingId); await flush();
+    expect(j.store.get(take.recordingId)).toBeUndefined();
+    expect(j.stream.getPentacleStreamState().optimisticSends?.[intent.optimisticId]).toBeUndefined();
+    expect(rows()).toHaveLength(0);
+    expect(recovered.sends()).toHaveLength(0);
+  } finally { j.cleanup(); }
+});

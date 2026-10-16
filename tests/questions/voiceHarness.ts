@@ -109,7 +109,7 @@ export function makeVoiceTransportMock(state: () => any, transcribe: (...args: a
       const payload = { type: 'send', request_id: requestId, host: 'hosta', session_name: 'origin', text: args.text, optimistic_id: 'optimistic-voice', operation_id: args.recordingId, meta: args.meta, ...(args.attachments ? { attachments: args.attachments } : {}) };
       return { version: 1, ...scope, recordingId: args.recordingId, streamId: args.streamId, originGeneration: args.originGeneration, sequence: args.sequence, optimisticId: 'optimistic-voice', requestId, originalRequest, payload, payloadSha256: hash(JSON.stringify(payload)), createdAt: Date.now() };
     },
-    hydrateVoiceDispatchIntent: jest.fn(), forgetVoiceDispatchIntent: jest.fn(),
+    hydrateVoiceDispatchIntent: jest.fn(), forgetVoiceDispatchIntent: jest.fn(), discardVoiceOptimisticSend: jest.fn(),
     dispatchVoiceDispatchIntent: dispatch,
     redispatchVoiceDispatchIntent: dispatch,
     queryVoiceDispatchReceipt: async (intent: any) => ({ ...evidence(intent, 'unknown'), source: 'receipt', ...(receiptAbsent ? { absent: true } : {}) }),

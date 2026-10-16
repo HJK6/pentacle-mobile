@@ -76,6 +76,7 @@ export interface VoiceDeliveryIO {
   query: typeof stream.queryVoiceDispatchReceipt;
   forget: typeof stream.forgetVoiceDispatchIntent;
   redispatch?: typeof stream.redispatchVoiceDispatchIntent;
+  discardOptimistic?: typeof stream.discardVoiceOptimisticSend;
   transport: () => TransportSnapshot;
   origin: typeof stream.voiceOriginStatus;
   subscribeTransport?: typeof stream.subscribeVoiceTransport;
@@ -530,7 +531,10 @@ export class VoiceDelivery {
     this.absent.delete(id);
     const work = this.store.discard(id, options); // Invalidates the operation epoch synchronously.
     releaseVoiceAnswersBinding(id);
-    if (t.dispatchIntent) this.io.forget(t.dispatchIntent);
+    if (t.dispatchIntent) {
+      this.io.discardOptimistic?.(t.dispatchIntent);
+      this.io.forget(t.dispatchIntent);
+    }
     try {
       await work;
       this.clearStorageFailure();
@@ -939,6 +943,7 @@ const defaultIO: VoiceDeliveryIO = {
   query: (...args) => stream.queryVoiceDispatchReceipt(...args),
   forget: (...args) => stream.forgetVoiceDispatchIntent(...args),
   redispatch: (...args) => stream.redispatchVoiceDispatchIntent(...args),
+  discardOptimistic: (...args) => stream.discardVoiceOptimisticSend(...args),
   transport: () => stream.voiceTransportSnapshot(),
   origin: (...args) => stream.voiceOriginStatus(...args),
   subscribeTransport: (fn) => stream.subscribeVoiceTransport(fn),
