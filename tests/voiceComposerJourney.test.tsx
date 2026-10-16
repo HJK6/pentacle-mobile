@@ -471,3 +471,15 @@ test('visible detail label freezes before permission and remains frozen after a 
     expect(view.getByTestId('composer-input').props.value).toBe('Untouched other-chat draft');
   } finally { mockState.sessions[0] = original; }
 });
+
+test('a docked bar beside the live composer never duplicates composer test IDs or shows an inert mic', async () => {
+  const view = render(<ComposerBar {...props} streamId="hosta:origin" />);
+  await act(async () => fireEvent.press(view.getByTestId('composer-mic-button')));
+  await act(async () => fireEvent.press(view.getByLabelText('Stop and send')));
+  mockSend.mockResolvedValueOnce({ delivery: 'unknown' });
+  await act(async () => { resolveTranscript({ text: 'docked', model: 'synthetic', duration_s: 3 }); await voiceDelivery.drain(); });
+  expect(voiceDelivery.snapshot().takes[0]).toMatchObject({ status: 'checking' });
+  expect(view.getAllByTestId('composer-mic-button')).toHaveLength(1);
+  expect(view.getAllByTestId('composer-capsule')).toHaveLength(1);
+  expect(view.getByTestId('global-voice-field')).toBeTruthy();
+});

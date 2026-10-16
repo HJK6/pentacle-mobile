@@ -74,7 +74,7 @@ export default function GlobalVoiceBar({ anchored = false, docked = false, surfa
     : <View style={styles.status}>{receipt && !target ? <VoiceCheckGlyph /> : busy ? <VoiceSpinner size={12} color={tone} /> : null}<Text numberOfLines={1} style={[styles.state, { color: tone }]}>{stateLabel}</Text></View>;
   return <View pointerEvents="box-none" testID="global-voice-bar" accessibilityLabel={anchored ? 'Voice recording in chat' : 'Floating voice recording'}
     style={[styles.bar, anchored ? styles.anchored : { position: 'absolute', left: 16, right: 16, bottom: base + dy }, docked && styles.docked]}>
-    <View testID={anchored ? 'composer-capsule' : 'global-voice-field'} style={[styles.field, fieldBorder]} onLayout={event => setWidth(Math.max(1, event.nativeEvent.layout.width))}>
+    <View testID={anchored && !docked ? 'composer-capsule' : 'global-voice-field'} style={[styles.field, fieldBorder]} onLayout={event => setWidth(Math.max(1, event.nativeEvent.layout.width))}>
       <Svg pointerEvents="none" width={width} height={44} style={StyleSheet.absoluteFill}>
         <Path d={`M.5 .5H${width - 10}L${width - .5} 10V43.5H10L.5 34Z`} fill="#07100c" />
         <Path d={`M.5 .5H${width - 10}L${width - .5} 10V43.5H10L.5 34Z`} fill={`${tone}12`} stroke={fieldBorder.borderColor} strokeWidth={1} />
@@ -84,7 +84,7 @@ export default function GlobalVoiceBar({ anchored = false, docked = false, surfa
       {receipt && !target && receipt.streamId === ASSISTANT_STREAM_ID ? <Pressable accessibilityRole="button" accessibilityState={{ disabled: false }} accessibilityLabel="View sent recording" onPress={() => { clearVoiceReceipt(receipt.recordingId); open(ASSISTANT_STREAM_ID); }} style={styles.view}><Text style={styles.viewText}>View</Text></Pressable> : null}
     </View>
     {canSend || canRetry ? <Pressable accessibilityRole="button" accessibilityState={{ disabled: false }} accessibilityLabel={isRecording ? 'Stop and send' : canRetry ? 'Retry recording delivery' : 'Send recording'}
-      testID={anchored ? 'composer-mic-button' : 'global-voice-send'} onPress={() => run(() => canRetry ? voiceDelivery.retry(id) : sendVoiceTake(id))}
+      testID={anchored && !docked ? 'composer-mic-button' : 'global-voice-send'} onPress={() => run(() => canRetry ? voiceDelivery.retry(id) : sendVoiceTake(id))}
       style={[styles.circle, { borderColor: tone, backgroundColor: tone }]}>
       {isRecording ? <VoiceRecordFace recording size={44} /> : <VoiceSendGlyph retry={canRetry} />}
     </Pressable> : checking ? <Pressable accessibilityRole="button" accessibilityState={{ disabled: false }}
@@ -92,7 +92,7 @@ export default function GlobalVoiceBar({ anchored = false, docked = false, surfa
       onPress={() => run(() => absent ? voiceDelivery.sendAgain(id) : voiceDelivery.checkAgain(id))}
       style={[styles.circle, { borderColor: tone, backgroundColor: absent ? tone : `${tone}14` }]}>
       <VoiceSendGlyph retry />
-    </Pressable> : <View style={[styles.circle, { borderColor: `${G}55`, backgroundColor: `${G}14` }]}><MicGlyph color={G} /></View>}
+    </Pressable> : docked ? null : <View style={[styles.circle, { borderColor: `${G}55`, backgroundColor: `${G}14` }]}><MicGlyph color={G} /></View>}
   </View>;
 }
 const styles = StyleSheet.create({
