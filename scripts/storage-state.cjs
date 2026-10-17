@@ -123,7 +123,11 @@ function fsyncDirectory(directory) {
   try { fs.fsyncSync(descriptor); } finally { fs.closeSync(descriptor); }
 }
 
+let activeResealGeneration = null;
 function atomicJson(target, value, authorize = null) {
+  const resealClaim = activeResealGeneration === null ? null : recordMutationClaim('scheduler', activeResealGeneration);
+  const leaseHolder = resealClaim && target.startsWith(`${resealClaim}.guard.`) && path.basename(target) === 'holder.json';
+  if (!leaseHolder) require('./storage-authority-reseal.cjs').assertNormalReady();
   const directory = path.dirname(target);
   fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
   const temporary = path.join(directory, `.${path.basename(target)}.${crypto.randomUUID()}.tmp`);
@@ -207,6 +211,7 @@ function createPreparedAuthority() {
 }
 
 function readAuthorityState() {
+  require('./storage-authority-reseal.cjs').assertNormalReady();
   const layout = fixedLayout();
   const authority = readExactJson(path.join(layout.state, 'authority.json'));
   validateAuthorityShape(authority, { host: os.hostname(), uid: process.getuid(), roots: expectedRoots(layout) }, require('./storage-authority.cjs').CONTRACT.states.installed);
@@ -230,6 +235,7 @@ function createInstalledAuthority() {
 function validateInstalledAuthority() { return validateAuthorityForStates(['installed']); }
 
 function validateAuthorityForStates(allowedStates, pendingWrite = null) {
+  require('./storage-authority-reseal.cjs').assertNormalReady();
   const layout = fixedLayout();
   const authority = readExactJson(path.join(layout.state, 'authority.json'));
   validateAuthorityShape(authority, { host: os.hostname(), uid: process.getuid(), roots: expectedRoots(layout) }, allowedStates);
@@ -348,15 +354,19 @@ function validateMutationClaim(kind, directory, name, expectedId = null) {
   return owner;
 }
 
-function validateStateLayout(root) { return validateStateLayoutEntries(root); }
+function validateStateLayout(root, resealTemporaries = []) {
+  if (!Array.isArray(resealTemporaries) || resealTemporaries.some(name => !/^\.authority-reseal-[0-9a-f-]{36}-(prepare|authority|commit)\.tmp$/.test(name))) throw new Error('STATE_RESEAL_TEMP_INVALID');
+  return validateStateLayoutEntries(root, null, new Set(resealTemporaries));
+}
 
 // A boundary recheck can see its own still-invisible durable journal payload. Only the private
 // atomic writer supplies this exact temporary path; ordinary layout admission allows no temp files.
-function validateStateLayoutEntries(root, pendingWrite = null) {
-  const topFiles = new Set(['authority.json', 'gate.lock', 'janitor.lock', 'scheduler.lock', 'worktree.lock', 'scheduler-baseline.json', 'disabled']);
+function validateStateLayoutEntries(root, pendingWrite = null, resealTemporaries = new Set()) {
+  const topFiles = new Set(['authority.json', 'authority-reseal.json', 'gate.lock', 'janitor.lock', 'scheduler.lock', 'worktree.lock', 'scheduler-baseline.json', 'disabled']);
   const topDirectories = new Set(['runs', 'tickets', 'scheduler', 'reports', 'logs', '.fseventsd', '.Spotlight-V100', '.Trashes']);
   for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
     if (entry.isSymbolicLink()) throw new Error('STATE_LAYOUT_SYMLINK');
+    if (resealTemporaries.has(entry.name) && entry.isFile()) continue;
     if (entry.isDirectory()) {
       if (!topDirectories.has(entry.name)) throw new Error(`STATE_LAYOUT_UNKNOWN:${entry.name}`);
       if (entry.name === 'logs') {
@@ -386,6 +396,7 @@ function validateStateLayoutEntries(root, pendingWrite = null) {
 }
 
 function recoverAtomicTemps() {
+  require('./storage-authority-reseal.cjs').assertNormalReady();
   const root = fixedLayout().state;
   let recovered = 0;
   for (const directory of [root, ...['runs', 'tickets', 'scheduler', 'reports'].map((name) => path.join(root, name)).filter((target) => fs.existsSync(target))]) {
@@ -897,6 +908,15 @@ function withRecordMutation(kind, id, action) {
   }
 }
 
+// Only the capability-bound reseal path may reclaim its generation lease while normal writes are
+// blocked. The exception covers lease-holder receipts, never authority or ordinary record writes.
+function withAuthorityResealMutation(generation, action) {
+  if (!UUID.test(generation) || activeResealGeneration !== null) throw new Error('AUTHORITY_RESEAL_MUTATION');
+  activeResealGeneration = generation;
+  try { return withRecordMutation('scheduler', generation, action); }
+  finally { activeResealGeneration = null; }
+}
+
 function replaceRecordHeld(kind, id, expectedRevision, next, authorize = null) {
   const current = readRecord(kind, id);
   if (kind === 'runs' && current.quiet_start === undefined && next.quiet_start !== undefined) throw new Error('AUTHORITY_QUIET_CLAIM_LATE');
@@ -972,7 +992,7 @@ module.exports = {
   RECORD_LIMIT,
   SCHEMA,
   STATE_LIMIT,
-  bind: (token) => require('./storage-capability.cjs').bind(token, { createPreparedAuthority, createInstalledAuthority, createRecord, observeDeadForUpdateSmoke, recoverAtomicTemps, replaceRecord, replaceSchedulerForUpdate, withRecordMutation, rotateTerminal, transitionInstalledAuthority, transitionRun }),
+  bind: (token) => require('./storage-capability.cjs').bind(token, { createPreparedAuthority, createInstalledAuthority, createRecord, observeDeadForUpdateSmoke, recoverAtomicTemps, replaceRecord, replaceSchedulerForUpdate, withRecordMutation, withAuthorityResealMutation, rotateTerminal, transitionInstalledAuthority, transitionRun }),
   canonicalIdentity,
   directoryBytes,
   // Exported so the container layer can validate a marker's seal against the SAME contract that

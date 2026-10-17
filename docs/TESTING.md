@@ -94,6 +94,7 @@ for 7 days and failed evidence for 30 days. Recovery requires the journal's
 exact owned identity and does not confer authority over unrelated resources.
 
 Lifecycle commands use the same CLI: `storage:install`, `storage:update`,
+`storage:reseal-authority PROOF_FILE`, `storage:inspect-authority-reseal`,
 `storage:restore`, `storage:uninstall`, `storage:register-worktree MAIN_REPO_ID
 SPEC_ID LANE_ID` and `storage:retire-worktree TICKET_ID`. The installed LaunchAgent
 runs `storage:janitor dry-run` every six hours through `scripts/storage-janitor-scheduled.cjs`;
@@ -109,6 +110,10 @@ other roots are refused before any change. Prepare it with `git clone`, `npm ci 
 and `git fetch` before updating. Admission is checked at install/update only; scheduled runs
 execute whatever that checkout contains, so keep it clean and on public `main`. The update
 is transactional and rolls back to the prior plist.
+
+Explicit device-drift recovery and its separate execution approval are documented in
+[Storage authority recovery](STORAGE_AUTHORITY_RESEAL.md). Retained migration history requires a
+compatible reviewed updater and executing gate; older closed-layout readers refuse it.
 
 The update's real scheduled dry-run runs while authority is `updating`. Only its
 single `candidate_installed` update transaction may use that exception: the
