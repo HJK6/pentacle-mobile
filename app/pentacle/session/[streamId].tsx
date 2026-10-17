@@ -53,6 +53,7 @@ import { StatusOverlay } from '../../../src/components/SessionStatusCard';
 import SendingIndicator from '../../../src/components/SendingIndicator';
 import GlobalVoiceBar from '../../../src/components/voice/GlobalVoiceBar';
 import HeaderVoiceMic from '../../../src/components/voice/HeaderVoiceMic';
+import { compactHeaderLayout } from '../../../src/components/headerLayout';
 import { useVoiceSurface, useVoiceBarVisible, useVoiceBarOccupiesComposer, useVoiceChatStart } from '../../../src/services/voicePresentation';
 import { ASSISTANT_STREAM_ID, selectAssistantIdentity } from '../../../src/services/assistantIdentity';
 import VoiceBubble from '../../../src/components/voice/VoiceBubble';
@@ -3404,13 +3405,8 @@ export function SessionScreen(props: SessionScreenProps) {
           <Pressable accessible={false} onPress={() => setStatusOverlayOpen(true)}>
             <ArcaneRingFrame identity={session?.session_kind === 'assistant_composite'} machine={chrome.machineName} size={42} sigilSize={26} />
           </Pressable>
-          <View style={styles.headerTitleBlock}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, maxWidth: '100%' }}>
-              <Pressable testID="session-status-overlay-trigger" onPress={() => setStatusOverlayOpen(true)} accessibilityRole="button" accessibilityLabel="Open session status" style={{ flexShrink: 1, minHeight: 44, justifyContent: 'center' }}>
-                <Text {...NON_SELECTABLE_TEXT} style={styles.headerTitle} numberOfLines={1}>{title}</Text>
-              </Pressable>
-              <HeaderVoiceMic testID="session-header-voice-mic" />
-            </View>
+          <Pressable testID="session-status-overlay-trigger" onPress={() => setStatusOverlayOpen(true)} accessibilityRole="button" accessibilityLabel="Open session status" style={styles.headerTitleBlock}>
+            <Text {...NON_SELECTABLE_TEXT} style={styles.headerTitle} numberOfLines={1}>{title}</Text>
             <View style={styles.headerMetaRow}>
               <ProviderTag provider={session.provider} color={chrome.accent} />
               <StatusTag
@@ -3425,7 +3421,8 @@ export function SessionScreen(props: SessionScreenProps) {
                 }
               />
             </View>
-          </View>
+          </Pressable>
+          <HeaderVoiceMic testID="session-header-voice-mic" />
         </View>
         <Pressable
           testID="session-header-menu-button"
@@ -3493,10 +3490,7 @@ export function SessionScreen(props: SessionScreenProps) {
             <View style={styles.headerStatusTrigger}>
               <ArcaneRingFrame identity={session?.session_kind === 'assistant_composite'} machine={chrome.machineName} size={42} sigilSize={26} />
               <View style={styles.headerTitleBlock}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, maxWidth: '100%' }}>
-                  <Text {...NON_SELECTABLE_TEXT} style={[styles.headerTitle, { flexShrink: 1 }]} numberOfLines={1}>{title}</Text>
-                  <HeaderVoiceMic testID="status-header-voice-mic" />
-                </View>
+                <Text {...NON_SELECTABLE_TEXT} style={styles.headerTitle} numberOfLines={1}>{title}</Text>
                 <View style={styles.headerMetaRow}>
                   <ProviderTag provider={session.provider} color={chrome.accent} />
                   <StatusTag
@@ -3507,6 +3501,7 @@ export function SessionScreen(props: SessionScreenProps) {
                   />
                 </View>
               </View>
+              <HeaderVoiceMic testID="status-header-voice-mic" />
             </View>
             <Pressable testID="status-overlay-close" style={styles.statusOverlayCloseButton} onPress={close} hitSlop={10} accessibilityRole="button" accessibilityLabel={viewingUpdates ? 'Back to status card' : 'Close session status'}>
               <Text {...NON_SELECTABLE_TEXT} style={styles.statusOverlayCloseGlyph}>✕</Text>
@@ -6310,15 +6305,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   headerStatusTrigger: {
-    flex: 1,
-    minWidth: 0,
-    flexDirection: 'row',
-    alignItems: 'center',
+    ...compactHeaderLayout.identity,
     gap: 10,
   },
   headerTitleBlock: {
+    ...compactHeaderLayout.copy,
     flex: 1,
-    minWidth: 0,
+    minHeight: 44,
     alignItems: 'flex-start',
     justifyContent: 'center',
     gap: 3,
