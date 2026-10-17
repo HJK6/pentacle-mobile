@@ -26,6 +26,8 @@
     "test:unit": "jest --runInBand",
     "storage:install": "node scripts/storage-cli.cjs storage:install",
     "storage:update": "node scripts/storage-cli.cjs storage:update",
+    "storage:reseal-authority": "node scripts/storage-cli.cjs storage:reseal-authority",
+    "storage:inspect-authority-reseal": "node scripts/storage-cli.cjs storage:inspect-authority-reseal",
     "storage:recover-run": "node scripts/storage-cli.cjs storage:recover-run",
     "storage:recover-system-scratch": "node scripts/storage-cli.cjs storage:recover-system-scratch",
     "storage:discard-scratch": "node scripts/storage-cli.cjs storage:discard-scratch",

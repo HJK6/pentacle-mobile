@@ -43,6 +43,7 @@ async function executeEndpoint(endpoint, values) {
   const operation = () => {
     require('./storage-authority.cjs').rejectEnvironmentAuthority();
     inputFor(endpoint, values);
+    if (!['storage:reseal-authority', 'storage:inspect-authority-reseal'].includes(endpoint)) require('./storage-authority-reseal.cjs').assertNormalReady();
     return bootstrapAndDispatch(endpoint, values);
   };
   if (endpoint !== 'gate:full') return operation();
@@ -65,6 +66,8 @@ async function dispatch(endpoint, values) {
   switch (endpoint) {
     case 'storage:install': return require('./storage-scheduler.cjs').bind(mutationCapability).installOrUpdate('install');
     case 'storage:update': return require('./storage-scheduler.cjs').bind(mutationCapability).installOrUpdate('update');
+    case 'storage:reseal-authority': return require('./storage-authority-reseal.cjs').bind(mutationCapability).reseal(input.proof_file);
+    case 'storage:inspect-authority-reseal': return require('./storage-authority-reseal.cjs').inspect();
     case 'gate:certified': return await require('./certified-launch.cjs').runCertified(input.candidate_ref, input.allocation_file, { mutationCapability });
     case 'gate:native-root': return await require('./storage-gate.cjs').bind(mutationCapability).prepareNativeRoot(input.candidate_ref, mainGateBootstrap);
     case 'gate:full': return await require('./storage-gate.cjs').bind(mutationCapability).runFullGate(input.run_id, input.lock_token, { gateBootstrap: mainGateBootstrap });
@@ -107,6 +110,8 @@ const THROWS_ONLY = () => 0;
 const OUTCOME_CONTRACT = Object.freeze({
   'storage:install': THROWS_ONLY,
   'storage:update': THROWS_ONLY,
+  'storage:reseal-authority': THROWS_ONLY,
+  'storage:inspect-authority-reseal': THROWS_ONLY,
   'gate:certified': (result) => result.status,
   'gate:native-root': THROWS_ONLY,
   // The instance that exposed the class. result.status is the supervisor's preserved child status -

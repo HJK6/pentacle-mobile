@@ -10,6 +10,8 @@ const CONTRACT = Object.freeze({
   endpoints: Object.freeze({
     'storage:install': [],
     'storage:update': [],
+    'storage:reseal-authority': ['proof_file'],
+    'storage:inspect-authority-reseal': [],
     'gate:certified': ['candidate_ref', 'allocation_file'],
     'gate:native-root': ['candidate_ref'],
     'gate:full': ['run_id', 'lock_token'],
