@@ -162,12 +162,23 @@ test('a long ordinary header keeps its provider and status in the same accessibl
   expect(within(status).getByText(title).props.numberOfLines).toBe(1);
   expect(within(status).getByText('Codex')).toBeTruthy();
   expect(within(status).getByLabelText('Idle')).toBeTruthy();
+  expect(status.props.accessibilityValue?.text).toBe(`${title}, codex, idle`);
   expect(StyleSheet.flatten(status.props.style).minHeight).toBeGreaterThanOrEqual(44);
   const mic = screen.getByTestId('session-header-voice-mic');
   expect(within(status).queryByTestId('session-header-voice-mic')).toBeNull();
   expect(StyleSheet.flatten(mic.props.style)).toMatchObject({ minWidth: 44, minHeight: 44 });
   expect(screen.getByLabelText('Chat options')).toBeTruthy();
   expect(screen.getByLabelText('Back to chats')).toBeTruthy();
+});
+
+test.each([0, 21])('ordinary working header exposes its provider and advancing timer at %ss', seconds => {
+  mockState = { ...mockState, sessions: [{ ...session(), provider: 'codex', working: true }] };
+  render(<RouteSessionScreen />);
+  act(() => { jest.advanceTimersByTime(seconds * 1000); });
+  expect(screen.getByTestId('session-status-overlay-trigger').props.accessibilityValue.text)
+    .toBe(`Chat, codex, working, 00:${String(seconds).padStart(2, '0')}`);
+  expect(screen.getByTestId('status-tag-working')).toBeTruthy();
+  expect(screen.getByTestId('session-header-voice-mic')).toBeTruthy();
 });
 
 test('an embedded screen never redirects away on a missing session; the route still does', () => {
