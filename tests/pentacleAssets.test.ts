@@ -119,7 +119,7 @@ test('binding changes retire the previous scope and refresh through asset.list',
   __handlePentacleAssetFrameForTests({type:'assistant.binding.changed',stream_id:'hostb:new'});
   expect(getSessionReports(STREAM)).toEqual([]);
   resolve({scope_stream_ids:[STREAM,'hostb:new'],assets:[{...report,stream_id:'hostb:new'}]});
-  await Promise.resolve(); await Promise.resolve();
+  await new Promise(done => setImmediate(done));
   expect(getSessionReports(STREAM)[0].stream_id).toBe('hostb:new');
 });
 
