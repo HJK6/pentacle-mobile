@@ -15,6 +15,14 @@ admission, account/origin, upload, cancellation and receipt-proof fences.
   text or images, guesses a host assistant seat, or falls back to the last chat.
 - All eligible headers operate on the same active take. Busy transitions cannot
   dispatch a second send. Retained delivery work does not prevent a new capture.
+- On a take's selected, uncovered destination chat, passive queued/uploading/
+  transcribing/checking progress and its global Transcribing/Return card are
+  hidden; the existing transcript row owns progress and the ordinary composer
+  is visible. Exact chat stream IDs and the assistant protocol identity determine
+  the destination. Another chat, unknown identity, or a covering modal retains
+  the global presentation. Capture, unsent takes, errors/storage recovery and
+  uncertain dispatched takes keep their actions, including Check again and
+  Remove local copy. Other retained takes remain available in the take list.
 - A focused chat projects the bar in its existing measured composer slot. The
   draft owner stays mounted as invisible, inaccessible, non-editable measurement
   content while the bar owns that slot, including on a fresh chat handoff. Keyboard offsets and transcript clearance remain owned by the
@@ -41,7 +49,9 @@ claim to unsend anything.
 
 Only matching authoritative landed proof, followed by owned cleanup, produces
 the process-only Sent receipt. It expires 2800 ms after proof; a new capture
-replaces it. Assistant View opens the protected assistant thread and clears only
+replaces it. The destination chat hides that receipt without consuming it. Leaving
+before its original deadline reveals only the remaining time; navigation cannot
+renew it, and nothing reappears after expiry. Assistant View opens the protected assistant thread and clears only
 that receipt. Optimistic acceptance, unknown receipts, discard, auth changes and
 take disappearance cannot create Sent. Locked/background UI exposes no bar.
 

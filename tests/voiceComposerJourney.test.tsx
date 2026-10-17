@@ -159,9 +159,10 @@ test('a take stuck checking delivery leaves the composer, its mic and Remove loc
   const view = render(<ComposerBar {...props} streamId="hosta:origin" />);
   await act(async () => fireEvent.press(view.getByTestId('composer-mic-button')));
   await act(async () => fireEvent.press(view.getByLabelText('Stop and send')));
-  // A bounded active phase still holds the composer slot.
+  // Passive progress belongs to the destination transcript; its composer stays usable.
   expect(voiceDelivery.snapshot().takes[0]).toMatchObject({ status: 'transcribing' });
-  expect(view.queryByTestId('composer-input')).toBeNull();
+  expect(view.getByTestId('composer-input').props.editable).toBe(true);
+  expect(view.queryByTestId('global-voice-bar')).toBeNull();
   // The send frame is lost: dispatch proves nothing and the take waits on its receipt.
   mockSend.mockResolvedValueOnce({ delivery: 'unknown' });
   await act(async () => { resolveTranscript({ text: 'lost frame', model: 'synthetic', duration_s: 3 }); await voiceDelivery.drain(); });
