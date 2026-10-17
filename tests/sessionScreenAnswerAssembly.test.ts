@@ -7,6 +7,7 @@ import {
 } from '../app/pentacle/session/[streamId]';
 import { buildDurableQuestionAnswerText } from '../src/services/agentQuestionNotifications';
 import { isSessionSending } from 'pentacle-chat-core';
+import { voiceTakeRow, type VoiceTake } from '../src/services/voiceDelivery';
 import type { PentacleSessionSummary, PentacleTranscriptItem } from 'pentacle-chat-core';
 
 jest.mock('expo-constants', () => require('./helpers/stubs/expoConstants.cjs'));
@@ -343,10 +344,40 @@ test('the transcriptData memo delegates to the exported assembleSessionTranscrip
   expect(memoEnd).toBeGreaterThan(memoStart);
   const memo = source.slice(memoStart, memoEnd);
   expect(memo).toMatch(
-    /assembleSessionTranscriptRows\(\s*authoritativeQuestionAnswerProjections,\s*questionAnswerProjections,\s*detail\?\.transcriptItems\s*\?\?\s*\[\],\s*questionEventTimestamps,\s*\)/,
+    /assembleSessionTranscriptRows\(\s*authoritativeQuestionAnswerProjections,\s*questionAnswerProjections,\s*detail\?\.transcriptItems\s*\?\?\s*\[\],\s*questionEventTimestamps,\s*voiceState\.takes\.filter\(t => t\.streamId === streamId\)\.map\(voiceTakeRow\),\s*\)/,
   );
   // The assembly primitives live ONLY in the helper now, never re-inlined in the memo.
   expect(memo.includes('orderSessionTranscriptRows(')).toBe(false);
   expect(memo.includes('formatNotificationAnswerTellItem')).toBe(false);
   expect(memo.includes('fullyCoveredAnswerNotificationIds(')).toBe(false);
+});
+
+
+test('screen assembly interleaves a retained voice take by createdAt', () => {
+  const chat = (id: string, timestamp: string) => ({...detailNoticeEcho(id, 'chat'), timestamp});
+  const take = voiceTakeRow({recordingId: 'retained-take', createdAt: Date.parse('2026-10-17T05:15:00Z'), durationS: 3} as VoiceTake);
+  const rows = assembleSessionTranscriptRows([], {}, [
+    chat('10', '2026-10-17T05:10:00Z'), chat('20', '2026-10-17T05:20:00Z'),
+  ], new Map(), [take]);
+  expect(rows.map(row => row.id)).toEqual(['20', 'voice:retained-take', '10']);
+  expect(take.timestamp).toBe('2026-10-17T05:15:00.000Z');
+});
+
+test('restored answers interleave without a separate event timestamp lookup', () => {
+  const projection = {...authoritativeProjection(), answeredAt: '2026-10-17T05:48:00Z'};
+  const chat = (id: string, timestamp: string) => ({...detailNoticeEcho(id, 'chat'), timestamp});
+  const rows = assembleSessionTranscriptRows([projection], {}, [
+    chat('10', '2026-10-17T06:26:00Z'), chat('11', '2026-10-17T06:26:20Z'),
+  ], new Map());
+  expect(rows.map(row => row.timestamp)).toEqual([
+    '2026-10-17T06:26:20Z', '2026-10-17T06:26:00Z', '2026-10-17T05:48:00Z',
+  ]);
+});
+
+test('a late question echo cannot anchor an old answer below a newer message', () => {
+  const projection = {...authoritativeProjection(), answeredAt: '2026-10-17T05:48:00Z'};
+  const echo = {...detailNoticeEcho('12', LIVE_NOTICE), timestamp: '2026-10-17T05:48:00Z'};
+  const newer = {...detailNoticeEcho('10', 'newer message'), timestamp: '2026-10-17T06:26:00Z'};
+  const rows = assembleSessionTranscriptRows([projection], {}, [newer, echo], new Map());
+  expect(rows.map(row => row.timestamp)).toEqual(['2026-10-17T06:26:00Z', '2026-10-17T05:48:00Z']);
 });

@@ -1237,8 +1237,8 @@ test('selectSessionDetail renders Claude JSONL user, assistant, thinking, and Ba
   });
 
   expectPresent(detail);
-  expect(detail.transcriptItems.map((item) => item.kind)).toEqual(['USER', 'ASSIST_TEXT', 'THINKING', 'TOOL_USE']);
-  expect(detail.transcriptItems.map((item) => item.displayRule)).toEqual(['bubble:user', 'bubble:assistant', 'activity:thinking', 'activity:command']);
+  expect(detail.transcriptItems.map((item) => item.kind)).toEqual(['USER', 'THINKING', 'TOOL_USE', 'ASSIST_TEXT']);
+  expect(detail.transcriptItems.map((item) => item.displayRule)).toEqual(['bubble:user', 'activity:thinking', 'activity:command', 'bubble:assistant']);
 });
 
 test('Case A: Claude interrupt marker preserves the sent user message in transcript', () => {
@@ -1392,8 +1392,9 @@ test('selectSessionDetail maps Claude JSONL Read tool results to code-block rows
   });
 
   expectPresent(detail);
-  expect(detail.transcriptItems.at(-1)?.displayRule).toBe('activity:code-block');
-  expect(detail.transcriptItems.at(-1)?.text || '').toMatch(/^1\t---/);
+  const result = detail.transcriptItems.find(item => item.id === String(events[1].daemon_seq));
+  expect(result?.displayRule).toBe('activity:code-block');
+  expect(result?.text || '').toMatch(/^1\t---/);
 });
 
 test('selectSessionDetail pairs Claude JSONL TOOL_RESULT rows with TOOL_USE input', () => {

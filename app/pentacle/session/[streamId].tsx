@@ -880,6 +880,7 @@ export function sessionQuestionProjectionItem(projection: Pick<SessionQuestionAn
   return {
     id: `session-question-answer-${projection.key}`,
     timestampLabel: answerClock(projection.answeredAt),
+    timestamp: projection.answeredAt,
     answerTimestamp: projection.answeredAt,
     label: interpreted.label,
     tone: interpreted.tone,
@@ -896,8 +897,8 @@ export function sessionQuestionProjectionItem(projection: Pick<SessionQuestionAn
   };
 }
 
-// Dedupe may remove the echoed answer from detailItems, but its original position
-// remains authoritative. Use that receipt first, then immutable resolution time.
+// Dedupe may remove the echoed answer from detailItems. Retain its anchor for
+// legacy untimed projections; timestamped rows use immutable resolution time.
 // Legacy answers with neither retain the ask anchor. Never derive time from a
 // formatted clock or invent a daemon sequence for a notification projection.
 export function orderSessionTranscriptRows(
@@ -906,7 +907,7 @@ export function orderSessionTranscriptRows(
   sourceItems: readonly PentacleTranscriptItem[] = detailItems,
   eventTimestamps: ReadonlyMap<string, string> = new Map(),
 ): PentacleTranscriptItem[] {
-  const rowTimestamp = (item: PentacleTranscriptItem) => eventTimestamps.get(item.id)
+  const rowTimestamp = (item: PentacleTranscriptItem) => item.timestamp ?? eventTimestamps.get(item.id)
     ?? (item.optimisticId ? eventTimestamps.get(item.optimisticId) : undefined)
     ?? (item.correlatedDaemonSeq != null ? eventTimestamps.get(String(item.correlatedDaemonSeq)) : undefined);
   const retained = new Set(detailItems.map((item) => item.id));
@@ -923,7 +924,7 @@ export function orderSessionTranscriptRows(
     consumed.add(projection.id);
     ordered.push(anchor ? {
       ...projection,
-      timestampLabel: anchor.timestampLabel || answerClock(rowTimestamp(anchor)) || projection.timestampLabel,
+      timestampLabel: projection.timestampLabel || anchor.timestampLabel || answerClock(rowTimestamp(anchor)),
     } : projection);
   };
   for (const item of sourceItems) {
@@ -947,13 +948,25 @@ export function orderSessionTranscriptRows(
     }
   }
   for (const projection of answerProjectionItems) append(projection);
-  return ordered.reverse();
+  // Timestamped rows share one order, including late echoes and retained takes.
+  // Keep legacy untimed anchor slots without inventing a timestamp for them.
+  const timedRows = ordered.filter((item) => Number.isFinite(Date.parse(rowTimestamp(item) || '')))
+    .sort((left, right) => {
+      const time = Date.parse(rowTimestamp(left)!) - Date.parse(rowTimestamp(right)!);
+      if (time) return time;
+      const leftSeq = left.correlatedDaemonSeq ?? Number(left.id);
+      const rightSeq = right.correlatedDaemonSeq ?? Number(right.id);
+      if (Number.isFinite(leftSeq) && Number.isFinite(rightSeq) && leftSeq !== rightSeq) return leftSeq - rightSeq;
+      return left.id.localeCompare(right.id);
+    });
+  let timedIndex = 0;
+  return ordered.map((item) => Number.isFinite(Date.parse(rowTimestamp(item) || ''))
+    ? timedRows[timedIndex++] : item).reverse();
 }
 
 // Pure session-transcript assembly, extracted verbatim from the PentacleSessionScreen
-// `transcriptData` memo so the screen and its tests exercise the SAME code (the memo calls this
-// with its four inputs; tests import and call it directly). It has no behavior of its own beyond
-// the composed helpers above, and closes over nothing — the four inputs are the memo's only
+// `transcriptData` memo so the screen and its tests exercise the SAME code, including voice rows.
+// It has no behavior of its own beyond the composed helpers above and closes over nothing; its
 // dependencies. public behavior contract (AC2 screen
 // assembly), QA cycle-1 evidence-hole fix (Nexus ruling 2026-09-17 Option A).
 export function assembleSessionTranscriptRows(
@@ -961,6 +974,7 @@ export function assembleSessionTranscriptRows(
   localProjections: Record<string, SessionQuestionAnswerProjection>,
   detailItems: readonly PentacleTranscriptItem[],
   eventTimestamps: ReadonlyMap<string, string>,
+  voiceRows: readonly PentacleTranscriptItem[] = [],
 ): PentacleTranscriptItem[] {
   const authoritativeItems = authoritativeProjections.map((projection) =>
     sessionQuestionProjectionItem({ ...projection, pending: false }));
@@ -1015,7 +1029,7 @@ export function assembleSessionTranscriptRows(
     ))
     .filter((projection) => projection.source !== 'pane' || !userTexts.has(projection.text))
     .map(sessionQuestionProjectionItem);
-  return orderSessionTranscriptRows(retainedDetailItems, [...authoritativeItems, ...optimisticItems], normalizedDetailItems, eventTimestamps);
+  return orderSessionTranscriptRows([...retainedDetailItems, ...voiceRows], [...authoritativeItems, ...optimisticItems], [...normalizedDetailItems, ...voiceRows], eventTimestamps);
 }
 
 export type SessionScreenProps = {
@@ -2041,12 +2055,13 @@ export function SessionScreen(props: SessionScreenProps) {
     }
   }, [actions, activeQuestionRenderKey, session, streamId]);
   const transcriptData = useMemo(
-    () => [...voiceState.takes.filter(t => t.streamId === streamId).map(voiceTakeRow).reverse(), ...assembleSessionTranscriptRows(
+    () => assembleSessionTranscriptRows(
       authoritativeQuestionAnswerProjections,
       questionAnswerProjections,
       detail?.transcriptItems ?? [],
       questionEventTimestamps,
-    )],
+      voiceState.takes.filter(t => t.streamId === streamId).map(voiceTakeRow),
+    ),
     [authoritativeQuestionAnswerProjections, detail?.transcriptItems, questionAnswerProjections, questionEventTimestamps, voiceState, streamId],
   );
   useEffect(() => {

@@ -1441,7 +1441,7 @@ test('resolved answer stays at its receipt between messages after backfill and l
   const view = render(<SessionScreen />);
   const rows = () => screen.UNSAFE_getByType(FlatList).props.data as Array<{ id: string; text: string; timestampLabel: string }>;
   expect(rows().map((row) => row.text)).toEqual(['After answer', 'Operator answered: Proceed with the checks', 'Before answer']);
-  expect(rows()[1].timestampLabel).toBe(new Date('2026-05-25T12:02:00Z').toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+  expect(rows()[1].timestampLabel).toBe(new Date('2026-05-25T12:01:00Z').toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
   // Reopening without the echo uses immutable resolution time, never updated_at.
   view.unmount();
   mockState.events = mockState.events.filter((row) => row.daemon_seq !== 509);

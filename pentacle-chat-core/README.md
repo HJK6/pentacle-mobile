@@ -73,6 +73,16 @@ raw daemon frame ──► apply*(state, …) ──► PentacleStreamState ─�
 
 ## Reducer and selector contracts
 
+Transcript display uses each item's own timestamp, oldest first, with the existing
+sequence and stable identity breaking ties. Arrival/backfill sequence never wins
+over a different timestamp, and tool results keep their own time. The visible
+window is selected chronologically; retained pending sends stay visible in their
+chronological position. Mobile rows retain the original timestamp so final screen
+assembly can merge durable answers by immutable resolution time and retained voice
+takes by creation time without looking up a separate event cache. Untimed legacy
+rows keep their existing anchor slots. Ingestion cursors and message identity are
+unchanged.
+
 `applyPentacleSnapshotMessage` treats the presence of `snapshot.events` as an
 explicit event-ring replacement. A snapshot that carries events still normalizes,
 dedupes, and replaces the ring as before. A snapshot without an events bundle is

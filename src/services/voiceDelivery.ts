@@ -960,6 +960,7 @@ export function useVoiceDelivery() {
 export function voiceTakeRow(take: VoiceTake): PentacleTranscriptItem {
   return {
     id: `voice:${take.recordingId}`,
+    timestamp: new Date(take.createdAt).toISOString(),
     timestampLabel: new Date(take.createdAt).toLocaleTimeString([], {
       hour: '2-digit',
       minute: '2-digit',
