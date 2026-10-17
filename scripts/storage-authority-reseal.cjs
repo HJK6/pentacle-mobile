@@ -106,7 +106,19 @@ function assertNormalReady() {
   const root = fixedLayout().state;
   if (reservedTemps(root).length) fail('PENDING');
   const target = path.join(root, JOURNAL);
-  if (!exists(target)) return;
+  if (!exists(target)) {
+    // A writer can die after acquiring the generation claim but before publishing preparation.
+    // Ordinary cleanup must preserve that earlier boundary too. The legacy authority reader did
+    // not require mode0600, so this lookup does not add a new mode rule to ordinary admission.
+    const authorityFile = path.join(root, 'authority.json');
+    if (exists(authorityFile)) {
+      const stat = fs.lstatSync(authorityFile);
+      if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 2 * 1024 * 1024) fail('FILE');
+      const authority = JSON.parse(fs.readFileSync(authorityFile, 'utf8'));
+      if (UUID.test(authority.generation) && hasClaim(authority)) fail('PENDING');
+    }
+    return;
+  }
   const journal = validateJournal(JSON.parse(readFile(target)));
   if (journal.state !== 'committed' || hasClaim(journal)) fail('PENDING');
   const authority = JSON.parse(readFile(path.join(root, 'authority.json')));
@@ -209,7 +221,8 @@ function verifyTransaction(j, p, { beforeOnly = false } = {}) {
   checkTemps(j);
   quotaAndLayout(j);
   const current = readFile(path.join(fixedLayout().state, 'authority.json'));
-  if (!current.equals(decode(j.before)) && (beforeOnly || !current.equals(decode(j.after)))) fail('CAS');
+  const isAfter = current.equals(decode(j.after));
+  if (j.state === 'committed' ? !isAfter : !current.equals(decode(j.before)) && (beforeOnly || !isAfter)) fail('CAS');
   if (!equal(preservation(j), j.manifest)) fail('PRESERVATION_DRIFT');
   return current;
 }

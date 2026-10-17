@@ -5,7 +5,7 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { spawnSync } = require('node:child_process');
+const { spawn, spawnSync } = require('node:child_process');
 const test = require('node:test');
 const CLI = path.join(__dirname, 'storage-cli.cjs');
 const PRELOAD = path.join(__dirname, 'storage-authority-reseal-preload.cjs');
@@ -125,7 +125,7 @@ for (const kind of ['foreign-image', 'ambiguous-image', 'absent-image', 'image-i
   f.saveConfig(); if (kind !== 'proof-mode') f.saveProof(); refusedWithoutWrites(f);
 });
 
-for (const phase of ['prepared-orphan', 'before-prepare', 'after-prepare', 'before-authority', 'after-authority', 'before-commit', 'after-commit']) test(`crash ${phase}: normal writers refuse, same-proof reconciles once`, t => {
+for (const phase of ['before-prepare-open', 'prepared-orphan', 'before-prepare', 'after-prepare', 'before-authority', 'after-authority', 'before-commit', 'after-commit']) test(`crash ${phase}: normal writers refuse, same-proof reconciles once`, t => {
   const f = fixture(t), crash = f.run(undefined, { RESEAL_TEST_CRASH: phase });
   assert.equal(crash.status, 91, crash.stderr);
   const before = snapshot(f.state);
@@ -140,6 +140,60 @@ for (const phase of ['prepared-orphan', 'before-prepare', 'after-prepare', 'befo
   const readback = f.run(['storage:inspect-authority-reseal']); assert.equal(readback.status, 0, readback.stderr);
   assert.equal(JSON.parse(readback.stdout).normal_admission, true);
   refusedWithoutWrites(f, undefined, /REPLAY/);
+});
+
+test('pre-preparation generation claim blocks ordinary cleanup of unrelated atomic evidence', t => {
+  const f = fixture(t); assert.equal(f.run(undefined, { RESEAL_TEST_CRASH: 'before-prepare-open' }).status, 91);
+  fs.writeFileSync(path.join(f.state, `.authority.json.${crypto.randomUUID()}.tmp`), 'ordinary evidence', { mode: 0o600 });
+  refusedWithoutWrites(f, ['storage:restore'], /AUTHORITY_RESEAL_PENDING/);
+  refusedWithoutWrites(f, ['storage:janitor', 'dry-run'], /AUTHORITY_RESEAL_PENDING/);
+  // The explicit recovery also preserves the unrelated unknown temporary for reviewed disposition.
+  refusedWithoutWrites(f, undefined, /STATE_LAYOUT_UNKNOWN/);
+});
+
+test('committed terminal cleanup refuses restored preimage without deleting evidence', t => {
+  const f = fixture(t); assert.equal(f.run().status, 0);
+  const journal = JSON.parse(fs.readFileSync(path.join(f.state, 'authority-reseal.json')));
+  fs.writeFileSync(f.authorityFile, f.preimage);
+  fs.writeFileSync(path.join(f.state, journal.temporaries.commit), bytes(journal), { mode: 0o600 });
+  refusedWithoutWrites(f, undefined, /AUTHORITY_RESEAL_CAS/);
+  assert.equal(JSON.parse(f.run(['storage:inspect-authority-reseal']).stdout).normal_admission, false);
+});
+
+test('reused original PID is conservatively refused by the existing claim without writes', t => {
+  const f = fixture(t); assert.equal(f.run(undefined, { RESEAL_TEST_CRASH: 'after-prepare' }).status, 91);
+  const file = path.join(f.state, 'authority-reseal.json'), journal = JSON.parse(fs.readFileSync(file));
+  journal.writer.pid = process.pid; journal.writer.startToken = 'retired-process-epoch';
+  fs.writeFileSync(file, bytes(journal));
+  const claim = path.join(f.state, 'scheduler', `.mutation-${sha(`scheduler\0${UUID}`)}.claim`);
+  const owner = JSON.parse(fs.readFileSync(claim)); owner.pid = process.pid; fs.writeFileSync(claim, bytes(owner));
+  refusedWithoutWrites(f, undefined, /RECORD_MUTATION_BUSY/);
+});
+
+test('unavailable current writer epoch refuses fresh and interrupted invocation without writes', t => {
+  const fresh = fixture(t); fresh.config.epoch_unavailable = true; fresh.saveConfig();
+  refusedWithoutWrites(fresh, undefined, /WRITER_UNCERTAIN/);
+  const pending = fixture(t); assert.equal(pending.run(undefined, { RESEAL_TEST_CRASH: 'after-prepare' }).status, 91);
+  pending.config.epoch_unavailable = true; pending.saveConfig();
+  refusedWithoutWrites(pending, undefined, /RECORD_MUTATION_LEASE_IDENTITY/);
+});
+
+test('concurrent real CLI writers serialize through the existing generation claim', async t => {
+  const f = fixture(t);
+  const child = spawn(process.execPath, ['--require', PRELOAD, CLI, 'storage:reseal-authority', f.proofFile], {
+    env: { PATH: process.env.PATH, NODE_PATH: process.env.NODE_PATH || '', RESEAL_TEST_FIXTURE: f.root, RESEAL_TEST_PAUSE: '1' }, stdio: ['ignore', 'pipe', 'pipe'] });
+  t.after(() => { if (child.exitCode === null) child.kill('SIGTERM'); });
+  let stderr = ''; child.stderr.on('data', data => { stderr += data; });
+  const completion = new Promise(resolve => child.on('close', (code, signal) => resolve({ code, signal })));
+  const deadline = Date.now() + 5000;
+  while (!fs.existsSync(path.join(f.root, 'writer-paused'))) {
+    assert.ok(Date.now() < deadline && child.exitCode === null, stderr || 'writer never reached pause');
+    await new Promise(resolve => setTimeout(resolve, 10));
+  }
+  refusedWithoutWrites(f, undefined, /RECORD_MUTATION_BUSY/);
+  fs.writeFileSync(path.join(f.root, 'writer-release'), 'release');
+  const result = await completion; assert.equal(result.code, 0, stderr);
+  assert.equal(JSON.parse(f.run(['storage:inspect-authority-reseal']).stdout).normal_admission, true);
 });
 
 for (const change of ['modify', 'add', 'delete']) test(`original preservation manifest rejects post-crash ${change}`, t => {

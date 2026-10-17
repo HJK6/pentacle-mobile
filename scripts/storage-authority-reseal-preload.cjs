@@ -24,6 +24,7 @@ fs.statSync = function stat(target, ...args) {
 fs.realpathSync = Object.assign(function realpath(target, ...args) { return target === '/System/Volumes/Data' ? target : originalRealpath.call(this, target, ...args); }, { native: originalRealpath.native });
 fs.statfsSync = function statfs(target, ...args) { return target === path.join(fixture, 'Library/PentacleMobileStorage/State') ? { blocks: 1n, bsize: 4096n } : originalStatfs.call(this, target, ...args); };
 cp.execFileSync = function exec(binary, args, options) {
+  if (configuration.epoch_unavailable && binary === '/bin/ps') return '';
   if (configuration.probe_unavailable && binary === '/usr/sbin/diskutil') throw new Error('FIXTURE_PROBE_UNAVAILABLE');
   if (binary === '/usr/bin/plutil') return String(options.input);
   if (binary === '/usr/sbin/ioreg') return JSON.stringify([{ IOPlatformUUID: configuration.hardware_uuid }]);
@@ -38,6 +39,21 @@ cp.execFileSync = function exec(binary, args, options) {
 
 const crash = process.env.RESEAL_TEST_CRASH;
 const originalRename = fs.renameSync, originalFsync = fs.fsyncSync;
+const originalOpen = fs.openSync;
+fs.openSync = function open(target, ...args) {
+  if (typeof target === 'string' && target.endsWith('-prepare.tmp')) {
+    if (crash === 'before-prepare-open') process.exit(91);
+    if (process.env.RESEAL_TEST_PAUSE) {
+      fs.writeFileSync(path.join(fixture, 'writer-paused'), 'ready');
+      const deadline = Date.now() + 10000;
+      while (!fs.existsSync(path.join(fixture, 'writer-release'))) {
+        if (Date.now() > deadline) throw new Error('RESEAL_FIXTURE_PAUSE_TIMEOUT');
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
+      }
+    }
+  }
+  return originalOpen.call(this, target, ...args);
+};
 fs.renameSync = function rename(from, to) {
   const phase = from.endsWith('-prepare.tmp') ? 'prepare' : from.endsWith('-authority.tmp') ? 'authority' : from.endsWith('-commit.tmp') ? 'commit' : null;
   if (phase && crash === `before-${phase}`) process.exit(91);
