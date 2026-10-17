@@ -958,10 +958,11 @@ export function useVoiceDelivery() {
   );
 }
 export function voiceTakeRow(take: VoiceTake): PentacleTranscriptItem {
+  const createdAt = new Date(take.createdAt);
   return {
     id: `voice:${take.recordingId}`,
-    timestamp: new Date(take.createdAt).toISOString(),
-    timestampLabel: new Date(take.createdAt).toLocaleTimeString([], {
+    timestamp: Number.isFinite(createdAt.getTime()) ? createdAt.toISOString() : undefined,
+    timestampLabel: createdAt.toLocaleTimeString([], {
       hour: '2-digit',
       minute: '2-digit',
     }),

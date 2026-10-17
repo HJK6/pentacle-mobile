@@ -363,6 +363,15 @@ test('screen assembly interleaves a retained voice take by createdAt', () => {
   expect(take.timestamp).toBe('2026-10-17T05:15:00.000Z');
 });
 
+test('an accepted retained voice timestamp outside Date range cannot crash screen assembly', () => {
+  const take = {recordingId: 'retained-invalid-date', createdAt: 8700000000000000, durationS: 3} as VoiceTake;
+  expect(() => voiceTakeRow(take)).not.toThrow();
+  const row = voiceTakeRow(take);
+  expect(row.timestamp).toBeUndefined();
+  expect(assembleSessionTranscriptRows([], {}, [], new Map(), [row]).map(item => item.id))
+    .toEqual(['voice:retained-invalid-date']);
+});
+
 test('restored answers interleave without a separate event timestamp lookup', () => {
   const projection = {...authoritativeProjection(), answeredAt: '2026-10-17T05:48:00Z'};
   const chat = (id: string, timestamp: string) => ({...detailNoticeEcho(id, 'chat'), timestamp});
