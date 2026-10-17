@@ -1,5 +1,6 @@
 import { router } from "expo-router";
 import { useSyncExternalStore } from "react";
+import { reportIdentity } from "../utils/reportIdentity";
 
 import {
   sendPentacleAssetCommand,
@@ -77,6 +78,11 @@ type AssetReply = Record<string, unknown> & {
 };
 
 const reportsByStream = new Map<string, PentacleReport[]>();
+const scopeByStream = new Map<string, string[]>();
+const listEpochs = new Map<string, number>();
+const mutations = new Map<string, { generation: number; owner: string; assetId: string; report?: PentacleReport }>();
+let mutationGeneration = 0;
+
 let reportViewerHarnessMode = false;
 
 function isHarnessAssetMode() {
@@ -126,15 +132,15 @@ function mergeReport(streamId: string, report: PentacleReport) {
   const current = reportsByStream.get(streamId) || [];
   setReports(streamId, [
     report,
-    ...current.filter((item) => item.asset_id !== report.asset_id),
+    ...current.filter((item) => reportIdentity(streamId, item) !== reportIdentity(streamId, report)),
   ]);
 }
 
-function removeReport(streamId: string, assetId: string) {
+function removeReport(streamId: string, assetId: string, owner = streamId) {
   const current = reportsByStream.get(streamId) || [];
   setReports(
     streamId,
-    current.filter((item) => item.asset_id !== assetId),
+    current.filter((item) => item.asset_id !== assetId || (item.stream_id || streamId) !== owner),
   );
 }
 
@@ -174,15 +180,36 @@ function reportFromUpdateFrame(
 
 function applyAssetFrame(message: Record<string, unknown>) {
   const type = String(message.type || "");
+  if (type === 'assistant.binding.changed') {
+    for (const viewer of reportsByStream.keys()) {
+      listEpochs.set(viewer, (listEpochs.get(viewer) || 0) + 1);
+      scopeByStream.set(viewer, [viewer]);
+      setReports(viewer, []);
+      void listReports(viewer).catch(() => undefined);
+    }
+    return;
+  }
   const asset =
     type === "asset.update"
       ? reportFromUpdateFrame(message)
       : (message.asset as PentacleReport | undefined);
   const streamId = frameStreamId(message, asset);
   if (type === "asset.update" && asset?.content_type === "report" && streamId) {
-    mergeReport(streamId, asset);
+    const owned = { ...asset, stream_id: streamId };
+    mutations.set(reportIdentity(streamId, owned), { generation: ++mutationGeneration,
+      owner: streamId, assetId: owned.asset_id, report: owned });
+    mergeReport(streamId, owned);
+    for (const [viewer, scope] of scopeByStream) {
+      if (viewer !== streamId && scope.includes(streamId)) mergeReport(viewer, owned);
+    }
   } else if (type === "asset.removed" && streamId) {
-    removeReport(streamId, String(message.asset_id || asset?.asset_id || ""));
+    const id = String(message.asset_id || asset?.asset_id || "");
+    mutations.set(reportIdentity(streamId, { asset_id: id }), { generation: ++mutationGeneration,
+      owner: streamId, assetId: id });
+    removeReport(streamId, id);
+    for (const [viewer, scope] of scopeByStream) {
+      if (viewer !== streamId && scope.includes(streamId)) removeReport(viewer, id, streamId);
+    }
   } else if (type === "asset.session_closed" && streamId) {
     closedStreams.add(streamId);
     emit();
@@ -261,13 +288,25 @@ export async function listReports(streamId: string) {
     if (harnessAssetLoading) return new Promise<PentacleReport[]>(() => undefined);
     return getSessionReports(streamId);
   }
+  const epoch = (listEpochs.get(streamId) || 0) + 1;
+  listEpochs.set(streamId, epoch);
+  const generation = mutationGeneration;
   const reply = await command({
     type: "asset.list",
     stream_id: streamId,
     content_type: "report",
   });
-  const reports = Array.isArray(reply.assets) ? reply.assets : [];
-  setReports(streamId, reports);
+  if (listEpochs.get(streamId) !== epoch) return getSessionReports(streamId);
+  const scope = Array.isArray(reply.scope_stream_ids) ? reply.scope_stream_ids as string[] : [streamId];
+  scopeByStream.set(streamId, scope);
+  const reports = new Map((Array.isArray(reply.assets) ? reply.assets : [])
+    .map(report => [reportIdentity(streamId, report), report]));
+  for (const [key, change] of mutations) {
+    if (change.generation <= generation || !scope.includes(change.owner)) continue;
+    if (change.report) reports.set(key, change.report);
+    else reports.delete(key);
+  }
+  setReports(streamId, [...reports.values()]);
   return getSessionReports(streamId);
 }
 
@@ -282,7 +321,7 @@ export async function getReport(streamId: string, report: PentacleReport) {
   }
   const reply = await command({
     type: "asset.get",
-    stream_id: streamId,
+    stream_id: report.stream_id || streamId,
     asset_id: report.asset_id,
     ...(report.spec_id ? { spec_id: report.spec_id } : {}),
   });
@@ -301,7 +340,7 @@ export async function listReportComments(
   }
   const reply = await command({
     type: "asset.comments.list",
-    stream_id: streamId,
+    stream_id: report.stream_id || streamId,
     asset_id: report.asset_id,
     ...(report.spec_id ? { spec_id: report.spec_id } : {}),
   });
@@ -336,7 +375,7 @@ export async function addReportComment(args: {
   }
   const reply = await command({
     type: "asset.comment.add",
-    stream_id: args.streamId,
+    stream_id: args.report.stream_id || args.streamId,
     asset_id: args.report.asset_id,
     section_id: args.sectionId,
     block_id: args.blockId,
@@ -355,7 +394,7 @@ export async function deleteReportComment(
 ) {
   await command({
     type: "asset.comment.delete",
-    stream_id: streamId,
+    stream_id: report.stream_id || streamId,
     asset_id: report.asset_id,
     comment_id: commentId,
     ...(report.spec_id ? { spec_id: report.spec_id } : {}),
@@ -374,7 +413,7 @@ export async function sendReportCommentsToChat(
   }
   return command({
     type: "asset.comments.send_to_chat",
-    stream_id: streamId,
+    stream_id: report.stream_id || streamId,
     asset_id: report.asset_id,
     ...(report.spec_id ? { spec_id: report.spec_id } : {}),
   });
@@ -383,7 +422,7 @@ export async function sendReportCommentsToChat(
 export async function markReportRead(streamId: string, report: PentacleReport) {
   const reply = await command({
     type: "asset.read.set",
-    stream_id: streamId,
+    stream_id: report.stream_id || streamId,
     asset_id: report.asset_id,
     read: true,
     ...(report.spec_id ? { spec_id: report.spec_id } : {}),
@@ -394,11 +433,11 @@ export async function markReportRead(streamId: string, report: PentacleReport) {
 export async function deleteReport(streamId: string, report: PentacleReport) {
   await command({
     type: "asset.delete",
-    stream_id: streamId,
+    stream_id: report.stream_id || streamId,
     asset_id: report.asset_id,
     ...(report.spec_id ? { spec_id: report.spec_id } : {}),
   });
-  removeReport(streamId, report.asset_id);
+  removeReport(streamId, report.asset_id, report.stream_id || streamId);
 }
 
 export async function openReports(streamId: string) {
@@ -444,6 +483,10 @@ export function reportBlockText(block: ReportBlock) {
 
 export function __resetPentacleAssetsForTests() {
   reportsByStream.clear();
+  scopeByStream.clear();
+  listEpochs.clear();
+  mutations.clear();
+  mutationGeneration = 0;
   harnessCommentsByAsset.clear();
   closedStreams.clear();
   harnessAssetError = null;
@@ -467,6 +510,7 @@ export function harnessSeedReports(
   harnessAssetError = error;
   harnessAssetLoading = loading;
   reportsByStream.clear();
+  scopeByStream.clear();
   harnessCommentsByAsset.clear();
   closedStreams.clear();
   setReports(

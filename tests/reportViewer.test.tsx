@@ -74,7 +74,7 @@ const mockReport = {
     ],
   }),
 };
-type MockReport = Omit<typeof mockReport, 'read_at'> & { read_at: string | null };
+type MockReport = Omit<typeof mockReport, 'read_at'> & { read_at: string | null; stream_id?: string };
 let mockReports: MockReport[] = [mockReport];
 let mockComments = [
   {
@@ -152,6 +152,18 @@ function renderViewer(onClose = jest.fn(), e2eTableTargets = false) {
     </TestErrorBoundary>,
   );
 }
+
+test('same report ids from different owners select independent documents', async () => {
+  const own = { ...mockReport, title: 'Own', stream_id: 'hostc:chat' };
+  const child = { ...mockReport, title: 'Child', stream_id: 'hostb:child' };
+  mockReports = [own, child];
+  mockListReports.mockResolvedValue(mockReports);
+  mockGetReport.mockImplementation((_viewer: string, selected: MockReport) => Promise.resolve(selected));
+  renderViewer();
+  await waitFor(() => expect(mockGetReport).toHaveBeenCalledWith('hostc:chat', own));
+  await act(async () => fireEvent.press(screen.getAllByTestId('report-chip-report-1')[1]));
+  await waitFor(() => expect(mockGetReport).toHaveBeenLastCalledWith('hostc:chat', child));
+});
 
 beforeEach(() => {
   mockComments = [
@@ -716,4 +728,3 @@ test("delete report requires destructive confirmation", async () => {
     expect.objectContaining({ asset_id: "report-1" }),
   );
 });
-

@@ -1,5 +1,6 @@
 import HeaderVoiceMic from './voice/HeaderVoiceMic';
 import { useVoiceSurface } from '../services/voicePresentation';
+import { reportIdentity } from '../utils/reportIdentity';
 import VoiceRecordingOverlay from './voice/VoiceRecordingOverlay';
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { logTelemetry } from "pentacle-chat-core";
@@ -632,7 +633,7 @@ export default function ReportViewerModal({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const activeMeta =
-    reports.find((report) => report.asset_id === activeId) ||
+    reports.find((report) => reportIdentity(streamId, report) === activeId) ||
     reports[0] ||
     null;
   useEffect(() => {
@@ -644,12 +645,10 @@ export default function ReportViewerModal({
       .then((items) => {
         if (!cancelled)
           setActiveId((current) =>
-            items.some((item) => item.asset_id === current)
+            items.some((item) => reportIdentity(streamId, item) === current)
               ? current
-              : (
-                  items.find((item) => item.read !== true && !item.read_at) ||
-                  items[0]
-                )?.asset_id || null,
+              : items.length ? reportIdentity(streamId,
+                  items.find((item) => item.read !== true && !item.read_at) || items[0]) : null,
           );
       })
       .catch(
@@ -697,15 +696,15 @@ export default function ReportViewerModal({
     return () => {
       cancelled = true;
     };
-  }, [visible, streamId, activeMeta?.asset_id, activeMeta?.updated_at]);
+  }, [visible, streamId, activeMeta?.stream_id, activeMeta?.asset_id, activeMeta?.updated_at]);
   useEffect(() => {
     if (
       visible &&
       reports.length > 0 &&
       activeId &&
-      !reports.some((report) => report.asset_id === activeId)
+      !reports.some((report) => reportIdentity(streamId, report) === activeId)
     )
-      setActiveId(reports[0]?.asset_id || null);
+      setActiveId(reports[0] ? reportIdentity(streamId, reports[0]) : null);
     if (visible && reports.length === 0 && !loading) onClose();
   }, [activeId, loading, onClose, reports, visible]);
   const body = useMemo(() => {
@@ -728,7 +727,7 @@ export default function ReportViewerModal({
     if (
       !fullReport ||
       !activeBlock ||
-      activeBlock.assetId !== fullReport.asset_id
+      activeBlock.assetId !== reportIdentity(streamId, fullReport)
     )
       return;
     const temp: AssetComment = {
@@ -882,22 +881,22 @@ export default function ReportViewerModal({
                 !report.read_at;
               return (
                 <Pressable
-                  key={report.asset_id}
+                  key={reportIdentity(streamId, report)}
                   testID={`report-chip-${report.asset_id}`}
                   style={[
                     styles.chip,
                     {
                       borderColor:
-                        activeMeta?.asset_id === report.asset_id
+                        activeMeta && reportIdentity(streamId, activeMeta) === reportIdentity(streamId, report)
                           ? accent
                           : T.line,
                       backgroundColor:
-                        activeMeta?.asset_id === report.asset_id
+                        activeMeta && reportIdentity(streamId, activeMeta) === reportIdentity(streamId, report)
                           ? `${accent}16`
                           : "transparent",
                     },
                   ]}
-                  onPress={() => setActiveId(report.asset_id)}
+                  onPress={() => setActiveId(reportIdentity(streamId, report))}
                 >
                   {unread ? (
                     <View style={styles.unreadWrap}>
@@ -914,7 +913,7 @@ export default function ReportViewerModal({
                       styles.chipText,
                       {
                         color:
-                          activeMeta?.asset_id === report.asset_id
+                          activeMeta && reportIdentity(streamId, activeMeta) === reportIdentity(streamId, report)
                             ? accent
                             : T.dim,
                       },
@@ -989,7 +988,7 @@ export default function ReportViewerModal({
                           countByBlock.get(`${section.id}:${block.id}`) || 0;
                         const openThread = () =>
                           setActiveBlock({
-                            assetId: activeMeta?.asset_id || "",
+                            assetId: activeMeta ? reportIdentity(streamId, activeMeta) : "",
                             sectionId: section.id,
                             block,
                           });

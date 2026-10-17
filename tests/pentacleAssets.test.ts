@@ -68,6 +68,61 @@ test('missing read contract never creates a test-device unread shadow', async ()
   expect(selectSessionReportAction(STREAM)).toEqual({ hasReports: true, reportUnread: false });
 });
 
+test('descendant report actions target its owner and keep duplicate ids independent', async () => {
+  const child = { ...report, stream_id: 'hostb:child' };
+  const own = { ...report, stream_id: STREAM };
+  mockSendCommand.mockResolvedValueOnce({ type: 'asset.list.ok', scope_stream_ids: [STREAM, 'hostb:child'], assets: [own, child] });
+  await listReports(STREAM);
+  mockSendCommand.mockResolvedValueOnce({ asset: { ...child, body: 'child' } });
+  await getReport(STREAM, child);
+  expect(mockSendCommand).toHaveBeenLastCalledWith({ type: 'asset.get', stream_id: 'hostb:child', asset_id: child.asset_id });
+  expect(getSessionReports(STREAM)).toHaveLength(2);
+  mockSendCommand.mockResolvedValueOnce({});
+  await deleteReport(STREAM, child);
+  expect(mockSendCommand).toHaveBeenLastCalledWith({ type: 'asset.delete', stream_id: 'hostb:child', asset_id: child.asset_id });
+  expect(getSessionReports(STREAM)).toEqual([own]);
+});
+
+test('newer chat lists and in-flight report pushes win over older snapshots', async () => {
+  let oldResolve!: (value: unknown) => void;
+  let newResolve!: (value: unknown) => void;
+  mockSendCommand.mockImplementationOnce(() => new Promise(resolve => { oldResolve = resolve; }))
+    .mockImplementationOnce(() => new Promise(resolve => { newResolve = resolve; }));
+  const old = listReports(STREAM);
+  const fresh = listReports(STREAM);
+  newResolve({ assets: [{ ...report, title: 'new' }] });
+  await fresh;
+  oldResolve({ assets: [{ ...report, title: 'old' }] });
+  await old;
+  expect(getSessionReports(STREAM)[0].title).toBe('new');
+
+  mockSendCommand.mockImplementationOnce(() => new Promise(resolve => { oldResolve = resolve; }));
+  const inflight = listReports(STREAM);
+  __handlePentacleAssetFrameForTests({ type:'asset.update', ...report, title:'live', stream_id:STREAM });
+  oldResolve({ assets: [] });
+  await inflight;
+  expect(getSessionReports(STREAM)[0].title).toBe('live');
+
+  mockSendCommand.mockImplementationOnce(() => new Promise(resolve => { oldResolve = resolve; }));
+  const removed = listReports(STREAM);
+  __handlePentacleAssetFrameForTests({ type:'asset.removed', asset_id:report.asset_id, stream_id:STREAM });
+  oldResolve({ assets:[report] });
+  await removed;
+  expect(getSessionReports(STREAM)).toEqual([]);
+});
+
+test('binding changes retire the previous scope and refresh through asset.list', async () => {
+  mockSendCommand.mockResolvedValueOnce({ scope_stream_ids:[STREAM,'hostb:old'], assets:[{...report,stream_id:'hostb:old'}] });
+  await listReports(STREAM);
+  let resolve!: (reply: unknown) => void;
+  mockSendCommand.mockImplementationOnce(() => new Promise(done => { resolve = done; }));
+  __handlePentacleAssetFrameForTests({type:'assistant.binding.changed',stream_id:'hostb:new'});
+  expect(getSessionReports(STREAM)).toEqual([]);
+  resolve({scope_stream_ids:[STREAM,'hostb:new'],assets:[{...report,stream_id:'hostb:new'}]});
+  await Promise.resolve(); await Promise.resolve();
+  expect(getSessionReports(STREAM)[0].stream_id).toBe('hostb:new');
+});
+
 test('canonical get/comment/add/delete/send/read/delete RPCs preserve anchors and spec_id', async () => {
   const specReport = { ...report, spec_id: 'spec-report', body: '{"schema_version":1,"title":"R","sections":[]}' };
   const comment = {
@@ -138,4 +193,3 @@ test('openReports refreshes inventory then routes through the locked adapter', a
   await openReports(STREAM);
   expect(mockPush).toHaveBeenCalledWith({ pathname: '/pentacle/session/[streamId]', params: { streamId: STREAM, reports: '1' } });
 });
-
