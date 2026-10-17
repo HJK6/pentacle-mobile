@@ -3405,7 +3405,8 @@ export function SessionScreen(props: SessionScreenProps) {
           <Pressable accessible={false} onPress={() => setStatusOverlayOpen(true)}>
             <ArcaneRingFrame identity={session?.session_kind === 'assistant_composite'} machine={chrome.machineName} size={42} sigilSize={26} />
           </Pressable>
-          <Pressable testID="session-status-overlay-trigger" onPress={() => setStatusOverlayOpen(true)} accessibilityRole="button" accessibilityLabel="Open session status" style={styles.headerTitleBlock}>
+          <Pressable testID="session-status-overlay-trigger" onPress={() => setStatusOverlayOpen(true)} accessibilityRole="button" accessibilityLabel="Open session status"
+            accessibilityValue={{ text: `${title}, ${session.provider}, ${headerStatusLabel ?? headerStatus}${headerStatus === 'working' && fluidWorkingSeconds !== null ? `, ${formatElapsedSeconds(fluidWorkingSeconds)}` : ''}` }} style={styles.headerTitleBlock}>
             <Text {...NON_SELECTABLE_TEXT} style={styles.headerTitle} numberOfLines={1}>{title}</Text>
             <View style={styles.headerMetaRow}>
               <ProviderTag provider={session.provider} color={chrome.accent} />
