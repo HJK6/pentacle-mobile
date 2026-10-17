@@ -40,7 +40,7 @@ export default function GlobalVoiceBar({ anchored = false, docked = false, surfa
     onPanResponderMove: (_event, gesture) => { const current = drag.current; setVoiceBarDy(current.id, clampVoiceDy(current.origin - gesture.dy, current.bounds)); },
     onPanResponderTerminationRequest: () => true,
   }), []);
-  if (!value.visible || (anchored ? !value.anchored || value.surface?.id !== surfaceId : value.anchored)) return null;
+  if (!value.visible || value.suppressBar || (anchored ? !value.anchored || value.surface?.id !== surfaceId : value.anchored)) return null;
   const target = recording ?? take;
   const isRecording = recording?.status === 'recording';
   const interrupted = recording?.status === 'paused';

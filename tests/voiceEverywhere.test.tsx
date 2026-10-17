@@ -8,7 +8,7 @@ import VoiceRecordingOverlay from '../src/components/voice/VoiceRecordingOverlay
 import RenameChatModal from '../src/components/RenameChatModal';
 import {
   clampVoiceDy, resetVoicePresentationForTests, useVoiceSurface, useVoiceChatStart,
-  voicePresentationSnapshot, setVoiceBarDy, useVoiceBarVisible, pressVoiceHeader,
+  voicePresentationSnapshot, setVoiceBarDy, useVoiceBarVisible, useVoiceBarOccupiesComposer, pressVoiceHeader,
 } from '../src/services/voicePresentation';
 import { ASSISTANT_STREAM_ID } from '../src/services/assistantIdentity';
 import type { RecordingSnapshot } from '../src/services/voiceRecording';
@@ -48,11 +48,12 @@ jest.mock('../src/services/pentacleStream', () => ({
 }));
 const capture = (id = 'take-1', status: RecordingSnapshot['status'] = 'recording'): RecordingSnapshot => ({ recordingId: id, streamId: 'hosta:original', originLabel: 'Original chat', status, durationS: 12, capturedAudioMs: 12000, levels: [0.1,0.5], displayLevels: [0.1,0.5] });
 function emitCapture(value: RecordingSnapshot | null) { act(() => { mockCapture = value; mockCaptureListeners.forEach(fn => fn(value)); }); }
-function Page({ chat = false, title = 'Personal', priority = 0 }: { chat?: boolean; title?: string; priority?: number }) {
-  const id = useVoiceSurface({ page_id: chat ? 'chat' : 'personal', title }, true, { chat, priority });
+function Page({ chat = false, title = 'Personal', priority = 0, entityId, pageId, active = true }: { chat?: boolean; title?: string; priority?: number; entityId?: string; pageId?: string; active?: boolean }) {
+  const id = useVoiceSurface({ page_id: pageId ?? (chat ? 'chat' : 'personal'), title, entity_id: entityId }, active, { chat, priority });
   useVoiceChatStart(id, async () => { await mockStart('visible-chat'); }, false);
   const visible = useVoiceBarVisible(id);
-  return <><HeaderVoiceMic />{chat && visible ? <GlobalVoiceBar anchored surfaceId={id} /> : <Text>Draft stays</Text>}</>;
+  const occupies = useVoiceBarOccupiesComposer(id);
+  return <><HeaderVoiceMic />{chat && visible ? <GlobalVoiceBar anchored surfaceId={id} /> : null}{!occupies ? <Text>Draft stays</Text> : null}</>;
 }
 beforeEach(() => { jest.useFakeTimers(); mockInsets = { top: 24, bottom: 20, left: 0, right: 0 }; resetVoicePresentationForTests(); mockCapture = null; mockDelivery = { takes: [], heldCount: 0, recoveryFailures: [], last: null }; mockLifecycle = { foreground: true, unlocked: true }; });
 afterEach(() => { jest.useRealTimers(); });
@@ -158,6 +159,115 @@ function take(status: string, dispatched = false) {
   return { recordingId: 'take-1', streamId: 'hosta:original', durationS: 12, status,
     draft: { originLabel: 'Original chat' }, manifest: { ...(dispatched ? { dispatchIntent: {} } : {}), audio: { bytes: 100 }, upload: { nextOffset: 50 } } };
 }
+test.each(['hosta:original', ASSISTANT_STREAM_ID])('destination %s suppresses passive progress and restores the composer on committed navigation', streamId => {
+  const pending = { ...take('transcribing'), streamId };
+  mockDelivery = { ...mockDelivery, takes: [pending] };
+  const tree = (destination: boolean, cover = false) => <><VoiceRecordingOverlay />
+    <Page chat={destination} entityId={destination ? streamId : undefined}
+      pageId={destination && streamId === ASSISTANT_STREAM_ID ? 'assistant' : undefined} />
+    {cover ? <VoiceRecordingOverlay priority={100} hostName="cover" /> : null}</>;
+  const view = render(tree(true));
+  expect(view.queryByTestId('global-voice-bar')).toBeNull();
+  expect(view.queryByTestId('voice-take-controls-take-1')).toBeNull();
+  expect(view.queryByLabelText('Return to original chat')).toBeNull();
+  expect(view.getByText('Draft stays')).toBeTruthy();
+  view.rerender(tree(false));
+  expect(view.getByText('TRANSCRIBING…')).toBeTruthy();
+  expect(view.getByLabelText('Return to original chat')).toBeTruthy();
+  view.rerender(tree(true, true));
+  expect(view.getByTestId('global-voice-bar').props.accessibilityLabel).toBe('Floating voice recording');
+  view.rerender(tree(true));
+  expect(view.queryByTestId('global-voice-bar')).toBeNull();
+  expect(view.queryByTestId('voice-take-controls-take-1')).toBeNull();
+  expect(mockDelivery.takes[0]).toBe(pending);
+  expect(mockSend).not.toHaveBeenCalled();
+  expect(mockDiscard).not.toHaveBeenCalled();
+});
+test.each(['queued', 'uploading', 'transcribing', 'checking'])('matching passive %s is suppressed per item', status => {
+  mockDelivery = { ...mockDelivery, takes: [take(status)] };
+  const view = render(<><VoiceRecordingOverlay /><Page chat entityId="hosta:original" /></>);
+  expect(view.queryByTestId('global-voice-bar')).toBeNull();
+  expect(view.queryByTestId('voice-take-controls-take-1')).toBeNull();
+  expect(view.getByText('Draft stays')).toBeTruthy();
+});
+test.each([
+  { pageId: 'chat', entityId: 'hosta:other', chat: true, active: true },
+  { pageId: 'chat', chat: true, active: true },
+  { pageId: 'assistant', entityId: 'hosta:original', chat: true, active: true },
+  { pageId: 'personal', entityId: 'hosta:original', chat: true, active: true },
+  { pageId: 'chat', entityId: 'hosta:original', chat: false, active: true },
+  { pageId: 'chat', entityId: 'hosta:original', chat: true, active: false },
+])('unknown, covered-by-navigation or non-destination surface does not suppress: %j', page => {
+  mockDelivery = { ...mockDelivery, takes: [take('transcribing')] };
+  const view = render(<><VoiceRecordingOverlay /><Page {...page} title="Original chat" /></>);
+  expect(view.getByTestId('global-voice-bar')).toBeTruthy();
+  expect(view.getByTestId('voice-take-controls-take-1')).toBeTruthy();
+});
+test.each(['hosta:original', ASSISTANT_STREAM_ID])('destination %s filters a receipt without consuming or extending its original deadline', streamId => {
+  const tree = (destination: boolean, cover = false) => <><VoiceRecordingOverlay /><Page chat={destination}
+    entityId={streamId} pageId={destination && streamId === ASSISTANT_STREAM_ID ? 'assistant' : undefined} />
+    {cover ? <VoiceRecordingOverlay priority={100} hostName="cover" /> : null}</>;
+  const view = render(tree(true));
+  const receipt = { recordingId: 'finished', streamId, originLabel: 'Original chat', landedAt: Date.now() };
+  act(() => mockLandedListeners.forEach(fn => fn(receipt)));
+  expect(view.queryByText(/SENT TO/)).toBeNull();
+  expect(view.queryByLabelText('View sent recording')).toBeNull();
+  expect(view.getByText('Draft stays')).toBeTruthy();
+  expect(voicePresentationSnapshot().receipt).toEqual(receipt);
+  act(() => jest.advanceTimersByTime(900));
+  view.rerender(tree(false));
+  expect(view.getByText('SENT TO ORIGINAL CHAT')).toBeTruthy();
+  act(() => jest.advanceTimersByTime(700));
+  view.rerender(tree(true));
+  expect(view.queryByText(/SENT TO/)).toBeNull();
+  view.rerender(tree(true, true));
+  expect(view.getByText('SENT TO ORIGINAL CHAT')).toBeTruthy();
+  view.rerender(tree(true));
+  act(() => jest.advanceTimersByTime(1199));
+  view.rerender(tree(false));
+  expect(view.getByText('SENT TO ORIGINAL CHAT')).toBeTruthy();
+  act(() => jest.advanceTimersByTime(1));
+  expect(view.queryByText(/SENT TO/)).toBeNull();
+  expect(voicePresentationSnapshot().receipt).toBeNull();
+  view.rerender(tree(true)); view.rerender(tree(false));
+  expect(view.queryByText(/SENT TO/)).toBeNull();
+});
+test('a receipt landing away is hidden on entry and expires there without a new receipt', () => {
+  const tree = (destination: boolean) => <><VoiceRecordingOverlay /><Page chat={destination} entityId="hosta:original" /></>;
+  const view = render(tree(false));
+  act(() => mockLandedListeners.forEach(fn => fn({ recordingId: 'finished', streamId: 'hosta:original', originLabel: 'Original chat', landedAt: Date.now() })));
+  expect(view.getByText('SENT TO ORIGINAL CHAT')).toBeTruthy();
+  view.rerender(tree(true));
+  expect(view.queryByText(/SENT TO/)).toBeNull();
+  act(() => jest.advanceTimersByTime(2800));
+  view.rerender(tree(false));
+  expect(view.queryByText(/SENT TO/)).toBeNull();
+});
+test.each(['unsent', 'failed', 'auth_needed', 'origin_unavailable', 'not_landed', 'checking'])('destination retains actionable %s controls', status => {
+  mockDelivery = { ...mockDelivery, takes: [take(status, status === 'checking')] };
+  const view = render(<><VoiceRecordingOverlay /><Page chat entityId="hosta:original" /></>);
+  expect(view.getByTestId('global-voice-bar')).toBeTruthy();
+  expect(view.getByTestId('voice-take-controls-take-1')).toBeTruthy();
+  if (status === 'checking') {
+    expect(view.getByLabelText('Check recording delivery again')).toBeTruthy();
+    expect(view.getByLabelText('Remove local recording copy')).toBeTruthy();
+  }
+});
+test.each(['starting', 'recording', 'stopping', 'paused', 'finalized'] as const)('destination retains %s capture', status => {
+  mockCapture = capture('take-1', status);
+  const view = render(<><VoiceRecordingOverlay /><Page chat entityId="hosta:original" /></>);
+  expect(view.getByTestId('global-voice-bar')).toBeTruthy();
+});
+test('storage/error recovery and another retained take remain available when passive progress matches', () => {
+  mockDelivery = { ...mockDelivery, takes: [take('transcribing'), { ...take('failed'), recordingId: 'other', streamId: 'hosta:other' }] };
+  const view = render(<><VoiceRecordingOverlay /><Page chat entityId="hosta:original" /></>);
+  expect(view.queryByTestId('global-voice-bar')).toBeNull();
+  fireEvent.press(view.getByLabelText('Show retained recordings'));
+  expect(view.getByTestId('voice-take-controls-other')).toBeTruthy();
+  act(() => { mockDelivery = { ...mockDelivery, storageError: 'Could not save recording' }; mockDeliveryListeners.forEach(fn => fn()); });
+  expect(view.getByTestId('global-voice-bar')).toBeTruthy();
+  expect(view.getAllByText('Could not save recording').length).toBeGreaterThan(0);
+});
 test.each([
   ['queued','QUEUED'], ['uploading','UPLOADING…'], ['transcribing','TRANSCRIBING…'], ['checking','CHECKING DELIVERY'],
 ])('actual %s state is visible; unknown receipts never become Sent', (status, label) => {
