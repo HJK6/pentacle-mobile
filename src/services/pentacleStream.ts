@@ -4023,6 +4023,11 @@ function handleMessageInner(raw: string) {
 
   if (message.type === 'specs.capabilities.error') return;
 
+  if (message.type === 'assistant.binding.changed') {
+    assetFrameListeners.forEach((listener) => listener(message));
+    return;
+  }
+
   if (typeof message.type === 'string' && message.type.startsWith('asset.')) {
     assetFrameListeners.forEach((listener) => listener(message));
     if (typeof message.request_id === 'string') {

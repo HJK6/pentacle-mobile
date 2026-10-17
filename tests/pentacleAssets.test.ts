@@ -123,6 +123,32 @@ test('binding changes retire the previous scope and refresh through asset.list',
   expect(getSessionReports(STREAM)[0].stream_id).toBe('hostb:new');
 });
 
+test('binding rotation invalidates the first pending list and late detail/read replies', async () => {
+  const pending: Array<{ payload: Record<string, unknown>; resolve: (reply: unknown) => void }> = [];
+  mockSendCommand.mockImplementation(payload => new Promise(resolve => pending.push({ payload, resolve })));
+  const first = listReports(STREAM);
+  const old = pending[0];
+  __handlePentacleAssetFrameForTests({type:'assistant.binding.changed',stream_id:'hostb:new'});
+  expect(pending).toHaveLength(2);
+  const fresh = pending[1];
+  old.resolve({scope_stream_ids:[STREAM,'hostb:old'],assets:[{...report,stream_id:'hostb:old'}]});
+  await first;
+  expect(getSessionReports(STREAM)).toEqual([]);
+  fresh.resolve({scope_stream_ids:[STREAM,'hostb:new'],assets:[{...report,stream_id:'hostb:new'}]});
+  await new Promise(done => setImmediate(done));
+  const detail = getReport(STREAM, {...report,stream_id:'hostb:new'});
+  const detailReply = pending.at(-1)!;
+  const read = markReportRead(STREAM, {...report,stream_id:'hostb:new'});
+  const readReply = pending.at(-1)!;
+  __handlePentacleAssetFrameForTests({type:'assistant.binding.changed',stream_id:'hostb:latest'});
+  pending.at(-1)!.resolve({scope_stream_ids:[STREAM,'hostb:latest'],assets:[{...report,stream_id:'hostb:latest'}]});
+  await new Promise(done => setImmediate(done));
+  detailReply.resolve({asset:{...report,stream_id:'hostb:new'}});
+  readReply.resolve({asset:{...report,stream_id:'hostb:new',read:true}});
+  await detail; await read;
+  expect(getSessionReports(STREAM).map(item => item.stream_id)).toEqual(['hostb:latest']);
+});
+
 test('canonical get/comment/add/delete/send/read/delete RPCs preserve anchors and spec_id', async () => {
   const specReport = { ...report, spec_id: 'spec-report', body: '{"schema_version":1,"title":"R","sections":[]}' };
   const comment = {

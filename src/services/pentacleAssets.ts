@@ -181,7 +181,7 @@ function reportFromUpdateFrame(
 function applyAssetFrame(message: Record<string, unknown>) {
   const type = String(message.type || "");
   if (type === 'assistant.binding.changed') {
-    for (const viewer of reportsByStream.keys()) {
+    for (const viewer of new Set([...reportsByStream.keys(), ...listEpochs.keys()])) {
       listEpochs.set(viewer, (listEpochs.get(viewer) || 0) + 1);
       scopeByStream.set(viewer, [viewer]);
       setReports(viewer, []);
@@ -315,10 +315,11 @@ export async function getReport(streamId: string, report: PentacleReport) {
     if (harnessAssetError) throw new Error(harnessAssetError);
     return (
       getSessionReports(streamId).find(
-        (item) => item.asset_id === report.asset_id,
+        (item) => reportIdentity(streamId, item) === reportIdentity(streamId, report),
       ) || report
     );
   }
+  const epoch = listEpochs.get(streamId);
   const reply = await command({
     type: "asset.get",
     stream_id: report.stream_id || streamId,
@@ -326,7 +327,10 @@ export async function getReport(streamId: string, report: PentacleReport) {
     ...(report.spec_id ? { spec_id: report.spec_id } : {}),
   });
   if (!reply.asset) throw new Error("Report was not returned");
-  mergeReport(streamId, reply.asset);
+  if (listEpochs.get(streamId) === epoch
+    && (scopeByStream.get(streamId) || [streamId]).includes(reply.asset.stream_id || streamId)) {
+    mergeReport(streamId, reply.asset);
+  }
   return reply.asset;
 }
 
@@ -420,6 +424,7 @@ export async function sendReportCommentsToChat(
 }
 
 export async function markReportRead(streamId: string, report: PentacleReport) {
+  const epoch = listEpochs.get(streamId);
   const reply = await command({
     type: "asset.read.set",
     stream_id: report.stream_id || streamId,
@@ -427,7 +432,10 @@ export async function markReportRead(streamId: string, report: PentacleReport) {
     read: true,
     ...(report.spec_id ? { spec_id: report.spec_id } : {}),
   });
-  if (reply.asset) mergeReport(streamId, reply.asset);
+  if (reply.asset && listEpochs.get(streamId) === epoch
+    && (scopeByStream.get(streamId) || [streamId]).includes(reply.asset.stream_id || streamId)) {
+    mergeReport(streamId, reply.asset);
+  }
 }
 
 export async function deleteReport(streamId: string, report: PentacleReport) {

@@ -63,9 +63,10 @@ test('live asset frames fan out without touching the transcript state', () => {
   socket.message({ type: 'asset.update', stream_id: 'hostc:chat', asset: { asset_id: 'r1', content_type: 'report' } });
   socket.message({ type: 'asset.removed', stream_id: 'hostc:chat', asset_id: 'r1' });
   socket.message({ type: 'asset.session_closed', stream_id: 'hostc:chat' });
-  expect(listener).toHaveBeenCalledTimes(3);
+  socket.message({ type: 'assistant.binding.changed', stream_id: 'hostb:new', generation:'g2' });
+  expect(listener).toHaveBeenCalledTimes(4);
+  expect(listener).toHaveBeenLastCalledWith(expect.objectContaining({type:'assistant.binding.changed',stream_id:'hostb:new'}));
   expect(stream.getPentacleStreamState()).toBe(before);
   unsubscribeAssets();
   unsubscribe();
 });
-
