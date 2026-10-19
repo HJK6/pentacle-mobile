@@ -32,6 +32,16 @@ test("seat lines and waiting-on-you come only from attributed fields", () => {
   expect(view.getByText("WAITING ON YOU (2)")).toBeTruthy();
 });
 
+test("identical seat lines each render (two idle workers on one host)", () => {
+  const worker = { role: "worker", host: "hosta", visibility: "hidden", activity: "idle" };
+  const m = member({ seats: [{ stream_id: "hosta:w1", ...worker }, { stream_id: "hosta:w2", ...worker }], seats_total: 2 });
+  const errors = jest.spyOn(console, "error").mockImplementation(() => {});
+  const view = render(<MemberContent member={m} />);
+  expect(view.getAllByText("WORKER · idle · hosta")).toHaveLength(2);
+  expect(errors.mock.calls.filter((c) => String(c[0]).includes("same key"))).toEqual([]);
+  errors.mockRestore();
+});
+
 test("an older daemon without attribution renders the existing row unchanged", () => {
   const m = member({});
   expect(memberSeatLines(m)).toEqual([]);

@@ -37,8 +37,8 @@ export function MemberAttribution({ member }: { member: WorkLaneMember }) {
   return (
     <View testID={`member-attribution-${member.spec_id}`} style={{ gap: 3 }}>
       {waiting ? <Text style={{ ...mono, color: p.amber, fontSize: 10.5 }}>{waiting}</Text> : null}
-      {lines.map((line) => (
-        <Text key={line} style={{ ...mono, fontSize: 10.5 }}>{line}</Text>
+      {lines.map((line, i) => (
+        <Text key={`${i}:${line}`} style={{ ...mono, fontSize: 10.5 }}>{line}</Text>
       ))}
     </View>
   );
