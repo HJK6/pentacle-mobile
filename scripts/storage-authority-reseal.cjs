@@ -125,10 +125,21 @@ function assertNormalReady() {
   const after = JSON.parse(decode(journal.after));
   if (authority.generation !== journal.generation || !equal(authority.roots, after.roots)) fail('JOURNAL_DRIFT');
 }
+function parsePlist(raw) {
+  const options = { encoding: 'utf8', timeout: 20000, maxBuffer: 4 * 1024 * 1024, stdio: ['pipe', 'pipe', 'pipe'] };
+  // JSON has no plist data/date types. First make plutil validate and serialize the input,
+  // then normalize only those leaves into stable base64 and ISO-8601 strings for the
+  // inspector's JSON view. Malformed plist/XML still fails in plutil; JSON stays fail-closed.
+  const xml = childProcess.execFileSync('/usr/bin/plutil', ['-convert', 'xml1', '-o', '-', '--', '-'], { ...options, input: raw });
+  const normalized = xml.replace(/<(data|date)>([\s\S]*?)<\/\1>/g, (_tag, type, body) => {
+    const value = type === 'data' ? body.replace(/\s/g, '') : body.trim();
+    return `<string>${value}</string>`;
+  });
+  return JSON.parse(childProcess.execFileSync('/usr/bin/plutil', ['-convert', 'json', '-o', '-', '--', '-'], { ...options, input: normalized }));
+}
 function plist(binary, args) {
   const options = { encoding: 'utf8', timeout: 20000, maxBuffer: 4 * 1024 * 1024, stdio: ['pipe', 'pipe', 'pipe'] };
-  const raw = childProcess.execFileSync(binary, args, options);
-  return JSON.parse(childProcess.execFileSync('/usr/bin/plutil', ['-convert', 'json', '-o', '-', '--', '-'], { ...options, input: raw }));
+  return parsePlist(childProcess.execFileSync(binary, args, options));
 }
 function observe() {
   if (process.platform !== 'darwin') fail('PLATFORM');
