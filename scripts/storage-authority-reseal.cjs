@@ -315,4 +315,4 @@ function inspect() {
     root_drift: roots.map((r, i) => ({ canonical: r.canonical, changed_fields: Object.keys(r).filter(k => r[k] !== actual[i][k]) })) };
 }
 
-module.exports = { assertNormalReady, inspect, parsePlist, bind: token => require('./storage-capability.cjs').bind(token, { reseal: proofFile => reseal(proofFile, token) }) };
+module.exports = { assertNormalReady, inspect, bind: token => require('./storage-capability.cjs').bind(token, { reseal: proofFile => reseal(proofFile, token) }) };

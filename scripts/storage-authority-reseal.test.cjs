@@ -9,7 +9,14 @@ const { spawn, spawnSync } = require('node:child_process');
 const test = require('node:test');
 const CLI = path.join(__dirname, 'storage-cli.cjs');
 const PRELOAD = path.join(__dirname, 'storage-authority-reseal-preload.cjs');
-const parsePlist = require('./storage-authority-reseal.cjs').parsePlist;
+// parsePlist stays off the closed module surface (storage-contract.test.cjs), so compile a private copy.
+const parsePlist = (() => {
+  const Module = require('node:module');
+  const filename = path.join(__dirname, 'storage-authority-reseal.cjs');
+  const m = new Module(filename, module); m.filename = filename; m.paths = Module._nodeModulePaths(__dirname);
+  m._compile(`${fs.readFileSync(filename, 'utf8')}\nmodule.exports = parsePlist;\n`, filename);
+  return m.exports;
+})();
 const UUID = '00000000-0000-4000-8000-000000000001';
 const HARDWARE = '10000000-0000-4000-8000-000000000001';
 const BACKING = '20000000-0000-4000-8000-000000000001';
