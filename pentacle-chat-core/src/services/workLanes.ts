@@ -11,6 +11,7 @@ import type {
   WorkLaneLogEvent,
   WorkLaneLogUpdate,
   WorkLaneMember,
+  WorkLaneSeat,
   WorkLaneObservation,
   WorkLaneOwnerKind,
   WorkLaneShow,
@@ -80,6 +81,22 @@ function normalizeObservation(value: unknown): WorkLaneObservation | undefined {
   };
 }
 
+const SEAT_ACTIVITY: readonly WorkLaneSeat['activity'][] = ['working', 'idle', 'offline', 'unknown'];
+
+function normalizeSeat(value: unknown): WorkLaneSeat | null {
+  const raw = obj(value);
+  const streamId = str(raw?.stream_id);
+  if (!raw || !streamId) return null;
+  return {
+    stream_id: streamId,
+    role: str(raw.role),
+    host: str(raw.host),
+    visibility: str(raw.visibility),
+    activity: SEAT_ACTIVITY.find((item) => item === raw.activity) ?? 'unknown',
+    last_activity: str(raw.last_activity),
+  };
+}
+
 function normalizeMember(value: unknown): WorkLaneMember | null {
   const raw = obj(value);
   const specId = str(raw?.spec_id);
@@ -98,6 +115,14 @@ function normalizeMember(value: unknown): WorkLaneMember | null {
   const observation = normalizeObservation(raw.observation);
   if (observation !== undefined) member.observation = observation;
   if (count(raw.obs_rev) && raw.obs_rev > 0) member.obs_rev = raw.obs_rev;
+  if (Array.isArray(raw.seats)) {
+    member.seats = raw.seats.map(normalizeSeat).filter((seat): seat is WorkLaneSeat => seat !== null);
+    member.seats_total = count(raw.seats_total) ? Math.max(raw.seats_total, member.seats.length) : member.seats.length;
+  }
+  const questions = obj(raw.open_questions);
+  if (questions && count(questions.count)) {
+    member.open_questions = { count: questions.count, first_question_id: str(questions.first_question_id) };
+  }
   return member;
 }
 
@@ -207,16 +232,15 @@ function normalizeLane(value: unknown): WorkLane | null {
   const lead = normalizeLead(raw.lead);
   const lastRaw = obj(raw.last_update);
   const lastKind = UPDATE_KINDS.find((item) => item === lastRaw?.kind);
-  // The daemon already presents `paused` for an active lane with no qualifying
-  // lead. Re-assert it so a stale or older projection can never show ACTIVE
-  // for work nobody is visibly leading.
+  // Unexpected owner loss is a fault the FD repairs, never an intentional pause:
+  // an active lane without a qualifying lead presents active/lead_lost.
   const unled = state === 'active' && (!lead || !lead.qualifies);
   return {
     lane_id: String(raw.lane_id),
     title: str(raw.title) ?? '',
     summary: str(raw.summary) ?? '',
-    state: unled ? 'paused' : state,
-    state_reason: unled ? 'lead_lost_unreconciled' : str(raw.state_reason) ?? '',
+    state,
+    state_reason: unled ? 'lead_lost' : str(raw.state_reason) ?? '',
     blocker: str(raw.blocker),
     owner_kind: ownerKind,
     version: typeof raw.version === 'number' ? raw.version : 0,

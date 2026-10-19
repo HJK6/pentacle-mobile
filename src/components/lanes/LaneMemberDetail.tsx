@@ -18,6 +18,31 @@ export function memberAcceptance(member: WorkLaneMember) {
     ? `${member.ac_checked}/${member.ac_total}`
     : "—";
 }
+/** Seat lines for the spec's assigned seats, e.g. "LEAD · working · hosta". Activity is never progress. */
+export function memberSeatLines(member: WorkLaneMember): string[] {
+  const seats = member.seats ?? [];
+  const lines = seats.map((seat) =>
+    [(seat.role || "seat").toUpperCase(), seat.activity, seat.host].filter(Boolean).join(" · "));
+  const hidden = (member.seats_total ?? seats.length) - seats.length;
+  return hidden > 0 ? [...lines, `+${hidden} more`] : lines;
+}
+export function memberWaitingOnYou(member: WorkLaneMember): string | null {
+  const count = member.open_questions?.count ?? 0;
+  return count > 0 ? `WAITING ON YOU (${count})` : null;
+}
+export function MemberAttribution({ member }: { member: WorkLaneMember }) {
+  const lines = memberSeatLines(member);
+  const waiting = memberWaitingOnYou(member);
+  if (!lines.length && !waiting) return null;
+  return (
+    <View testID={`member-attribution-${member.spec_id}`} style={{ gap: 3 }}>
+      {waiting ? <Text style={{ ...mono, color: p.amber, fontSize: 10.5 }}>{waiting}</Text> : null}
+      {lines.map((line) => (
+        <Text key={line} style={{ ...mono, fontSize: 10.5 }}>{line}</Text>
+      ))}
+    </View>
+  );
+}
 export function ObservationMarker({ member }: { member: WorkLaneMember }) {
   const o = member.observation;
   if (!o || o.quality === "fresh") return null;
@@ -112,6 +137,7 @@ export function MemberContent({
         </>
       ) : null}
       <ObservationMarker member={member} />
+      <MemberAttribution member={member} />
       {member.status_text ? (
         <Text style={{ ...body, fontSize: inline ? 13.5 : 14, lineHeight: 20 }}>
           {member.status_text}
