@@ -9,12 +9,25 @@ const { spawn, spawnSync } = require('node:child_process');
 const test = require('node:test');
 const CLI = path.join(__dirname, 'storage-cli.cjs');
 const PRELOAD = path.join(__dirname, 'storage-authority-reseal-preload.cjs');
+const parsePlist = require('./storage-authority-reseal.cjs').parsePlist;
 const UUID = '00000000-0000-4000-8000-000000000001';
 const HARDWARE = '10000000-0000-4000-8000-000000000001';
 const BACKING = '20000000-0000-4000-8000-000000000001';
 const STATE_VOLUME = '30000000-0000-4000-8000-000000000001';
 const sha = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
 const bytes = value => Buffer.from(`${JSON.stringify(value)}\n`);
+
+test('plist JSON boundary accepts data and date values', () => {
+  const fixture = Buffer.from(`<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>blob</key><data>AQIDBA==</data>
+  <key>captured</key><date>2026-10-19T15:00:00Z</date>
+  </dict></plist>`);
+  assert.deepEqual(parsePlist(fixture), { blob: 'AQIDBA==', captured: '2026-10-19T15:00:00Z' });
+  assert.throws(() => parsePlist(Buffer.from('<plist><dict><key>broken</dict></plist>')));
+});
+
 function identity(target) {
   const s = fs.statSync(target);
   return { canonical: fs.realpathSync(target), device: String(s.dev), inode: String(s.ino), uid: s.uid, mode: s.mode & 0o777 };
