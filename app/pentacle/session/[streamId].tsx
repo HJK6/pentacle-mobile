@@ -1,6 +1,7 @@
 import { QUESTION_SKIP_TEXT } from 'pentacle-chat-core';
 import React, { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useComposerDraft, draftRevision, restoreDraft } from '../../../src/services/composerDrafts';
+import { useStagedAttachments } from '../../../src/services/composerAttachments';
 import { getPentacleStreamState, voiceTransportSnapshot, voiceOriginStatus } from '../../../src/services/pentacleStream';
 import { HOME_ROUTE } from '../../../src/services/homeRoute';
 import {
@@ -4968,7 +4969,8 @@ export function ComposerBar({
   const [moreExpanded, setMoreExpanded] = useState(false);
   // A1: images staged in the draft (compressed, pre-upload), FIFO. They preview
   // as a removable thumb strip above the input; text is still typeable alongside.
-  const [stagedAttachments, setStagedAttachments] = useState<ProcessedAsset[]>([]);
+  // Kept per chat like the text draft, so leaving and re-entering keeps them.
+  const [stagedAttachments, setStagedAttachments] = useStagedAttachments(streamId);
   // True while a library/camera pick is being compressed — disables re-entry.
   const [picking, setPicking] = useState(false);
   // Synchronous double-send latch — `sendDisabled`/state only flip on re-render,
@@ -5071,7 +5073,7 @@ export function ComposerBar({
       if (!processed.length) return;
       setStagedAttachments((prev) => [...prev, ...processed].slice(0, MAX_CHAT_ATTACHMENTS));
     },
-    [],
+    [setStagedAttachments],
   );
 
   const handlePickPhoto = useCallback(async () => {
@@ -5132,7 +5134,7 @@ export function ComposerBar({
 
   const removeStagedAttachment = useCallback((index: number) => {
     setStagedAttachments((prev) => prev.filter((_, i) => i !== index));
-  }, []);
+  }, [setStagedAttachments]);
 
   const handleSend = () => {
     const text = composer.trim();
