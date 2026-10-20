@@ -117,7 +117,7 @@ Keep the link out of reports, source files and screenshots. Issue a new one if
 it expires before use.
 
 The app exchanges the short code with the daemon, stores the credential in
-SecureStore and opens Chats. Allow any required device authentication prompt.
+SecureStore and opens the assistant tab. Allow any required device authentication prompt.
 No private enrollment service is needed.
 
 ## Limits, machine stats, shared memory and questions
@@ -134,7 +134,7 @@ and consume the full durable answer, including its note.
 
 ## Verify and hand over
 
-In Chats, create a session on `local`, send a short message and observe the
+From the assistant tab, open the Sessions drawer (left header button), tap **+**, choose `local`, create a session, send a short message and observe the
 assistant reply in the app. Reopen the session and confirm it remains available.
 A simulator can establish chat behavior; for a requested phone install, also
 verify the installed version and launch.

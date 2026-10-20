@@ -22,13 +22,10 @@ replacement point for a future shared identity selector.
 - The right button opens `/pentacle/questions`. Its badge counts pending question
   pages across all chats, including the assistant, following the frozen Questions contract
 - Zero counts hide badges. Opening or closing a surface never clears a question
-- The name block opens the locked `StatusSurface` in a full-screen modal. Its
-  250 ms fade and 4 px rise sit over a permanently opaque ink background; the
-  round close control and system Back dismiss it
-- Status history keeps the existing Updates fetch, reconnect, sparse-page
-  backfill, and cancellation behavior. The underlying `SessionScreen` remains
-  the sole owner of the assistant’s focused-stream registration; modal closure cannot
-  unpin the live thread
+- The name block (and the lamp ring) opens the open work lanes list, `/pentacle/lanes`; so does the
+  lanes count
+- The locked `StatusSurface` is no longer opened from the header; `BartStatusOverlay` is kept
+  but unmounted, and the status surface stays reachable from the hidden `Updates` route
 
 Implementation: [`BartHeader`](../src/components/assistant/BartHeader.tsx) and
 [`BartStatusOverlay`](../src/components/assistant/BartStatusOverlay.tsx). The locked

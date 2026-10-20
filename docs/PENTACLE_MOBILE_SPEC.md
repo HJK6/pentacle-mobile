@@ -109,9 +109,9 @@ store and push-notification behavior are unchanged.
 
 ### Updates
 
-The Updates tab is the Bart status surface. Its header shows a 38 px lamp ring,
-`Bart`, the existing status tag plus WORKING or IDLE from the `bart:assistant`
-session's `working` field, and the open-lane count. It has no close button.
+The Updates tab is the assistant status surface. Its header shows a 38 px lamp ring,
+the assistant's name, the existing status tag plus WORKING or IDLE from the assistant
+composite session's `working` field, and the open-lane count. It has no close button.
 
 - Latest update and All updates · N use only events in `bart:assistant` whose
   `publish_kind` is `status`. N is the count in loaded, retained history. Prose,

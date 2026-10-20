@@ -1,7 +1,7 @@
 # Questions overlay
 
-`/pentacle/questions` is the Bart-first cross-session answer surface: every open durable question
-(Bart's and every session's) one per page, with partial submit. It replaces the Unified tab's
+`/pentacle/questions` is the assistant-first cross-session answer surface: every open durable question
+(the assistant's and every session's) one per page, with partial submit. It replaces the Unified tab's
 question drawer as the place to answer across sessions. Shared route, selector and answer contracts
 live in [bart_home_contracts.md](bart_home_contracts.md); this page records what the overlay does.
 
@@ -20,7 +20,7 @@ live in [bart_home_contracts.md](bart_home_contracts.md); this page records what
 
 ## Deck (C1) and count (C2)
 
-`selectQuestionDeck(state)` walks `selectSmartChatList(state)` in its order (Bart included), each
+`selectQuestionDeck(state)` walks `selectSmartChatList(state)` in its order (the assistant included), each
 chat's `openQuestions` in order, each action's `mobileQuestionItems(questionForAction(action))` in
 order. One item is one page, keyed `${action.id}:${itemIndex}` (the Chats `QuestionPanel` key).
 A durable item is dropped when
@@ -64,7 +64,7 @@ It never throws. Its result is `{ sent, failed, legacyFailed }`:
 
 ### Footer (T10–T15)
 
-The footer follows `BartQuestionsOverlay`. "Answered" is `useMobileQuestionFlow.answered`: entries
+In the footer, "Answered" is `useMobileQuestionFlow.answered`: entries
 that are answered and constraint-free, plus locked (scan-incomplete legacy) entries, as on Chats.
 Submit and "n unanswered" look only at non-locked answered pages; k in "Submit k of n" counts the sendable subset of it, which differs
 only when a multi-item legacy action is partly answered (it cannot be sent, so it is not counted).
@@ -96,7 +96,7 @@ only when a multi-item legacy action is partly answered (it cannot be sent, so i
 
 ## Screen
 
-- Header: source ring (djinni sigil in lamp green for Bart, the host's machine sigil in its accent
+- Header: source ring (djinni sigil in lamp green for the assistant, the host's machine sigil in its accent
   ring otherwise), `QUESTION i / n` in the page's accent, subtitle `Machine · session title`
   (for the assistant's own questions: the shared assistant identity name from `useAssistantIdentity()` — the assistant session's display name, then title, then `Zephyr`; operator requirement R-ident forbids a literal name, contracts § Assistant identity; the source mark uses the same identity's `sigilKind`), **See chat ›** (hidden for the assistant; `performChatOpenNavigation(streamId,
   router)`, never a direct href), the accessory slot (the voice mic when voice answers are available, otherwise empty), ✕.
