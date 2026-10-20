@@ -6,15 +6,15 @@ import MachineSigil from '../MachineSigil';
 
 // The question's source: the assistant's ring (its identity sigil in lamp green) or the session host's
 // machine sigil in its accent ring. Swap for P3's MachineMark/LampRing if they become shared.
-export default function SourceMark({ isBart, assistantSigil, machineName, accent, size = 32 }: {
-  isBart: boolean;
+export default function SourceMark({ isAssistant, assistantSigil, machineName, accent, size = 32 }: {
+  isAssistant: boolean;
   assistantSigil: MachineSigilKind;
   machineName: MachineName;
   accent: string;
   size?: number;
 }) {
-  const kind = isBart ? assistantSigil : MACHINES[machineName].kind;
-  const color = isBart ? Tokens.palette.green : accent;
+  const kind = isAssistant ? assistantSigil : MACHINES[machineName].kind;
+  const color = isAssistant ? Tokens.palette.green : accent;
   return (
     <View
       testID="questions-source-mark"

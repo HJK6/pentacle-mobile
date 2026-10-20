@@ -8,7 +8,8 @@ import { TOP_INSET, Tokens } from '@/constants/Colors';
 import { peekEventsForStream } from 'pentacle-chat-core';
 import Starfield from '../../src/components/Starfield';
 import StatusSurface from '../../src/components/status/StatusSurface';
-import { BART_STREAM_ID, selectOpenLanes, selectStatusUpdates } from '../../src/components/status/statusSelectors';
+import { selectOpenLanes, selectStatusUpdates } from '../../src/components/status/statusSelectors';
+import { ASSISTANT_STREAM_ID } from '../../src/services/assistantIdentity';
 import {
   getPentacleStreamState, registerFocusedPentacleStream, requestStreamEvents, selectStreamEventsLoadState,
   selectStreamSlice, usePentacleStreamSelectorWhen,
@@ -35,15 +36,15 @@ export default function UpdatesScreen() {
   const pendingHistoryDemand = useRef(false);
   if (!logActive.current) pendingHistoryDemand.current = false;
   const hasOlderHistoryPage = usePentacleStreamSelectorWhen(isFocused, (snapshot) =>
-    selectStreamSlice(snapshot, BART_STREAM_ID, { visibleCount: 0, includeDraft: false }).hasOlderHistoryPage);
-  const historyLoad = usePentacleStreamSelectorWhen(isFocused, (snapshot) => selectStreamEventsLoadState(snapshot, BART_STREAM_ID));
+    selectStreamSlice(snapshot, ASSISTANT_STREAM_ID, { visibleCount: 0, includeDraft: false }).hasOlderHistoryPage);
+  const historyLoad = usePentacleStreamSelectorWhen(isFocused, (snapshot) => selectStreamEventsLoadState(snapshot, ASSISTANT_STREAM_ID));
 
   useEffect(() => {
     if (!isFocused) return;
     logFocusedTab('updates');
     setNow(Date.now());
     const timer = setInterval(() => setNow(Date.now()), 15_000);
-    const release = registerFocusedPentacleStream(BART_STREAM_ID);
+    const release = registerFocusedPentacleStream(ASSISTANT_STREAM_ID);
     return () => { clearInterval(timer); release(); };
   }, [isFocused]);
 
@@ -60,7 +61,7 @@ export default function UpdatesScreen() {
     let cancelled = false;
     setLoading(true);
     setError(false);
-    void requestStreamEvents(BART_STREAM_ID, 300, { purpose: 'mount-fetch' })
+    void requestStreamEvents(ASSISTANT_STREAM_ID, 300, { purpose: 'mount-fetch' })
       .catch(() => { if (!cancelled) setError(true); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
@@ -72,18 +73,18 @@ export default function UpdatesScreen() {
     pendingHistoryDemand.current = false;
     if (!hasOlderHistoryPage) return;
     olderInFlight.current = true;
-    let oldest = Math.min(...peekEventsForStream(getPentacleStreamState(), BART_STREAM_ID)
+    let oldest = Math.min(...peekEventsForStream(getPentacleStreamState(), ASSISTANT_STREAM_ID)
       .map((event) => event.daemon_seq).filter(Number.isFinite));
     try {
       // A filtered-out page leaves the list height unchanged, so onEndReached
       // will not fire again. Continue this one demand until a status is found.
       do {
-        const page = await requestStreamEvents(BART_STREAM_ID, 300, { purpose: 'older-page' });
+        const page = await requestStreamEvents(ASSISTANT_STREAM_ID, 300, { purpose: 'older-page' });
         if (!logActive.current || page.some((event) => event.publish_kind === 'status')) break;
         const nextOldest = Math.min(...page.map((event) => event.daemon_seq));
         if (!Number.isFinite(nextOldest) || nextOldest >= oldest) break;
         oldest = nextOldest;
-      } while (selectStreamSlice(getPentacleStreamState(), BART_STREAM_ID).hasOlderHistoryPage);
+      } while (selectStreamSlice(getPentacleStreamState(), ASSISTANT_STREAM_ID).hasOlderHistoryPage);
     } catch {
       if (logActive.current) setError(true);
     } finally {
@@ -102,7 +103,7 @@ export default function UpdatesScreen() {
   return <View style={styles.container}>
     <Starfield />
     <StatusSurface updates={updates} lanes={lanes} now={now}
-      working={state.sessions.find((session) => session.stream_id === BART_STREAM_ID)?.working === true}
+      working={state.sessions.find((session) => session.stream_id === ASSISTANT_STREAM_ID)?.working === true}
       top={Math.max(insets.top, TOP_INSET)} bottom={Math.max(insets.bottom, 18) + 92}
       showLog={showLog} onShowLog={setShowLog} loading={loading} error={error} onOpen={openSession} onLoadEarlier={loadEarlier} />
   </View>;

@@ -1,4 +1,5 @@
 import type { ConsentIntent } from '../services/privilegedConsent';
+import { ASSISTANT_STREAM_ID } from '../services/assistantIdentity';
 /**
  * Screenshot-harness fixtures (spec: example-mobile mock screenshot harness).
  *
@@ -62,7 +63,7 @@ export type HarnessFixture = {
 };
 
 export type HarnessScreen =
-  "chats" | "updates" | "settings" | "enroll" | "session" | "lanes" | "bart";
+  "chats" | "updates" | "settings" | "enroll" | "session" | "lanes" | "assistant";
 export type HarnessVariant =
   | 'populated'
   | 'empty'
@@ -965,7 +966,7 @@ function lane(over: Partial<WorkLane> & { lane_id: string; title: string }): Wor
   return {
     summary: '', state: 'active', state_reason: 'fd', blocker: null, owner_kind: 'fd', version: 1,
     updated_at: T0, first_admitted_at: T0, done_at: null, lead: null,
-    visible_chat: { stream_id: 'bart:assistant', generation: null, kind: 'composite', available: 'open' },
+    visible_chat: { stream_id: ASSISTANT_STREAM_ID, generation: null, kind: 'composite', available: 'open' },
     last_update: null, ...over,
   };
 }
@@ -1000,15 +1001,15 @@ const LANE_UPDATE_SAMPLES: Array<[WorkLaneUpdateKind, string, string]> = [
   ['lane_completed', 'Sample research lane', 'Sample findings published'],
 ];
 
-// First screen for the Release-simulator proof: the Bart thread with the lane count in its header and
+// First screen for the Release-simulator proof: the assistant thread with the lane count in its header and
 // one typed card per update kind.
-const BART_LANE_UPDATES_SNAPSHOT: HarnessSnapshot = {
+const ASSISTANT_LANE_UPDATES_SNAPSHOT: HarnessSnapshot = {
   ...EMPTY_SNAPSHOT,
   work_lanes: LANES_SNAPSHOT.work_lanes,
-  sessions: [session({ stream_id: 'bart:assistant', host: 'hostc', provider: 'composite', session_name: 'assistant', title: 'Assistant' })],
+  sessions: [session({ stream_id: ASSISTANT_STREAM_ID, host: 'hostc', provider: 'composite', session_name: 'assistant', title: 'Assistant' })],
   events: LANE_UPDATE_SAMPLES.map(([kind, title, summary], index): PentacleEvent => ({
-    daemon_seq: 100 + index, host: 'hostc', provider: 'composite', session_id: 'bart:assistant', session_name: 'assistant',
-    stream_id: 'bart:assistant', timestamp: `2026-05-30T16:0${index}:00.000Z`, kind: 'ASSIST_TEXT', text: summary,
+    daemon_seq: 100 + index, host: 'hostc', provider: 'composite', session_id: ASSISTANT_STREAM_ID, session_name: 'assistant',
+    stream_id: ASSISTANT_STREAM_ID, timestamp: `2026-05-30T16:0${index}:00.000Z`, kind: 'ASSIST_TEXT', text: summary,
     message_id: `publication:lane-update:lane-${index}:src-${index}`, publish_kind: 'lane_update',
     raw: { publish_kind: 'lane_update', lane_update: { update_id: `lane-update:lane-${index}:src-${index}`, lane_id: `lane-${index}`,
       kind, summary, source: { type: 'transition', id: `src-${index}` }, state: 'active', prior_state: null, owner_kind: 'fd',
@@ -1069,7 +1070,7 @@ export const FIXTURES: Record<string, HarnessFixture> = {
   'chats:empty': { snapshot: EMPTY_SNAPSHOT, opts: SEEDED },
   'lanes:populated': { snapshot: LANES_SNAPSHOT, opts: SEEDED },
   'lanes:empty': { snapshot: { ...EMPTY_SNAPSHOT, work_lanes: { type: 'work_lanes.inventory', lanes: [], counts: { open: 0, active: 0, paused: 0, blocked: 0 }, truncated: false, generated_at: T0 } }, opts: SEEDED },
-  'bart:lane_updates': { snapshot: BART_LANE_UPDATES_SNAPSHOT, opts: SEEDED },
+  'assistant:lane_updates': { snapshot: ASSISTANT_LANE_UPDATES_SNAPSHOT, opts: SEEDED },
   'lanes:v1_wire': lanesScene(SHARED_LANES.inventory_frame),
   'lanes:inc1_cases': lanesScene(INC1_CASES_FRAME),
   'lanes:overflow': lanesScene(overflowFrame()),

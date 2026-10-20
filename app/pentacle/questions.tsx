@@ -7,7 +7,7 @@ import { StyleSheet, View } from 'react-native';
 import { QuestionsScreen } from '../../src/components/questions';
 import type { RemovalGuardNavigation } from '../../src/components/questions/voice/useVoiceAnswers';
 
-// /pentacle/questions — the Bart-first Questions overlay (docs/bart_home_contracts.md § Routes).
+// /pentacle/questions — the assistant-first Questions overlay (docs/assistant_home_contracts.md § Routes).
 // The route hands its navigation to the screen so a live voice take guards its own removal
 // (iOS swipe-dismiss of the transparentModal).
 export default function QuestionsRoute() {

@@ -45,16 +45,16 @@ const voiceAnswers = {
   duration_s: 7,
   items: [{
     key: 'n-1:0', question_id: 'q-1', notification_id: 'n-1', producer_stream_id: 'hostc:codex:seat',
-    surface_stream_id: 'bart:assistant', prompt: 'Ship it?', segment: { start_s: 0, end_s: 3.2 },
+    surface_stream_id: 'home:assistant', prompt: 'Ship it?', segment: { start_s: 0, end_s: 3.2 },
   }],
 };
 
 test('meta.voice_answers reaches the wire; an ambiguous-send replay reuses the transcript, optimistic id and binding', async () => {
   const { stream, socket, unsubscribe } = connect();
-  socket.message({ type: 'session.inventory', sessions: [{ stream_id: 'bart:assistant', host: 'bart', session_name: 'assistant', provider: 'claude', online: true }] });
-  const optimisticId = stream.appendOptimisticUserMessage('bart:assistant', 'ship it');
+  socket.message({ type: 'session.inventory', sessions: [{ stream_id: 'home:assistant', host: 'assistant', session_name: 'assistant', provider: 'claude', online: true }] });
+  const optimisticId = stream.appendOptimisticUserMessage('home:assistant', 'ship it');
   const meta = { voice: { duration_s: 7 }, voice_answers: voiceAnswers };
-  const first = stream.sendPentacleMessage({ host: 'bart', sessionName: 'assistant', text: 'ship it', optimisticId, meta });
+  const first = stream.sendPentacleMessage({ host: 'assistant', sessionName: 'assistant', text: 'ship it', optimisticId, meta });
   const payload = JSON.parse(socket.sent.at(-1) || '{}');
   expect(payload.meta).toEqual(meta);
   expect(payload.text).toBe('ship it');

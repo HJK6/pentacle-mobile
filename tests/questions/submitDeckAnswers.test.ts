@@ -58,7 +58,7 @@ describe('submitDeckAnswers (C4)', () => {
   test('calls submitQuestionSubmission once per answered durable item with that single item, never for unanswered items', async () => {
     const deck = selectQuestionDeck(fixtureState());
     const actions = makeActions();
-    const answers = answerMap([['n-deploy:1', pick(2)], ['n-bart:0', pick(1)]]);
+    const answers = answerMap([['n-deploy:1', pick(2)], ['n-assistant:0', pick(1)]]);
 
     const result = await submitDeckAnswers({ actions, deck, answers });
 
@@ -70,12 +70,12 @@ describe('submitDeckAnswers (C4)', () => {
     expect(submission.answers).toEqual([pick(2)]);
     expect(submission.items).toHaveLength(1);
     expect(submission.items[0].questionId).toBe('q-n-deploy-b');
-    expect(submitSpy.mock.calls[1][2].items[0].questionId).toBe('q-n-bart');
+    expect(submitSpy.mock.calls[1][2].items[0].questionId).toBe('q-n-assistant');
     // One prompt.answer per item, in deck order; unanswered items untouched.
-    expect(actions.answerPrompt.mock.calls.map(([arg]) => arg.questionId)).toEqual(['q-n-deploy-b', 'q-n-bart']);
+    expect(actions.answerPrompt.mock.calls.map(([arg]) => arg.questionId)).toEqual(['q-n-deploy-b', 'q-n-assistant']);
     expect(actions.answerPrompt.mock.calls[0][0]).toMatchObject({ selections: ['b2'] });
     expect(actions.dismissQuestion).not.toHaveBeenCalled();
-    expect(result).toEqual({ sent: ['n-deploy:1', 'n-bart:0'], failed: [], legacyFailed: [] });
+    expect(result).toEqual({ sent: ['n-deploy:1', 'n-assistant:0'], failed: [], legacyFailed: [] });
   });
 
   test('both items of a two-item durable are two independent submissions', async () => {
@@ -111,11 +111,11 @@ describe('submitDeckAnswers (C4)', () => {
     const result = await submitDeckAnswers({
       actions,
       deck,
-      answers: answerMap([['n-deploy:0', pick(1)], ['n-review:0', pick(1)], ['n-bart:0', pick(2)]]),
+      answers: answerMap([['n-deploy:0', pick(1)], ['n-review:0', pick(1)], ['n-assistant:0', pick(2)]]),
     });
 
     expect(actions.answerPrompt).toHaveBeenCalledTimes(3);
-    expect(result.sent).toEqual(['n-review:0', 'n-bart:0']);
+    expect(result.sent).toEqual(['n-review:0', 'n-assistant:0']);
     expect(result.failed).toEqual([{ key: 'n-deploy:0', message: 'network down' }]);
     expect(result.legacyFailed).toEqual([]);
     expect(actions.discardOptimisticQuestionAnswer).toHaveBeenCalledTimes(1);
@@ -165,8 +165,8 @@ describe('submitDeckAnswers (C4)', () => {
     const deck = selectQuestionDeck(legacyMultiState());
     const k0 = `legacy:${LEGACY_SESSION}:0`;
     const k1 = `legacy:${LEGACY_SESSION}:1`;
-    expect([...sendableKeys(deck, new Set(['n-bart:0', k0]))]).toEqual(['n-bart:0']);
-    expect([...sendableKeys(deck, new Set(['n-bart:0', k0, k1]))].sort()).toEqual(['n-bart:0', k0, k1].sort());
+    expect([...sendableKeys(deck, new Set(['n-assistant:0', k0]))]).toEqual(['n-assistant:0']);
+    expect([...sendableKeys(deck, new Set(['n-assistant:0', k0, k1]))].sort()).toEqual(['n-assistant:0', k0, k1].sort());
     expect(sendableKeys(deck, new Set()).size).toBe(0);
   });
 
@@ -176,9 +176,9 @@ describe('submitDeckAnswers (C4)', () => {
     actions.sendMessage.mockRejectedValueOnce(new Error('socket closed'));
     const key = `legacy:${LEGACY_SESSION}:0`;
 
-    const result = await submitDeckAnswers({ actions, deck, answers: answerMap([[key, pick(1)], ['n-bart:0', pick(1)]]) });
+    const result = await submitDeckAnswers({ actions, deck, answers: answerMap([[key, pick(1)], ['n-assistant:0', pick(1)]]) });
 
-    expect(result.sent).toEqual(['n-bart:0']);
+    expect(result.sent).toEqual(['n-assistant:0']);
     expect(result.failed).toEqual([]);
     expect(result.legacyFailed).toEqual([{ actionId: `legacy:${LEGACY_SESSION}`, streamId: LEGACY_SESSION, keys: [key] }]);
     expect(actions.answerPrompt).toHaveBeenCalledTimes(1);

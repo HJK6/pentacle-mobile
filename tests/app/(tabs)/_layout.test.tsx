@@ -30,10 +30,10 @@ const visible = () => config().filter((screen: any) => screen.options.href !== n
 
 beforeEach(() => { mockIdentityState = { sessions: [] }; require('expo-router').__mock.tabScreens.mockClear(); });
 
-test('Bart is the initial tab and the four visible tabs have the contract order and labels', () => {
+test('The assistant is the initial tab and the four visible tabs have the contract order and labels', () => {
   render(<TabLayout />);
   const initialRouteName = mockTabs.mock.calls[0][0].initialRouteName;
-  expect(mockTabs).toHaveBeenCalledWith(expect.objectContaining({ initialRouteName: 'bart' }));
+  expect(mockTabs).toHaveBeenCalledWith(expect.objectContaining({ initialRouteName: 'assistant' }));
   expect(visible().map((screen: any) => [screen.name, screen.options.title, screen.options.tabBarLabel])).toEqual([
     [initialRouteName, 'Zephyr', 'ZEPHYR'], ['personal', 'Personal', 'PERSONAL'],
     ['dashboards', 'Dashboards', 'DASHBOARDS'], ['settings', 'Settings', 'SETTINGS'],
@@ -48,12 +48,12 @@ test('old surfaces stay registered as hidden route destinations', () => {
 
 test('tab icons reuse the lamp and render outlined person, four tiles, and settings glyph', () => {
   render(<TabLayout />);
-  const [bart, personal, dashboards, settings] = visible();
-  const lamp = render(bart.options.tabBarIcon({ color: '#3dff66' }));
+  const [assistant, personal, dashboards, settings] = visible();
+  const lamp = render(assistant.options.tabBarIcon({ color: '#3dff66' }));
   expect(lamp.UNSAFE_getByType(MachineSigil).props).toMatchObject({ kind: 'djinni', size: 22, color: '#3dff66' });
   expect(lamp.queryByTestId('updates-unread-dot')).toBeNull();
-  expect(render(personal.options.tabBarIcon({ color: '#7fa896' })).getByTestId('bart-tab-person')).toBeTruthy();
-  expect(render(dashboards.options.tabBarIcon({ color: '#7fa896' })).getByTestId('bart-tab-grid')).toBeTruthy();
+  expect(render(personal.options.tabBarIcon({ color: '#7fa896' })).getByTestId('assistant-tab-person')).toBeTruthy();
+  expect(render(dashboards.options.tabBarIcon({ color: '#7fa896' })).getByTestId('assistant-tab-grid')).toBeTruthy();
   expect(render(settings.options.tabBarIcon({ color: '#7fa896' })).getByText('⊹')).toBeTruthy();
 });
 
@@ -61,14 +61,14 @@ test('every visible tab logs its route name without marking notifications read',
   render(<TabLayout />);
   visible().forEach((screen: any) => screen.listeners.tabPress());
   expect(require('../../../src/services/mobileTabsTelemetry').logTabPressed.mock.calls)
-    .toEqual([['bart'], ['personal'], ['dashboards'], ['settings']]);
+    .toEqual([['assistant'], ['personal'], ['dashboards'], ['settings']]);
   expect(require('../../../src/hooks/useUnreadNotifications').markRead).not.toHaveBeenCalled();
 });
 
 test('a renamed assistant updates the home title and uppercase label without changing tab tint', () => {
   const view = render(<TabLayout />);
   expect(visible()[0].options.title).toBe('Zephyr');
-  mockIdentityState = { sessions: [{ stream_id: 'bart:assistant', display_name: 'Lews', title: 'Older name', host: 'hostc' }] };
+  mockIdentityState = { sessions: [{ stream_id: 'home:assistant', display_name: 'Lews', title: 'Older name', host: 'hostc' }] };
   require('expo-router').__mock.tabScreens.mockClear();
   view.rerender(<TabLayout />);
   const home = visible()[0];

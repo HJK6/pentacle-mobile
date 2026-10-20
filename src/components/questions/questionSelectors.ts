@@ -5,14 +5,14 @@ import { MACHINES, Tokens, type MachineName } from '../../../constants/Colors';
 import { selectOptimisticQuestionAnswerIdentities } from '../../services/pentacleStream';
 import { questionForAction, type SmartQuestionAction } from '../../services/questionSubmit';
 import { mobileQuestionItems, type MobileQuestionItem } from '../MobileQuestions';
-import { BART_STREAM_ID } from '../status/statusSelectors';
+import { ASSISTANT_STREAM_ID } from '../../services/assistantIdentity';
 
 // One page of the Questions overlay: one question item of one open question (docs/QUESTIONS_OVERLAY.md).
 export type QuestionDeckEntry = {
   // `${action.id}:${itemIndex}` — the Chats QuestionPanel key.
   key: string;
   streamId: string;
-  isBart: boolean;
+  isAssistant: boolean;
   machineLabel: string;
   machineName: MachineName;
   sessionTitle: string;
@@ -40,8 +40,8 @@ function buildDeck(
   const covered = new Set(identities.map((identity) => `${identity.notificationId}\n${identity.questionId ?? ''}`));
   const deck: QuestionDeckEntry[] = [];
   for (const chat of chats) {
-    const isBart = chat.streamId === BART_STREAM_ID;
-    const accent = isBart ? Tokens.palette.green : MACHINES[chat.machineName].accent;
+    const isAssistant = chat.streamId === ASSISTANT_STREAM_ID;
+    const accent = isAssistant ? Tokens.palette.green : MACHINES[chat.machineName].accent;
     for (const action of chat.openQuestions) {
       const parent = questionForAction(action);
       const rawItems = action.kind === 'durable'
@@ -60,7 +60,7 @@ function buildDeck(
         deck.push({
           key: `${action.id}:${itemIndex}`,
           streamId: chat.streamId,
-          isBart,
+          isAssistant,
           machineLabel: chat.hostTitle,
           machineName: chat.machineName,
           sessionTitle: chat.title,
@@ -102,7 +102,7 @@ function sameDeck(left: readonly QuestionDeckEntry[], right: readonly QuestionDe
 
 let cachedDeck: QuestionDeckEntry[] = [];
 
-// Every open durable question item (Bart and every session), in Chats order. Pure function of
+// Every open durable question item (the assistant and every session), in Chats order. Pure function of
 // state. The result keeps its reference while its content is unchanged, so it is safe as a
 // store selector (the Chats list rebuilds its rows more often than the deck changes).
 export function selectQuestionDeck(state: PentacleStreamState): QuestionDeckEntry[] {
@@ -112,7 +112,7 @@ export function selectQuestionDeck(state: PentacleStreamState): QuestionDeckEntr
   return cachedDeck;
 }
 
-// The home `?` badge: exactly the number of pages the overlay shows (docs/bart_home_contracts.md v1.5).
+// The home `?` badge: exactly the number of pages the overlay shows (docs/assistant_home_contracts.md v1.5).
 export function selectPendingQuestionCount(state: PentacleStreamState): number {
   return selectQuestionDeck(state).length;
 }

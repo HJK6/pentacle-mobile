@@ -19,7 +19,7 @@ import { performChatOpenNavigation } from '../../services/chatOpenNavigation';
 
 
 // Preserve the Updates history wiring while composing the locked surface in a modal.
-export default function BartStatusOverlay({ onClose }: { onClose(): void }) {
+export default function AssistantStatusOverlay({ onClose }: { onClose(): void }) {
   const rise = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     const animation = Animated.timing(rise, { toValue: 1, duration: 250, easing: Easing.out(Easing.ease), useNativeDriver: true });

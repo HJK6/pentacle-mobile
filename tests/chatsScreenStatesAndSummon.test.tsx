@@ -184,12 +184,12 @@ test('opening a session collapses the open expansion', () => {
   expect(screen.queryByTestId('card-status-mini-hostc:claude:status')).toBeNull();
 });
 
-// --- Host roster regressions (spec_pentacle_mobile__host_regressions_bart_hoste_hostd_2026_09)
+// --- Host roster regressions (spec_pentacle_mobile__host_regressions_assistant_hoste_hostd_2026_09)
 // The top filter roster must render only the real fleet hosts the client knows about
 // (configured hostOrder + live daemon hosts), never a hardcoded five-machine list. With the
 // shipping roster of hoste/hostc/hostb, the retired hosta host and the non-hosting
 // hostd must not appear as roster chips, and hoste must render as its own machine (ibis skin),
-// not the Bart/djinni skin from a positional fallback.
+// not the djinni skin from a positional fallback.
 test('roster renders only real fleet hosts — no retired hosta, no hostd, hoste is its own machine', () => {
   (globalThis as Record<string, unknown>).__PENTACLE_EXPO_CONFIG__ = {
     extra: {
@@ -206,9 +206,9 @@ test('roster renders only real fleet hosts — no retired hosta, no hostd, hoste
     hoste: { host: 'hoste', online: true, checked_at: '', session_count: 1 },
     hostc: { host: 'hostc', online: true, checked_at: '', session_count: 1 },
     hostb: { host: 'hostb', online: true, checked_at: '', session_count: 1 },
-    // Even if the daemon ever emitted a `bart` identity host, it must never
-    // surface as a machine roster chip (code-level guarantee, not config luck).
-    bart: { host: 'bart', online: true, checked_at: '', session_count: 1 },
+    // Even if the daemon ever emitted the assistant identity host (the host part of
+    // home:assistant), it must never surface as a machine roster chip.
+    home: { host: 'home', online: true, checked_at: '', session_count: 1 },
   };
   render(<ChatsScreen />);
 
@@ -218,7 +218,7 @@ test('roster renders only real fleet hosts — no retired hosta, no hostd, hoste
   expect(screen.getByLabelText('hostb online')).toBeTruthy();
 
   // Regression 1: the retired hosta host must not appear as a roster chip,
-  // even when it arrives as a live daemon host (the Bart identity is filtered).
+  // even when it arrives as a live daemon host (the identity host is filtered).
   expect(screen.queryByLabelText('hosta online')).toBeNull();
   expect(screen.queryByLabelText('hosta offline')).toBeNull();
 
@@ -391,17 +391,17 @@ test('the FAB is disabled when no machine is online and offline machines are dis
 });
 
 test('an online machine renders its grid entry enabled and offline peers disabled', () => {
-  // A real offline machine is disabled; the Bart identity host is never a summon
+  // A real offline machine is disabled; the assistant identity host is never a summon
   // target even if the daemon reports it (it is filtered from the machine list).
   mockState.hosts = {
     hostc: { host: 'hostc', online: true, checked_at: '', session_count: 0 },
     hostb: { host: 'hostb', online: false, checked_at: '', session_count: 0 },
-    bart: { host: 'bart', online: true, checked_at: '', session_count: 0 },
+    home: { host: 'home', online: true, checked_at: '', session_count: 0 },
   };
   render(<ChatsScreen />);
 
   fireEvent.press(screen.getByTestId('new-chat-button'));
   expect(screen.getByTestId('summon-machine-hostc').props.accessibilityState?.disabled).not.toBe(true);
   expect(screen.getByTestId('summon-machine-hostb').props.accessibilityState?.disabled).toBe(true);
-  expect(screen.queryByTestId('summon-machine-bart')).toBeNull();
+  expect(screen.queryByTestId('summon-machine-home')).toBeNull();
 });

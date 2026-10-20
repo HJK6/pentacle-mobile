@@ -14,7 +14,7 @@ export function logMobileTabsTelemetry(
   }
 }
 
-export type MobileTabName = 'bart' | 'personal' | 'unified' | 'chats' | 'dashboards' | 'updates' | 'settings';
+export type MobileTabName = 'assistant' | 'personal' | 'unified' | 'chats' | 'dashboards' | 'updates' | 'settings';
 
 export function logFocusedTab(tab: MobileTabName) {
   logMobileTabsTelemetry(MOBILE_TELEMETRY_EVENTS.TABS_SCREEN_FOCUSED, { tab });

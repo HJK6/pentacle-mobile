@@ -50,7 +50,7 @@ jest.mock('react-native-safe-area-context', () => {
 
 jest.mock('@expo/vector-icons/FontAwesome', () => 'FontAwesome');
 
-// The Bart lamp is the existing MachineSigil `djinni` kind (spec Target State). Each sigil
+// The the assistant lamp is the existing MachineSigil `djinni` kind (spec Target State). Each sigil
 // renders a testID `sigil-<kind>` so tests can see exactly where the lamp is shown.
 jest.mock('../../src/components/MachineSigil', () => {
   const ReactLocal = require('react');

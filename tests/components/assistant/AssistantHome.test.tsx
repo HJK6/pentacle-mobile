@@ -1,20 +1,20 @@
-// Bart home mount contract (docs/bart_home_contracts.md): the session screen embeds with a caller header.
+// The assistant home mount contract (docs/assistant_home_contracts.md): the session screen embeds with a caller header.
 import React from 'react';
 import { assistantAccent } from '../../../src/components/assistant/assistantIdentity';
 import { Modal } from 'react-native';
 import ChatsDrawer from '../../../src/components/assistant/ChatsDrawer';
 import SummonModal from '../../../src/components/SummonModal';
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
-import BartScreen from '../../../app/(tabs)/bart';
-import { BART_STREAM_ID } from '../../../src/components/status/statusSelectors';
+import AssistantScreen from '../../../app/(tabs)/assistant';
+import { ASSISTANT_STREAM_ID } from '../../../src/services/assistantIdentity';
 const expoRouter = require('expo-router');
 import usePentacleToken from '../../../src/hooks/usePentacleToken';
 import { usePentacleStreamActions, usePentacleStreamSelectorWhen } from '../../../src/services/pentacleStream';
 import { useUserPreference } from '../../../src/services/userPreferences';
 import type { PentacleSessionSummary, PentacleStreamState } from 'pentacle-chat-core';
-import { bartQuestion, bartSession } from './fixtures';
+import { assistantQuestion, assistantSession } from './fixtures';
 
-const STREAM_ID = BART_STREAM_ID;
+const STREAM_ID = ASSISTANT_STREAM_ID;
 let mockIsFocused = true;
 let mockOptimistic: { notificationId: string; questionId: string }[] = [];
 
@@ -149,11 +149,11 @@ afterEach(() => {
 });
 
 
-test('Bart renders its synthetic transcript and composer through the real embedded SessionScreen', async () => {
+test('The assistant renders its synthetic transcript and composer through the real embedded SessionScreen', async () => {
   mockState.events = [{ daemon_seq: 1, stream_id: STREAM_ID, host: 'hostc', provider: 'claude',
     session_id: 'assistant', session_name: 'assistant', kind: 'ASSIST',
     timestamp: '2026-05-16T12:00:00Z', text: 'Synthetic assistant greeting', publish_kind: 'prose' }];
-  render(<BartScreen />);
+  render(<AssistantScreen />);
   await act(async () => {});
   expect(screen.getByTestId('assistant-header')).toBeTruthy();
   expect(screen.queryByTestId('combined-session-header')).toBeNull();
@@ -164,10 +164,10 @@ test('Bart renders its synthetic transcript and composer through the real embedd
   expect(mockActions.sendTurn).toHaveBeenCalledWith(STREAM_ID, 'Synthetic request');
 });
 
-test('the header lanes tap opens the lanes route once per focus visit without losing the Bart focus pin', async () => {
+test('the header lanes tap opens the lanes route once per focus visit without losing the assistant focus pin', async () => {
   const stream = jest.requireActual('../../../src/services/pentacleStream');
   const registration = require('../../../src/services/pentacleStream').registerFocusedPentacleStream;
-  const view = render(<BartScreen />);
+  const view = render(<AssistantScreen />);
   await act(async () => {});
   const router = expoRouter.useRouter();
   expect(stream.__getFocusedPentacleStreamForTests()).toBe(STREAM_ID);
@@ -179,9 +179,9 @@ test('the header lanes tap opens the lanes route once per focus visit without lo
   expect(screen.queryByTestId('assistant-status-overlay')).toBeNull();
   expect(registration).toHaveBeenCalledTimes(1);
   mockIsFocused = false;
-  view.rerender(<BartScreen />);
+  view.rerender(<AssistantScreen />);
   mockIsFocused = true;
-  view.rerender(<BartScreen />);
+  view.rerender(<AssistantScreen />);
   fireEvent.press(screen.getByLabelText('Lews status, 0 open lanes'));
   expect(router.push).toHaveBeenCalledTimes(2);
   expect(stream.__getFocusedPentacleStreamForTests()).toBe(STREAM_ID);
@@ -190,7 +190,7 @@ test('the header lanes tap opens the lanes route once per focus visit without lo
 });
 
 test('a failed lanes router dispatch can be retried', async () => {
-  render(<BartScreen />);
+  render(<AssistantScreen />);
   await act(async () => {});
   const router = expoRouter.useRouter();
   router.push.mockImplementationOnce(() => { throw new Error('Synthetic router unavailable'); });
@@ -200,7 +200,7 @@ test('a failed lanes router dispatch can be retried', async () => {
 });
 
 test('Questions dispatches once per focus visit and is available again after returning', async () => {
-  const view = render(<BartScreen />);
+  const view = render(<AssistantScreen />);
   await act(async () => {});
   const router = expoRouter.useRouter();
   const button = screen.getByLabelText('Questions, 0 pending');
@@ -209,19 +209,19 @@ test('Questions dispatches once per focus visit and is available again after ret
   expect(router.push).toHaveBeenCalledTimes(1);
   expect(router.push).toHaveBeenCalledWith('/pentacle/questions');
   mockIsFocused = false;
-  view.rerender(<BartScreen />);
+  view.rerender(<AssistantScreen />);
   mockIsFocused = true;
-  view.rerender(<BartScreen />);
+  view.rerender(<AssistantScreen />);
   fireEvent.press(screen.getByLabelText('Questions, 0 pending'));
   expect(router.push).toHaveBeenCalledTimes(2);
 });
 
 
-test('both badges derive from real fixture state, include Bart deck pages, and respect partial answers', async () => {
+test('both badges derive from real fixture state, include the assistant deck pages, and respect partial answers', async () => {
   const other = 'hostc:claude:needs-you';
-  mockState = { ...mockState, sessions: [session(), bartSession(other), bartSession('hostc:claude:working', { working: true })],
-    notifications: [bartQuestion(STREAM_ID, 2), bartQuestion(other, 2, 1)] };
-  const view = render(<BartScreen />);
+  mockState = { ...mockState, sessions: [session(), assistantSession(other), assistantSession('hostc:claude:working', { working: true })],
+    notifications: [assistantQuestion(STREAM_ID, 2), assistantQuestion(other, 2, 1)] };
+  const view = render(<AssistantScreen />);
   await act(async () => {});
   expect(screen.getByLabelText('Sessions, 1 need you')).toBeTruthy();
   expect(screen.getByLabelText('Questions, 3 pending')).toBeTruthy();
@@ -229,26 +229,26 @@ test('both badges derive from real fixture state, include Bart deck pages, and r
   expect(screen.getByLabelText('Lews status, 0 open lanes')).toBeTruthy();
   mockState = { ...mockState, workLanes: { lanes: [], truncated: false, generated_at: '',
     counts: { open: 3, active: 1, paused: 1, blocked: 1 } } };
-  view.rerender(<BartScreen />);
+  view.rerender(<AssistantScreen />);
   expect(screen.getByLabelText('Lews status, 3 open lanes, 1 blocked')).toBeTruthy();
   expect(screen.getByText('3 LANES')).toBeTruthy();
   expect(screen.getByTestId('assistant-lanes-blocked').props.children).toEqual([1, ' BLOCKED']);
   expect(screen.getByLabelText('Questions, 3 pending')).toBeTruthy();
   mockOptimistic = [{ notificationId: `question-${STREAM_ID}`, questionId: `q-${STREAM_ID}-0` }];
   mockState = { ...mockState };
-  view.rerender(<BartScreen />);
+  view.rerender(<AssistantScreen />);
   expect(screen.getByLabelText('Questions, 2 pending')).toBeTruthy();
   expect(screen.getByLabelText('Sessions, 1 need you')).toBeTruthy();
   mockState = { ...mockState, notifications: [] };
-  view.rerender(<BartScreen />);
+  view.rerender(<AssistantScreen />);
   expect(screen.queryByTestId('assistant-sessions-badge')).toBeNull();
   expect(screen.queryByTestId('assistant-questions-badge')).toBeNull();
 });
 
 
-test('Bart home shows only the header Questions button for its own open question and still opens the overlay', async () => {
-  mockState = { ...mockState, notifications: [bartQuestion(STREAM_ID, 2)] };
-  render(<BartScreen />);
+test('The assistant home shows only the header Questions button for its own open question and still opens the overlay', async () => {
+  mockState = { ...mockState, notifications: [assistantQuestion(STREAM_ID, 2)] };
+  render(<AssistantScreen />);
   await act(async () => {});
   expect(screen.getByLabelText('Questions, 2 pending')).toBeTruthy();
   expect(screen.queryByTestId('question-fab')).toBeNull();
@@ -261,8 +261,8 @@ test('Bart home shows only the header Questions button for its own open question
 
 test('drawer rows open once and immediate return permits opening the same row again', async () => {
   const other = 'hostc:claude:sample';
-  mockState = { ...mockState, sessions: [session(), bartSession(other)], notifications: [bartQuestion(other)] };
-  const view = render(<BartScreen />);
+  mockState = { ...mockState, sessions: [session(), assistantSession(other)], notifications: [assistantQuestion(other)] };
+  const view = render(<AssistantScreen />);
   await act(async () => {});
   for (let cycle = 0; cycle < 2; cycle += 1) {
     fireEvent.press(screen.getByLabelText('Sessions, 1 need you'));
@@ -271,9 +271,9 @@ test('drawer rows open once and immediate return permits opening the same row ag
     fireEvent.press(row);
     expect(expoRouter.useRouter().push).toHaveBeenCalledTimes(cycle + 1);
     mockIsFocused = false;
-    view.rerender(<BartScreen />);
+    view.rerender(<AssistantScreen />);
     mockIsFocused = true;
-    view.rerender(<BartScreen />);
+    view.rerender(<AssistantScreen />);
     expect(screen.getByLabelText('Sessions, 1 need you')).toBeTruthy();
   }
 });
@@ -282,9 +282,9 @@ test('drawer + uses the real shared flow once after dismissal, filters identity 
   mockState = { ...mockState, hosts: {
     hostc: { host: 'hostc', online: true, checked_at: '', session_count: 0 },
     hostb: { host: 'hostb', online: false, checked_at: '', session_count: 0 },
-    bart: { host: 'bart', online: true, checked_at: '', session_count: 0 },
+    home: { host: 'home', online: true, checked_at: '', session_count: 0 },
   } };
-  const view = render(<BartScreen />);
+  const view = render(<AssistantScreen />);
   await act(async () => {});
   expect(view.UNSAFE_getAllByType(SummonModal)).toHaveLength(1);
   fireEvent.press(screen.getByLabelText('Sessions, 0 need you'));
@@ -296,7 +296,7 @@ test('drawer + uses the real shared flow once after dismissal, filters identity 
   const drawerModal = view.UNSAFE_getAllByType(Modal).find((modal) => modal.props.onDismiss)!;
   await act(async () => drawerModal.props.onDismiss());
   expect(mockActions.getSpawnCatalog).toHaveBeenCalledTimes(1);
-  expect(screen.queryByTestId('summon-machine-bart')).toBeNull();
+  expect(screen.queryByTestId('summon-machine-home')).toBeNull();
   expect(screen.getByTestId('summon-machine-hostb')).toBeDisabled();
   fireEvent.press(screen.getByTestId('summon-machine-hostc'));
   await act(async () => {});
@@ -311,7 +311,7 @@ test('drawer + uses the real shared flow once after dismissal, filters identity 
 });
 
 test('failed Questions router dispatch can be retried', async () => {
-  render(<BartScreen />);
+  render(<AssistantScreen />);
   await act(async () => {});
   const router = expoRouter.useRouter();
   router.push.mockImplementationOnce(() => { throw new Error('Synthetic router unavailable'); });
@@ -322,34 +322,34 @@ test('failed Questions router dispatch can be retried', async () => {
 
 test('newer navigation cancels a queued drawer-to-summon transition', async () => {
   mockState = { ...mockState, hosts: { hostc: { host: 'hostc', online: true, checked_at: '', session_count: 0 } } };
-  const view = render(<BartScreen />);
+  const view = render(<AssistantScreen />);
   await act(async () => {});
   fireEvent.press(screen.getByLabelText('Sessions, 0 need you'));
   fireEvent.press(screen.getByLabelText('New session'));
   const dismiss = view.UNSAFE_getAllByType(Modal).find((modal) => modal.props.onDismiss)!.props.onDismiss;
   mockIsFocused = false;
-  view.rerender(<BartScreen />);
+  view.rerender(<AssistantScreen />);
   await act(async () => { jest.advanceTimersByTime(400); dismiss(); });
   expect(mockActions.getSpawnCatalog).not.toHaveBeenCalled();
   expect(screen.queryByTestId('summon-machine-hostc')).toBeNull();
   mockIsFocused = true;
-  view.rerender(<BartScreen />);
+  view.rerender(<AssistantScreen />);
   expect(screen.queryByTestId('summon-machine-hostc')).toBeNull();
 });
 
 test('live assistant name and host changes update the header through the single identity adapter', async () => {
-  const view = render(<BartScreen />);
+  const view = render(<AssistantScreen />);
   await act(async () => {});
   expect(screen.getByLabelText('Lews status, 0 open lanes')).toBeTruthy();
-  const Header = require('../../../src/components/assistant/BartHeader').default;
+  const Header = require('../../../src/components/assistant/AssistantHeader').default;
   expect(view.UNSAFE_getByType(Header).props.identity).toMatchObject({ hostId: 'hostc', sigilKind: 'djinni' });
   expect(assistantAccent(view.UNSAFE_getByType(Header).props.identity)).toBe('#1f5bff');
   mockState = { ...mockState, sessions: [{ ...session(), display_name: 'Example guide', host: 'hostb' }] };
-  view.rerender(<BartScreen />);
+  view.rerender(<AssistantScreen />);
   expect(screen.getByLabelText('Example guide status, 0 open lanes')).toBeTruthy();
   expect(view.UNSAFE_getByType(Header).props.identity).toMatchObject({ hostId: 'hostb', sigilKind: 'djinni' });
   expect(assistantAccent(view.UNSAFE_getByType(Header).props.identity)).toBe('#ff2e3e');
   mockState = { ...mockState, sessions: [{ ...session(), display_name: '', title: '' }] };
-  view.rerender(<BartScreen />);
+  view.rerender(<AssistantScreen />);
   expect(screen.getByLabelText('Zephyr status, 0 open lanes')).toBeTruthy();
 });

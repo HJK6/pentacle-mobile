@@ -30,7 +30,7 @@ function timeLabel(ts: string): string {
     : '';
 }
 
-/** One typed lane update in Bart's timeline (`publish_kind: 'lane_update'`). */
+/** One typed lane update in the assistant's timeline (`publish_kind: 'lane_update'`). */
 export default function LaneUpdateCard({ update, onPress }: { update: WorkLaneUpdate; onPress?: () => void }) {
   const accent = accentFor(update.kind);
   const label = laneUpdateKindLabel(update.kind);

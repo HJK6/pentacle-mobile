@@ -16,7 +16,7 @@ Keep fixtures synthetic and preserve protocol fields, error messages, author
 prefixes and config keys: those values affect behavior even in synthetic data.
 The test host configuration uses hosta, hostb, and hostc.
 
-tests/contracts/bart_preview_thread_parity.test.ts guards that the Chats-list
+tests/contracts/assistant_preview_thread_parity.test.ts guards that the Chats-list
 preview for the assistant composite equals the thread's last rendered row, and
 that a turn-final projection row (an assistant status row, not a published
 prose reply) renders as an assistant bubble. It runs under

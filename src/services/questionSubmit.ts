@@ -11,7 +11,7 @@ import type { usePentacleStreamActions } from './pentacleStream';
 
 // One open question on a chat: a durable agent-question notification, or a legacy
 // keyed session question. Shared by the Chats rows and the Questions overlay
-// (docs/bart_home_contracts.md).
+// (docs/assistant_home_contracts.md).
 export type SmartQuestionAction =
   | { kind: 'durable'; id: string; model: DurableQuestionCardModel }
   | { kind: 'legacy'; id: string; question: PentacleQuestion; host: string; sessionName: string };

@@ -1,4 +1,4 @@
-"""P4 Questions overlay: three open durable questions (Bart + two sessions on different hosts),
+"""P4 Questions overlay: three open durable questions (the assistant + two sessions on different hosts),
 answer one, Submit 1 of 3, and assert exactly one prompt.answer plus the deck shrinking to two.
 
 The overlay is opened with the app's own deep link (`pentacle://pentacle/questions`); P3's `?`
@@ -20,11 +20,11 @@ from ..harness.asserts import DEFAULT_DENY_LIST, EventSpec, Verdict, assert_no_e
 
 name = "mock_questions_overlay_partial_submit"
 DEEP_LINK = "pentacle://pentacle/questions"
-# prompt marker -> (question_id, is_bart)
+# prompt marker -> (question_id, is_assistant)
 QUESTIONS = {
     "Q-MOCK": ("q-overlay-mock", False),
     "Q-SECOND": ("q-overlay-second", False),
-    "Q-BART": ("q-overlay-bart", True),
+    "Q-ASSISTANT": ("q-overlay-assistant", True),
 }
 
 

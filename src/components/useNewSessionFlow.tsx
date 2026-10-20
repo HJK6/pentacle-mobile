@@ -14,7 +14,7 @@ type SpawnSelection = {
 };
 
 // The one new-session flow (summon sheet, spawn catalog, idempotent spawn intent). Shared by
-// the Chats + button and the Bart home drawer's + button (docs/bart_home_contracts.md).
+// the Chats + button and the assistant home drawer's + button (docs/assistant_home_contracts.md).
 // The caller renders `modal` once and calls `start()`; a spawned session is handed to `onOpened`.
 export function useNewSessionFlow({ machines, onOpened }: {
   machines: SummonMachine[];

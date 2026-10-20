@@ -2,12 +2,12 @@
 
 The tab bar is implemented in [`app/(tabs)/_layout.tsx`](../app/(tabs)/_layout.tsx):
 **Zephyr · Personal · Dashboards · Settings**, using the configured assistant
-name instead of the default. The `bart` route is the navigator’s initial tab.
+name instead of the default. The `assistant` route is the navigator’s initial tab.
 Chats, Unified, and Updates remain registered routes with `href: null`; they are
 not shown in the bar. Existing Dashboards content is unchanged.
 
-[`app/(tabs)/bart.tsx`](../app/(tabs)/bart.tsx) composes the exported `SessionScreen`
-for `BART_STREAM_ID`. Transcript rendering, composer, session questions, and voice
+[`app/(tabs)/assistant.tsx`](../app/(tabs)/assistant.tsx) composes the exported `SessionScreen`
+for `ASSISTANT_STREAM_ID`. Transcript rendering, composer, session questions, and voice
 remain the existing session implementation. It does not fork a session screen,
 create a store, or change the daemon. The tab and header read one local [identity adapter](../src/components/assistant/assistantIdentity.tsx):
 the canonical session’s `display_name`, then `title`, then **Zephyr**. Its
@@ -24,11 +24,11 @@ replacement point for a future shared identity selector.
 - Zero counts hide badges. Opening or closing a surface never clears a question
 - The name block (and the lamp ring) opens the open work lanes list, `/pentacle/lanes`; so does the
   lanes count
-- The locked `StatusSurface` is no longer opened from the header; `BartStatusOverlay` is kept
+- The locked `StatusSurface` is no longer opened from the header; `AssistantStatusOverlay` is kept
   but unmounted, and the status surface stays reachable from the hidden `Updates` route
 
-Implementation: [`BartHeader`](../src/components/assistant/BartHeader.tsx) and
-[`BartStatusOverlay`](../src/components/assistant/BartStatusOverlay.tsx). The locked
+Implementation: [`AssistantHeader`](../src/components/assistant/AssistantHeader.tsx) and
+[`AssistantStatusOverlay`](../src/components/assistant/AssistantStatusOverlay.tsx). The locked
 [`StatusSurface`](../src/components/status/StatusSurface.tsx) and hidden
 [`Updates`](../app/(tabs)/updates.tsx) route are unchanged.
 
@@ -54,7 +54,7 @@ status surface retains its existing marks unchanged.
 
 ## Integration boundary
 
-See the [frozen shared contracts](bart_home_contracts.md) for ownership. The
+See the [frozen shared contracts](assistant_home_contracts.md) for ownership. The
 startup redirect, session back/missing-session targets, and push-tap home target
 are integration-owner changes (S3). Setting the tab navigator's initial route
 does not override those explicit routes. The Questions overlay and Personal
@@ -88,15 +88,15 @@ node node_modules/jest/bin/jest.js --listTests --json --runInBand
 
 Shell coverage is collected from:
 
-- `tests/components/bart/assistantIdentity.test.ts` (renamed/default identity and host icon)
-- `tests/components/bart/BartTabBar.test.tsx` (real React Navigation bar)
-- `tests/components/bart/BartRenderStability.test.tsx` (real stream subscription isolation)
-- `tests/components/bart/BartHeader.test.tsx`
-- `tests/components/bart/BartHome.test.tsx` (real session, selectors, and summon flow)
-- `tests/components/bart/BartStatusOverlay.test.tsx` (real focus registration)
-- `tests/components/bart/ChatsDrawer.test.tsx`
-- `tests/components/bart/MachineMark.test.tsx`
-- `tests/components/bart/bartSelectors.test.ts`
+- `tests/components/assistant/assistantIdentity.test.ts` (renamed/default identity and host icon)
+- `tests/components/assistant/AssistantTabBar.test.tsx` (real React Navigation bar)
+- `tests/components/assistant/AssistantRenderStability.test.tsx` (real stream subscription isolation)
+- `tests/components/assistant/AssistantHeader.test.tsx`
+- `tests/components/assistant/AssistantHome.test.tsx` (real session, selectors, and summon flow)
+- `tests/components/assistant/AssistantStatusOverlay.test.tsx` (real focus registration)
+- `tests/components/assistant/ChatsDrawer.test.tsx`
+- `tests/components/assistant/MachineMark.test.tsx`
+- `tests/components/assistant/assistantSelectors.test.ts`
 - Existing `tests/app/(tabs)/_layout.test.tsx` and `tests/app/tabsLayout.test.tsx`
 
 The delivery report records full-suite totals and exact final-head output, plus

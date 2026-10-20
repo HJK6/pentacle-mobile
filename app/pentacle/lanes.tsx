@@ -8,17 +8,16 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { TOP_INSET, Tokens } from '@/constants/Colors';
 import Starfield from '../../src/components/Starfield';
 import LanesOverlay from '../../src/components/lanes/LanesOverlay';
-import { selectAssistantIdentity } from '../../src/services/assistantIdentity';
+import { selectAssistantIdentity, ASSISTANT_STREAM_ID } from '../../src/services/assistantIdentity';
 import LaneHistoryScreen, { type LaneHistoryTarget } from '../../src/components/lanes/LaneHistoryScreen';
-import { BART_STREAM_ID } from '../../src/components/status/statusSelectors';
 import { performChatOpenNavigation } from '../../src/services/chatOpenNavigation';
 import { HOME_ROUTE } from '../../src/services/homeRoute';
 import { usePentacleStreamSelectorWhen } from '../../src/services/pentacleStream';
 import { selectLaneCardViewModels, selectLaneUpdates, type LaneCardViewModel } from '../../src/services/workLanes';
 
 // /pentacle/lanes — the daemon's open work lanes (header lanes tap). A tap goes to the lane's
-// visible chat: an open chat, Bart's own thread, a read-only retained history, or an honest
-// "Chat unavailable" row — never a hidden worker, a new generation, or a silent Bart fallback.
+// visible chat: an open chat, the assistant's own thread, a read-only retained history, or an honest
+// "Chat unavailable" row — never a hidden worker, a new generation, or a silent assistant fallback.
 export default function LanesRoute() {
   const isFocused = useIsFocused();
   const router = useRouter();
@@ -43,7 +42,7 @@ export default function LanesRoute() {
   const openLane = useCallback((model: LaneCardViewModel) => {
     const tap = model.tap;
     if (tap.action === 'open_chat') {
-      if (tap.stream_id === BART_STREAM_ID) router.replace(HOME_ROUTE as any);
+      if (tap.stream_id === ASSISTANT_STREAM_ID) router.replace(HOME_ROUTE as any);
       else performChatOpenNavigation(tap.stream_id, router);
     } else if (tap.action === 'history') {
       setHistory({ streamId: tap.stream_id, generation: tap.generation, title: model.lane.title });

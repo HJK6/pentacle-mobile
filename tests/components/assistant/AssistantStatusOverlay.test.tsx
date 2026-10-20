@@ -9,7 +9,7 @@ import {
   type PentacleSessionSummary,
   type PentacleStreamState,
 } from 'pentacle-chat-core';
-import BartStatusOverlay from '../../../src/components/assistant/BartStatusOverlay';
+import AssistantStatusOverlay from '../../../src/components/assistant/AssistantStatusOverlay';
 import { selectSmartChatList, smartChatAttention } from '../../../app/(tabs)/chats';
 import { selectOpenLanes, selectStatusUpdates } from '../../../src/components/status/statusSelectors';
 import { Tokens } from '../../../constants/Colors';
@@ -17,7 +17,7 @@ import { resetChatOpenNavigationIntents } from '../../../src/services/chatOpenNa
 import { registerFocusedPentacleStream, requestStreamEvents } from '../../../src/services/pentacleStream';
 
 const NOW = Date.parse('2026-10-07T12:00:00.000Z');
-const BART = 'bart:assistant';
+const ASSISTANT_ID = 'home:assistant';
 let mockState: PentacleStreamState;
 let mockIsFocused = true;
 let mockHasOlderHistory = false;
@@ -59,7 +59,7 @@ function session(streamId: string, overrides: Partial<PentacleSessionSummary> = 
 function event(seq: number, text: string, overrides: Partial<PentacleEvent> = {}): PentacleEvent {
   return {
     daemon_seq: seq, host: 'hostc', provider: 'codex', session_id: 'assistant',
-    session_name: 'assistant', stream_id: BART, kind: 'ASSIST',
+    session_name: 'assistant', stream_id: ASSISTANT_ID, kind: 'ASSIST',
     timestamp: new Date(NOW - 600_000 + seq * 1000).toISOString(),
     text, publish_kind: 'status', ...overrides,
   };
@@ -99,22 +99,22 @@ afterEach(() => resetChatOpenNavigationIntents());
 
 test('focus and reconnect fetch the assistant history without per-lane polling', async () => {
   mockState = { ...mockState, connected: false };
-  const rendered = render(<BartStatusOverlay onClose={mockClose} />);
+  const rendered = render(<AssistantStatusOverlay onClose={mockClose} />);
   expect(registerFocusedPentacleStream).not.toHaveBeenCalled();
   expect(requestStreamEvents).not.toHaveBeenCalled();
   mockState = { ...mockState, connected: true };
-  await act(async () => rendered.rerender(<BartStatusOverlay onClose={mockClose} />));
-  expect(requestStreamEvents).toHaveBeenLastCalledWith(BART, 300, { purpose: 'mount-fetch' });
+  await act(async () => rendered.rerender(<AssistantStatusOverlay onClose={mockClose} />));
+  expect(requestStreamEvents).toHaveBeenLastCalledWith(ASSISTANT_ID, 300, { purpose: 'mount-fetch' });
   const count = (requestStreamEvents as jest.Mock).mock.calls.length;
   await act(async () => jest.advanceTimersByTime(60_000));
   expect(requestStreamEvents).toHaveBeenCalledTimes(count);
   mockState = { ...mockState, connected: false };
-  await act(async () => rendered.rerender(<BartStatusOverlay onClose={mockClose} />));
+  await act(async () => rendered.rerender(<AssistantStatusOverlay onClose={mockClose} />));
   mockState = { ...mockState, connected: true };
-  await act(async () => rendered.rerender(<BartStatusOverlay onClose={mockClose} />));
+  await act(async () => rendered.rerender(<AssistantStatusOverlay onClose={mockClose} />));
   expect(requestStreamEvents).toHaveBeenCalledTimes(count + 1);
   mockIsFocused = false;
-  rendered.rerender(<BartStatusOverlay onClose={mockClose} />);
+  rendered.rerender(<AssistantStatusOverlay onClose={mockClose} />);
   expect(mockReleaseFocus).not.toHaveBeenCalled();
   rendered.unmount();
 });
@@ -122,7 +122,7 @@ test('focus and reconnect fetch the assistant history without per-lane polling',
 test('one end-of-list demand crosses prose-only pages until an earlier status arrives', async () => {
   mockState = mutatePentacleEventBuckets(mockState, { type: 'append', events: [event(1000, 'Retained status')] });
   mockHasOlderHistory = true;
-  const rendered = render(<BartStatusOverlay onClose={mockClose} />);
+  const rendered = render(<AssistantStatusOverlay onClose={mockClose} />);
   await act(async () => {});
   const prosePage = Array.from({ length: 300 }, (_, i) => event(700 + i, `Synthetic prose ${i}`, { publish_kind: 'prose' }));
   const statusPage = [event(600, 'Earlier status')];
@@ -142,36 +142,36 @@ test('one end-of-list demand crosses prose-only pages until an earlier status ar
   list.state.cellsAroundViewport = { first: 0, last: 0 };
   await act(async () => list._maybeCallOnEdgeReached());
   expect(requestStreamEvents).toHaveBeenCalledTimes(2);
-  rendered.rerender(<BartStatusOverlay onClose={mockClose} />);
+  rendered.rerender(<AssistantStatusOverlay onClose={mockClose} />);
   expect(screen.getByText('Earlier status')).toBeTruthy();
 });
 
 test.each(['back', 'blur'] as const)('a pending sparse scan stops after %s', async (leave) => {
   mockState.events = [event(1000, 'Retained status')];
   mockHasOlderHistory = true;
-  const rendered = render(<BartStatusOverlay onClose={mockClose} />);
+  const rendered = render(<AssistantStatusOverlay onClose={mockClose} />);
   await act(async () => {});
   let settle!: (events: PentacleEvent[]) => void;
   (requestStreamEvents as jest.Mock).mockReset().mockImplementation(() => new Promise((resolve) => { settle = resolve; }));
   fireEvent.press(screen.getByText('All updates · 1 ›'));
   act(() => { rendered.UNSAFE_getByType(FlatList).props.onEndReached(); });
   if (leave === 'back') fireEvent.press(screen.getByLabelText('Back to status'));
-  else { mockIsFocused = false; rendered.rerender(<BartStatusOverlay onClose={mockClose} />); }
+  else { mockIsFocused = false; rendered.rerender(<AssistantStatusOverlay onClose={mockClose} />); }
   await act(async () => settle(Array.from({ length: 300 }, (_, i) => event(700 + i, 'Prose', { publish_kind: 'prose' }))));
   expect(requestStreamEvents).toHaveBeenCalledTimes(1);
 });
 
 test('history failures are bounded and recover when focus returns', async () => {
   (requestStreamEvents as jest.Mock).mockRejectedValueOnce(new Error('Synthetic offline error'));
-  const rendered = render(<BartStatusOverlay onClose={mockClose} />);
+  const rendered = render(<AssistantStatusOverlay onClose={mockClose} />);
   await act(async () => {});
   expect(screen.getByText('Updates unavailable')).toBeTruthy();
   await act(async () => jest.advanceTimersByTime(60_000));
   expect(requestStreamEvents).toHaveBeenCalledTimes(1);
   mockIsFocused = false;
-  rendered.rerender(<BartStatusOverlay onClose={mockClose} />);
+  rendered.rerender(<AssistantStatusOverlay onClose={mockClose} />);
   mockIsFocused = true;
-  rendered.rerender(<BartStatusOverlay onClose={mockClose} />);
+  rendered.rerender(<AssistantStatusOverlay onClose={mockClose} />);
   await act(async () => {});
   expect(requestStreamEvents).toHaveBeenCalledTimes(2);
   expect(screen.queryByText('Updates unavailable')).toBeNull();
@@ -179,7 +179,7 @@ test('history failures are bounded and recover when focus returns', async () => 
 
 
 test('full-screen overlay has a round dismiss control and handles system back', async () => {
-  const view = render(<BartStatusOverlay onClose={mockClose} />);
+  const view = render(<AssistantStatusOverlay onClose={mockClose} />);
   await act(async () => {});
   expect(view.UNSAFE_getByType(Modal).props).toMatchObject({ visible: true, presentationStyle: 'fullScreen', animationType: 'none' });
   expect(screen.getByLabelText('Close status')).toHaveStyle({ width: 34, height: 34, borderRadius: 17 });
@@ -192,7 +192,7 @@ test('full-screen overlay has a round dismiss control and handles system back', 
 test('opening a status lane closes the overlay before duplicate-safe dispatch', async () => {
   const id = 'hostc:codex:sample';
   mockState.sessions = [session(id, { working: true })];
-  render(<BartStatusOverlay onClose={mockClose} />);
+  render(<AssistantStatusOverlay onClose={mockClose} />);
   await act(async () => {});
   const router = require('expo-router').router;
   const row = screen.getByTestId(`lane-${id}`);
@@ -207,13 +207,13 @@ test('opening a status lane closes the overlay before duplicate-safe dispatch', 
 test('closing status leaves the real parent-owned focused stream registration intact', async () => {
   const stream = jest.requireActual('../../../src/services/pentacleStream');
   stream.__resetPentacleStreamForTests();
-  const releaseParent = stream.registerFocusedPentacleStream(BART);
+  const releaseParent = stream.registerFocusedPentacleStream(ASSISTANT_ID);
   (registerFocusedPentacleStream as jest.Mock).mockImplementation(stream.registerFocusedPentacleStream);
-  const view = render(<BartStatusOverlay onClose={mockClose} />);
+  const view = render(<AssistantStatusOverlay onClose={mockClose} />);
   await act(async () => {});
-  expect(stream.__getFocusedPentacleStreamForTests()).toBe(BART);
+  expect(stream.__getFocusedPentacleStreamForTests()).toBe(ASSISTANT_ID);
   view.unmount();
-  expect(stream.__getFocusedPentacleStreamForTests()).toBe(BART);
+  expect(stream.__getFocusedPentacleStreamForTests()).toBe(ASSISTANT_ID);
   expect(registerFocusedPentacleStream).not.toHaveBeenCalled();
   releaseParent();
   expect(stream.__getFocusedPentacleStreamForTests()).toBeNull();

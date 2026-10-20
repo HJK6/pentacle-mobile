@@ -7,7 +7,7 @@ import { Fonts, Tokens } from '../../../constants/Colors';
 
 jest.mock('../../../src/config/local', () => ({ getMachineHostCount: () => 1, showMachineIcons: () => false }));
 
-test('the djinni machine gets a muted B instead of the Bart-only lamp', () => {
+test('the djinni machine gets a muted B instead of the assistant-only lamp', () => {
   const view = render(<MachineMark machine="hosta" />);
   expect(view.queryByText('B')).toHaveStyle({ fontFamily: Fonts.cinzel.bold, color: Tokens.palette.dim });
   expect(view.UNSAFE_queryByType(MachineSigil)).toBeNull();

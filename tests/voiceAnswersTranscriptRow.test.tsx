@@ -86,7 +86,7 @@ import { voiceDelivery, voiceTakeRow } from '../src/services/voiceDelivery';
 import { voiceTakeStore } from '../src/services/voiceTakeStore';
 import { ASSISTANT_STREAM_ID } from '../src/services/assistantIdentity';
 
-const chrome = hostChrome('bart');
+const chrome = hostChrome('assistant');
 const item = (n: number) => ({
   key: `n-${n}:0`,
   question_id: `q-${n}`,

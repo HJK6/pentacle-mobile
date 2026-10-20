@@ -9,6 +9,7 @@ python3 scripts/check_public_residue.py
 # Same no-new-fleet-name check as the public web workflow. Assemble terms so
 # the guard does not flag its own policy definition.
 pattern='bart''imaeus|ama''terasu|mer''lin|daff''odil|vam''sh|tho''th'
+pattern="$pattern|ba"'rt'
 scratch=$(mktemp -d)
 cleanup() {
   rm -f "$scratch/base" "$scratch/base.sorted" "$scratch/candidate" "$scratch/candidate.sorted" "$scratch/new"

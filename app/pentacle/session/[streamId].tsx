@@ -1036,10 +1036,10 @@ export function assembleSessionTranscriptRows(
 export type SessionScreenProps = {
   streamId: string;
   // Replaces the combined header (back button, status trigger, options menu) when the
-  // screen is embedded outside the session route, e.g. the Bart home tab
-  // (docs/bart_home_contracts.md). Embedded screens never redirect away on a missing session.
+  // screen is embedded outside the session route, e.g. the assistant home tab
+  // (docs/assistant_home_contracts.md). Embedded screens never redirect away on a missing session.
   header?: React.ReactNode;
-  // The supplied header already carries the questions button (the Bart home header opens
+  // The supplied header already carries the questions button (the assistant home header opens
   // the cross-session overlay), so the in-chat question FAB is not drawn beside it.
   questionsInHeader?: boolean;
 };
