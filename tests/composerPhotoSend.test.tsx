@@ -15,6 +15,7 @@ import type { PentacleEvent, PentacleSessionSummary, PentacleStreamState } from 
 import type { ProcessedAsset } from '../src/services/imageCapture';
 import type { ChatAttachment } from 'pentacle-chat-core';
 import { INITIAL_PENTACLE_LIMITS } from 'pentacle-chat-core';
+import { resetStagedAttachments } from '../src/services/composerAttachments';
 
 let mockParams: Record<string, unknown> = { streamId: 'hostc%3Acodex%3Aone' };
 let mockState: PentacleStreamState;
@@ -180,6 +181,7 @@ function resetState() {
 beforeEach(() => {
   jest.useFakeTimers({ now: new Date('2026-05-13T12:00:00.000Z') });
   resetState();
+  resetStagedAttachments();
   (usePentacleToken as jest.Mock).mockReturnValue({ isReady: true, token: 'test' });
   (usePentacleStreamActions as jest.Mock).mockReturnValue(mockActions);
   (usePentacleStreamSelectorWhen as jest.Mock).mockImplementation((_enabled, selector) => selector(mockState));
