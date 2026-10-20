@@ -1,28 +1,21 @@
 # Mock Screenshot Harness
 
 Renders the **real** pentacle-mobile screens under react-native-web with mocked
-offline data (no backend, no device) and screenshots them headlessly. Built for
-the Claude Design handoff, and reusable as a render-smoke / visual-regression
-substrate.
+offline data (no backend, no device). Built for the Claude Design handoff, and
+reusable as a render-smoke / visual-regression substrate.
 
-It renders the actual Expo Router screen components — not an HTML replica (that
-is the separate, older `mockups:chat-ui` chat board, which still exists).
+It renders the actual Expo Router screen components — not an HTML replica.
 
 ## TL;DR
 
 ```bash
-npm run harness:web        # 1) start the RN-web dev server on :8081
-npm run mockups:screens    # 2) drive Playwright over every screen → PNGs
-npm run test:composer-onscreen  # gated composer control visibility check
+EXPO_PUBLIC_SCREENSHOT_HARNESS=1 npm run web           # RN-web dev server with the offline seed
+npx jest tests/harnessScreenshotFixtures.test.ts       # render-smoke over the fixture registry
 ```
 
-Artifacts land in `.ui-review/mobile-screens/`: one `<screen>__<variant>.png`
-per entry plus a `pentacle.uiReview.v1` `manifest.json`.
-
-Run them in two terminals (the driver assumes the server is already up at
-`http://localhost:8081`; override with `HARNESS_BASE_URL`).
-`npm run test:composer-onscreen` starts the same harness automatically when one
-is not already reachable.
+This repository has no npm scripts for the harness and does not include the
+Playwright capture driver or its `.ui-review` output. Open the served routes in a
+browser, or bring your own driver that calls `window.__pentacleHarness.seed(...)`.
 
 ## How it works
 
@@ -44,21 +37,17 @@ is not already reachable.
 3. **Real app under the router** — screens render through the same providers
    `_layout` supplies; the driver navigates to real routes (`/chats`,
    `/pentacle/session/<id>`, …), so navigation hooks behave normally.
-4. **Driver** — `test/screenshots/captureScreens.ts` (Playwright headless
-   Chromium, 390×844 @2x) walks the `SCREENS` registry, calls
-   `window.__pentacleHarness.seed(...)`, settles, and writes each PNG +
-   manifest.
+4. **Driver** — not included here. A driver (Playwright headless Chromium,
+   390×844 @2x) walks a screen registry, calls
+   `window.__pentacleHarness.seed(...)`, settles, and writes each PNG.
 
-Auth: `harness:web` sets `EXPO_PUBLIC_HARNESS=1`,
-`EXPO_PUBLIC_DISABLE_BIOMETRIC_LOCK=1` and a fixture token, so token-gated
-screens render as enrolled. `expo-secure-store` has no web impl but is not hit
-on the seeded path.
+Auth: also set `EXPO_PUBLIC_HARNESS=1` and `EXPO_PUBLIC_DISABLE_BIOMETRIC_LOCK=1`
+for runs without the biometric lock. `expo-secure-store` has no web impl but is
+not hit on the seeded path.
 
-## Current screens (15 shots)
+## Current screens
 
-`chats`, `updates`, `settings` × `{populated, empty, loading, error}`;
-`session` × `{populated, loading}` (the per-session chat-bubble transcript);
-`enroll` × `default`.
+The `screen:variant` list is the `FIXTURES` registry in `src/harness/screenshotFixtures.ts`.
 
 ## Adding a screen or variant
 
@@ -70,9 +59,9 @@ Two registries, intentionally split:
   `ERRORED` opt presets. For a session-style screen that reads a specific
   stream, seed events for that `stream_id` and point the route at it
   (see `SESSION_STREAM_ID`).
-- **Route** — `test/screenshots/captureScreens.ts`: add a `SCREENS` entry with
-  the real `route` and the `variants` to shoot. URL-encode any `:` in a route
-  param (`/pentacle/session/${encodeURIComponent(id)}`).
+- **Route** — in your driver's screen registry, use the real `route` and the
+  `variants` to shoot. URL-encode any `:` in a route param
+  (`/pentacle/session/${encodeURIComponent(id)}`).
 
 Keep the two in sync — `tests/harnessScreenshotFixtures.test.ts` asserts the
 fixture registry resolves and seeds cleanly.

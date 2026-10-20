@@ -1,8 +1,7 @@
-# Bart-first home: frozen shared contracts
+# Assistant-first home: frozen shared contracts
 
 Contract version: **v1.9 (2026-10-09)** — v1.9 expands § Work lanes with optional progress, list/map views and a separate lane log; v1.8 adds § Work lanes (daemon-owned lane projection in the header and `/pentacle/lanes`, typed `lane_update` cards); v1.1 corrected § Answering questions and named the S1/S2 exports; v1.2 added § Household RPC (S4); v1.3 drops partially answered durable items from the pending count; v1.4 also drops items the notification itself marks answered; v1.5 lands the initial pending-count selector, the shared new-session flow and the new tab telemetry names (S6); v1.6 makes the assistant's name and icon follow the operator's customization (S7); v1.7 lands P3 with the home destination (S3) and the shared identity in the home tab and header.
-Design original: `design_handoff_bart_home/README.md`
-(Pentacle-Mobile.zip sha256 `5ce4da05…`). Changing anything below is a contract change: the
+Changing anything below is a contract change: the
 integration owner publishes a new version here and tells every packet lead before code relies on it.
 
 ## Packets and file ownership
@@ -103,7 +102,7 @@ optimistic identity clears while the notification is still open. Single-item and
 count as before. In short: value = deck length = the reduce above − durable items covered by
 `selectOptimisticQuestionAnswerIdentities` − durable items the notification marks answered.
 
-Sources: every chat in `selectSmartChatList(state)` including `BART_STREAM_ID` (Bart's own
+Sources: every chat in `selectSmartChatList(state)` including the assistant's stream (the assistant's own
 questions are part of the deck). P4 exports the deck selector it renders from; the count selector
 must equal that deck's length for every state (a unit test asserts this).
 
@@ -116,8 +115,8 @@ selectSmartChatList(state).filter((chat) => chat.streamId !== BART_STREAM_ID && 
 ```
 
 This is the Chats screen's needs-you rule (`smartChatAttention`: at least one open question action)
-minus Bart's own thread. The drawer's NEEDS YOU group is exactly this list, in the same order;
-WORKING is `status === 'working'` without attention; IDLE is the rest. Bart's thread is not listed
+minus the assistant's own thread. The drawer's NEEDS YOU group is exactly this list, in the same order;
+WORKING is `status === 'working'` without attention; IDLE is the rest. The assistant's thread is not listed
 in the drawer.
 
 ## New session (drawer + button)
@@ -145,7 +144,7 @@ button uses the same hook. Do not copy the spawn logic.
 ```
 
 with `updates = selectStatusUpdates(state)` and `lanes = selectOpenLanes(state)` from
-`statusSelectors.ts`. Since v1.8 the Bart header no longer opens it (its lanes tap goes to
+`statusSelectors.ts`. Since v1.8 the assistant header no longer opens it (its lanes tap goes to
 `/pentacle/lanes`, § Work lanes); it stays reachable from the Updates route
 (`app/(tabs)/updates.tsx`, `UpdatesScreen`) unchanged. `src/components/assistant/BartStatusOverlay.tsx`
 is kept, unmounted from the header. Any API change is an integration request, not a packet edit.
@@ -229,9 +228,9 @@ pin, public boundary, and iOS JavaScript export with the ignored example-config 
 These device-free checks do not certify a native build, signing, live-daemon protocol journey or
 installation. `src/components/status/*` remains unchanged.
 
-## Bart home mounts the session screen
+## Assistant home mounts the session screen
 
-The Bart tab renders the same session screen as every other chat for `BART_STREAM_ID`. The
+The assistant tab renders the same session screen as every other chat for the assistant stream. The
 integration owner exports a named component from `app/pentacle/session/[streamId].tsx` (shared
 edit S1):
 
@@ -285,7 +284,7 @@ connected or drops, and is never replayed. Verbs and payload types are owned by 
 ## Assembled-home check
 
 Run by the integration owner on each merged `main` head after a packet lands: `npm run typecheck`,
-`npm run test:unit`, then the certified harness journey — open app → Bart home → drawer → open a
+`npm run test:unit`, then the certified harness journey — open app → assistant home → drawer → open a
 session → back → ? → answer one question partially → status surface → Personal → list detail →
 calendar — reported PASS/FAIL per step. Steps whose packet has not landed are reported `N/A`.
 

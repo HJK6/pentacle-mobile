@@ -98,12 +98,11 @@ the app layout and referenced through the exported font family map.
 
 ## Local visual harness
 
-The screenshot harness loads synthetic pages from a local development server.
-Its base URL can be overridden with `HARNESS_BASE_URL`:
+The offline screenshot harness serves synthetic pages from a local development
+server (see [SCREENSHOT_HARNESS.md](SCREENSHOT_HARNESS.md)):
 
 ```sh
-npx expo start --web --port 8091
-HARNESS_BASE_URL=http://localhost:8091 npm run mockups:screens
+EXPO_PUBLIC_SCREENSHOT_HARNESS=1 npx expo start --web --port 8091
 ```
 
 Baseline images belong under the local review directory. Keep them generated

@@ -3,9 +3,11 @@
 A single-machine example with invented sessions and conversation text. Machine
 icons hide automatically when the workspace has one host.
 
+*These images predate the 2026-10-07 assistant-home tab bar.*
+
 ## Agents
 
-Open a session from the agent list, or use + to start another one.
+The agent list is the Sessions drawer on the assistant tab (left header button); open a session from it, or use **+** to start another one.
 
 <img src="images/onboarding-chats.png" width="360" alt="iOS agent list showing three invented tasks in a single-machine workspace" />
 

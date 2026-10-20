@@ -11,7 +11,7 @@ the phone app does not run it. The desktop app is optional for mobile users.
 and the New Chat picker, using a single-machine workspace with invented data.
 
 *The screenshots below also use sample data — invented conversations and
-synthetic machine names.*
+synthetic machine names. The images predate the current assistant-home tab bar.*
 
 Your machines, ready to chat with or summon:
 
@@ -36,7 +36,8 @@ Agents also publish reviewable reports and assets you can open and read on the p
 1. Set up the [Pentacle daemon](https://github.com/HJK6/pentacle) on the computer
    where your coding agents run. The desktop app is optional.
 2. Build and install this app on a simulator or phone.
-3. Connect and enroll the app with your daemon, then open Chats.
+3. Connect and enroll the app with your daemon. Enrollment opens the assistant tab; start a
+   session from the Sessions drawer (left header button) with **+**, then choose the host.
 
 The recommended way is to let a coding agent such as Fable or Astra handle
 setup. Give it the path to [AGENT_SETUP.md](AGENT_SETUP.md). That separate guide
@@ -48,7 +49,9 @@ login, Apple signing or a device trust/unlock prompt yourself.
 The tab bar is **Assistant · Personal · Dashboards · Settings** (using your assistant’s configured
 name). Choose the assistant tab for the
 coordinator's existing conversation, open Sessions from its left header button,
-open pending Questions from **?**, or tap the assistant’s name for the status surface.
+open pending Questions from **?**, or tap the assistant’s name for the open work lanes list.
+Personal needs an optional household service that the daemon reaches via `PENTACLE_COSMO_URL`;
+without it the tab is empty or unavailable.
 Dashboards shows optional runtime catalog boards; its static registry is empty by default. Chats, Unified, and Updates remain
 available by route but are hidden from the tab bar.
 
@@ -105,12 +108,16 @@ rebuild or reset to the shipped defaults.
 
 Pentacle includes an optional **always-on assistant** — a persistent chat for
 talking to your whole fleet in one place. The home tab and header use its
-configured display name (default **Assistant**) and its host-associated identity
+configured display name (default **Zephyr**) and its host-associated identity
 icon. Rename the session to change the displayed name. It is opt-in: set
 `features.assistantRole` in your `pentacle.config.local.ts` to match the
 daemon's assistant role. You choose the assistant's name and provider when you
 bootstrap it on the daemon host — see the desktop
 [assistant guide](https://github.com/HJK6/pentacle/blob/main/docs/assistant.md).
+The home tab currently reads the assistant composite only from one stream id that the
+app hard-codes in `src/services/assistantIdentity.ts`. The daemon's bootstrap creates
+`<host>:assistant`, so unless the two match the home tab stays empty; open the
+assistant from the Sessions drawer instead.
 Each machine's icon (sigil) and colours are set per host; see
 [Branding](docs/COSMIC_THEME.md#branding) and
 [AGENT_SETUP.md](AGENT_SETUP.md#configure-the-app).

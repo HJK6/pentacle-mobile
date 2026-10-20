@@ -4,9 +4,8 @@
 
 The Updates tab implements the status-card screen only. The implementation is
 based on public main `8cf03b755c585bb61f205a8666ab2157e6c5a482` and the status-card
-section of the approved design ZIP, SHA-256
-`5ce4da052c83a7264cffe88a88bdadeef699a1fb83af6e60ce8da7b492c8db23` (17 files).
-The approved header text is **Bart**; the public-boundary guard is unchanged.
+section of the approved design. The header text is the assistant's configured name; the
+public-boundary guard is unchanged.
 The as-shipped contract is [Mobile UX / Updates](PENTACLE_MOBILE_SPEC.md#updates).
 
 Changed runtime paths are only `app/(tabs)/updates.tsx`, the new
