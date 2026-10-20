@@ -113,6 +113,8 @@ export function laneCardStateLabel(lane: WorkLane): string {
   if (lane.state === 'paused') {
     return ['lead_lost', 'lead_lost_unreconciled'].includes(lane.state_reason) ? 'PAUSED · LEAD LOST' : 'PAUSED';
   }
+  // An owner-loss fault: the FD is repairing it; it is not a pause and not idle work.
+  if (lane.state === 'active' && lane.state_reason === 'lead_lost') return 'ACTIVE · RECOVERING';
   if (lane.state === 'active') return lane.lead?.presence.working ? 'WORKING' : 'ACTIVE · IDLE';
   return laneStateLabel(lane.state);
 }

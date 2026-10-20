@@ -733,6 +733,19 @@ export interface WorkLaneMember {
   source_changed_at?: string | null;
   observation?: WorkLaneObservation;
   obs_rev?: number;
+  /** Seats whose work assignment is this spec; activity is an observation, never progress. */
+  seats?: WorkLaneSeat[];
+  seats_total?: number;
+  open_questions?: { count: number; first_question_id: string | null };
+}
+
+export interface WorkLaneSeat {
+  stream_id: string;
+  role: string | null;
+  host: string | null;
+  visibility: string | null;
+  activity: 'working' | 'idle' | 'offline' | 'unknown';
+  last_activity: string | null;
 }
 
 export interface WorkLaneAggregates {

@@ -142,6 +142,14 @@ export function useVoiceOverlayHost(visible: boolean, priority: number, name: st
   return { id, selected: presentation.host?.id === id };
 }
 export function voiceChatOwnsPresentation(value = state) { return !!value.surface?.chat && !(value.host && value.host.priority > (value.surface.priority ?? 0)); }
+/** Match protocol identity only on the selected, uncovered chat surface. */
+function destinationOwnsPresentation(streamId: string, value: typeof state) {
+  if (!voiceChatOwnsPresentation(value)) return false;
+  const page = value.surface!.page;
+  return page.page_id === 'assistant' ? streamId === ASSISTANT_STREAM_ID
+    : page.page_id === 'chat' && !!page.entity_id && page.entity_id === streamId;
+}
+const PASSIVE_DELIVERY_PHASES = new Set(['queued', 'uploading', 'transcribing', 'checking']);
 export function useVoicePresentation() {
   const presentation = useVoicePresentationState();
   const [capture, setCapture] = useState<RecordingSnapshot | null>(() => voiceRecorder.snapshot());
@@ -152,18 +160,25 @@ export function useVoicePresentation() {
   const takes = delivery.takes.filter(take => voiceRecorder.isOwnedByCurrentScope(take.recordingId));
   const take = !recording && !presentation.receipt ? takes.find(item => item.recordingId === presentation.recordingId) ?? takes[0] : undefined;
   const visible = lifecycle.foreground && lifecycle.unlocked && !!(recording || take || presentation.receipt);
-  return { ...presentation, capture, recording, take, takes, delivery, lifecycle, visible, anchored: voiceChatOwnsPresentation(presentation) };
+  // Dispatched/uncertain takes retain their Check again/local-copy recovery actions.
+  const suppressTakeProgress = !!take && PASSIVE_DELIVERY_PHASES.has(take.status)
+    && !take.manifest.dispatchIntent && !take.error && !take.manifest.delivery?.error && !delivery.storageError
+    && destinationOwnsPresentation(take.streamId, presentation);
+  // Presentation never clears a receipt or changes its proof-derived deadline.
+  const suppressBar = !recording && (presentation.receipt
+    ? destinationOwnsPresentation(presentation.receipt.streamId, presentation) : suppressTakeProgress);
+  return { ...presentation, capture, recording, take, takes, delivery, lifecycle, visible, suppressBar, suppressTakeProgress, anchored: voiceChatOwnsPresentation(presentation) };
 }
 export function useVoiceBarVisible(surfaceId?: string) {
   const value = useVoicePresentation();
-  return value.visible && value.anchored && value.surface?.id === surfaceId;
+  return value.visible && !value.suppressBar && value.anchored && value.surface?.id === surfaceId;
 }
 /** Phases that hold the composer slot: a local decision is pending or a bounded operation runs. */
 const COMPOSER_PHASES = new Set(['unsent', 'uploading', 'transcribing']);
 /** Waiting, unknown and failed takes leave the composer usable; the bar docks above it instead. */
 export function useVoiceBarOccupiesComposer(surfaceId?: string) {
   const value = useVoicePresentation();
-  return value.visible && value.anchored && value.surface?.id === surfaceId
+  return value.visible && !value.suppressBar && value.anchored && value.surface?.id === surfaceId
     && (!!value.recording || !!value.receipt || (!!value.take && COMPOSER_PHASES.has(value.take.status)));
 }
 export function setVoiceBarDy(recordingId: string, dy: number) {

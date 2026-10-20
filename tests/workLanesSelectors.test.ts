@@ -94,6 +94,7 @@ describe('one lane model for list and map', () => {
     ['active', 'fd', true, 'WORKING'], ['active', 'fd', false, 'ACTIVE · IDLE'],
     ['paused', 'fd', true, 'PAUSED'], ['paused', 'lead_lost', false, 'PAUSED · LEAD LOST'],
     ['paused', 'lead_lost_unreconciled', false, 'PAUSED · LEAD LOST'], ['blocked', 'fd', true, 'BLOCKED'],
+    ['active', 'lead_lost', false, 'ACTIVE · RECOVERING'], ['active', 'lead_lost', true, 'ACTIVE · RECOVERING'],
   ])('%s / %s / working %s', (state, state_reason, working, label) => {
     const lane = { ...base(), state, state_reason, lead: { ...base().lead!, presence: { ...base().lead!.presence, working } } };
     expect(laneCardStateLabel(lane)).toBe(label);

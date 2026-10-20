@@ -251,6 +251,7 @@ test.each<[Partial<WorkLane>, string]>([
     "PAUSED · LEAD LOST",
   ],
   [{ state: "blocked" }, "BLOCKED"],
+  [{ state: "active", state_reason: "lead_lost" }, "ACTIVE · RECOVERING"],
 ])("renders lane state %s as %s", (overrides, expected) => {
   const view = render(<LanesOverlay {...propsFor(frameFor(overrides))} />);
   expect(
