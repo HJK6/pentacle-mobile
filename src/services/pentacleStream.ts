@@ -10,6 +10,7 @@ import { getDefaultPentacleWsUrl } from '../config/pentacle';
 import { decodeThreadRead, logTelemetry, getHostTheme } from 'pentacle-chat-core';
 import { buildDaemonQuestionAnswer } from './daemonQuestionAnswer';
 import { TELEMETRY_EVENTS } from 'pentacle-chat-core';
+import { applyScheduleLifecycle, replaceScheduledFromSnapshot, type RecurringEdit, type RecurringRule } from './recurringSchedules';
 import * as harnessRuntime from '../utils/harnessRuntime';
 import { MOBILE_TELEMETRY_EVENTS } from './mobileTelemetryEvents';
 import { INITIAL_CHAT_FETCH_LIMIT } from './chatLoadTuning';
@@ -4029,6 +4030,21 @@ function handleMessageInner(raw: string) {
     return;
   }
 
+  // Scheduled screen: lifecycle pushes (no request_id) and the replies to the recurring commands.
+  if (typeof message.type === 'string' && message.type.startsWith('schedule.')) {
+    if (message.type === 'schedule.lifecycle') {
+      applyScheduleLifecycle(message);
+    } else if (typeof message.request_id === 'string') {
+      const pending = settlePendingRequest(message.request_id);
+      if (message.type.endsWith('.ok')) pending?.resolve(message);
+      else if (message.type.endsWith('.error')) {
+        pending?.reject(Object.assign(new Error(String(message.error || message.error_code || 'schedule command failed')),
+          { errorCode: String(message.error_code || 'schedule_command_failed') }));
+      }
+    }
+    return;
+  }
+
   if (typeof message.type === 'string' && message.type.startsWith('asset.')) {
     assetFrameListeners.forEach((listener) => listener(message));
     if (typeof message.request_id === 'string') {
@@ -4067,6 +4083,7 @@ function handleMessageInner(raw: string) {
   }
 
   if (message.type === 'snapshot') {
+    replaceScheduledFromSnapshot(message);
     const capabilities = message.capabilities as Record<string, unknown> | undefined;
     consentProtocolSupported = capabilities?.consent_enrollment_offer_v1 === true && capabilities?.consent_open_v1 === true;
     consentHostId = typeof message.consent_host_id === 'string' ? message.consent_host_id : '';
@@ -5722,6 +5739,16 @@ export function requestLaneHistory(
   if (typeof options.beforeDaemonSeq === 'number') payload.before_daemon_seq = options.beforeDaemonSeq;
   return sendCommand<PentacleEvent[]>(payload, LANE_HISTORY_REQUEST_PREFIX);
 }
+
+// The Scheduled screen may pause, resume and edit a recurring rule; create, run and delete stay on the CLI.
+function recurringCommand(verb: 'pause' | 'resume' | 'update', recurringId: string, fields: Record<string, unknown> = {}) {
+  return sendCommand<{ recurring?: RecurringRule }>(
+    { type: `schedule.recurring.${verb}`, recurring_id: recurringId, ...fields }, 'schedule',
+  );
+}
+export const pauseRecurringSchedule = (recurringId: string) => recurringCommand('pause', recurringId);
+export const resumeRecurringSchedule = (recurringId: string) => recurringCommand('resume', recurringId);
+export const updateRecurringSchedule = (recurringId: string, edit: RecurringEdit) => recurringCommand('update', recurringId, edit);
 
 /** Read-only full lane projection and audit log; never writes chat or session state. */
 export function requestWorkLaneShow(laneId: string): Promise<import('pentacle-chat-core').WorkLaneShow> {

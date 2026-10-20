@@ -11,7 +11,7 @@ import StatusTag from '../StatusTag';
 
 type Props = {
   identity: AssistantIdentity; others: number; pending: number; lanes: number; blocked?: number; working: boolean; top: number;
-  onDrawer(): void; onStatus(): void; onQuestions(): void;
+  onDrawer(): void; onStatus(): void; onQuestions(): void; onScheduled?(): void;
 };
 
 function HeaderButton({ kind, count, onPress }: { kind: 'sessions' | 'questions'; count: number; onPress(): void }) {
@@ -26,7 +26,7 @@ function HeaderButton({ kind, count, onPress }: { kind: 'sessions' | 'questions'
   </Pressable>;
 }
 
-export default function AssistantHeader({ identity, others, pending, lanes, blocked = 0, working, top, onDrawer, onStatus, onQuestions }: Props) {
+export default function AssistantHeader({ identity, others, pending, lanes, blocked = 0, working, top, onDrawer, onStatus, onQuestions, onScheduled }: Props) {
   return <View testID="assistant-header" style={[styles.header, { paddingTop: Math.max(top, 52) }]}>
     <HeaderButton kind="sessions" count={others} onPress={onDrawer} />
     <View style={styles.identity}>
@@ -45,6 +45,9 @@ export default function AssistantHeader({ identity, others, pending, lanes, bloc
           <Text style={styles.lanes}>{lanes} LANES</Text>
           {blocked > 0 ? <Text testID="assistant-lanes-blocked" style={styles.blocked}>{blocked} BLOCKED</Text> : null}
         </Pressable>
+        {onScheduled ? <Pressable testID="assistant-scheduled" onPress={onScheduled} accessibilityRole="button" accessibilityLabel="Scheduled" style={styles.scheduled}>
+          <Text style={styles.lanes}>SCHEDULED ›</Text>
+        </Pressable> : null}
       </View>
       <HeaderVoiceMic />
     </View>
@@ -66,5 +69,6 @@ const styles = StyleSheet.create({
   name: { color: Tokens.palette.text, fontFamily: Fonts.rajdhani.bold, fontSize: 17, lineHeight: 19 },
   meta: { flexDirection: 'row', alignItems: 'center', gap: 9, marginTop: 3 },
   lanes: { color: Tokens.palette.muted, fontFamily: Fonts.jetBrainsMono.regular, fontSize: 9.5, letterSpacing: 0.5 },
+  scheduled: { marginTop: 2 },
   blocked: { color: Tokens.palette.amber, fontFamily: Fonts.jetBrainsMono.bold, fontSize: 9.5, letterSpacing: 0.5 },
 });
