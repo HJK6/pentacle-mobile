@@ -10,14 +10,14 @@ import { useAssistantIdentity } from '../../src/services/assistantIdentity';
 import { logTabPressed } from '../../src/services/mobileTabsTelemetry';
 
 function PersonIcon({ color }: { color: string }) {
-  return <Svg testID="bart-tab-person" width={20} height={20} viewBox="0 0 24 24"
+  return <Svg testID="assistant-tab-person" width={20} height={20} viewBox="0 0 24 24"
     fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
     <Circle cx={12} cy={8} r={3.5} /><Path d="M5 20c1-3.6 3.8-5.5 7-5.5s6 1.9 7 5.5" />
   </Svg>;
 }
 
 function GridIcon({ color }: { color: string }) {
-  return <Svg testID="bart-tab-grid" width={20} height={20} viewBox="0 0 24 24"
+  return <Svg testID="assistant-tab-grid" width={20} height={20} viewBox="0 0 24 24"
     fill="none" stroke={color} strokeWidth={2}>
     <Rect x={4} y={4} width={7} height={9} rx={1} /><Rect x={13} y={4} width={7} height={5} rx={1} />
     <Rect x={13} y={11} width={7} height={9} rx={1} /><Rect x={4} y={15} width={7} height={5} rx={1} />
@@ -28,7 +28,7 @@ export default function TabLayout() {
   const insets = useSafeAreaInsets();
   const identity = useAssistantIdentity();
   const bottom = Math.max(insets.bottom, 22);
-  return <Tabs initialRouteName="bart" screenOptions={{
+  return <Tabs initialRouteName="assistant" screenOptions={{
     headerShown: false,
     tabBarHideOnKeyboard: true,
     tabBarActiveTintColor: Tokens.palette.green,
@@ -39,8 +39,8 @@ export default function TabLayout() {
     tabBarIconStyle: styles.icon,
     tabBarButton: (props) => <PlatformPressable {...props} style={[props.style, styles.button]} />,
   }}>
-    <Tabs.Screen name="bart" listeners={{ tabPress: () => logTabPressed('bart') }} options={{
-      title: identity.name, tabBarLabel: identity.name.toUpperCase(), tabBarButtonTestID: 'bart-tab-button',
+    <Tabs.Screen name="assistant" listeners={{ tabPress: () => logTabPressed('assistant') }} options={{
+      title: identity.name, tabBarLabel: identity.name.toUpperCase(), tabBarButtonTestID: 'assistant-tab-button',
       tabBarIcon: ({ color }) => <AssistantIcon identity={identity} size={22} color={color} />,
     }} />
     <Tabs.Screen name="personal" listeners={{ tabPress: () => logTabPressed('personal') }} options={{

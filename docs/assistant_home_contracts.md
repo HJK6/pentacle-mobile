@@ -23,13 +23,13 @@ The home tab, its header and the status surface show the operator's own assistan
 web does (`renderer/app.js` `syncSlotAssistantIcon`). Never hard-code a product name in a visible
 string; `tests/assistantIdentity.test.ts` parses `app/` and
 `src/components/{assistant,status,questions,personal}` and fails on any visible assistant product-name literal
-(`Bart`, `BART` or the long form, in string, template or JSX text; lowercase route, telemetry and module
-ids such as `'bart'`, the protocol id `bart:assistant` and `testID` values are not visible text).
+(the private assistant name in any case, or its long form, in string, template or JSX text; route, telemetry and module
+ids such as `'assistant'`, the protocol id `home:assistant` and `testID` values are not visible text).
 
 `src/services/assistantIdentity.ts` (shared edit S7):
 
 - `selectAssistantIdentity(state): { streamId, name, hostId, sigilKind }` — `streamId` is
-  `ASSISTANT_STREAM_ID` (`'bart:assistant'`, equal to `BART_STREAM_ID`); `name` is the assistant
+  `ASSISTANT_STREAM_ID` (`'home:assistant'` unless `features.assistantStreamId` is set); `name` is the assistant
   session's `display_name`, else its `title`, else `'Zephyr'` (blank values skipped); `hostId` is
   the session's host (`null` before the session arrives); `sigilKind` is `'djinni'`. Draw the icon as
   that host's machine sigil with kind `djinni`: `AssistantIcon` / `assistantAccent(identity)` in
@@ -40,14 +40,15 @@ ids such as `'bart'`, the protocol id `bart:assistant` and `testID` values are n
 
 Consumers: the status surface header (`StatusSurface.tsx`, the one sanctioned edit; props
 unchanged), the home tab (`app/(tabs)/_layout.tsx`: title = `name`, label = `name` upper-cased, icon
-= `AssistantIcon`), the home header (`BartHeader`: name, sigil, accent), the Questions overlay's
+= `AssistantIcon`), the home header (`AssistantHeader`: name, sigil, accent), the Questions overlay's
 assistant page (`QuestionsScreen`: name and sigil) and the Personal calendar's "ADDED BY" tag.
 Labels such as "Questions" stay generic.
 
 ## Shared constants
 
-- `BART_STREAM_ID = 'bart:assistant'`, exported from `src/components/status/statusSelectors.ts`
-  (PR #8). Import it; never re-declare the literal.
+- `ASSISTANT_STREAM_ID`, exported from `src/services/assistantIdentity.ts`: `features.assistantStreamId` from the
+  local config, default `'home:assistant'` (`getAssistantStreamId` in `src/config/local.ts`). It must equal the
+  daemon's `PENTACLE_ASSISTANT_COMPOSITE_STREAM_ID`. Import it; never re-declare the literal.
 
 ## Routes
 
@@ -57,7 +58,7 @@ no shared edit to register. A route sets its own presentation (e.g. the Question
 
 | Route | File (owner) | Params | Behaviour |
 | --- | --- | --- | --- |
-| `/(tabs)/bart` | `app/(tabs)/bart.tsx` (P3) | none | Home tab; initial route of the tab navigator. |
+| `/(tabs)/assistant` | `app/(tabs)/assistant.tsx` (P3) | none | Home tab; initial route of the tab navigator. |
 | `/(tabs)/personal` | `app/(tabs)/personal.tsx` (P5; P3 may ship a placeholder only if P5 has not landed) | none | Personal tab. |
 | `/pentacle/questions` | `app/pentacle/questions.tsx` (P4) | `notificationId?: string` | Full-screen overlay over the current screen. Opens on the first page of that notification when it is still pending, otherwise on page 1. Closing returns with `router.back()`. |
 | `/pentacle/personal/lists` | `app/pentacle/personal/lists.tsx` (P5) | none | Lists index; back chevron returns to Personal. |
@@ -108,10 +109,10 @@ must equal that deck's length for every state (a unit test asserts this).
 
 ### `selectOthersNeedingYou(state): SmartChatListItem[]` — owned by P3
 
-File: `src/components/assistant/bartSelectors.ts`. The ☰ badge shows `.length` (hidden at 0).
+File: `src/components/assistant/assistantSelectors.ts`. The ☰ badge shows `.length` (hidden at 0).
 
 ```ts
-selectSmartChatList(state).filter((chat) => chat.streamId !== BART_STREAM_ID && smartChatAttention(chat))
+selectSmartChatList(state).filter((chat) => chat.streamId !== ASSISTANT_STREAM_ID && smartChatAttention(chat))
 ```
 
 This is the Chats screen's needs-you rule (`smartChatAttention`: at least one open question action)
@@ -131,7 +132,7 @@ button uses the same hook. Do not copy the spawn logic.
 ## Tab telemetry
 
 `logFocusedTab` / `logTabPressed` (`src/services/mobileTabsTelemetry.ts`) accept the exported
-`MobileTabName`, which includes `'bart'` and `'personal'` (shared edit S6).
+`MobileTabName`, which includes `'assistant'` and `'personal'` (shared edit S6).
 
 ## Status surface (locked, PR #8)
 
@@ -146,7 +147,7 @@ button uses the same hook. Do not copy the spawn logic.
 with `updates = selectStatusUpdates(state)` and `lanes = selectOpenLanes(state)` from
 `statusSelectors.ts`. Since v1.8 the assistant header no longer opens it (its lanes tap goes to
 `/pentacle/lanes`, § Work lanes); it stays reachable from the Updates route
-(`app/(tabs)/updates.tsx`, `UpdatesScreen`) unchanged. `src/components/assistant/BartStatusOverlay.tsx`
+(`app/(tabs)/updates.tsx`, `UpdatesScreen`) unchanged. `src/components/assistant/AssistantStatusOverlay.tsx`
 is kept, unmounted from the header. Any API change is an integration request, not a packet edit.
 
 ## Work lanes
@@ -249,9 +250,9 @@ The route's default export renders `SessionScreen` fed by `useLocalSearchParams`
 session route is unchanged when `header` is absent. With a `header` the screen is embedded: no stack
 options, no back/menu header, and no redirect away when the session is missing. The session's own
 back button and missing-session redirect return to the home destination `HOME_ROUTE`
-(`'/(tabs)/bart'`, `src/services/homeRoute.ts`, shared edit S3), which is also the app's launch
-redirect (`app/index.tsx`), the post-enrollment target and the push-tap stack seed. `app/(tabs)/bart.tsx` renders
-`<SessionScreen streamId={BART_STREAM_ID} header={<BartHeader … />} questionsInHeader />`: the header's
+(`'/(tabs)/assistant'`, `src/services/homeRoute.ts`, shared edit S3), which is also the app's launch
+redirect (`app/index.tsx`), the post-enrollment target and the push-tap stack seed. `app/(tabs)/assistant.tsx` renders
+`<SessionScreen streamId={ASSISTANT_STREAM_ID} header={<AssistantHeader … />} questionsInHeader />`: the header's
 Questions button is then the only questions control on the home screen, and the glowing in-chat FAB
 (`QuestionFab`) stays on every other chat, where it is the sole affordance. P3 does not fork or copy
 the session screen.

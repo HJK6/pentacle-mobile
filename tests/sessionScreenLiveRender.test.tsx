@@ -319,7 +319,7 @@ test('Back to chats falls back to the assistant home tab when no navigation hist
 
   expect(mockKeyboardDismiss).toHaveBeenCalled();
   expect(mockRouterBack).not.toHaveBeenCalled();
-  expect(mockRouterReplace).toHaveBeenCalledWith('/(tabs)/bart');
+  expect(mockRouterReplace).toHaveBeenCalledWith('/(tabs)/assistant');
 });
 
 test('session detail header renders status card fields and indicators', async () => {

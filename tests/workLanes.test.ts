@@ -65,7 +65,7 @@ test('lead status card adapts to the shared status-card shape', () => {
   expect(laneLeadStatusCard({ ...lane('wl-active-0002'), lead: null })).toBeNull();
 });
 
-test('lane updates are the lane_update events of the Bart timeline, newest first, no duplicates', () => {
+test('lane updates are the lane_update events of the assistant timeline, newest first, no duplicates', () => {
   const events: PentacleEvent[] = fixture.lane_update_events.map((frame: { event: PentacleEvent }) => frame.event);
   const base = { ...initialPentacleStreamState, events: [...events, events[0], {
     ...events[0], daemon_seq: 2000, message_id: 'prose-1', publish_kind: 'prose', text: 'not a lane update',

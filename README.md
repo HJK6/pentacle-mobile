@@ -23,7 +23,7 @@ A machine's live status at a glance:
 
 Talk to the always-on assistant:
 
-![Mobile chat with the always-on assistant showing a sample conversation](docs/images/kitv2-mobile-bart-chat.png)
+![Mobile chat with the always-on assistant showing a sample conversation](docs/images/kitv2-mobile-assistant-chat.png)
 
 Open any machine and read its chat:
 
@@ -55,7 +55,7 @@ without it the tab is empty or unavailable.
 Dashboards shows optional runtime catalog boards; its static registry is empty by default. Chats, Unified, and Updates remain
 available by route but are hidden from the tab bar.
 
-See [the assistant shell guide](docs/bart_shell.md) for the source files, drawer
+See [the assistant shell guide](docs/assistant_shell.md) for the source files, drawer
 behavior, and the separately owned startup/back-navigation integration.
 
 ## Do I need chat-core separately?
@@ -114,10 +114,11 @@ icon. Rename the session to change the displayed name. It is opt-in: set
 daemon's assistant role. You choose the assistant's name and provider when you
 bootstrap it on the daemon host — see the desktop
 [assistant guide](https://github.com/HJK6/pentacle/blob/main/docs/assistant.md).
-The home tab currently reads the assistant composite only from one stream id that the
-app hard-codes in `src/services/assistantIdentity.ts`. The daemon's bootstrap creates
-`<host>:assistant`, so unless the two match the home tab stays empty; open the
-assistant from the Sessions drawer instead.
+The home tab reads the assistant composite from one stream id, `features.assistantStreamId`
+in your `pentacle.config.local.ts` (default `home:assistant`). It must equal the daemon's
+`PENTACLE_ASSISTANT_COMPOSITE_STREAM_ID` (the bootstrap creates `<host>:assistant`), or the
+home tab stays empty; open the assistant from the Sessions drawer instead. The host part of
+that id is treated as the assistant identity and is never listed as a fleet machine.
 Each machine's icon (sigil) and colours are set per host; see
 [Branding](docs/COSMIC_THEME.md#branding) and
 [AGENT_SETUP.md](AGENT_SETUP.md#configure-the-app).

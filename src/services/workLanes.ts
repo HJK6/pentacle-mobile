@@ -8,7 +8,7 @@ import {
   type WorkLaneTap, type WorkLaneUpdate, type WorkLaneEstimate, type WorkLaneMember,
 } from 'pentacle-chat-core';
 import { selectQuestionDeck } from '../components/questions/questionSelectors';
-import { BART_STREAM_ID } from '../components/status/statusSelectors';
+import { ASSISTANT_STREAM_ID } from './assistantIdentity';
 import { formatLaneEta } from './laneEta';
 
 export { selectOpenLaneCount, selectWorkLaneCounts, selectWorkLanes };
@@ -62,11 +62,11 @@ export function laneLeadStatusCard(lane: WorkLane): SessionStatusCard | null {
 
 export type LaneUpdateEntry = { event: PentacleEvent; update: WorkLaneUpdate };
 
-/** Typed lane updates in Bart's visible timeline, newest first, one per message id. */
+/** Typed lane updates in the assistant's visible timeline, newest first, one per message id. */
 export function selectLaneUpdates(state: PentacleStreamState): LaneUpdateEntry[] {
   const seen = new Set<string>();
   const entries: LaneUpdateEntry[] = [];
-  for (const event of peekEventsForStream(state, BART_STREAM_ID)) {
+  for (const event of peekEventsForStream(state, ASSISTANT_STREAM_ID)) {
     const update = parseLaneUpdateEvent(event);
     const key = event.message_id || update?.update_id;
     if (!update || !key || seen.has(key)) continue;

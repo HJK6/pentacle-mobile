@@ -16,7 +16,7 @@ import {
 import { makeRecorderHarness } from './voiceHarness';
 import { ASSISTANT_STREAM_ID } from '../../src/services/assistantIdentity';
 import {
-  BART,
+  ASSISTANT_ID,
   HIDDEN_SEAT,
   HOSTS_CONFIG,
   LEGACY_SESSION,
@@ -127,7 +127,7 @@ function installActions() {
   mockActions.sendMessage = jest.fn().mockResolvedValue(undefined);
 }
 
-// Three durable questions (Host C session, Host B session, Bart) + one legacy keyed question.
+// Three durable questions (Host C session, Host B session, the assistant) + one legacy keyed question.
 function threeDurableOneLegacy(extraNotifications: unknown[] = []) {
   return baseState({
     sessions: [
@@ -139,7 +139,7 @@ function threeDurableOneLegacy(extraNotifications: unknown[] = []) {
     notifications: [
       durableQuestion(SESSION_C, 'n-deploy'),
       durableQuestion(SESSION_B, 'n-review'),
-      durableQuestion(BART, 'n-bart'),
+      durableQuestion(ASSISTANT_ID, 'n-assistant'),
       ...extraNotifications,
     ],
   });
@@ -348,7 +348,7 @@ describe('Done (V1 selected set, V2 binding, V5 no false answers)', () => {
     expect(mockHarness.stopped).toHaveLength(1);
     expect(mockBack).toHaveBeenCalledTimes(1);
     const take = mockHarness.stopped[0];
-    expect(take.streamId).toBe(BART);
+    expect(take.streamId).toBe(ASSISTANT_ID);
     const meta = buildVoiceAnswersMeta(take.recordingId, { blobSha: 'sha256:blob', durationS: take.durationS })!;
     expect(meta).toMatchObject({ version: 1, recording_id: take.recordingId, blob_sha: 'sha256:blob', duration_s: take.durationS });
     expect(meta.items.map((item) => item.key)).toEqual([durable[0], durable[1]]);
@@ -376,7 +376,7 @@ describe('Done (V1 selected set, V2 binding, V5 no false answers)', () => {
   });
 
   test('a surfaced hidden-seat question binds producer and surface ids separately', async () => {
-    const surfaced = durableQuestion(HIDDEN_SEAT, 'n-hidden', { surfaced_to_stream_id: BART });
+    const surfaced = durableQuestion(HIDDEN_SEAT, 'n-hidden', { surfaced_to_stream_id: ASSISTANT_ID });
     mockState = baseState({
       sessions: [session(ASSISTANT_STREAM_ID, 'Zephyr'), session(HIDDEN_SEAT, 'Hidden seat', { visibility: 'hidden' })],
       notifications: [surfaced],
@@ -386,7 +386,7 @@ describe('Done (V1 selected set, V2 binding, V5 no false answers)', () => {
     await press('questions-voice-done');
     const meta = buildVoiceAnswersMeta(mockHarness.stopped[0].recordingId, { blobSha: 's', durationS: 2 })!;
     expect(meta.items).toHaveLength(1);
-    expect(meta.items[0]).toMatchObject({ producer_stream_id: HIDDEN_SEAT, surface_stream_id: BART, notification_id: 'n-hidden' });
+    expect(meta.items[0]).toMatchObject({ producer_stream_id: HIDDEN_SEAT, surface_stream_id: ASSISTANT_ID, notification_id: 'n-hidden' });
   });
 
   test('arrivals are never selected even after a long dwell; pages answered elsewhere drop out of the binding', async () => {

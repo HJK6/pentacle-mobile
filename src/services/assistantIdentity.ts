@@ -1,9 +1,11 @@
 import type { PentacleStreamState } from 'pentacle-chat-core';
+import { getAssistantStreamId } from '../config/local';
 import { usePentacleStreamSelectorWhen } from './pentacleStream';
 
 // The protected assistant's thread. The id is protocol, not a display name: what the
-// operator sees comes from selectAssistantIdentity.
-export const ASSISTANT_STREAM_ID = 'bart:assistant';
+// operator sees comes from selectAssistantIdentity. It must equal the daemon's
+// composite stream id (features.assistantStreamId, default 'home:assistant').
+export const ASSISTANT_STREAM_ID = getAssistantStreamId();
 export const DEFAULT_ASSISTANT_NAME = 'Zephyr';
 
 export type AssistantIdentity = {

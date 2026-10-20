@@ -23,6 +23,17 @@ function extraConfig(): Record<string, unknown> {
   return (Constants.expoConfig?.extra || {}) as Record<string, unknown>;
 }
 
+// Public default for the assistant composite's stream id. A private build sets
+// `features.assistantStreamId` to the id its daemon uses (README, "Assistant").
+export const DEFAULT_ASSISTANT_STREAM_ID = 'home:assistant';
+
+export function getAssistantStreamId() {
+  const features = extraConfig().features;
+  if (!features || typeof features !== 'object' || Array.isArray(features)) return DEFAULT_ASSISTANT_STREAM_ID;
+  const streamId = (features as Record<string, unknown>).assistantStreamId;
+  return typeof streamId === 'string' && streamId.trim() ? streamId.trim() : DEFAULT_ASSISTANT_STREAM_ID;
+}
+
 export function getAssistantRole() {
   const features = extraConfig().features;
   if (!features || typeof features !== 'object' || Array.isArray(features)) return '';
@@ -123,29 +134,32 @@ const SIGIL_TO_MACHINE: Record<MachineSigilKind, MachineName> = (
   return acc;
 }, {} as Record<MachineSigilKind, MachineName>);
 
-// Host ids that name the canonical assistant IDENTITY rather than a physical
-// machine. "bart" (e.g. the bart:assistant identity address) is not a fleet host
-// — the Bart Mac mini was retired — but a chat that carries it must still wear
-// the djinni skin. Mapped explicitly here so the identity never depends on a
-// positional accident (see getHostMachineName's neutral fallback below).
-const HOST_IDENTITY_MACHINE: Record<string, MachineName> = {
-  bart: 'hosta',
-};
+// The host part of the assistant's stream id names the canonical assistant IDENTITY
+// rather than a physical machine (e.g. `<host>:assistant`). It is not a fleet host, but
+// a chat that carries it must still wear the djinni skin. Derived from the same resolver
+// as ASSISTANT_STREAM_ID so the identity never depends on a positional accident (see
+// getHostMachineName's neutral fallback below).
+const IDENTITY_MACHINE: MachineName = 'hosta';
+
+function assistantIdentityHost() {
+  return normalizePentacleHost(getAssistantStreamId().split(':')[0]);
+}
 
 // True for a host id that names the canonical assistant IDENTITY rather than a
 // physical machine. Host-LIST surfaces (spawn picker, machine stats, filter
 // roster) filter these out so an identity can never appear as a spawnable/stat
-// machine — a code-level guarantee that the retired assistant identity machine stays
+// machine — a code-level guarantee that the assistant identity host stays
 // gone even if the daemon ever emitted a session or stats entry keyed on it.
 // Chat surfaces do NOT filter: an identity chat still renders (via djinni).
 export function isIdentityHost(host: string): boolean {
-  return Boolean(HOST_IDENTITY_MACHINE[normalizePentacleHost(host)]);
+  const identityHost = assistantIdentityHost();
+  return Boolean(identityHost) && normalizePentacleHost(host) === identityHost;
 }
 
 // Resolve a configured host id to the arcane sigil skin it should wear. This is the
 // single host→sigil mapping in the app; every call site (chat rows, roster strip,
 // session header, settings tabs, summon grid) delegates here.
-//   1. explicit assistant-identity host (e.g. `bart`) → its identity machine;
+//   1. assistant-identity host (the host part of the assistant stream id) → its identity machine;
 //   2. explicit `sigil` on the host's config wins;
 //   3. else positional over the configured hostOrder (legacy behavior — preserved for
 //      configs without sigils, not the intended skin);
@@ -154,9 +168,8 @@ export function isIdentityHost(host: string): boolean {
 //      that made an unconfigured scribe host render as assistant identity/djinni).
 export function getHostMachineName(host: string): MachineName {
   const hostId = normalizePentacleHost(host);
-  const identity = HOST_IDENTITY_MACHINE[hostId];
-  if (identity) {
-    return identity;
+  if (isIdentityHost(hostId)) {
+    return IDENTITY_MACHINE;
   }
   const sigil = configuredHosts()[hostId]?.sigil;
   if (sigil && SIGIL_TO_MACHINE[sigil]) {
@@ -170,7 +183,7 @@ export function getHostMachineName(host: string): MachineName {
 }
 
 // Resolve the skin for a CHAT surface (chat row, session header). The canonical
-// Bart assistant is a daemon-owned composite conversation that runs on an
+// assistant is a daemon-owned composite conversation that runs on an
 // ordinary machine host (e.g. scribe), so its host would otherwise resolve to
 // that machine's skin. The protected assistant identity is pinned to djinni
 // explicitly, independent of which host serves it. All other chats delegate to

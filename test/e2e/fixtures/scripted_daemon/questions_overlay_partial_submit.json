@@ -33,8 +33,8 @@
         "online": true
       },
       {
-        "stream_id": "bart:assistant",
-        "host": "bart",
+        "stream_id": "home:assistant",
+        "host": "assistant",
         "provider": "claude",
         "session_name": "assistant",
         "title": "Zephyr",
@@ -162,8 +162,8 @@
         "state": "open",
         "producer": "agent_question.v1",
         "severity": "info",
-        "title": "Overlay question Q-BART",
-        "body": "Q-BART: pick one",
+        "title": "Overlay question Q-ASSISTANT",
+        "body": "Q-ASSISTANT: pick one",
         "actions": [
           {
             "kind": "ack",
@@ -174,11 +174,11 @@
         "question": {
           "schema_version": 1,
           "state": "open",
-          "question_id": "q-overlay-bart",
-          "title": "Overlay question Q-BART",
-          "body": "Q-BART: pick one",
-          "dedup_key": "q-overlay-bart",
-          "producer_stream_id": "bart:assistant",
+          "question_id": "q-overlay-assistant",
+          "title": "Overlay question Q-ASSISTANT",
+          "body": "Q-ASSISTANT: pick one",
+          "dedup_key": "q-overlay-assistant",
+          "producer_stream_id": "home:assistant",
           "producer_provider": "claude",
           "response_mode": "single_choice",
           "options": [

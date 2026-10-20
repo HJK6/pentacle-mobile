@@ -1,6 +1,6 @@
 /**
  * Chats-list preview must equal the thread's last row for the assistant
- * assistant composite (spec_pentacle_mobile__bart_chat_preview_thread_parity_2026_10).
+ * assistant composite (spec_pentacle_mobile__assistant_chat_preview_thread_parity_2026_10).
  *
  * Fixture: the 2026-10-06 receipt tail of the composite (working session, last
  * durable row a USER question with no assistant reply after it). The daemon
@@ -41,7 +41,7 @@ function userRow(seq: number, at: string, text: string) {
   return baseEvent(seq, at, {
     kind: 'USER',
     text,
-    message_id: 'assistant-input:optimistic_bart_assistant_launch',
+    message_id: 'assistant-input:optimistic_assistant_assistant_launch',
   });
 }
 
@@ -114,7 +114,7 @@ function threadLastRow(state: any, visibleCount: number | 'all') {
   return detail!.transcriptItems.at(-1);
 }
 
-describe('Bart chat-list preview matches the thread (composite, working, last row USER)', () => {
+describe('The assistant chat-list preview matches the thread (composite, working, last row USER)', () => {
   const QUESTION = 'To finish all five levels of the stand, not just this one level.';
 
   test.each([
@@ -200,7 +200,7 @@ describe('Bart chat-list preview matches the thread (composite, working, last ro
 
 describe('turn-final projection row renders as an assistant bubble', () => {
   const DISPATCH = 'assistant-direct-ab64b38362164270aa5f2b57b80b6454';
-  const INPUT_IDENTITY = 'assistant-input:optimistic_bart_assistant_launch';
+  const INPUT_IDENTITY = 'assistant-input:optimistic_assistant_assistant_launch';
   const TURN_FINAL_TEXT = "I don't have the filament total for all five levels yet. My last answer only counted what's left on the current level.";
 
   // Canonical shape from spec_pentacle__dispatch_turn_final_projection_2026_10

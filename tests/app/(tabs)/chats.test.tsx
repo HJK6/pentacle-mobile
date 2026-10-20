@@ -718,7 +718,7 @@ test('smart chat selector leaves assistant roles unpinned unless configured and 
   expect(smartChatAttention(pinned[1])).toBe(true);
 });
 
-test.each(['', 'assistant'])('composite Bart stays first with assistant role config %j', (assistantRole) => {
+test.each(['', 'assistant'])('composite assistant stays first with assistant role config %j', (assistantRole) => {
   const primary = { ...session('hostc:assistant', 'Zephyr'), provider: 'composite', role: 'assistant_composite', session_kind: 'assistant_composite', last_event_at: '2026-07-05T07:00:00.000Z' };
   const action = { ...session('hostc:codex:action', 'Needs answer'), last_event_at: '2026-07-05T10:00:00.000Z' };
   const working = { ...session('hostc:codex:working', 'Still working'), working: true, last_event_at: '2026-07-05T09:00:00.000Z' };
@@ -732,7 +732,7 @@ test.each(['', 'assistant'])('composite Bart stays first with assistant role con
   expect(rows[0].role).toBe('assistant_composite');
 });
 
-test('rendered chat list pins composite Bart above a newer question and working row', () => {
+test('rendered chat list pins composite assistant above a newer question and working row', () => {
   mockState.sessions = [
     { ...session('hostc:codex:action', 'Needs answer'), last_event_at: '2026-07-05T10:00:00.000Z' },
     { ...session('hostc:codex:working', 'Still working'), working: true, last_event_at: '2026-07-05T09:00:00.000Z' },

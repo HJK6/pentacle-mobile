@@ -8,7 +8,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Fonts } from '../../../constants/Colors';
 import { useHouseholdStore } from '../../services/household/householdStore';
 import {
-  MAX_MONTH, MIN_MONTH, dateIn, dayLabel, daysInMonth, eventsOn, formatTime, isBartEvent, monthName, monthOf,
+  MAX_MONTH, MIN_MONTH, dateIn, dayLabel, daysInMonth, eventsOn, formatTime, isAssistantEvent, monthName, monthOf,
   parseRouteDate, partnerName, selectionForMonth, shiftMonth, weekdayIndex, whoDisplay, yearOf,
 } from '../../services/household/selectors';
 import AddEventSheet from './AddEventSheet';
@@ -151,7 +151,7 @@ export default function CalendarView({ date }: { date?: string }) {
                       {dots.map((event) => (
                         <View
                           key={event.id}
-                          style={[styles.dot, { backgroundColor: isBartEvent(event) ? P.green : P.dim }]}
+                          style={[styles.dot, { backgroundColor: isAssistantEvent(event) ? P.green : P.dim }]}
                         />
                       ))}
                     </View>
@@ -183,11 +183,11 @@ export default function CalendarView({ date }: { date?: string }) {
                 <Text style={styles.title} numberOfLines={1}>{event.title}</Text>
                 <View style={styles.meta}>
                   <Text style={styles.metaText}>{who.label}</Text>
-                  {isBartEvent(event) ? (
-                    <View style={styles.bart}>
-                      <Text style={[styles.metaText, styles.bartText]}>·</Text>
+                  {isAssistantEvent(event) ? (
+                    <View style={styles.assistant}>
+                      <Text style={[styles.metaText, styles.assistantText]}>·</Text>
                       <Lamp size={12} />
-                      <Text style={[styles.metaText, styles.bartText]}>ADDED BY {assistant.name.toUpperCase()}</Text>
+                      <Text style={[styles.metaText, styles.assistantText]}>ADDED BY {assistant.name.toUpperCase()}</Text>
                     </View>
                   ) : null}
                 </View>
@@ -279,8 +279,8 @@ const styles = StyleSheet.create({
   title: { fontFamily: Fonts.rajdhani.semiBold, fontSize: 16, color: P.text },
   meta: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 },
   metaText: { fontFamily: Fonts.jetBrainsMono.regular, fontSize: 9, letterSpacing: 1, color: P.muted },
-  bart: { flexDirection: 'row', alignItems: 'center', gap: 3 },
-  bartText: { color: P.green },
+  assistant: { flexDirection: 'row', alignItems: 'center', gap: 3 },
+  assistantText: { color: P.green },
   remove: { padding: 6 },
   removeText: { color: P.muted, fontSize: 14 },
 });

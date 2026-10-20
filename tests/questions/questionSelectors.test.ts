@@ -1,7 +1,6 @@
 import { ASSISTANT_STREAM_ID } from '../../src/services/assistantIdentity';
 import { selectSmartChatList } from '../../app/(tabs)/chats';
 import { mobileQuestionItems } from '../../src/components/MobileQuestions';
-import { BART_STREAM_ID } from '../../src/components/status/statusSelectors';
 import { selectOptimisticQuestionAnswerIdentities } from '../../src/services/pentacleStream';
 import { questionForAction } from '../../src/services/questionSubmit';
 import {
@@ -10,7 +9,7 @@ import {
 } from '../../src/components/questions/questionSelectors';
 import {
   SESSION_B,
-  BART,
+  ASSISTANT_ID,
   HIDDEN_SEAT,
   HOSTS_CONFIG,
   LEGACY_SESSION,
@@ -32,7 +31,7 @@ afterEach(() => {
   delete (globalThis as Record<string, unknown>).__PENTACLE_EXPO_CONFIG__;
 });
 
-// The count formula, implemented independently from docs/bart_home_contracts.md v1.4:
+// The count formula, implemented independently from docs/assistant_home_contracts.md v1.4:
 //   (the v1.2 reduce over selectSmartChatList)
 //   - durable items covered by selectOptimisticQuestionAnswerIdentities({notificationId, questionId})
 //   - durable items whose raw notification.question.questions[i] has a `state` present and not
@@ -66,14 +65,14 @@ function contractCount(state: any): number {
 const keys = (state: any) => selectQuestionDeck(state).map((entry) => entry.key);
 
 describe('selectQuestionDeck (C1)', () => {
-  test('lists every open item from Bart, sessions, a hidden seat, a two-item durable and a legacy question in Chats order', () => {
+  test('lists every open item from the assistant, sessions, a hidden seat, a two-item durable and a legacy question in Chats order', () => {
     const state = fixtureState();
     expect(keys(state)).toEqual([
       'n-deploy:0',
       'n-deploy:1',
       'n-review:0',
       `legacy:${LEGACY_SESSION}:0`,
-      'n-bart:0',
+      'n-assistant:0',
       'n-hidden:0',
     ]);
     // Same order as selectSmartChatList -> openQuestions -> mobileQuestionItems.
@@ -89,7 +88,7 @@ describe('selectQuestionDeck (C1)', () => {
     expect(hostc).toMatchObject({
       key: 'n-deploy:0',
       streamId: SESSION_C,
-      isBart: false,
+      isAssistant: false,
       machineLabel: 'Host C',
       sessionTitle: 'Deploy lane',
       itemIndex: 0,
@@ -105,14 +104,14 @@ describe('selectQuestionDeck (C1)', () => {
     expect(deck.find((entry) => entry.streamId === HIDDEN_SEAT)).toBeTruthy();
   });
 
-  test('Bart is detected by BART_STREAM_ID, gets the lamp green accent and is the only isBart entry', () => {
+  test('The assistant is detected by ASSISTANT_STREAM_ID, gets the lamp green accent and is the only isAssistant entry', () => {
     const deck = selectQuestionDeck(fixtureState());
-    expect(BART_STREAM_ID).toBe(BART);
-    const bart = deck.filter((entry) => entry.isBart);
-    expect(bart.map((entry) => entry.key)).toEqual(['n-bart:0']);
-    expect(bart[0].streamId).toBe(BART_STREAM_ID);
-    expect(bart[0].accent).toBe('#3dff66');
-    expect(deck.filter((entry) => !entry.isBart).every((entry) => entry.streamId !== BART_STREAM_ID)).toBe(true);
+    expect(ASSISTANT_STREAM_ID).toBe(ASSISTANT_ID);
+    const assistantEntries = deck.filter((entry) => entry.isAssistant);
+    expect(assistantEntries.map((entry) => entry.key)).toEqual(['n-assistant:0']);
+    expect(assistantEntries[0].streamId).toBe(ASSISTANT_STREAM_ID);
+    expect(assistantEntries[0].accent).toBe('#3dff66');
+    expect(deck.filter((entry) => !entry.isAssistant).every((entry) => entry.streamId !== ASSISTANT_STREAM_ID)).toBe(true);
   });
 
   test('daemon-closed and fully covered notifications are excluded', () => {
@@ -125,8 +124,8 @@ describe('selectQuestionDeck (C1)', () => {
     expect(keys(state)).not.toContain('n-review:0');
     expect(keys(state)).toHaveLength(5);
 
-    const covered = fixtureState({ optimisticSends: { a: optimisticAnswer('n-bart', 'q-n-bart') } });
-    expect(keys(covered)).not.toContain('n-bart:0');
+    const covered = fixtureState({ optimisticSends: { a: optimisticAnswer('n-assistant', 'q-n-assistant') } });
+    expect(keys(covered)).not.toContain('n-assistant:0');
   });
 
   test('a legacy question leaves the deck once the dismissed question leaves the session state', () => {
@@ -150,7 +149,7 @@ describe('per-item removal on multi-item durable notifications', () => {
     const before = fixtureState();
     const after = fixtureState({ optimisticSends: { a: optimisticAnswer('n-deploy', 'q-n-deploy-a') } });
     expect(keys(before)).toHaveLength(6);
-    expect(keys(after)).toEqual(['n-deploy:1', 'n-review:0', `legacy:${LEGACY_SESSION}:0`, 'n-bart:0', 'n-hidden:0']);
+    expect(keys(after)).toEqual(['n-deploy:1', 'n-review:0', `legacy:${LEGACY_SESSION}:0`, 'n-assistant:0', 'n-hidden:0']);
     expect(selectPendingQuestionCount(before) - selectPendingQuestionCount(after)).toBe(1);
     // The surviving page is the unanswered item, still keyed by its original item index.
     expect(selectQuestionDeck(after)[0].question.prompt).toBe('n-deploy second?');
@@ -198,7 +197,7 @@ describe('per-item removal on multi-item durable notifications', () => {
       n.notification_id === 'n-deploy' ? twoItemQuestion(SESSION_C, 'n-deploy', { a: patch }) : n
     ));
     expect(selectOptimisticQuestionAnswerIdentities(state)).toEqual([]);
-    expect(keys(state)).toEqual(['n-deploy:1', 'n-review:0', `legacy:${LEGACY_SESSION}:0`, 'n-bart:0', 'n-hidden:0']);
+    expect(keys(state)).toEqual(['n-deploy:1', 'n-review:0', `legacy:${LEGACY_SESSION}:0`, 'n-assistant:0', 'n-hidden:0']);
     expect(selectPendingQuestionCount(state)).toBe(5);
     expect(selectPendingQuestionCount(state)).toBe(contractCount(state));
   });
@@ -227,9 +226,9 @@ describe('per-item removal on multi-item durable notifications', () => {
 describe('selectPendingQuestionCount (C2)', () => {
   const states: Array<[string, () => any]> = [
     ['empty', () => baseState()],
-    ['bart only', () => baseState({
+    ['assistant only', () => baseState({
       sessions: [session(ASSISTANT_STREAM_ID, 'Zephyr')],
-      notifications: [durableQuestion(BART, 'n-bart')],
+      notifications: [durableQuestion(ASSISTANT_ID, 'n-assistant')],
     })],
     ['full fixture', () => fixtureState()],
     ['two-item partial-optimistic', () => fixtureState({ optimisticSends: { a: optimisticAnswer('n-deploy', 'q-n-deploy-a') } })],

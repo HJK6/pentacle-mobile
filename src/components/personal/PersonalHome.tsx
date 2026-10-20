@@ -6,7 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Fonts } from '../../../constants/Colors';
 import { useHouseholdStore } from '../../services/household/householdStore';
 import {
-  LIST_META, criticalItems, partnerName, dayLabel, formatTime, isBartEvent, itemTags, personalHeaderLabel,
+  LIST_META, criticalItems, partnerName, dayLabel, formatTime, isAssistantEvent, itemTags, personalHeaderLabel,
   showItemLamp, todayEvents, upcomingEvents, whoDisplay,
 } from '../../services/household/selectors';
 import type { HouseholdEvent } from '../../services/household/types';
@@ -45,7 +45,7 @@ function EventRow({ event, showDay, testID, partner }: {
         <Text style={styles.eventTitle} numberOfLines={1}>{event.title}</Text>
         <Text style={styles.whoLabel}>{who.label}</Text>
       </View>
-      {isBartEvent(event) ? <Lamp size={16} /> : null}
+      {isAssistantEvent(event) ? <Lamp size={16} /> : null}
     </View>
   );
 }

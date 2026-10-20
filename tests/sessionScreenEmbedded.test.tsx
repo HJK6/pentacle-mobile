@@ -1,4 +1,4 @@
-// Bart home mount contract (docs/bart_home_contracts.md): the session screen embeds with a caller header.
+// The assistant home mount contract (docs/assistant_home_contracts.md): the session screen embeds with a caller header.
 import React from 'react';
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import RouteSessionScreen, { SessionScreen } from '../app/pentacle/session/[streamId]';
@@ -141,8 +141,8 @@ afterEach(() => {
 });
 
 test('embedded SessionScreen renders the caller header instead of the combined header', () => {
-  render(<SessionScreen streamId={STREAM_ID} header={<Text testID="bart-header">Bart</Text>} />);
-  expect(screen.getByTestId('bart-header')).toBeTruthy();
+  render(<SessionScreen streamId={STREAM_ID} header={<Text testID="assistant-header">the assistant</Text>} />);
+  expect(screen.getByTestId('assistant-header')).toBeTruthy();
   expect(screen.queryByTestId('combined-session-header')).toBeNull();
   expect(screen.queryByLabelText('Back to chats')).toBeNull();
   expect(screen.getByTestId('composer-input')).toBeTruthy();
@@ -157,19 +157,19 @@ test('the session route keeps its combined header', () => {
 test('an embedded screen never redirects away on a missing session; the route still does', () => {
   mockState = { ...mockState, sessions: [] };
   const { replace } = expoRouter.useRouter();
-  const embedded = render(<SessionScreen streamId={STREAM_ID} header={<Text>Bart</Text>} />);
+  const embedded = render(<SessionScreen streamId={STREAM_ID} header={<Text>the assistant</Text>} />);
   act(() => { jest.advanceTimersByTime(5_000); });
   expect(replace).not.toHaveBeenCalled();
   embedded.unmount();
   render(<RouteSessionScreen />);
   act(() => { jest.advanceTimersByTime(5_000); });
-  expect(replace).toHaveBeenCalledWith('/(tabs)/bart');
+  expect(replace).toHaveBeenCalledWith('/(tabs)/assistant');
 });
 
 test('the route decodes its stream id and registers stack options; an embedded screen registers none', () => {
   const { stackScreens } = expoRouter.__mock;
   stackScreens.mockClear();
-  const embedded = render(<SessionScreen streamId={STREAM_ID} header={<Text>Bart</Text>} />);
+  const embedded = render(<SessionScreen streamId={STREAM_ID} header={<Text>the assistant</Text>} />);
   expect(stackScreens).not.toHaveBeenCalled();
   embedded.unmount();
   mockParams = { streamId: encodeURIComponent(STREAM_ID) };

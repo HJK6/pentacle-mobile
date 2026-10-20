@@ -113,7 +113,7 @@ The Updates tab is the assistant status surface. Its header shows a 38 px lamp r
 the assistant's name, the existing status tag plus WORKING or IDLE from the assistant
 composite session's `working` field, and the open-lane count. It has no close button.
 
-- Latest update and All updates · N use only events in `bart:assistant` whose
+- Latest update and All updates · N use only events in `home:assistant` whose
   `publish_kind` is `status`. N is the count in loaded, retained history. Prose,
   questions, results, and events from other streams are excluded.
 - Tapping the latest card or the link opens the update log, newest first. The
@@ -126,7 +126,7 @@ composite session's `working` field, and the open-lane count. It has no close bu
   source stream remains the only history request target; there is no per-lane
   polling or second notification/history store.
 - Open lanes reuse the Chats working/needs-you selectors and visibility rules,
-  excluding `bart:assistant`. Each row shows its machine mark, title, and active
+  excluding `home:assistant`. Each row shows its machine mark, title, and active
   plan step, falling back to card update, then working label. Needs-you rows
   use amber and show Blocked. The caret expands the existing CardStatusMini;
   the row body uses the existing duplicate-safe session navigation path.

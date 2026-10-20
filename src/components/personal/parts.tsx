@@ -1,7 +1,7 @@
 import HeaderVoiceMic from '../voice/HeaderVoiceMic';
 import { useVoiceSurface } from '../../services/voicePresentation';
 // Shared atoms for Personal / Lists / Calendar, bound to design original § 7–9
-// (`pentacle-bart-personal.jsx`, `-lists.jsx`, `-calendar.jsx`) and README § Design tokens.
+// (the personal, lists and calendar design prototypes) and README § Design tokens.
 import React, { useCallback, useEffect } from 'react';
 import { AppState, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useFocusEffect, useLocalSearchParams, usePathname } from 'expo-router';

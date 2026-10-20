@@ -3,7 +3,7 @@
 `/pentacle/questions` is the assistant-first cross-session answer surface: every open durable question
 (the assistant's and every session's) one per page, with partial submit. It replaces the Unified tab's
 question drawer as the place to answer across sessions. Shared route, selector and answer contracts
-live in [bart_home_contracts.md](bart_home_contracts.md); this page records what the overlay does.
+live in [assistant_home_contracts.md](assistant_home_contracts.md); this page records what the overlay does.
 
 ## Files
 
@@ -36,7 +36,7 @@ formula in the contracts. Both are pure functions of state. The deck keeps its a
 its content is unchanged (the Chats list rebuilds rows, and legacy actions, on every call), so it is a
 safe store selector. Opening, closing or paging never changes the count.
 
-`QuestionDeckEntry` carries `key`, `streamId`, `isBart` (`streamId === BART_STREAM_ID`),
+`QuestionDeckEntry` carries `key`, `streamId`, `isAssistant` (`streamId === ASSISTANT_STREAM_ID`),
 `machineLabel`, `machineName`, `sessionTitle`, `accent` (assistant = `#3dff66`, else the machine accent),
 `action`, `itemIndex`, `question`, `questionId` (durable resolver id; `null` for legacy; the voice binding is built from `key` + `streamId` + `questionId` + the notification's producer, see Voice answers) and `locked` (scan-incomplete legacy item, counted
 answered exactly as on Chats).
@@ -118,7 +118,7 @@ The mic answers many durable questions with **one take** and never answers anyth
   be bound (it has a resolver id and an asker) **and** the voice send leg declares that it carries
   `meta.voice_answers` (`installVoiceAnswersCarrier`, see Shared dependencies). A deck with no durable page, or a build
   without that leg, shows no mic. Tapping it while recording is Done.
-- **Recording** is the app's ordinary voice recording (`voiceRecorder.start(BART_STREAM_ID)`): the take belongs to the
+- **Recording** is the app's ordinary voice recording (`voiceRecorder.start(ASSISTANT_STREAM_ID)`): the take belongs to the
   assistant thread, and upload, transcription and send are the existing voice unit. A busy recorder or a
   denied microphone shows a toast and starts nothing. There is no live transcription.
 - **Segments** (`SegmentTracker`): the interval spent on a page while recording. A page whose single visit reaches

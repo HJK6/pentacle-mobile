@@ -230,12 +230,12 @@ test('unfocused empty fleet remains renderable with cached limits', async () => 
   expect(screen.queryByText('hosta')).toBeNull();
 });
 
-test('buildMachineTabs drops assistant-identity hosts from the machine stats tabs', async () => {
+test('buildMachineTabs drops the assistant-identity host from the machine stats tabs', async () => {
   const card = (host: string) => ({
     host, title: host, online: true, sessionCount: 0, statusLabel: 'Online', stats: freshStats(host),
   });
-  const tabs = buildMachineTabs([card('hoste'), card('bart'), card('hostc'), card('hostb')] as never);
-  // The retired hosta identity host never becomes a machine stats tab; real
+  const tabs = buildMachineTabs([card('hoste'), card('home'), card('hostc'), card('hostb')] as never);
+  // The identity host never becomes a machine stats tab; real
   // fleet hosts are preserved in order and each is assigned a machine skin.
   expect(tabs.map((t) => t.host)).toEqual(['hoste', 'hostc', 'hostb']);
   expect(tabs.every((t) => typeof t.machineName === 'string')).toBe(true);

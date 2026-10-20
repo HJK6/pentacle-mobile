@@ -1,4 +1,4 @@
-// P5 household RPC wrapper (docs/bart_home_contracts.md § Household RPC): ordinary
+// P5 household RPC wrapper (docs/assistant_home_contracts.md § Household RPC): ordinary
 // request/response over the stream socket, rejected on disconnect, never replayed.
 jest.mock('expo-notifications', () => ({}));
 jest.mock('../src/config/pentacle', () => ({

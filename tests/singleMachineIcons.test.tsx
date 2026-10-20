@@ -22,7 +22,7 @@ for (const count of [1, 2]) for (const condition of [true, false]) {
 }
 test('live second host restores icons; offline configured host and identity do not skew count', () => {
   expect(getMachineHostCount()).toBe(1);
-  const state = { hosts: { server: { host: 'server', online: false }, identity: { host: 'bart' } }, sessions: [], machineStats: {} };
+  const state = { hosts: { server: { host: 'server', online: false }, identity: { host: 'home' } }, sessions: [], machineStats: {} };
   expect(getMachineHostCount(state as any)).toBe(2);
   const tree = render(<MachineRosterContext.Provider value={{ hostCount: 1 }}><ArcaneRingFrame machine="hostc" /></MachineRosterContext.Provider>);
   expect(tree.queryByTestId('machine-icon')).toBeNull();

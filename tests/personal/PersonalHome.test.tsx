@@ -61,7 +61,7 @@ describe('PersonalHome TO-DO (critical items)', () => {
     check('Change HVAC filter', /^chores$/i, [['OVERDUE', RED]]);
   });
 
-  it('shows the Bart lamp only on Bart-created items (partner-assistant-created shared item with due + hi has tags but no lamp)', async () => {
+  it('shows the assistant lamp only on assistant-created items (partner-assistant-created shared item with due + hi has tags but no lamp)', async () => {
     await mount('PersonalHome');
     expect(lamps(todoRow('Reply to Kalshi support')).length).toBeGreaterThan(0);
     expect(lamps(todoRow('Renew domain for altum.ai')).length).toBeGreaterThan(0);
@@ -107,7 +107,7 @@ describe('PersonalHome TO-DO (critical items)', () => {
 });
 
 describe('PersonalHome TODAY', () => {
-  it("lists today's events, all-day first, with 12 h times, who labels, PRIVATE suffix and Bart lamps", async () => {
+  it("lists today's events, all-day first, with 12 h times, who labels, PRIVATE suffix and the assistant lamps", async () => {
     await mount('PersonalHome');
     expect(screen.getByText('TODAY · 4')).toBeTruthy();
     expect(todayRows()).toHaveLength(4);

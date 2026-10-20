@@ -124,7 +124,7 @@ export function itemTags(item: HouseholdItem, today: string): ItemTag[] {
   return tags;
 }
 
-/** Bart's lamp only from actual attribution; due/priority alone never implies Bart (D6). */
+/** The assistant's lamp only from actual attribution; due/priority alone never implies the assistant (D6). */
 export const showItemLamp = (item: HouseholdItem): boolean => item.created_by === 'assistant';
 
 /** Personal TO-DO: priority hi or due ≤ tomorrow (overdue included), list order then detail order. */
@@ -158,7 +158,7 @@ export function whoDisplay(event: HouseholdEvent, partner: string = DEFAULT_PART
   return privateToMe ? { ...base, label: `${base.label} · PRIVATE` } : base;
 }
 
-export const isBartEvent = (event: HouseholdEvent): boolean => event.created_by === 'assistant';
+export const isAssistantEvent = (event: HouseholdEvent): boolean => event.created_by === 'assistant';
 
 /** All-day first, then 24 h time text, then id. */
 export function byDateTime(a: HouseholdEvent, b: HouseholdEvent): number {

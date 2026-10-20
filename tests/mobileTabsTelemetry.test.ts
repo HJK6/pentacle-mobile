@@ -36,12 +36,12 @@ test('mobile tab telemetry uses console fallback and safe defaults without a nat
   expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('"data":{}'));
 });
 
-test('accepts the Bart home and Personal tabs', () => {
+test('accepts the assistant home and Personal tabs', () => {
   const nativeLoggingHook = jest.fn();
   (globalThis as { nativeLoggingHook?: (message: string, level: number) => void }).nativeLoggingHook = nativeLoggingHook;
-  logFocusedTab('bart');
+  logFocusedTab('assistant');
   logTabPressed('personal');
   const lines = nativeLoggingHook.mock.calls.map((call) => call[0]).join('\n');
-  expect(lines).toContain('"tab":"bart"');
+  expect(lines).toContain('"tab":"assistant"');
   expect(lines).toContain('"tab":"personal"');
 });

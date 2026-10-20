@@ -177,7 +177,7 @@ test('status overlay Back replaces to the home tab while X returns to the sessio
   expect(screen.queryByTestId('status-overlay')).toBeNull();
   fireEvent.press(screen.getByTestId('session-status-overlay-trigger'));
   fireEvent.press(screen.getByTestId('status-overlay-back'));
-  expect(require('expo-router').router.replace).toHaveBeenCalledWith('/(tabs)/bart');
+  expect(require('expo-router').router.replace).toHaveBeenCalledWith('/(tabs)/assistant');
   expect(require('expo-router').router.back).not.toHaveBeenCalled();
 });
 

@@ -9,7 +9,7 @@ import { resetVoiceAnswersForTests } from '../../src/components/questions/voice/
 import { performChatOpenNavigation } from '../../src/services/chatOpenNavigation';
 import {
   SESSION_B,
-  BART,
+  ASSISTANT_ID,
   HOSTS_CONFIG,
   LEGACY_SESSION,
   SESSION_C,
@@ -121,7 +121,7 @@ function installActions() {
   mockActions.sendMessage = jest.fn().mockResolvedValue(undefined);
 }
 
-// Three single-item durable questions: Host C session (blue), Host B session (red), Bart (green).
+// Three single-item durable questions: Host C session (blue), Host B session (red), the assistant (green).
 function threeState() {
   return baseState({
     sessions: [
@@ -132,7 +132,7 @@ function threeState() {
     notifications: [
       durableQuestion(SESSION_C, 'n-deploy'),
       durableQuestion(SESSION_B, 'n-review'),
-      durableQuestion(BART, 'n-bart'),
+      durableQuestion(ASSISTANT_ID, 'n-assistant'),
     ],
   });
 }
@@ -192,9 +192,9 @@ describe('header (T2–T7)', () => {
     expect(screen.queryByTestId('questions-see-chat')).toBeNull();
   });
 
-  test('the assistant page follows a renamed assistant session and defaults to Zephyr', () => {
+  test('The assistant page follows a renamed assistant session and defaults to Zephyr', () => {
     const renamed = (patch: Record<string, unknown>) => ({ ...mockState,
-      sessions: mockState.sessions.map((item: any) => (item.stream_id === 'bart:assistant' ? { ...item, ...patch } : item)) });
+      sessions: mockState.sessions.map((item: any) => (item.stream_id === 'home:assistant' ? { ...item, ...patch } : item)) });
     mockState = renamed({ display_name: 'Lews' });
     const view = render(<QuestionsScreen />);
     goTo(2);
@@ -524,7 +524,7 @@ describe('empty state and entry param (C5)', () => {
   });
 
   test('the route reads notificationId from the route params and renders the overlay', () => {
-    mockParams = { notificationId: 'n-bart' };
+    mockParams = { notificationId: 'n-assistant' };
     render(<QuestionsRoute />);
     expect(counter()).toBe('QUESTION 3 / 3');
     expect(text('questions-subtitle')).toBe(FIXTURE_ASSISTANT_TITLE);
@@ -537,7 +537,7 @@ describe('empty state and entry param (C5)', () => {
 describe('live data (AC8)', () => {
   test('a question answered elsewhere disappears, and the current page is tracked by key', () => {
     render(<QuestionsScreen />);
-    goTo(2); // Bart
+    goTo(2); // the assistant
     expect(counter()).toBe('QUESTION 3 / 3');
     patchState((state) => ({
       ...state,
@@ -565,7 +565,7 @@ describe('live data (AC8)', () => {
     goTo(2);
     patchState((state) => ({
       ...state,
-      notifications: state.notifications.filter((n: any) => n.notification_id !== 'n-bart'),
+      notifications: state.notifications.filter((n: any) => n.notification_id !== 'n-assistant'),
     }));
     expect(counter()).toBe('QUESTION 2 / 2');
     expect(text('questions-subtitle')).toBe('Host B · Code review');

@@ -15,7 +15,7 @@ import {
   type PentacleStreamState,
 } from '../src/index.ts';
 
-const STREAM_ID = 'alpha:bart';
+const STREAM_ID = 'alpha:assistant';
 const CAPABILITIES = {
   pane: false,
   terminal: false,

@@ -13,7 +13,7 @@ import { AgentThreadHistoryModal } from '../src/components/AgentThreadHistoryMod
 import ChatActionSheet from '../src/components/ChatActionSheet';
 import ReportViewerModal from '../src/components/ReportViewerModal';
 import ChatsDrawer from '../src/components/assistant/ChatsDrawer';
-import BartStatusOverlay from '../src/components/assistant/BartStatusOverlay';
+import AssistantStatusOverlay from '../src/components/assistant/AssistantStatusOverlay';
 import UnifiedScreen from '../app/(tabs)/unified';
 import QuestionsRoute from '../app/pentacle/questions';
 import LanesRoute from '../app/pentacle/lanes';
@@ -137,7 +137,7 @@ const NATIVE_HOSTS: NativeHost[] = [
   { name: 'chat-actions', component: (open, close) => <ChatActionSheet visible={open} onClose={close} onRename={noop} /> },
   { name: 'report-viewer', component: (open, close) => <ReportViewerModal visible={open} streamId={OTHER_CHAT} onClose={close} /> },
   { name: 'chats-drawer', component: (open, close) => <ChatsDrawer open={open} groups={[]} canStart={false} onClose={close} onNewSession={noop} /> },
-  { name: 'assistant-status', component: (open, close) => open ? <BartStatusOverlay onClose={close} /> : null },
+  { name: 'assistant-status', component: (open, close) => open ? <AssistantStatusOverlay onClose={close} /> : null },
   { name: 'unified-questions', component: () => <UnifiedScreen />, open: view => fireEvent.press(view.getByTestId('unified-question-badge')) },
 ];
 const ACTIONS = ['Return to original chat', 'Resume recording', 'Send recording', 'Discard recording'];

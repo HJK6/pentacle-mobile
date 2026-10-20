@@ -276,7 +276,7 @@ export type PeerAgentMessage = {
 
 // Agent-orch / inter-agent delivery envelope, e.g.
 //   "[from merlin:claude-merlin-122ad529] [tell:abc]\nbody"
-//   "[from bart:codex-...] [handoff:x]\nbody"            (any anchor word)
+//   "[from assistant:codex-...] [handoff:x]\nbody"            (any anchor word)
 //   "[from <daemon-liveness>] [tell:...]\nbody"          (non-stream-id markers)
 //   "[from merlin:claude-...]\nbody"                     (no anchor)
 // The trailing line break is the discriminator that keeps human text safe: a real

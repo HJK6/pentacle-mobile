@@ -19,7 +19,7 @@ import { resetChatOpenNavigationIntents } from '../../../src/services/chatOpenNa
 import { registerFocusedPentacleStream, requestStreamEvents } from '../../../src/services/pentacleStream';
 
 const NOW = Date.parse('2026-10-07T12:00:00.000Z');
-const BART = 'bart:assistant';
+const ASSISTANT_ID = 'home:assistant';
 let mockState: PentacleStreamState;
 let mockIsFocused = true;
 let mockHasOlderHistory = false;
@@ -60,7 +60,7 @@ function session(streamId: string, overrides: Partial<PentacleSessionSummary> = 
 function event(seq: number, text: string, overrides: Partial<PentacleEvent> = {}): PentacleEvent {
   return {
     daemon_seq: seq, host: 'hostc', provider: 'codex', session_id: 'assistant',
-    session_name: 'assistant', stream_id: BART, kind: 'ASSIST',
+    session_name: 'assistant', stream_id: ASSISTANT_ID, kind: 'ASSIST',
     timestamp: new Date(NOW - 600_000 + seq * 1000).toISOString(),
     text, publish_kind: 'status', ...overrides,
   };
@@ -99,7 +99,7 @@ beforeEach(() => {
 afterEach(() => resetChatOpenNavigationIntents());
 
 test('the status surface header follows the assistant session name', async () => {
-  mockState.sessions = [session(BART, { display_name: 'Lews' })];
+  mockState.sessions = [session(ASSISTANT_ID, { display_name: 'Lews' })];
   render(<UpdatesScreen />);
   await act(async () => {});
   expect(screen.getByTestId('status-assistant-name').props.children).toBe('Lews');
@@ -110,11 +110,11 @@ test('the status surface lamp takes the assistant host machine and follows a hos
   // The header lamp is the identity ring (ArcaneRingFrame is memo-wrapped, so match its props).
   const ring = (view: ReturnType<typeof render>) =>
     view.UNSAFE_root.findAll((node) => node.props.identity === true && node.props.kind === 'djinni')[0];
-  mockState.sessions = [session(BART, { host: 'hostc' })];
+  mockState.sessions = [session(ASSISTANT_ID, { host: 'hostc' })];
   const view = render(<UpdatesScreen />);
   await act(async () => {});
   expect(ring(view).props).toMatchObject({ identity: true, kind: 'djinni', machine: getHostMachineName('hostc') });
-  mockState = { ...mockState, sessions: [session(BART, { host: 'hostb' })] };
+  mockState = { ...mockState, sessions: [session(ASSISTANT_ID, { host: 'hostb' })] };
   view.rerender(<UpdatesScreen />);
   expect(ring(view).props.machine).toBe(getHostMachineName('hostb'));
 });
@@ -158,10 +158,10 @@ test('the link and latest card repeatedly open a newest-first log and back resto
 });
 
 test.each([false, true])('header derives its status from the assistant session working=%s', async (working) => {
-  mockState.sessions = [session(BART, { working }), session('hostc:codex:worker', { working: !working })];
+  mockState.sessions = [session(ASSISTANT_ID, { working }), session('hostc:codex:worker', { working: !working })];
   render(<UpdatesScreen />);
   await act(async () => {});
-  expect(within(screen.getByTestId('bart-status-tag')).getByTestId(`status-tag-${working ? 'working' : 'idle'}`)).toBeTruthy();
+  expect(within(screen.getByTestId('assistant-status-tag')).getByTestId(`status-tag-${working ? 'working' : 'idle'}`)).toBeTruthy();
 });
 
 test('empty history and lanes retain a plain, navigable status surface', async () => {
@@ -175,13 +175,13 @@ test('empty history and lanes retain a plain, navigable status surface', async (
 
 test('open lanes share working/needs-you and visibility rules with the genuine chat selectors', async () => {
   mockState.sessions = [
-    session(BART, { working: true }), session('hostc:codex:working', { working: true }),
+    session(ASSISTANT_ID, { working: true }), session('hostc:codex:working', { working: true }),
     session('hostc:codex:needs-you'), session('hostc:codex:idle'), session('hostc:codex:resolved'),
     session('hostc:codex:hidden', { working: true, visibility: 'hidden' }),
     session('hostc:codex:hidden-question', { visibility: 'hidden' }),
   ];
   mockState.notifications = [question('hostc:codex:needs-you'), question('hostc:codex:resolved', true), question('hostc:codex:hidden-question')];
-  const expected = selectSmartChatList(mockState).filter((chat) => chat.streamId !== BART && (chat.status === 'working' || smartChatAttention(chat)));
+  const expected = selectSmartChatList(mockState).filter((chat) => chat.streamId !== ASSISTANT_ID && (chat.status === 'working' || smartChatAttention(chat)));
   expect(selectOpenLanes(mockState).map((lane) => lane.chat.streamId)).toEqual(expected.map((chat) => chat.streamId));
   expect(expected.map((chat) => chat.streamId)).toEqual(expect.arrayContaining(['hostc:codex:working', 'hostc:codex:needs-you', 'hostc:codex:hidden-question']));
   render(<UpdatesScreen />);
@@ -189,7 +189,7 @@ test('open lanes share working/needs-you and visibility rules with the genuine c
   expect(screen.getByText('Open lanes · 3')).toBeTruthy();
   expect(screen.getByText('3 LANES')).toBeTruthy();
   for (const chat of expected) expect(screen.getByTestId(`lane-${chat.streamId}`)).toBeTruthy();
-  for (const id of [BART, 'hostc:codex:idle', 'hostc:codex:resolved', 'hostc:codex:hidden']) expect(screen.queryByTestId(`lane-${id}`)).toBeNull();
+  for (const id of [ASSISTANT_ID, 'hostc:codex:idle', 'hostc:codex:resolved', 'hostc:codex:hidden']) expect(screen.queryByTestId(`lane-${id}`)).toBeNull();
   expect(screen.getByTestId('lane-eta-hostc:codex:needs-you')).toHaveTextContent('Blocked');
 });
 
@@ -258,11 +258,11 @@ test('caret expands the existing status card without navigating, and row taps us
 test('focus and reconnect fetch the assistant history without per-lane polling', async () => {
   mockState = { ...mockState, connected: false };
   const rendered = render(<UpdatesScreen />);
-  expect(registerFocusedPentacleStream).toHaveBeenCalledWith(BART);
+  expect(registerFocusedPentacleStream).toHaveBeenCalledWith(ASSISTANT_ID);
   expect(requestStreamEvents).not.toHaveBeenCalled();
   mockState = { ...mockState, connected: true };
   await act(async () => rendered.rerender(<UpdatesScreen />));
-  expect(requestStreamEvents).toHaveBeenLastCalledWith(BART, 300, { purpose: 'mount-fetch' });
+  expect(requestStreamEvents).toHaveBeenLastCalledWith(ASSISTANT_ID, 300, { purpose: 'mount-fetch' });
   const count = (requestStreamEvents as jest.Mock).mock.calls.length;
   await act(async () => jest.advanceTimersByTime(60_000));
   expect(requestStreamEvents).toHaveBeenCalledTimes(count);
@@ -278,7 +278,7 @@ test('focus and reconnect fetch the assistant history without per-lane polling',
 });
 
 test('retained and live status events stay ordered and the log uses existing older-page history', async () => {
-  mockState.sessions = [session(BART)];
+  mockState.sessions = [session(ASSISTANT_ID)];
   mockState = mutatePentacleEventBuckets(mockState, { type: 'append', events: [event(2, 'Retained status')] });
   mockHasOlderHistory = true;
   const rendered = render(<UpdatesScreen />);
@@ -286,7 +286,7 @@ test('retained and live status events stay ordered and the log uses existing old
   (requestStreamEvents as jest.Mock).mockClear();
   fireEvent.press(screen.getByText('All updates · 1 ›'));
   await act(async () => rendered.UNSAFE_getByType(FlatList).props.onEndReached());
-  expect(requestStreamEvents).toHaveBeenCalledWith(BART, 300, { purpose: 'older-page' });
+  expect(requestStreamEvents).toHaveBeenCalledWith(ASSISTANT_ID, 300, { purpose: 'older-page' });
   mockState = mutatePentacleEventBuckets(mockState, { type: 'append', events: [event(1, 'Older loaded status'), event(3, 'Live status')] });
   rendered.rerender(<UpdatesScreen />);
   expect(screen.getAllByTestId(/^status-update-/).map((row) => row.props.testID)).toEqual(['status-update-3', 'status-update-2', 'status-update-1']);
@@ -332,7 +332,7 @@ test('a request that settles during blur must not strand loading on a fresh refo
   expect(screen.queryByText('Loading updates…')).toBeNull();
   fireEvent.press(screen.getByText('All updates · 0 ›'));
   await act(async () => rendered.UNSAFE_getByType(FlatList).props.onEndReached());
-  expect(requestStreamEvents).toHaveBeenCalledWith(BART, 300, { purpose: 'older-page' });
+  expect(requestStreamEvents).toHaveBeenCalledWith(ASSISTANT_ID, 300, { purpose: 'older-page' });
 });
 
 
@@ -441,5 +441,5 @@ test('end reached during mount loading is replayed once history settles', async 
   await act(async () => settle([event(1000, 'Retained status')]));
   await act(async () => list._maybeCallOnEdgeReached());
   expect(requestStreamEvents).toHaveBeenCalledTimes(2);
-  expect(requestStreamEvents).toHaveBeenLastCalledWith(BART, 300, { purpose: 'older-page' });
+  expect(requestStreamEvents).toHaveBeenLastCalledWith(ASSISTANT_ID, 300, { purpose: 'older-page' });
 });

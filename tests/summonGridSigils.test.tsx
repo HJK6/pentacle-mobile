@@ -3,7 +3,7 @@ import { fireEvent, render, screen } from '@testing-library/react-native';
 import SummonModal from '../src/components/SummonModal';
 
 // hosta=djinni(#1fbf4a), hostb=sun(#ff2e3e), hostc=mage(#1f5bff), hostd=flower(#a377a1).
-// With the owner-shaped host config (bart=djinni, hostc=mage, hostb=sun) the grid
+// With the owner-shaped host config (alpha=djinni, hostc=mage, hostb=sun) the grid
 // must skin hostc as the mage (blue #1f5bff) and hostb as the sun (red #ff2e3e) —
 // the swap that the placeholder-keyed table produced is gone.
 jest.mock('expo-constants', () => require('./helpers/stubs/expoConstants.cjs'));
@@ -14,11 +14,11 @@ beforeEach(() => {
     extra: {
       wsUrl: 'ws://10.0.0.0:7791',
       hosts: {
-        bart: { label: 'hosta', color: '#ff7ab8', sigil: 'djinni' },
+        alpha: { label: 'hosta', color: '#ff7ab8', sigil: 'djinni' },
         hostc: { label: 'hostc', color: '#4da3ff', sigil: 'mage' },
         hostb: { label: 'hostb', color: '#ff4d5e', sigil: 'sun' },
       },
-      hostOrder: ['bart', 'hostc', 'hostb'],
+      hostOrder: ['alpha', 'hostc', 'hostb'],
     },
   };
 });
@@ -38,7 +38,7 @@ const catalog = {
 } as never;
 
 const machines = [
-  { host: 'bart', title: 'hosta', online: true },
+  { host: 'alpha', title: 'hosta', online: true },
   { host: 'hostc', title: 'hostc', online: true },
   { host: 'hostb', title: 'hostb', online: true },
 ];
@@ -71,7 +71,7 @@ test('summon grid skins hostc as the mage (blue) and hostb as the sun (red)', ()
   // enabled cards use `${accent}40` as the border color.
   expect(borderColorOf('summon-machine-hostc')).toBe('#1f5bff40');
   expect(borderColorOf('summon-machine-hostb')).toBe('#ff2e3e40');
-  expect(borderColorOf('summon-machine-bart')).toBe('#1fbf4a40');
+  expect(borderColorOf('summon-machine-alpha')).toBe('#1fbf4a40');
 });
 
 test('Configure agent step shows the selected machine sigil accent, not the first machine', () => {
