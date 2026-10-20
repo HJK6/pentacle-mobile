@@ -56,8 +56,8 @@ function initialPageKey(deck: readonly QuestionDeckEntry[], notificationId?: str
   return deck.find((entry) => entry.action.kind === 'durable' && entry.action.id === notificationId)?.key ?? null;
 }
 
-// P4 Questions overlay (README §5 / BartQuestionsOverlay): one pending question per page over
-// every open durable question (Bart and sessions), with partial submit.
+// P4 Questions overlay (README §5 / AssistantQuestionsOverlay): one pending question per page over
+// every open durable question (the assistant and sessions), with partial submit.
 export default function QuestionsScreen({ notificationId, navigation }: { notificationId?: string; navigation?: RemovalGuardNavigation }) {
   const router = useRouter();
   const isFocused = useIsFocused();
@@ -326,17 +326,17 @@ export default function QuestionsScreen({ notificationId, navigation }: { notifi
     <Animated.View testID="questions-overlay" accessibilityViewIsModal style={styles.root}>
       <Starfield />
       <View style={[styles.header, { paddingTop: topPad, borderBottomColor: `${accent}33` }]}>
-        <SourceMark isBart={current.isBart} assistantSigil={assistant.sigilKind} machineName={current.machineName} accent={accent} size={32} />
+        <SourceMark isAssistant={current.isAssistant} assistantSigil={assistant.sigilKind} machineName={current.machineName} accent={accent} size={32} />
         <View style={styles.headerCopy}>
           <View style={styles.titleRow}>
             <Text testID="questions-counter" numberOfLines={1} style={[styles.counter, { color: accent }, { flexShrink: 1 }]}>{`QUESTION ${index + 1} / ${total}`}</Text>
             <View testID="questions-header-accessory" style={styles.accessory}>{voiceAccessory}</View>
           </View>
           <Text testID="questions-subtitle" numberOfLines={1} style={styles.subtitle}>
-            {current.isBart ? assistant.name : `${current.machineLabel} · ${current.sessionTitle}`}
+            {current.isAssistant ? assistant.name : `${current.machineLabel} · ${current.sessionTitle}`}
           </Text>
         </View>
-        {current.isBart ? null : (
+        {current.isAssistant ? null : (
           <Pressable
             testID="questions-see-chat"
             accessibilityRole="button"

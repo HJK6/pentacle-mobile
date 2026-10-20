@@ -61,7 +61,7 @@ test('valid code and ws enrolls, stores token, and routes to the assistant home 
   await waitFor(() => expect(tokenApi.setWsUrl).toHaveBeenCalledWith('ws://control.example/ws'));
   expect(enrollPentacleDevice).toHaveBeenCalledWith('ABC', 'ws://control.example/ws');
   await waitFor(() => expect(tokenApi.setToken).toHaveBeenCalledWith('token-123'));
-  expect(routerMock.replace).toHaveBeenCalledWith('/(tabs)/bart');
+  expect(routerMock.replace).toHaveBeenCalledWith('/(tabs)/assistant');
 });
 
 test('renders enrollment service errors', async () => {

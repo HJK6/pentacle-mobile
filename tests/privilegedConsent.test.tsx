@@ -19,7 +19,7 @@ jest.mock('../src/services/pentacleStream', () => ({consentConnection: () => moc
 jest.mock('expo-secure-store', () => ({getItemAsync: async (key: string) => {if(key==='pentacle-consent-key-metadata-v1'){mockMetadataReadHook?.();return mockMetadata;}return mockTuples[key]||null;}, setItemAsync: async (key: string, value: string) => {if(key==='pentacle-consent-key-metadata-v1')mockMetadata=value;else mockTuples[key]=value;}}));
 
 const challenge: ConsentChallenge = {
-  connection_scope: 'host|phone', challenge_id: 'exact-challenge', action: 'lifecycle.designate', target_stream_id: 'hosta:bart',
+  connection_scope: 'host|phone', challenge_id: 'exact-challenge', action: 'lifecycle.designate', target_stream_id: 'alpha:assistant',
   target_generation: 'exact-generation', expected_revision: 0,
   requester: {kind: 'seat', identity: 'hosta:requester', generation: 'requester-generation'},
   audience_key_ids: ['enrolled-key'], audience_hash: 'audience-hash',
@@ -44,7 +44,7 @@ test('card displays bound action, target, generation, revision, requester and au
   const ui = render(<ConsentCard intent={{...challenge,request_id:'request',host_id:'host'} as ConsentIntent} />);
   await act(async()=>fireEvent.press(ui.getByText('Open request')));
   expect(ui.getByText('lifecycle.designate')).toBeTruthy();
-  expect(ui.getByText('Target: hosta:bart')).toBeTruthy();
+  expect(ui.getByText('Target: alpha:assistant')).toBeTruthy();
   expect(ui.getByText('Generation: exact-generation')).toBeTruthy();
   expect(ui.getByText('Revision: 0')).toBeTruthy();
   expect(ui.getByText('Requester: seat hosta:requester requester-generation')).toBeTruthy();

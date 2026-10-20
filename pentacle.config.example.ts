@@ -32,8 +32,11 @@ export type PentacleConfig = {
   hosts: Record<string, HostTheme>;
   hostOrder?: string[];
   // Optional local opt-in. Omit or leave assistantRole empty in public builds.
+  // assistantStreamId must equal the daemon's PENTACLE_ASSISTANT_COMPOSITE_STREAM_ID;
+  // it defaults to 'home:assistant'.
   features?: {
     assistantRole?: string;
+    assistantStreamId?: string;
   };
 };
 

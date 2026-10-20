@@ -297,7 +297,7 @@ export function selectWorkLaneCounts(state: Pick<PentacleStreamState, 'workLanes
 }
 
 /**
- * Where a tap on a lane goes. `unavailable` never falls back to Bart, a hidden
+ * Where a tap on a lane goes. `unavailable` never falls back to the assistant, a hidden
  * worker or a new generation; a closed chat without a generation cannot be read.
  */
 export function resolveWorkLaneTap(lane: Pick<WorkLane, 'visible_chat'>): WorkLaneTap {

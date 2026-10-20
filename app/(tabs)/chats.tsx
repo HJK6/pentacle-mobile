@@ -673,7 +673,7 @@ export default function ChatsScreen() {
 
   const machinesAll = usePentacleStreamSelectorWhen(isFocused, selectMachineStatusList, sameMachines);
   // Host-list surfaces (roster, spawn picker, active-machine gating) show real
-  // fleet machines only — never an assistant identity host like `bart`.
+  // fleet machines only — never the assistant identity host.
   const machines = useMemo(() => machinesAll.filter((machine) => !isIdentityHost(machine.host)), [machinesAll]);
   const chats = usePentacleStreamSelectorWhen(
     isFocused,
@@ -1155,7 +1155,7 @@ export default function ChatsScreen() {
         {machines.map((machine) => {
           // Roster chips come from the real fleet the client knows about (configured
           // hostOrder + live daemon hosts), never a hardcoded machine list. This keeps the
-          // retired assistant identity host and the non-hosting non-hosting client out of the filter roster,
+          // assistant identity host and the non-hosting client out of the filter roster,
           // and renders each host with its own machine skin (e.g. scribe → ibis).
           const name = getHostMachineName(machine.host);
           const online = Boolean(machine.online);

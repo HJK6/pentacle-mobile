@@ -35,11 +35,11 @@ test('the actual tab bar applies compact icon/label/button geometry within the s
   jest.useFakeTimers();
   const keyboard = jest.spyOn(Keyboard, 'addListener');
   render(<TabLayout />).unmount();
-  const view = render(<SafeAreaProvider><NavigationContainer><Tabs.Navigator initialRouteName="bart" screenOptions={mockOptions}>
+  const view = render(<SafeAreaProvider><NavigationContainer><Tabs.Navigator initialRouteName="assistant" screenOptions={mockOptions}>
     {mockScreens.filter((screen) => screen.options.href !== null).map((screen) =>
       <Tabs.Screen key={screen.name} name={screen.name} options={screen.options} component={Empty} />)}
   </Tabs.Navigator></NavigationContainer></SafeAreaProvider>);
-  const button = view.getByTestId('bart-tab-button');
+  const button = view.getByTestId('assistant-tab-button');
   expect(StyleSheet.flatten(button.props.style)).toMatchObject({ padding: 0, gap: 3 });
   expect(view.getByText('ZEPHYR')).toHaveStyle({ fontSize: 9, lineHeight: 11 });
   expect(view.getByText('PERSONAL')).toBeTruthy();

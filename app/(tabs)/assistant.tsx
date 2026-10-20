@@ -5,22 +5,21 @@ import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { SessionScreen } from '../pentacle/session/[streamId]';
 import { selectMachineStatusList } from 'pentacle-chat-core';
-import { isIdentityHost } from '../../src/config/local';
 import type { SummonMachine } from '../../src/components/SummonModal';
 import { useNewSessionFlow } from '../../src/components/useNewSessionFlow';
 import { performChatOpenNavigation } from '../../src/services/chatOpenNavigation';
 import ChatsDrawer from '../../src/components/assistant/ChatsDrawer';
-import { selectAssistantIdentity } from '../../src/services/assistantIdentity';
-import BartHeader from '../../src/components/assistant/BartHeader';
-import { selectDrawerGroups, selectOthersNeedingYou } from '../../src/components/assistant/bartSelectors';
+import { isIdentityHost } from '../../src/config/local';
+import { selectAssistantIdentity, ASSISTANT_STREAM_ID } from '../../src/services/assistantIdentity';
+import AssistantHeader from '../../src/components/assistant/AssistantHeader';
+import { selectDrawerGroups, selectOthersNeedingYou } from '../../src/components/assistant/assistantSelectors';
 import { selectPendingQuestionCount } from '../../src/components/questions/questionSelectors';
-import { BART_STREAM_ID } from '../../src/components/status/statusSelectors';
 import { selectOpenLaneCount, selectWorkLaneCounts } from '../../src/services/workLanes';
 import { usePentacleStreamSelectorWhen } from '../../src/services/pentacleStream';
 import { resetChatOpenNavigationIntents } from '../../src/services/chatOpenNavigationIntent';
 import { logFocusedTab } from '../../src/services/mobileTabsTelemetry';
 
-export default function BartScreen() {
+export default function AssistantScreen() {
   const isFocused = useIsFocused();
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -35,14 +34,14 @@ export default function BartScreen() {
     identity: selectAssistantIdentity(state),
     others: selectOthersNeedingYou(state).length, pending: selectPendingQuestionCount(state),
     lanes: selectOpenLaneCount(state), blocked: selectWorkLaneCounts(state).blocked,
-    working: state.sessions.find((session) => session.stream_id === BART_STREAM_ID)?.working === true,
+    working: state.sessions.find((session) => session.stream_id === ASSISTANT_STREAM_ID)?.working === true,
   }), [state]);
   useEffect(() => {
     if (isFocused) {
       questionsOpening.current = false;
       lanesOpening.current = false;
       resetChatOpenNavigationIntents();
-      logFocusedTab('bart');
+      logFocusedTab('assistant');
     } else { setDrawerOpen(false); }
   }, [isFocused]);
   const openDrawer = useCallback(() => { Keyboard.dismiss(); setDrawerOpen(true); }, []);
@@ -62,20 +61,20 @@ export default function BartScreen() {
     catch { questionsOpening.current = false; }
   }, [isFocused, router]);
   return <View style={styles.root}>
-    <BartThread {...header} top={insets.top} onDrawer={openDrawer} onStatus={openLanes} onQuestions={openQuestions} />
-    {isFocused ? <BartSessions open={drawerOpen} groups={groups} machines={machines} onClose={() => setDrawerOpen(false)} /> : null}
+    <AssistantThread {...header} top={insets.top} onDrawer={openDrawer} onStatus={openLanes} onQuestions={openQuestions} />
+    {isFocused ? <AssistantSessions open={drawerOpen} groups={groups} machines={machines} onClose={() => setDrawerOpen(false)} /> : null}
   </View>;
 }
 
 // Unrelated session prose may update the drawer but must not force transcript
 // renders. The real SessionScreen keeps its own narrow live subscriptions.
-const BartThread = React.memo(function BartThread(props: React.ComponentProps<typeof BartHeader>) {
-  return <SessionScreen streamId={BART_STREAM_ID} header={<BartHeader {...props} />} questionsInHeader />;
+const AssistantThread = React.memo(function AssistantThread(props: React.ComponentProps<typeof AssistantHeader>) {
+  return <SessionScreen streamId={ASSISTANT_STREAM_ID} header={<AssistantHeader {...props} />} questionsInHeader />;
 });
 
 // Scope the modal flow to this focus visit so a newer route cancels queued
 // presentation. A completed spawn can remain in the store without stealing focus.
-function BartSessions({ open, groups, machines, onClose }: {
+function AssistantSessions({ open, groups, machines, onClose }: {
   open: boolean; groups: ReturnType<typeof selectDrawerGroups>; machines: SummonMachine[]; onClose(): void;
 }) {
   const router = useRouter();

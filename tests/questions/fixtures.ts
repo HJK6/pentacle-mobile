@@ -1,7 +1,7 @@
 import { ASSISTANT_STREAM_ID } from '../../src/services/assistantIdentity';
 // Shared fixtures for the Questions overlay tests: a synthetic PentacleStreamState with
-// Bart + sessions on different hosts, durable (single + two-item) and legacy questions.
-export const BART = 'bart:assistant';
+// The assistant + sessions on different hosts, durable (single + two-item) and legacy questions.
+export const ASSISTANT_ID = 'home:assistant';
 export const SESSION_C = 'hostc:codex:deploy';
 export const SESSION_B = 'hostb:claude:review';
 export const HIDDEN_SEAT = 'hostc:codex:hidden-seat';
@@ -15,7 +15,7 @@ export const HOSTS_CONFIG = {
       hostc: { label: 'Host C', color: '#4da3ff', sigil: 'mage' },
       hostb: { label: 'Host B', color: '#ff4d5e', sigil: 'sun' },
     },
-    hostOrder: ['bart', 'hostc', 'hostb'],
+    hostOrder: ['assistant', 'hostc', 'hostb'],
   },
 };
 
@@ -98,7 +98,7 @@ export function optimisticAnswer(notificationId: string, questionId: string | un
   return {
     optimistic_id: `opt-${notificationId}-${questionId ?? 'none'}`,
     request_id: `req-${notificationId}-${questionId ?? 'none'}`,
-    stream_id: 'bart:assistant',
+    stream_id: 'home:assistant',
     text: JSON.stringify({
       type: 'notification.answer',
       notification_id: notificationId,
@@ -134,7 +134,7 @@ export function baseState(overrides: Record<string, unknown> = {}) {
   } as any;
 }
 
-// Bart + two sessions on different hosts (+ a hidden seat) with one question each, a two-item
+// The assistant + two sessions on different hosts (+ a hidden seat) with one question each, a two-item
 // durable on the Host C session, and a legacy keyed question on a third session.
 export function fixtureState(overrides: Record<string, unknown> = {}) {
   return baseState({
@@ -149,7 +149,7 @@ export function fixtureState(overrides: Record<string, unknown> = {}) {
       session(HIDDEN_SEAT, 'Hidden seat', { visibility: 'hidden' }),
     ],
     notifications: [
-      durableQuestion(BART, 'n-bart'),
+      durableQuestion(ASSISTANT_ID, 'n-assistant'),
       twoItemQuestion(SESSION_C, 'n-deploy'),
       durableQuestion(SESSION_B, 'n-review'),
       durableQuestion(HIDDEN_SEAT, 'n-hidden'),

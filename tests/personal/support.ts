@@ -67,9 +67,9 @@ export function fixtureSnapshot(): HouseholdSnapshot {
     people: { partner: 'Sam' },
     lists: {
       tasks: [
-        // Bart-created with due today → lamp + DUE TODAY
+        // assistant-created with due today → lamp + DUE TODAY
         item({ id: 1, list: 'tasks', label: 'Renew domain for altum.ai', due_date: TODAY, created_by: 'assistant', position: 1 }),
-        // Bart-created, priority hi → lamp + HIGH
+        // assistant-created, priority hi → lamp + HIGH
         item({ id: 2, list: 'tasks', label: 'Reply to Kalshi support', priority: 'hi', created_by: 'assistant', position: 2 }),
         item({ id: 3, list: 'tasks', label: 'Review index summary', position: 3 }),
         // partner-assistant-created SHARED item carrying due + hi metadata: tags but NO lamp

@@ -160,14 +160,14 @@ test('two same-kind actions: each tap forwards its own action_id', () => {
   // Only ONE testID per kind exists, so render them one at a time to assert each
   // forwards its own id. Render-instance 1 → a; instance 2 → b.
   const actionsA: PentacleNotification['actions'] = [
-    { kind: 'run_command', action_id: 'cmd-a', command_id: 'restart', host: 'bart', label: 'Restart Bart' },
+    { kind: 'run_command', action_id: 'cmd-a', command_id: 'restart', host: 'assistant', label: 'Restart the assistant' },
   ];
   const actionsB: PentacleNotification['actions'] = [
     { kind: 'run_command', action_id: 'cmd-b', command_id: 'restart', host: 'merlin', label: 'Restart Merlin' },
   ];
 
   const a = render(<NotificationCard notification={notification({ actions: actionsA })} />);
-  fireEvent.press(a.getByText('Restart Bart'));
+  fireEvent.press(a.getByText('Restart the assistant'));
   expect(mockResolveNotification).toHaveBeenLastCalledWith(
     expect.objectContaining({ action_id: 'cmd-a', action_kind: 'run_command' }),
   );
@@ -185,11 +185,11 @@ test('two same-kind actions co-resident in one card: tap resolves ONLY the click
   // run_command buttons, both rendered together. Selecting by distinct label
   // proves the click resolves ONLY the clicked action (the other is untouched).
   const actions: PentacleNotification['actions'] = [
-    { kind: 'run_command', action_id: 'cmd-a', command_id: 'restart', host: 'bart', label: 'Restart Bart' },
+    { kind: 'run_command', action_id: 'cmd-a', command_id: 'restart', host: 'assistant', label: 'Restart the assistant' },
     { kind: 'run_command', action_id: 'cmd-b', command_id: 'restart', host: 'merlin', label: 'Restart Merlin' },
   ];
   render(<NotificationCard notification={notification({ actions })} />);
-  expect(screen.getByText('Restart Bart')).toBeTruthy();
+  expect(screen.getByText('Restart the assistant')).toBeTruthy();
   fireEvent.press(screen.getByText('Restart Merlin'));
   expect(mockResolveNotification).toHaveBeenCalledTimes(1);
   expect(mockResolveNotification).toHaveBeenCalledWith({
@@ -296,12 +296,12 @@ test('in-place annotation: spawned shows the spawned stream id', () => {
           at: '2026-05-25T12:01:00.000Z',
           action_kind: 'spawn_worker',
           action_id: 's0',
-          spawned_stream_id: 'claude-bart-abc123',
+          spawned_stream_id: 'claude-assistant-abc123',
         },
       })}
     />,
   );
-  expect(screen.getByText('Spawned claude-bart-abc123')).toBeTruthy();
+  expect(screen.getByText('Spawned claude-assistant-abc123')).toBeTruthy();
 });
 
 test('in-place annotation: run_command done shows exit code + stdout tail', () => {

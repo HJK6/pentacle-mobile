@@ -108,7 +108,7 @@ test('lane_update chat.event is deduplicated by message_id across live and histo
   const event = fixture.lane_update_events[1].event;
   socket.message({ type: 'chat.event', event });
   socket.message({ type: 'chat.event', event });
-  const matches = () => core.peekEventsForStream(stream.getPentacleStreamState(), 'bart:assistant')
+  const matches = () => core.peekEventsForStream(stream.getPentacleStreamState(), 'home:assistant')
     .filter((item) => item.message_id === event.message_id);
   expect(matches()).toHaveLength(1);
   expect(core.parseLaneUpdateEvent(matches()[0])?.kind).toBe('lane_blocked');

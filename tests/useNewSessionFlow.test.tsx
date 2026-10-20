@@ -1,5 +1,5 @@
-// The shared new-session flow used by the Chats + button and the Bart drawer + button
-// (docs/bart_home_contracts.md § New session).
+// The shared new-session flow used by the Chats + button and the assistant drawer + button
+// (docs/assistant_home_contracts.md § New session).
 import React from 'react';
 import { Alert, Pressable, Text } from 'react-native';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';

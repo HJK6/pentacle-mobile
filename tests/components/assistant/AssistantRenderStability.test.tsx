@@ -2,7 +2,7 @@ import React from 'react';
 import { act, render } from '@testing-library/react-native';
 
 import { setTelemetrySink, type TelemetryPayload } from 'pentacle-chat-core';
-import { BART_STREAM_ID } from '../../../src/components/status/statusSelectors';
+import { ASSISTANT_STREAM_ID } from '../../../src/services/assistantIdentity';
 import usePentacleToken from '../../../src/hooks/usePentacleToken';
 
 jest.mock('expo-constants', () => require('../../helpers/stubs/expoConstants.cjs'));
@@ -99,7 +99,7 @@ class MockWebSocket {
   }
 }
 
-const STREAM_A = BART_STREAM_ID;
+const STREAM_A = ASSISTANT_STREAM_ID;
 const STREAM_B = 'hostc:codex:b';
 const STREAM_C = 'hostc:codex:c';
 
@@ -140,9 +140,9 @@ async function flush() {
 }
 
 // Warm transforms outside timed bodies without retaining a pre-harness module instance.
-jest.isolateModules(() => require('../../../app/(tabs)/bart'));
+jest.isolateModules(() => require('../../../app/(tabs)/assistant'));
 
-test('Bart shell preserves the real session transcript isolation from unrelated live events', async () => {
+test('The assistant shell preserves the real session transcript isolation from unrelated live events', async () => {
   process.env.EXPO_PUBLIC_HARNESS = '1';
   jest.useFakeTimers({ now: Date.parse('2026-05-27T12:00:00.000Z') });
   global.WebSocket = MockWebSocket as unknown as typeof WebSocket;
@@ -162,8 +162,8 @@ test('Bart shell preserves the real session transcript isolation from unrelated 
   await flush();
   socket.message({ type: 'session.inventory', sessions: [session(STREAM_A), session(STREAM_B), session(STREAM_C)] });
 
-  const BartScreen = require('../../../app/(tabs)/bart').default;
-  const view = render(<BartScreen />);
+  const AssistantScreen = require('../../../app/(tabs)/assistant').default;
+  const view = render(<AssistantScreen />);
   await flush();
   act(() => {
     socket.message({ type: 'chat.event', event: event(STREAM_A, 1, 'alpha seed') });

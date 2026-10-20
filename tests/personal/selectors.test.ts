@@ -94,13 +94,13 @@ describe('itemTags (due tag first, then HIGH/LOW)', () => {
 });
 
 describe('showItemLamp (actual attribution only)', () => {
-  it('shows the lamp only for created_by bart', () => {
+  it('shows the lamp only for created_by assistant', () => {
     expect(sel().showItemLamp(tasksItem({ id: 1, created_by: 'assistant' }))).toBe(true);
     expect(sel().showItemLamp(tasksItem({ id: 2, created_by: 'app' }))).toBe(false);
     expect(sel().showItemLamp(tasksItem({ id: 3, created_by: 'partner_assistant' }))).toBe(false);
   });
 
-  it('does not infer Bart from due/priority metadata (partner-assistant-created shared item with due + hi)', () => {
+  it('does not infer the assistant from due/priority metadata (partner-assistant-created shared item with due + hi)', () => {
     const partnerItem = tasksItem({ id: 4, created_by: 'partner_assistant', scope: 'shared', priority: 'hi', due_date: '2026-10-20' });
     expect(sel().showItemLamp(partnerItem)).toBe(false);
     expect(sel().itemTags(partnerItem, TODAY).length).toBe(2);
@@ -183,11 +183,11 @@ describe('partnerName', () => {
   });
 });
 
-describe('isBartEvent', () => {
-  it('is true only for created_by bart', () => {
-    expect(sel().isBartEvent(event({ id: 1, date: TODAY, title: 'a', created_by: 'assistant' }))).toBe(true);
-    expect(sel().isBartEvent(event({ id: 2, date: TODAY, title: 'b', created_by: 'app' }))).toBe(false);
-    expect(sel().isBartEvent(event({ id: 3, date: TODAY, title: 'c', created_by: 'partner_assistant' }))).toBe(false);
+describe('isAssistantEvent', () => {
+  it('is true only for created_by assistant', () => {
+    expect(sel().isAssistantEvent(event({ id: 1, date: TODAY, title: 'a', created_by: 'assistant' }))).toBe(true);
+    expect(sel().isAssistantEvent(event({ id: 2, date: TODAY, title: 'b', created_by: 'app' }))).toBe(false);
+    expect(sel().isAssistantEvent(event({ id: 3, date: TODAY, title: 'c', created_by: 'partner_assistant' }))).toBe(false);
   });
 });
 

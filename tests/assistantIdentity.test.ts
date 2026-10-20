@@ -4,12 +4,11 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import ts from 'typescript';
 import { ASSISTANT_STREAM_ID, DEFAULT_ASSISTANT_NAME, selectAssistantIdentity } from '../src/services/assistantIdentity';
-import { BART_STREAM_ID } from '../src/components/status/statusSelectors';
 
 const session = (overrides: Record<string, unknown>) => ({ stream_id: ASSISTANT_STREAM_ID, host: 'hostc', ...overrides }) as any;
 
-test('the assistant stream id is the one the status surface uses', () => {
-  expect(ASSISTANT_STREAM_ID).toBe(BART_STREAM_ID);
+test('the assistant stream id defaults to the public id without local config', () => {
+  expect(ASSISTANT_STREAM_ID).toBe('home:assistant');
 });
 
 test('name follows the assistant session display name, then title, then the default', () => {
@@ -28,11 +27,11 @@ test('other sessions never supply the assistant identity', () => {
 });
 
 const ROOT = join(__dirname, '..');
-// Visible text is capitalized ('Bart', 'BART'); lowercase 'bart' is a route, telemetry or
-// module id, and 'bart:assistant' is the protocol stream id.
-// The long form is assembled so the public fleet-name guard does not flag this policy.
-const LONG = 'Bart' + 'imaeus';
-const VISIBLE_NAME = new RegExp(`\\b(Bart|BART|${LONG}|${LONG.toUpperCase()})\\b`);
+// A private assistant name must not appear in visible text in any case; 'home:assistant' is the
+// protocol stream id. The terms are assembled so the public guards do not flag this policy.
+const SHORT = 'ba' + 'rt';
+const LONG = SHORT + 'imaeus';
+const VISIBLE_NAME = new RegExp(`\\b(${SHORT}|${LONG})\\b`, 'i');
 const SCANNED = ['app', 'src/components/assistant', 'src/components/status', 'src/components/questions', 'src/components/personal'];
 
 
@@ -69,17 +68,18 @@ function visibleLiterals(fileName: string, code: string): string[] {
     ts.forEachChild(node, visit);
   };
   visit(source);
-  return found.map((text) => text.replace(/bart:assistant/g, ''));
+  return found.map((text) => text.replace(/home:assistant/g, ''));
 }
 
 test('the literal scan sees through comments and covers string props', () => {
-  const offending = visibleLiterals('x.tsx', `<TextInput placeholder="Message // ${'Ba' + 'rt'}" testID="bart-input" />`);
+  const offending = visibleLiterals('x.tsx', `<TextInput placeholder="Message // ${SHORT}" testID="assistant-input" />`);
   expect(offending.some((text) => VISIBLE_NAME.test(text))).toBe(true);
-  expect(visibleLiterals('x.tsx', `// ${'Ba' + 'rt'} only in a comment\nconst id = 'bart:assistant';`)
+  expect(visibleLiterals('x.tsx', `// ${SHORT} only in a comment\nconst id = 'home:assistant';`)
     .some((text) => VISIBLE_NAME.test(text))).toBe(false);
-  expect(visibleLiterals('x.tsx', `<View testID="bart-status-tag" />`)).toEqual([]);
-  expect(visibleLiterals('x.tsx', `<Text>ADDED BY ${'BA' + 'RT'}</Text>`).some((text) => VISIBLE_NAME.test(text))).toBe(true);
-  expect(['bart', '../bart/ChatsDrawer', '/(tabs)/bart'].some((text) => VISIBLE_NAME.test(text))).toBe(false);
+  expect(visibleLiterals('x.tsx', `<View testID="assistant-status-tag" />`)).toEqual([]);
+  expect(visibleLiterals('x.tsx', `<Text>ADDED BY ${SHORT.toUpperCase()}</Text>`).some((text) => VISIBLE_NAME.test(text))).toBe(true);
+  expect(visibleLiterals('x.tsx', `<Text>${SHORT} is lowercase</Text>`).some((text) => VISIBLE_NAME.test(text))).toBe(true);
+  expect(['assistant', '../assistant/ChatsDrawer', '/(tabs)/assistant'].some((text) => VISIBLE_NAME.test(text))).toBe(false);
 });
 
 test('no user-visible assistant product-name literal remains in the home surfaces', () => {

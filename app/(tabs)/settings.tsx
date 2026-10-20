@@ -53,7 +53,7 @@ type DisplayMachineStatsCard = PentacleMachineStatsCard & {
 export function buildMachineTabs(machines: PentacleMachineStatsCard[]): DisplayMachineStatsCard[] {
   // Machine skins are presentation, never host identity. The selector already
   // supplies configured offline hosts; preserve every real fleet host and its
-  // actual data, but drop assistant-identity hosts (e.g. `bart`) — the machine
+  // actual data, but drop the assistant-identity host — the machine
   // stats tabs are physical machines, not identities.
   return machines
     .filter((machine) => !isIdentityHost(machine.host))

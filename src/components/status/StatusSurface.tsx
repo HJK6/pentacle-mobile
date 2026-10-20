@@ -84,7 +84,7 @@ export default function StatusSurface({ updates, lanes, working, now, top, botto
       <ArcaneRingFrame identity kind={assistant.sigilKind} size={38} sigilSize={26}
         machine={assistant.hostId ? getHostMachineName(assistant.hostId) : undefined} />
       <View style={compactHeaderLayout.copy}><Text testID="status-assistant-name" numberOfLines={1} style={[styles.name, { flexShrink: 1 }]}>{assistant.name}</Text>
-        <View style={styles.inline}><View testID="bart-status-tag" style={styles.inline}>
+        <View style={styles.inline}><View testID="assistant-status-tag" style={styles.inline}>
           <StatusTag status={working ? 'working' : 'idle'} />
           <Text style={[styles.status, { color: working ? Tokens.palette.green : Tokens.palette.amber }]}>{working ? 'WORKING' : 'IDLE'}</Text>
         </View><Text style={styles.count}>{lanes.length} LANES</Text></View>

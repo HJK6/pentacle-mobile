@@ -63,7 +63,7 @@ describe('ListDetail header, rows and copy', () => {
     expect(sameColor(colorOf(tags[0]), RED)).toBe(true);
   });
 
-  it('shows the Bart lamp only for Bart-created items; a partner-assistant-created shared item with due + hi gets tags but no lamp', async () => {
+  it('shows the assistant lamp only for assistant-created items; a partner-assistant-created shared item with due + hi gets tags but no lamp', async () => {
     await mount('ListDetail', { listId: 'tasks' });
     expect(lampsIn(rowOf('Reply to Kalshi support')).length).toBeGreaterThan(0);
     expect(lampsIn(rowOf('Renew domain for altum.ai')).length).toBeGreaterThan(0);

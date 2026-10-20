@@ -54,14 +54,14 @@ describe('CalendarView month grid', () => {
     expect(sameColor(colorOf(within(cell('2026-10-21')).getByText('21')), TEXT)).toBe(true);
   });
 
-  it('shows up to three dots per day: green for Bart-added events, dim otherwise', async () => {
+  it('shows up to three dots per day: green for assistant-added events, dim otherwise', async () => {
     await mount('CalendarView');
     const dots = (date: string) => ({
       green: withBackground(cell(date), GREEN).length,
       dim: withBackground(cell(date), DIM).length,
     });
-    expect(dots('2026-10-21')).toEqual({ green: 1, dim: 1 }); // Bart + app
-    expect(dots('2026-10-13')).toEqual({ green: 1, dim: 0 }); // Bart only
+    expect(dots('2026-10-21')).toEqual({ green: 1, dim: 1 }); // the assistant + app
+    expect(dots('2026-10-13')).toEqual({ green: 1, dim: 0 }); // the assistant only
     expect(dots('2026-10-08')).toEqual({ green: 0, dim: 2 }); // two app events
     expect(dots('2026-10-07')).toEqual({ green: 0, dim: 1 }); // partner's assistant
     const today = dots('2026-10-06'); // four events → capped at three dots
@@ -71,7 +71,7 @@ describe('CalendarView month grid', () => {
 });
 
 describe('CalendarView agenda', () => {
-  it("defaults to today: header 'TUE 6 · TODAY', event count and rows in time order with who labels and Bart markers", async () => {
+  it("defaults to today: header 'TUE 6 · TODAY', event count and rows in time order with who labels and the assistant markers", async () => {
     await mount('CalendarView');
     expect(screen.getByText('TUE 6 · TODAY')).toBeTruthy();
     expect(screen.getByText('4 EVENTS')).toBeTruthy();
@@ -86,7 +86,7 @@ describe('CalendarView agenda', () => {
     expectRow(1, 'Standup with design review', '9:30a', 'ME');
     expectRow(2, 'Vet — Pine St clinic', '2:30p', 'ME + SAM · PRIVATE');
     expectRow(3, 'TestFlight cutoff', '6:00p', 'ME');
-    // 'ADDED BY <assistant name>' only where created_by === 'bart'
+    // 'ADDED BY <assistant name>' only where created_by === 'assistant'
     expect(screen.getAllByText(/ADDED BY ZEPHYR/)).toHaveLength(2);
     expect(within(agendaRow('Vet')).getByText(/ADDED BY ZEPHYR/)).toBeTruthy();
     expect(within(agendaRow('TestFlight')).getByText(/ADDED BY ZEPHYR/)).toBeTruthy();

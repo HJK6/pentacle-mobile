@@ -5373,7 +5373,7 @@ export function sendConsentCommand<T = Record<string, unknown>>(verb: string, fi
   return sendCommand<T>({type: verb, ...fields}, 'consent');
 }
 
-// Personal household store RPCs (docs/bart_home_contracts.md). Ordinary RPCs: they
+// Personal household store RPCs (docs/assistant_home_contracts.md). Ordinary RPCs: they
 // fail on disconnect and are never replayed.
 export function sendHouseholdCommand<T = Record<string, unknown>>(verb: string, fields: Record<string, unknown>): Promise<T> {
   if (!verb.startsWith('household.')) throw new Error('Invalid household verb');

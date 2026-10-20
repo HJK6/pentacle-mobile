@@ -1,13 +1,13 @@
 import { initialPentacleStreamState, type PentacleNotification, type PentacleSessionSummary, type PentacleStreamState } from 'pentacle-chat-core';
 
 export const NOW = '2026-05-16T12:00:00.000Z';
-export function bartSession(streamId: string, overrides: Partial<PentacleSessionSummary> = {}): PentacleSessionSummary {
+export function assistantSession(streamId: string, overrides: Partial<PentacleSessionSummary> = {}): PentacleSessionSummary {
   return { stream_id: streamId, host: 'hostc', provider: 'claude', session_name: streamId.split(':').at(-1)!,
     title: `Synthetic ${streamId.split(':').at(-1)}`, last_event_at: NOW, last_text: 'Synthetic preview',
     last_kind: 'ASSIST', draft: '', pending: false, working: false, online: true, ...overrides };
 }
 
-export function bartQuestion(streamId: string, count = 1, answered = 0): PentacleNotification {
+export function assistantQuestion(streamId: string, count = 1, answered = 0): PentacleNotification {
   return { notification_id: `question-${streamId}`, created_at: NOW, updated_at: NOW, producer: 'agent_question.v1',
     answer_to_stream_id: streamId, severity: 'info', title: 'Choose a sample', body: 'Which sample should run?',
     dedup_key: `question:${streamId}`, state: 'open', actions: [{ kind: 'yes_no', action_id: 'choose' }],
@@ -20,6 +20,6 @@ export function bartQuestion(streamId: string, count = 1, answered = 0): Pentacl
   } as unknown as PentacleNotification;
 }
 
-export function bartState(): PentacleStreamState {
+export function assistantState(): PentacleStreamState {
   return { ...initialPentacleStreamState, connected: true, hasHydrated: true, sessions: [], events: [], notifications: [] };
 }

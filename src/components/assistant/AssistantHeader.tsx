@@ -26,7 +26,7 @@ function HeaderButton({ kind, count, onPress }: { kind: 'sessions' | 'questions'
   </Pressable>;
 }
 
-export default function BartHeader({ identity, others, pending, lanes, blocked = 0, working, top, onDrawer, onStatus, onQuestions }: Props) {
+export default function AssistantHeader({ identity, others, pending, lanes, blocked = 0, working, top, onDrawer, onStatus, onQuestions }: Props) {
   return <View testID="assistant-header" style={[styles.header, { paddingTop: Math.max(top, 52) }]}>
     <HeaderButton kind="sessions" count={others} onPress={onDrawer} />
     <View style={styles.identity}>

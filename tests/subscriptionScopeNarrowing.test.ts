@@ -140,7 +140,7 @@ describe('subscription scope narrowing — Q3 rendered surfaces stay correct', (
   test('explicit composite visibility is rendered while internal backend rows stay excluded', () => {
     const state = baseState({
       sessions: [
-        session('alpha:bart', 'Assistant', 'visible', {
+        session('alpha:assistant', 'Assistant', 'visible', {
           provider: 'composite',
           session_kind: 'assistant_composite',
           capabilities: { pane: false, terminal: false, assistant_composite_v1: true, reply_metadata_v1: true },
@@ -152,7 +152,7 @@ describe('subscription scope narrowing — Q3 rendered surfaces stay correct', (
       ],
     });
     const rows = selectSmartChatList(state);
-    expect(rows.map((row) => row.streamId)).toEqual(['alpha:bart']);
+    expect(rows.map((row) => row.streamId)).toEqual(['alpha:assistant']);
     expect(rows[0]).toMatchObject({
       sessionKind: 'assistant_composite',
       isCompositeChat: true,
