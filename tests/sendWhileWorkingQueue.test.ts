@@ -532,3 +532,81 @@ test('FEAT-SEND-NO-FALSE-FAILED: a dispatched queued send stays dispatched (not 
   });
   unsubscribe();
 });
+
+// Steer now: one guarded Escape before the message, first dispatch of an agent-chat send only.
+test('Steer now sends urgent directly with a plain row; queued, retried and replayed sends never carry it', async () => {
+  const { stream, socket, unsubscribe } = bootStream();
+  stream.sendTurn(STREAM_ID, 'active');
+
+  // A steer row is a plain optimistic row: not queued, no queued marker, active turn untouched.
+  const steerId = stream.enqueueTurn(STREAM_ID, 'steer text', undefined, undefined, { steer: true });
+  const steerRow = stream.getPentacleStreamState().optimisticSends?.[steerId];
+  expect(steerRow?.queued_at).toBeUndefined();
+  expect(steerRow?.turn_queued).toBeFalsy();
+  expect(stream.getPentacleStreamState().workingByStream?.[STREAM_ID]?.phase).toBe('pending');
+
+  const sent = stream.sendPentacleMessage({
+    host: 'hostc', sessionName: 'chat-1', text: 'steer text', optimisticId: steerId, urgent: true,
+  });
+  const steerFrame = sentFrames(socket, 'send').at(-1)!;
+  expect(steerFrame).toMatchObject({ text: 'steer text', optimistic_id: steerId, urgent: true });
+  socket.message({ type: 'send.result', request_id: steerFrame.request_id, delivery: 'landed' });
+  await expect(sent).resolves.toBe(true);
+  expect(stream.takeSteerNotTaken(steerId)).toBe(false);
+
+  // A queued send through the held dispatcher has no urgent.
+  const queuedId = stream.enqueueTurn(STREAM_ID, 'queued text');
+  stream.dispatchQueuedSendsByOptimisticId(STREAM_ID, queuedId);
+  expect('urgent' in sentFrames(socket, 'send').at(-1)!).toBe(false);
+
+  // A failed steer retried through the held path is an ordinary send.
+  stream.markOptimisticFailed(steerId, 'retryable');
+  const retry = stream.retryOptimisticSend(steerId);
+  const retryFrame = sentFrames(socket, 'send').at(-1)!;
+  expect(retryFrame.optimistic_id).toBe(steerId);
+  expect('urgent' in retryFrame).toBe(false);
+  socket.message({ type: 'send.result', request_id: retryFrame.request_id, delivery: 'landed' });
+  await retry;
+  unsubscribe();
+});
+
+test('a steer whose receipt still says provider_queued is reported once as not taken', async () => {
+  const { stream, socket, unsubscribe } = bootStream();
+  stream.sendTurn(STREAM_ID, 'active');
+  const steerId = stream.enqueueTurn(STREAM_ID, 'steer text', undefined, undefined, { steer: true });
+  const sent = stream.sendPentacleMessage({
+    host: 'hostc', sessionName: 'chat-1', text: 'steer text', optimisticId: steerId, urgent: true,
+  });
+  const frame = sentFrames(socket, 'send').at(-1)!;
+  socket.message({ type: 'send.result', request_id: frame.request_id, delivery: 'landed', provider_queued: true });
+  await sent;
+  expect(stream.takeSteerNotTaken(steerId)).toBe(true);
+  expect(stream.takeSteerNotTaken(steerId)).toBe(false);
+  unsubscribe();
+});
+
+test('an ordinary send never reports a steer outcome and the composite payload never carries urgent', async () => {
+  const stream = loadStream();
+  const unsubscribe = stream.subscribePentacleStream(jest.fn());
+  jest.advanceTimersByTime(0);
+  const socket = MockWebSocket.instances[0];
+  socket.open();
+  socket.message({ type: 'session.inventory', sessions: [
+    session(STREAM_ID),
+    { ...session('alpha:assistant', { provider: 'composite' }), session_kind: 'assistant_composite', visibility: 'visible' },
+  ] });
+
+  const ordinaryId = stream.enqueueTurn(STREAM_ID, 'plain');
+  stream.sendPentacleMessage({ host: 'hostc', sessionName: 'chat-1', text: 'plain', optimisticId: ordinaryId }).catch(() => undefined);
+  expect('urgent' in sentFrames(socket, 'send').at(-1)!).toBe(false);
+  expect(stream.takeSteerNotTaken(ordinaryId)).toBe(false);
+
+  const compositeId = stream.sendTurn('alpha:assistant', 'to the composite');
+  stream.sendPentacleMessage({
+    host: 'alpha', sessionName: 'assistant', text: 'to the composite', optimisticId: compositeId, urgent: true,
+  }).catch(() => undefined);
+  const compositeFrame = sentFrames(socket, 'send').at(-1)!;
+  expect(compositeFrame.msg_id).toBe(compositeId);
+  expect('urgent' in compositeFrame).toBe(false);
+  unsubscribe();
+});

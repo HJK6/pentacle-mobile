@@ -1337,6 +1337,7 @@ const EMPTY_STREAM_SLICE: PentacleStreamSlice = Object.freeze({
 
 const streamActions = Object.freeze({
   sendMessage: sendPentacleMessage,
+  takeSteerNotTaken,
   sendTurn,
   enqueueTurn,
   dispatchQueuedSendsByOptimisticId,
@@ -4499,6 +4500,7 @@ function handleMessageInner(raw: string) {
           acceptance,
         );
         setState(markOptimisticAckedByRequestId(acceptedState, message.request_id, Date.now()));
+        if (optimisticId && steerReceipts.has(optimisticId)) steerReceipts.set(optimisticId, message.provider_queued === true);
         if (optimisticId && optimistic && optimistic.status !== 'acked') {
           logOptimisticReconciled(optimisticId, undefined, optimistic.created_at, optimistic.stream_id);
         }
@@ -5956,6 +5958,9 @@ export function enqueueTurn(
   text: string,
   attachments?: ChatAttachment[],
   replyMetadata?: OptimisticReplyMetadata,
+  // Steer now: the row is a plain sent row (no queued marker) that the screen
+  // sends directly with `urgent`, bypassing the held dispatcher.
+  options: { steer?: boolean } = {},
 ) {
   const trimmed = String(text || '').trim();
   const hasAttachments = (attachments?.length ?? 0) > 0;
@@ -5968,17 +5973,21 @@ export function enqueueTurn(
     optimistic_id,
     stream_id: streamId,
   });
-  setState(reduceEnqueueOptimisticMessage(state, {
+  const row = {
     streamId,
     text: trimmed,
     optimisticId: optimistic_id,
     requestId: request_id,
     createdAt: now,
-    queuedAt: now,
     ...(attachments?.length ? { attachments } : {}),
     ...(replyMetadata?.replyToMessageId ? { replyToMessageId: replyMetadata.replyToMessageId } : {}),
     ...(replyMetadata?.replyToQuestionId ? { replyToQuestionId: replyMetadata.replyToQuestionId } : {}),
-  }));
+  };
+  setState(options.steer === true
+    ? reduceSendOptimisticMessage(state, {
+      ...row, windowStartedAt: state.connected ? now : null, socketGeneration: currentSocketGeneration, beginTurn: false,
+    })
+    : reduceEnqueueOptimisticMessage(state, { ...row, queuedAt: now }));
   return optimistic_id;
 }
 
@@ -5995,6 +6004,9 @@ function sendPayloadForSession(
     replyToMessageId?: string;
     replyToQuestionId?: string;
     meta?: PentacleEvent['meta'];
+    // Steer now: one guarded Escape before the message. First dispatch of an
+    // agent-chat send only; held, retried and replayed sends never carry it.
+    urgent?: boolean;
   },
 ): Record<string, unknown> {
   const meta = fields.meta ?? (fields.optimisticId ? peekEventsForStream(state, session.stream_id).find(event => event.optimistic_id === fields.optimisticId && event.client_origin)?.meta : undefined);
@@ -6023,6 +6035,7 @@ function sendPayloadForSession(
     text: fields.text,
     ...(fields.attachments?.length ? { attachments: fields.attachments } : {}),
     optimistic_id: fields.optimisticId,
+    ...(fields.urgent === true ? { urgent: true } : {}),
     ...reply,
   };
 }
@@ -6288,6 +6301,15 @@ export function replaceOptimisticAttachments(
     : next);
 }
 
+// Steer now receipts by optimistic id: true once the send.result still said
+// provider_queued (the Escape did not take). The screen takes the outcome once.
+const steerReceipts = new Map<string, boolean>();
+export function takeSteerNotTaken(optimisticId: string): boolean {
+  const notTaken = steerReceipts.get(optimisticId) === true;
+  steerReceipts.delete(optimisticId);
+  return notTaken;
+}
+
 export async function sendPentacleMessage(args: {
   originGeneration?: string | null;
   meta?: PentacleEvent['meta'];
@@ -6299,6 +6321,8 @@ export async function sendPentacleMessage(args: {
   // opaque `key`s travel on the send payload; image bytes already went phone→daemon
   // through the blob RPC, and `localPath` is daemon-side only.
   attachments?: ChatAttachment[];
+  // Steer now (see sendPayloadForSession); never set by retry, replay or the held-send dispatcher.
+  urgent?: boolean;
 } & ({ streamId: string; host?: never; sessionName?: never } | { streamId?: never; host: string; sessionName: string })) {
   // Voice keeps its originating route across transcript/optimistic updates,
   // which can replace the projected host/name. Resolve it at dispatch time.
@@ -6397,6 +6421,7 @@ export async function sendPentacleMessage(args: {
     return Promise.reject(new Error('Composite send is missing its stable input id'));
   }
   if (optimistic) queuedOptimisticDispatchRequests.add(optimistic.optimistic_id);
+  if (optimistic && args.urgent === true) steerReceipts.set(optimistic.optimistic_id, false);
   const payload = session
     ? sendPayloadForSession(session, {
       text: args.text,
@@ -6405,6 +6430,7 @@ export async function sendPentacleMessage(args: {
       attachments: args.attachments ?? optimistic?.attachments,
       replyToMessageId: optimistic?.reply_to_message_id ?? args.replyToMessageId,
       replyToQuestionId: optimistic?.reply_to_question_id ?? args.replyToQuestionId,
+      urgent: args.urgent,
     })
     : {
       type: 'send',

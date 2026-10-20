@@ -211,6 +211,7 @@ const transcriptSwitchProbeState = { navigated: false, returned: false, doneStre
 const SELECTABLE_TEXT = { selectable: true, selectionColor: P.accent };
 const NON_SELECTABLE_TEXT = { selectable: false } as const;
 const INITIAL_TRANSCRIPT_ROWS = 16;
+const STEER_NOT_TAKEN_NOTICE = 'Steer did not take; queued instead';
 const TRANSCRIPT_PAGE_ROWS = 48;
 // Keep first paint richer than the 12-event emergency floor without returning
 // to the 300-event payload that blocked long-chat opens. The real-daemon gate
@@ -1169,6 +1170,12 @@ export function SessionScreen(props: SessionScreenProps) {
   // no-op (exactly one effective `send.interrupt` per turn — ESC#2 would cancel
   // auto-flushed queued work); a NEW working turn (different identity) re-arms it.
   const escLatchRef = useRef<string | null>(null);
+  // Steer now / Queue choice for an agent chat that is working. Stop and Steer
+  // now share escLatchRef: one Escape per working turn.
+  const [sendMode, setSendMode] = useState<'queue' | 'steer'>('queue');
+  const sendModeRef = useRef<'queue' | 'steer'>('queue');
+  const workingIdentityRef = useRef('');
+  const [composerNotice, setComposerNotice] = useState<string | null>(null);
   const [interruptRetryIdentity, setInterruptRetryIdentity] = useState<string | null>(null);
   const [returnedDraftPrefill, setReturnedDraftPrefill] = useState<{ text: string; token: number } | null>(null);
   const [historyRetryToken, setHistoryRetryToken] = useState(0);
@@ -1440,6 +1447,20 @@ export function SessionScreen(props: SessionScreenProps) {
   const headerStatusLabel = unresponsive ? 'Session unresponsive — tmux did not answer' : undefined;
   const fluidWorkingSeconds = useFluidWorkingSeconds(showWorking ? daemonWorkingElapsedSeconds ?? 0 : null);
   const workingIdentity = `${turn.optimisticId ?? ''}:${turn.sentAt ?? ''}`;
+  workingIdentityRef.current = workingIdentity;
+  const compositeSession = session?.session_kind === 'assistant_composite';
+  const chooseSendMode = useCallback((mode: 'queue' | 'steer') => {
+    sendModeRef.current = mode;
+    setSendMode(mode);
+  }, []);
+  // The mode and notices belong to a working turn.
+  useEffect(() => {
+    if (showWorking) return;
+    chooseSendMode('queue');
+    setComposerNotice(null);
+  }, [chooseSendMode, showWorking]);
+  // Queued rows are the ones the transcript marks queued while the agent works.
+  const hasQueuedRows = Boolean(detail?.transcriptItems.some((item) => item.queuedWhileWorking === true));
   const handleVisibleHeaderStatusCommit = useCallback((status: 'sending' | 'working') => {
     const optimisticId = turn.optimisticId;
     const matchesTurn = status === 'sending' ? turn.phase === 'pending' : turn.phase === 'working';
@@ -1486,6 +1507,8 @@ export function SessionScreen(props: SessionScreenProps) {
     if (escLatchRef.current === identity) return;
     escLatchRef.current = identity;
     setInterruptRetryIdentity(null);
+    // Stop never clears the provider queue: say so while queued rows remain.
+    setComposerNotice(hasQueuedRows ? 'Stopped. Queued messages run next' : null);
     void actions.interruptSend(streamId)
       .then((result) => {
         if (shouldRetryInterrupt(result)) {
@@ -1496,7 +1519,7 @@ export function SessionScreen(props: SessionScreenProps) {
       .catch(() => {
         if (escLatchRef.current === identity) escLatchRef.current = null;
       });
-  }, [actions, streamId, workingIdentity]);
+  }, [actions, hasQueuedRows, streamId, workingIdentity]);
   const detailHasHydrated = Boolean(hasHydrated);
   const transcriptRowCount = detail?.transcriptItems.length ?? 0;
   const legacyHasContent = transcriptRowCount > 0 || hasQuestionAnswerProjection || hasPendingVoice;
@@ -3097,6 +3120,53 @@ export function SessionScreen(props: SessionScreenProps) {
         throw error;
       }
     };
+    // Steer now: only on a working agent chat, and only while the turn's single
+    // Escape (shared with Stop) is unspent. Otherwise it is an ordinary queued send.
+    let steer = false;
+    if (isWorkingRef.current && !compositeSession && sendModeRef.current === 'steer') {
+      if (escLatchRef.current !== workingIdentityRef.current) {
+        escLatchRef.current = workingIdentityRef.current;
+        steer = true;
+        setComposerNotice(null);
+      } else {
+        setComposerNotice(STEER_NOT_TAKEN_NOTICE);
+      }
+    } else {
+      setComposerNotice(null);
+    }
+    chooseSendMode('queue');
+    if (steer) {
+      const steerIdentity = workingIdentityRef.current;
+      const rearm = () => { if (escLatchRef.current === steerIdentity) escLatchRef.current = null; };
+      const optimisticId = actions.enqueueTurn(streamId, text, optimisticRowAttachments, undefined, { steer: true });
+      if (!optimisticId) { rearm(); return; }
+      logHarnessUiTrace('send_optimistic_steer', {
+        stream_id: streamId,
+        optimistic_id: optimisticId,
+        attachment_count: optimisticRowAttachments?.length ?? 0,
+      });
+      afterSend();
+      try {
+        const wireAttachments = upload ? await settleUpload(optimisticId) : optimisticAttachments;
+        // Direct path: no held queue. urgent is first-dispatch only; retries and
+        // replays go through the held-send dispatcher, which never sets it.
+        await actions.sendMessage({
+          host: session.host,
+          sessionName: session.session_name,
+          text,
+          optimisticId,
+          urgent: true,
+          ...(wireAttachments?.length ? { attachments: wireAttachments } : {}),
+        });
+        if (actions.takeSteerNotTaken(optimisticId)) setComposerNotice(STEER_NOT_TAKEN_NOTICE);
+      } catch (error) {
+        if (isRpcTimeoutError(error)) return;
+        rearm();
+        if (isRetryableTransportError(error)) return;
+        markFailedAndThrow(optimisticId, error);
+      }
+      return;
+    }
     if (isWorkingRef.current) {
       const optimisticId = actions.enqueueTurn(streamId, text, optimisticRowAttachments);
       if (!optimisticId) return;
@@ -3166,7 +3236,7 @@ export function SessionScreen(props: SessionScreenProps) {
       }
       markFailedAndThrow(optimisticId, error);
     }
-  }, [actions, isFocused, session, streamId]);
+  }, [actions, chooseSendMode, compositeSession, isFocused, session, streamId]);
 
   const handleHarnessSend = useCallback(async (request: HarnessSendRequest) => {
     const text = typeof request === 'string' ? request : request.text ?? '';
@@ -3709,6 +3779,14 @@ export function SessionScreen(props: SessionScreenProps) {
               elapsedSeconds={fluidWorkingSeconds}
               retryNotice={interruptRetryIdentity === workingIdentity ? 'Stop did not take. Tap again to retry.' : null}
             />
+          ) : null}
+          {showWorking && !compositeSession ? (
+            <SendModeRow chrome={chrome} mode={sendMode} onChange={chooseSendMode} />
+          ) : null}
+          {composerNotice && showWorking && !compositeSession ? (
+            <Text {...NON_SELECTABLE_TEXT} testID="composer-notice" style={styles.composerNotice}>
+              {composerNotice}
+            </Text>
           ) : null}
           <ComposerBar
             streamId={streamId}
@@ -4717,6 +4795,48 @@ export function WorkingIndicatorRow({
           style={[styles.workingIndicatorCancelGlyph, { backgroundColor: chrome.accent }]}
         />
       </Pressable>
+    </View>
+  );
+}
+
+// Agent chats only, while the agent works: where the next message goes. Queue
+// runs after this turn (the default); Steer now interrupts and submits at once.
+export function SendModeRow({
+  chrome,
+  mode,
+  onChange,
+}: {
+  chrome: HostChrome;
+  mode: 'queue' | 'steer';
+  onChange: (mode: 'queue' | 'steer') => void;
+}) {
+  return (
+    <View testID="send-mode-row" accessibilityRole="radiogroup" style={styles.sendModeRow}>
+      {(['queue', 'steer'] as const).map((option) => {
+        const selected = mode === option;
+        return (
+          <Pressable
+            key={option}
+            testID={`send-mode-${option}`}
+            accessibilityRole="radio"
+            accessibilityState={{ selected }}
+            onPress={() => onChange(option)}
+            hitSlop={6}
+            style={[
+              styles.sendModeOption,
+              { borderColor: selected ? chrome.accent : `${chrome.accent}54` },
+              selected ? { backgroundColor: `${chrome.accent}33` } : null,
+            ]}
+          >
+            <Text
+              {...NON_SELECTABLE_TEXT}
+              style={[styles.sendModeText, selected ? { color: chrome.accent } : null]}
+            >
+              {option === 'queue' ? 'Queue' : 'Steer now'}
+            </Text>
+          </Pressable>
+        );
+      })}
     </View>
   );
 }
@@ -7141,6 +7261,30 @@ const styles = StyleSheet.create({
     fontSize: 11,
     lineHeight: 14,
     fontFamily: MONO,
+  },
+  sendModeRow: {
+    flexDirection: 'row',
+    gap: 6,
+    paddingHorizontal: 4,
+  },
+  sendModeOption: {
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+  },
+  sendModeText: {
+    color: P.muted,
+    fontSize: 11,
+    lineHeight: 15,
+    fontFamily: MONO,
+  },
+  composerNotice: {
+    color: P.muted,
+    fontSize: 11,
+    lineHeight: 14,
+    fontFamily: MONO,
+    paddingHorizontal: 4,
   },
   workingIndicatorCancel: {
     marginLeft: 'auto',

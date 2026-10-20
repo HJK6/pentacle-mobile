@@ -90,6 +90,26 @@ The stop action reports a structured outcome such as `interrupted`,
 `interrupt_unconfirmed`, `not_working`, or `coalesced`. The client never
 auto-resends after an interrupt. A new turn identity re-arms the stop latch.
 
+### Steer now (agent chats only)
+
+While an agent chat works, a `Queue` | `Steer now` row sits above the composer
+(default `Queue`, back to `Queue` after every send). It is absent when the agent
+is idle and always absent on the Bart composite chat, which never sends `urgent`.
+`Queue` is the send above. `Steer now` inserts a plain optimistic row (no queued
+marker and no replacement of the active turn) and sends it directly with
+`urgent: true`, so the daemon sends one Escape before the message; it does not use
+the held-send dispatcher.
+
+Steer now and the stop action share one Escape per working turn through the same
+latch. After either one, a further Steer now in that turn is sent without
+`urgent` through the normal queue and the composer shows "Steer did not take;
+queued instead"; a further stop is a no-op. A failed interrupt request or a
+steer send that never reached the wire re-arms the latch. The notice also shows
+when the steer's `send.result` still carries `provider_queued: true`. `urgent` is
+first-dispatch only: retries, reconnect replays and held sends never carry it.
+The stop action does not clear the provider queue; while queued rows remain the
+composer says "Stopped. Queued messages run next".
+
 ## Optimistic user messages
 
 Send clears the local composer and inserts a synthetic USER event before the
