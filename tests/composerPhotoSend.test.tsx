@@ -536,3 +536,137 @@ test('attaching a photo preserves accessible voice entry', async () => {
   expect(screen.getByTestId('composer-attachment-thumb-0')).toBeTruthy();
   expect(screen.getByTestId('composer-mic-button')).toBeTruthy();
 });
+
+// Staged photos live per chat for the process lifetime (like the text draft):
+// leaving a chat and coming back keeps them; another chat never sees them.
+const STREAM_B = 'hostc%3Acodex%3Aone';
+const STREAM_C = 'hostc%3Acodex%3Atwo';
+function openStream(param: string) {
+  mockParams = { streamId: param };
+  mockState = { ...mockState, sessions: [session(), session({ stream_id: 'hostc:codex:two', session_name: 'two', title: 'Other' })] };
+  return render(<SessionScreen />);
+}
+
+test('a staged photo survives leaving the chat and coming back', async () => {
+  imageCapture.pickImagesFromLibrary.mockResolvedValueOnce([libraryAsset(0)]);
+  const b = openStream(STREAM_B);
+  await stagePhotosViaLibrary();
+  fireEvent.changeText(screen.getByTestId('composer-input'), 'keep both');
+  expect(screen.getByTestId('composer-attachment-thumb-0')).toBeTruthy();
+  b.unmount();
+
+  const c = openStream(STREAM_C);
+  expect(screen.queryByTestId('composer-attachment-thumb-0')).toBeNull();
+  c.unmount();
+
+  openStream(STREAM_B);
+  expect(screen.getByTestId('composer-input').props.value).toBe('keep both');
+  expect(screen.getByTestId('composer-attachment-thumb-0')).toBeTruthy();
+  expect(screen.queryByTestId('composer-attachment-thumb-1')).toBeNull();
+});
+
+test('a successful send clears the staged photo for later visits', async () => {
+  imageCapture.pickImagesFromLibrary.mockResolvedValueOnce([libraryAsset(0)]);
+  const b = openStream(STREAM_B);
+  await stagePhotosViaLibrary();
+  await act(async () => {
+    fireEvent.press(screen.getByTestId('composer-send-button'));
+    await Promise.resolve();
+  });
+  expect(mockActions.sendMessage).toHaveBeenCalledTimes(1);
+  b.unmount();
+  openStream(STREAM_B);
+  expect(screen.queryByTestId('composer-attachment-thumb-0')).toBeNull();
+});
+
+test('a send that fails before dispatch restores the photo to its chat', async () => {
+  imageCapture.pickImagesFromLibrary.mockResolvedValueOnce([libraryAsset(0)]);
+  mockActions.sendTurn.mockImplementationOnce(() => { throw new Error('send_failed'); });
+  const b = openStream(STREAM_B);
+  await stagePhotosViaLibrary();
+  await act(async () => {
+    fireEvent.press(screen.getByTestId('composer-send-button'));
+    await Promise.resolve();
+  });
+  expect(screen.getByTestId('composer-attachment-thumb-0')).toBeTruthy();
+  b.unmount();
+  openStream(STREAM_B);
+  expect(screen.getByTestId('composer-attachment-thumb-0')).toBeTruthy();
+});
+
+test('a removed photo stays removed after leaving the chat', async () => {
+  imageCapture.pickImagesFromLibrary.mockResolvedValueOnce([libraryAsset(0), libraryAsset(1)]);
+  const b = openStream(STREAM_B);
+  await stagePhotosViaLibrary();
+  act(() => {
+    fireEvent.press(screen.getByTestId('composer-attachment-remove-0'));
+  });
+  b.unmount();
+  openStream(STREAM_B);
+  expect(screen.getByTestId('composer-attachment-thumb-0')).toBeTruthy();
+  expect(screen.queryByTestId('composer-attachment-thumb-1')).toBeNull();
+});
+
+test('a pick that finishes after navigation stages into the chat it started in', async () => {
+  let finishPick: (assets: ProcessedAsset[]) => void = () => {};
+  imageCapture.pickImagesFromLibrary.mockImplementationOnce(() => new Promise<ProcessedAsset[]>((resolve) => { finishPick = resolve; }));
+  const b = openStream(STREAM_B);
+  await stagePhotosViaLibrary();
+  b.unmount();
+
+  const c = openStream(STREAM_C);
+  await act(async () => {
+    finishPick([libraryAsset(0)]);
+    await Promise.resolve();
+  });
+  expect(screen.queryByTestId('composer-attachment-thumb-0')).toBeNull();
+  c.unmount();
+
+  openStream(STREAM_B);
+  expect(screen.getByTestId('composer-attachment-thumb-0')).toBeTruthy();
+});
+
+test('a camera capture that finishes after navigation stages into the chat it started in', async () => {
+  let finishShot: (asset: ProcessedAsset) => void = () => {};
+  imageCapture.captureImageFromCamera.mockImplementationOnce(() => new Promise<ProcessedAsset>((resolve) => { finishShot = resolve; }));
+  const b = openStream(STREAM_B);
+  act(() => {
+    fireEvent.press(screen.getByTestId('composer-plus-button'));
+  });
+  await act(async () => {
+    fireEvent.press(screen.getByTestId('composer-camera-button'));
+  });
+  b.unmount();
+
+  const c = openStream(STREAM_C);
+  await act(async () => {
+    finishShot(libraryAsset(99));
+    await Promise.resolve();
+  });
+  expect(screen.queryByTestId('composer-attachment-thumb-0')).toBeNull();
+  c.unmount();
+
+  openStream(STREAM_B);
+  expect(screen.getByTestId('composer-attachment-thumb-0')).toBeTruthy();
+});
+
+test('the 5-photo cap still applies to a chat after leaving and coming back', async () => {
+  const b = openStream(STREAM_B);
+  await stagePhotosViaLibrary(); // stages 5
+  b.unmount();
+  openStream(STREAM_B);
+  expect(screen.getByTestId('composer-attachment-thumb-4')).toBeTruthy();
+  imageCapture.pickImagesFromLibrary.mockClear();
+  await stagePhotosViaLibrary();
+  expect(imageCapture.pickImagesFromLibrary).not.toHaveBeenCalled();
+  expect(screen.queryByTestId('composer-attachment-thumb-5')).toBeNull();
+  screen.unmount();
+
+  // Another chat below the cap is unaffected by B's five.
+  imageCapture.pickImagesFromLibrary.mockResolvedValueOnce([libraryAsset(7)]);
+  openStream(STREAM_C);
+  await stagePhotosViaLibrary();
+  expect(imageCapture.pickImagesFromLibrary).toHaveBeenCalledWith(5);
+  expect(screen.getByTestId('composer-attachment-thumb-0')).toBeTruthy();
+  expect(screen.queryByTestId('composer-attachment-thumb-1')).toBeNull();
+});
