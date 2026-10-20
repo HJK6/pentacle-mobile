@@ -196,7 +196,7 @@ test('the mode control is hidden while idle, shown while an agent chat works, an
   expect(selected('steer')).toBe(false);
 });
 
-test('the Bart composite chat shows no mode control even while working, and never sends urgent', async () => {
+test('the assistant composite chat shows no mode control even while working, and never sends urgent', async () => {
   renderWorking({ session_kind: 'assistant_composite', provider: 'composite' } as Partial<PentacleSessionSummary>);
   expect(screen.queryByTestId('send-mode-row')).toBeNull();
 

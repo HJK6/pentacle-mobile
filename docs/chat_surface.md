@@ -94,7 +94,7 @@ auto-resends after an interrupt. A new turn identity re-arms the stop latch.
 
 While an agent chat works, a `Queue` | `Steer now` row sits above the composer
 (default `Queue`, back to `Queue` after every send). It is absent when the agent
-is idle and always absent on the Bart composite chat, which never sends `urgent`.
+is idle and always absent on the assistant composite chat, which never sends `urgent`.
 `Queue` is the send above. `Steer now` inserts a plain optimistic row (no queued
 marker and no replacement of the active turn) and sends it directly with
 `urgent: true`, so the daemon sends one Escape before the message; it does not use
