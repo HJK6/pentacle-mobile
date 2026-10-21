@@ -320,11 +320,43 @@ test('multi-ESC debounce: N rapid presses in one working turn → exactly ONE in
   expect(mockActions.interruptSend).toHaveBeenCalledTimes(2);
 });
 
-test('Case C: unconfirmed interrupt re-arms same-turn stop and shows retry affordance', async () => {
+// The daemon answers a delivered Escape on a live pane with exactly this frame
+// (uiverbs.send_interrupt): it cannot observe the landing, so it never claims
+// `landed`. The Escape did reach the pane, so the app must not call it a failure.
+const DELIVERED_UNCONFIRMED = {
+  interrupted: true,
+  landed: false,
+  confirm: 'interrupt_unconfirmed',
+  coalesced: false,
+};
+
+test('Case C: a delivered-but-unconfirmed Escape acknowledges the stop and never claims it failed', async () => {
+  mockActions.interruptSend.mockResolvedValue(DELIVERED_UNCONFIRMED);
+  setTurn({ phase: 'working', optimisticId: 'opt-1', sentAt: 1000, firstServerEventAt: 1000 });
+  render(<SessionScreen />);
+  revealWorkingRow();
+
+  await act(async () => {
+    fireEvent.press(screen.getByTestId('esc-interrupt-button'));
+  });
+
+  expect(mockActions.interruptSend).toHaveBeenCalledTimes(1);
+  expect(screen.queryByTestId('interrupt-retry-affordance')).toBeNull();
+  expect(screen.queryByText(/did not take/i)).toBeNull();
+  expect(screen.getByTestId('composer-notice').props.children).toBe('Stop sent');
+
+  // The Escape cannot be confirmed, so the control stays usable for the same turn.
+  await act(async () => {
+    fireEvent.press(screen.getByTestId('esc-interrupt-button'));
+  });
+  expect(mockActions.interruptSend).toHaveBeenCalledTimes(2);
+});
+
+test('Case C: a stop with no pane to receive the Escape reports that it did not take and re-arms', async () => {
   mockActions.interruptSend.mockResolvedValue({
-    interrupted: true,
+    interrupted: false,
     landed: false,
-    confirm: 'interrupt_unconfirmed',
+    confirm: 'pane_unavailable',
     coalesced: false,
   });
   setTurn({ phase: 'working', optimisticId: 'opt-1', sentAt: 1000, firstServerEventAt: 1000 });
@@ -335,14 +367,10 @@ test('Case C: unconfirmed interrupt re-arms same-turn stop and shows retry affor
     fireEvent.press(screen.getByTestId('esc-interrupt-button'));
   });
 
-  expect(mockActions.interruptSend).toHaveBeenCalledTimes(1);
-  expect(screen.queryByText(/interrupted/i)).toBeNull();
   expect(screen.getByTestId('interrupt-retry-affordance').props.children).toBe('Stop did not take. Tap again to retry.');
-
   await act(async () => {
     fireEvent.press(screen.getByTestId('esc-interrupt-button'));
   });
-
   expect(mockActions.interruptSend).toHaveBeenCalledTimes(2);
 });
 

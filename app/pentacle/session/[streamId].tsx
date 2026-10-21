@@ -1514,6 +1514,11 @@ export function SessionScreen(props: SessionScreenProps) {
         if (shouldRetryInterrupt(result)) {
           if (escLatchRef.current === identity) escLatchRef.current = null;
           setInterruptRetryIdentity(identity);
+        } else if (wasEscapeDeliveredUnconfirmed(result)) {
+          // The daemon cannot observe the landing, so a delivered Escape is
+          // acknowledged as sent, not as failed. The control stays usable.
+          if (escLatchRef.current === identity) escLatchRef.current = null;
+          if (!hasQueuedRows) setComposerNotice('Stop sent');
         }
       })
       .catch(() => {
@@ -4841,11 +4846,18 @@ export function SendModeRow({
   );
 }
 
+// Only a stop that reached no pane did not take. `interrupt_unconfirmed` is the
+// daemon's answer for an Escape it did deliver but cannot see land.
 function shouldRetryInterrupt(result: InterruptSendResult | boolean | null | undefined): boolean {
+  return Boolean(result && typeof result === 'object' && result.confirm === 'pane_unavailable');
+}
+
+function wasEscapeDeliveredUnconfirmed(result: InterruptSendResult | boolean | null | undefined): boolean {
   return Boolean(
     result &&
     typeof result === 'object' &&
-    (result.confirm === 'interrupt_unconfirmed' || result.confirm === 'pane_unavailable')
+    result.confirm === 'interrupt_unconfirmed' &&
+    result.interrupted
   );
 }
 
