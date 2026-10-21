@@ -168,20 +168,25 @@ describe('production build guardrails', () => {
 
   test('invalid endpoint fails before export or native build', () => {
     const runCommand = jest.fn(() => 0);
-
-    expect(() =>
-      prodBuild.runIosDevice({
-        env: { PENTACLE_IOS_RELEASE_EXPORT_DIR: fs.mkdtempSync(path.join(os.tmpdir(), 'prod-endpoint-red-')) },
-        readConfig: () => ({ backend: { wsUrl: 'ws://192.0.2.1:7791' } }),
-        runCommand,
-      }),
-    ).toThrow(/production endpoint|TEST-NET/i);
-    expect(runCommand).not.toHaveBeenCalled();
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'prod-endpoint-red-'));
+    try {
+      expect(() =>
+        prodBuild.runIosDevice({
+          env: { PENTACLE_IOS_RELEASE_EXPORT_DIR: tmp },
+          readConfig: () => ({ backend: { wsUrl: 'ws://192.0.2.1:7791' } }),
+          runCommand,
+        }),
+      ).toThrow(/production endpoint|TEST-NET/i);
+      expect(runCommand).not.toHaveBeenCalled();
+    } finally {
+      fs.rmSync(tmp, { force: true, recursive: true });
+    }
   });
 
   test('matching exported bundle emits sanitized evidence before native build', () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'prod-endpoint-green-'));
     const endpoint = 'wss://control.fixture.internal:7791/ws?token=fixture-secret';
+    const configOnlyCanary = 'SYNTHETIC_CONFIG_ONLY_CANARY_76e7b6';
     const calls: string[][] = [];
     const commandOptions: Array<Record<string, unknown>> = [];
     try {
@@ -199,7 +204,7 @@ describe('production build guardrails', () => {
         prodBuild.runIosDevice({
           env: {},
           exportDir: tmp,
-          readConfig: () => ({ backend: { wsUrl: endpoint }, hosts: { fixture: { sigil: 'mage' } } }),
+          readConfig: () => ({ backend: { wsUrl: endpoint }, hosts: { fixture: { sigil: 'mage', privateMarker: configOnlyCanary } } }),
           runCommand,
         }),
       ).toBe(0);
@@ -211,7 +216,7 @@ describe('production build guardrails', () => {
       expect(evidence.config_source).toEqual({ kind: 'local-config', name: 'pentacle.config.local.ts:backend.wsUrl' });
       expect(evidence.bundle.endpoint_match).toBe(true);
       expect(JSON.stringify(evidence)).not.toContain('fixture-secret');
-      expect(JSON.stringify(evidence)).not.toContain('pentacle.config.local.ts contents');
+      expect(JSON.stringify(evidence)).not.toContain(configOnlyCanary);
       expect(calls.map((argv) => argv.slice(0, 2))).toEqual([
         ['expo', 'export'],
         ['expo', 'run:ios'],
