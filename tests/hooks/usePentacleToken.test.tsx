@@ -233,6 +233,42 @@ test('sign-out clears the SecureStore token key', async () => {
   expect(result.current.token).toBeNull();
 });
 
+test('sign-out forgets the enrolled endpoint and a later load hydrates the default', async () => {
+  const store = new Map<string, string>([
+    ['pentacle-stream-token', 'token-123'],
+    ['pentacle-stream-ws-url', 'ws://enrolled.example/ws'],
+  ]);
+  let streamWsUrl = 'ws://enrolled.example/ws';
+  mockSetPentacleWsUrl.mockImplementation((value: string) => { streamWsUrl = value; });
+  mockGetPentacleWsUrl.mockImplementation(() => streamWsUrl);
+  const usePentacleToken = loadHook();
+  secureStore().getItemAsync.mockImplementation(async (key: string) => store.get(key) ?? null);
+  secureStore().deleteItemAsync.mockImplementation(async (key: string) => { store.delete(key); });
+  const { result } = renderHook(() => usePentacleToken());
+  await waitFor(() => expect(result.current.token).toBe('token-123'));
+  expect(result.current.wsUrl).toBe('ws://enrolled.example/ws');
+
+  await act(async () => {
+    await result.current.clearToken();
+  });
+
+  expect(secureStore().deleteItemAsync).toHaveBeenCalledWith(
+    'pentacle-stream-ws-url',
+    expect.objectContaining({ keychainService: 'pentacle-stream-ws-url' }),
+  );
+  expect(mockSetPentacleWsUrl).toHaveBeenLastCalledWith('ws://default.example/ws');
+  expect(streamWsUrl).toBe('ws://default.example/ws');
+  expect(result.current.token).toBeNull();
+  expect(result.current.wsUrl).toBe('ws://default.example/ws');
+
+  await act(async () => {
+    await result.current.reload();
+  });
+
+  expect(mockSetPentacleWsUrl).toHaveBeenLastCalledWith('ws://default.example/ws');
+  expect(result.current.wsUrl).toBe('ws://default.example/ws');
+});
+
 test('setToken writes SecureStore and updates stream auth state', async () => {
   const usePentacleToken = loadHook();
   const { result } = renderHook(() => usePentacleToken());
