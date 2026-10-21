@@ -206,8 +206,11 @@ export default function usePentacleToken() {
       }
     }
     await deletePentacleDeviceToken();
+    // Sign-out also forgets the enrolled endpoint so a stale host is recoverable.
+    await SecureStore.deleteItemAsync(WS_URL_KEY, WS_URL_STORE_OPTIONS);
     setPentacleAuthToken(null);
-    updateSnapshot({ token: null, isReady: true, error: null });
+    setPentacleWsUrl(getBackendWsUrl());
+    updateSnapshot({ token: null, wsUrl: getPentacleWsUrl() as string, isReady: true, error: null });
   }, []);
 
   const setWsUrl = useCallback(async (value: string) => {

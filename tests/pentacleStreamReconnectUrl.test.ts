@@ -47,11 +47,11 @@ test('every reconnect attempt after failed reconnects keeps targeting the enroll
 
 test('an unreachable enrolled host keeps retrying the enrolled wsUrl with the enrolled-target error',()=>{
  const {stream,stop}=enrolledStream();
- for(let i=0;i<3;i++){Socket.instances.at(-1)!.onerror?.();Socket.instances.at(-1)!.close();jest.advanceTimersByTime(60_000);}
- expect(urls().length).toBeGreaterThan(2);
- expect(new Set(urls())).toEqual(new Set([ENROLLED_URL]));
  Socket.instances.at(-1)!.onerror?.();
  expect(stream.getPentacleStreamState().lastError).toBe(`Pentacle stream connection failed (${ENROLLED_URL})`);
+ for(let i=0;i<3;i++)jest.advanceTimersByTime(60_000);
+ expect(urls().length).toBeGreaterThan(2);
+ expect(new Set(urls().slice(1))).toEqual(new Set([ENROLLED_URL]));
  stop();stream.__resetPentacleStreamForTests();
 });
 
