@@ -219,7 +219,7 @@ def test_complete_sequence_passes_and_missing_costs_fail_closed() -> None:
 
 def test_overlapping_opens_and_missing_phases_are_reported() -> None:
     events, costs, stream_ids = _fixture(2)
-    events[2]["at"] = 100.0
+    next(event for event in events if event.get("kind") == "open_settled" and event.get("index") == 0)["at"] = 100.0
     events = [event for event in events if not (
         event.get("kind") == "paint"
         and event.get("correlation") == "open-1"
