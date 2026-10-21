@@ -58,7 +58,7 @@ not move the display backward within one working episode.
 The stop action uses the same interrupt request as the keyboard escape path.
 Repeated presses in one turn are latched to one effective request. The daemon
 answers a delivered Escape with `interrupt_unconfirmed` because it cannot see the
-landing: the composer then shows "Stop sent" and the action stays usable. Only a
+landing: the composer then shows "Stop sent" and the turn's one Escape stays spent. Only a
 result with no pane to receive the Escape (`pane_unavailable`) re-arms the action
 and reports that the stop did not take.
 

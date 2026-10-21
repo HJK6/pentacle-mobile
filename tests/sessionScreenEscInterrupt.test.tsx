@@ -345,11 +345,11 @@ test('Case C: a delivered-but-unconfirmed Escape acknowledges the stop and never
   expect(screen.queryByText(/did not take/i)).toBeNull();
   expect(screen.getByTestId('composer-notice').props.children).toBe('Stop sent');
 
-  // The Escape cannot be confirmed, so the control stays usable for the same turn.
+  // The turn's one Escape was delivered, so a repeat press in the same turn is a no-op.
   await act(async () => {
     fireEvent.press(screen.getByTestId('esc-interrupt-button'));
   });
-  expect(mockActions.interruptSend).toHaveBeenCalledTimes(2);
+  expect(mockActions.interruptSend).toHaveBeenCalledTimes(1);
 });
 
 test('Case C: a stop with no pane to receive the Escape reports that it did not take and re-arms', async () => {

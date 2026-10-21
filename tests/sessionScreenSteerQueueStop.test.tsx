@@ -292,8 +292,20 @@ test('Stop after Steer now spent the turn Escape is a no-op', async () => {
   expect(mockActions.interruptSend).not.toHaveBeenCalled();
 });
 
-test('a failed interrupt request re-arms the Escape for Steer now', async () => {
+test('a delivered but unconfirmed Stop keeps the turn Escape spent, so Steer now is queued', async () => {
   mockActions.interruptSend.mockResolvedValueOnce({ interrupted: true, landed: false, confirm: 'interrupt_unconfirmed', coalesced: false });
+  renderWorking();
+  await act(async () => {
+    fireEvent.press(screen.getByTestId('esc-interrupt-button'));
+  });
+  fireEvent.press(screen.getByTestId('send-mode-steer'));
+  await send('steer after a delivered stop');
+  expect(mockActions.sendMessage).not.toHaveBeenCalled();
+  expect(screen.getByTestId('composer-notice').props.children).toBe('Steer did not take; queued instead');
+});
+
+test('a failed interrupt request re-arms the Escape for Steer now', async () => {
+  mockActions.interruptSend.mockResolvedValueOnce({ interrupted: false, landed: false, confirm: 'pane_unavailable', coalesced: false });
   renderWorking();
   await act(async () => {
     fireEvent.press(screen.getByTestId('esc-interrupt-button'));

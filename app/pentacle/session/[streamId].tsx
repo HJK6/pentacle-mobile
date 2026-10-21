@@ -1520,8 +1520,7 @@ export function SessionScreen(props: SessionScreenProps) {
           setInterruptRetryIdentity(identity);
         } else if (wasEscapeDeliveredUnconfirmed(result)) {
           // The daemon cannot observe the landing, so a delivered Escape is
-          // acknowledged as sent, not as failed. The control stays usable.
-          if (escLatchRef.current === identity) escLatchRef.current = null;
+          // acknowledged as sent, not as failed. The turn's one Escape stays spent.
           if (!hasQueuedRows) setComposerNotice('Stop sent');
         }
       })
