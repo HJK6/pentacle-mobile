@@ -2362,15 +2362,8 @@ function applyServerUserEventWithReconciliation(event: PentacleEvent) {
 }
 
 function connectionUrls() {
-  const defaultWsUrl = getDefaultPentacleWsUrl();
-  if (!wsUrl) wsUrl = defaultWsUrl;
-  if (process.env.EXPO_PUBLIC_HARNESS === '1' && harnessRuntime.getParam('ws_url')) {
-    return [String(wsUrl || '').trim()].filter(Boolean);
-  }
-  const urls = [wsUrl, defaultWsUrl]
-    .map((value) => String(value || '').trim())
-    .filter(Boolean);
-  return Array.from(new Set(urls));
+  if (!wsUrl) wsUrl = getDefaultPentacleWsUrl();
+  return [String(wsUrl || '').trim()].filter(Boolean);
 }
 
 function connectionErrorMessage(targetUrl: string) {

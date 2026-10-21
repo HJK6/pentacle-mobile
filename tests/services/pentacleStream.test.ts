@@ -4969,7 +4969,7 @@ test('uses custom websocket URLs and generic connection error messages', () => {
   unsubscribe();
 });
 
-test('falls back from a custom websocket URL to the default endpoint on reconnect outside harness', () => {
+test('reconnects to the custom websocket URL instead of the default endpoint outside harness', () => {
   const stream = loadStream();
   stream.setPentacleWsUrl('ws://custom.example/ws');
   const unsubscribe = stream.subscribePentacleStream(jest.fn());
@@ -4981,7 +4981,7 @@ test('falls back from a custom websocket URL to the default endpoint on reconnec
   first.closeFromServer();
   jest.advanceTimersByTime(1000);
 
-  expect(MockWebSocket.instances[1].url).toBe('ws://default.example/ws');
+  expect(MockWebSocket.instances[1].url).toBe('ws://custom.example/ws');
   unsubscribe();
 });
 
