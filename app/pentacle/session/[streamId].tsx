@@ -1165,6 +1165,7 @@ export function SessionScreen(props: SessionScreenProps) {
   // B1: latest busy-turn state for the (closure-captured) send handler — a send is
   // queued vs. dispatched based on the turn state at the moment of the tap.
   const isWorkingRef = useRef(false);
+  const showWorkingRef = useRef(false);
   // B1 (multi-ESC debounce, D4): identity of the working turn for which an
   // interrupt has already been issued. Spamming ESC within ONE working turn is a
   // no-op (exactly one effective `send.interrupt` per turn — ESC#2 would cancel
@@ -1448,6 +1449,9 @@ export function SessionScreen(props: SessionScreenProps) {
   const fluidWorkingSeconds = useFluidWorkingSeconds(showWorking ? daemonWorkingElapsedSeconds ?? 0 : null);
   const workingIdentity = `${turn.optimisticId ?? ''}:${turn.sentAt ?? ''}`;
   workingIdentityRef.current = workingIdentity;
+  // Steer now is offered whenever the working row shows, including a seat the daemon
+  // reports working with no local turn, so its send gate follows the same predicate.
+  showWorkingRef.current = showWorking;
   const compositeSession = session?.session_kind === 'assistant_composite';
   const chooseSendMode = useCallback((mode: 'queue' | 'steer') => {
     sendModeRef.current = mode;
@@ -3128,7 +3132,7 @@ export function SessionScreen(props: SessionScreenProps) {
     // Steer now: only on a working agent chat, and only while the turn's single
     // Escape (shared with Stop) is unspent. Otherwise it is an ordinary queued send.
     let steer = false;
-    if (isWorkingRef.current && !compositeSession && sendModeRef.current === 'steer') {
+    if (showWorkingRef.current && !compositeSession && sendModeRef.current === 'steer') {
       if (escLatchRef.current !== workingIdentityRef.current) {
         escLatchRef.current = workingIdentityRef.current;
         steer = true;

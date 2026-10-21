@@ -230,6 +230,21 @@ test('Steer now sends urgent directly (no held queue), then the mode returns to 
   expect(screen.queryByTestId('composer-notice')).toBeNull();
 });
 
+test('Steer now on a daemon-only working seat (no local turn) still sends urgent', async () => {
+  // The seat works because the daemon says so (started elsewhere, or before this
+  // screen opened); the app has no local turn. The control is offered, so it must work.
+  renderWorking({ working: true }, { phase: 'idle' } as TurnState);
+  expect(screen.getByTestId('send-mode-row')).toBeTruthy();
+  fireEvent.press(screen.getByTestId('send-mode-steer'));
+  expect(selected('steer')).toBe(true);
+
+  await send('interrupt and do this');
+  expect(mockActions.sendMessage).toHaveBeenCalledWith({
+    host: 'hostc', sessionName: 'one', text: 'interrupt and do this', optimisticId: 'optimistic_queued_1', urgent: true,
+  });
+  expect(mockActions.dispatchQueuedSendsByOptimisticId).not.toHaveBeenCalled();
+});
+
 test('a second Steer now in the same turn is queued with the did-not-take notice', async () => {
   renderWorking();
   fireEvent.press(screen.getByTestId('send-mode-steer'));
