@@ -41,7 +41,7 @@ test('content updates replace stale runs, bounded layout stabilizes, selection t
     fireEvent(view.getByTestId('text'), 'contentSize', { nativeEvent: { contentIdentity: 'row-a:body', width: 300, height: 44 } });
     expect(view.getByTestId('text').props.style).toEqual(expect.arrayContaining([expect.objectContaining({ height: 44 })]));
     fireEvent(view.getByTestId('text'), 'selectionChange', { nativeEvent: { start: 5, end: 11, length: 6, text: 'DO_NOT_RETAIN' } });
-    expect(events[events.length - 1]).toMatchObject({ subsystem: 'chat', data: { row_id: 'row-a', block_id: 'body', start: 5, end: 11, length: 6 } });
+    expect(events[events.length - 1]).toMatchObject({ subsystem: 'chat', bug_ref: 'message_native_text_selection_2026_10', data: { row_id: 'row-a', block_id: 'body', start: 5, end: 11, length: 6 } });
     expect(JSON.stringify(events)).not.toContain('DO_NOT_RETAIN');
     expect(JSON.stringify(events)).not.toContain('silver');
     view.rerender(<MessageTextRow.Provider value="row-b"><MessageSelectableText testID="text" blockId="body" style={base}>replacement</MessageSelectableText></MessageTextRow.Provider>);

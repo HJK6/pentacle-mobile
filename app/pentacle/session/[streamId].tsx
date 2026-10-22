@@ -1,5 +1,5 @@
 import { QUESTION_SKIP_TEXT } from 'pentacle-chat-core';
-import React, { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import React, { memo, useCallback, useEffect, useLayoutEffect, useMemo, useId, useRef, useState } from 'react';
 import { useComposerDraft, draftRevision, restoreDraft } from '../../../src/services/composerDrafts';
 import { useStagedAttachments } from '../../../src/services/composerAttachments';
 import { getPentacleStreamState, voiceTransportSnapshot, voiceOriginStatus } from '../../../src/services/pentacleStream';
@@ -5840,7 +5840,7 @@ function renderMdBlocks(
           return (
             <View key={key} style={styles.codeBlock}>
               {block.lang ? <Text {...NON_SELECTABLE_TEXT} style={styles.codeLabel}>{block.lang}</Text> : null}
-              <PreformattedScrollBlock text={codeText} textStyle={styles.codeText} />
+              <PreformattedScrollBlock text={codeText} textStyle={styles.codeText} nativeSelection blockId={key} />
             </View>
           );
         }
@@ -5891,12 +5891,15 @@ function renderMdBlocks(
 
 export function FormattedAssistantText({
   text,
+  blockId,
 }: {
   text: string;
   rowId?: string;
   blockId?: string;
   onCopy?: CopyHandler;
 }) {
+  const localBlockId = useId();
+  const selectionPrefix = blockId ?? localBlockId;
   const blocks = parseTextBlocks(text);
 
   return (
@@ -5912,7 +5915,7 @@ export function FormattedAssistantText({
                       {entry.ordered ? entry.marker : '◦'}
                     </Text>
                     <View style={styles.bulletBody}>
-                      <MessageInlineText style={styles.assistantText} nodes={parseInline(entry.content)} blockId={`li-${index}-${bulletIndex}`} />
+                      <MessageInlineText style={styles.assistantText} nodes={parseInline(entry.content)} blockId={`${selectionPrefix}:li-${index}-${bulletIndex}`} />
                     </View>
                   </View>
                 );
@@ -5935,18 +5938,18 @@ export function FormattedAssistantText({
           return (
             <View key={`code-${index}`} style={styles.codeBlock}>
               {block.language ? <Text {...NON_SELECTABLE_TEXT} style={styles.codeLabel}>{block.language}</Text> : null}
-              <PreformattedScrollBlock text={block.text} textStyle={styles.codeText} />
+              <PreformattedScrollBlock text={block.text} textStyle={styles.codeText} nativeSelection blockId={`${selectionPrefix}:pre-${index}`} />
             </View>
           );
         }
 
         if (block.type === 'paragraph' && isPreformattedText(block.text)) {
           if (parsedBlocksContainTable(block.text)) {
-            return <React.Fragment key={`pre-table-${index}`}>{renderMdBlocks(block.text, `pre-table-${index}`)}</React.Fragment>;
+            return <React.Fragment key={`pre-table-${index}`}>{renderMdBlocks(block.text, `${selectionPrefix}:pre-table-${index}`)}</React.Fragment>;
           }
           return (
             <View key={`pre-${index}`} style={styles.codeBlock}>
-              <PreformattedScrollBlock text={block.text} textStyle={styles.codeText} />
+              <PreformattedScrollBlock text={block.text} textStyle={styles.codeText} nativeSelection blockId={`${selectionPrefix}:pre-${index}`} />
             </View>
           );
         }
@@ -5954,7 +5957,7 @@ export function FormattedAssistantText({
         // Prose paragraph: render markdown (headings + inline emphasis/code/
         // links) via the shared chat-core parser. Returns one or more block
         // elements (each keyed) instead of a single literal <Text>.
-        return <React.Fragment key={`para-${index}`}>{renderMdBlocks(block.text, `para-${index}`)}</React.Fragment>;
+        return <React.Fragment key={`para-${index}`}>{renderMdBlocks(block.text, `${selectionPrefix}:para-${index}`)}</React.Fragment>;
       })}
     </View>
   );
@@ -6108,7 +6111,7 @@ function parsePipeTableRow(line: string) {
   return { cells, isSeparator };
 }
 
-export function PreformattedScrollBlock({ text, textStyle, nativeSelection = true }: { text: string; textStyle: any; nativeSelection?: boolean }) {
+export function PreformattedScrollBlock({ text, textStyle, nativeSelection = false, blockId }: { text: string; textStyle: any; nativeSelection?: boolean; blockId?: string }) {
   const normalizedText = normalizePipeTable(String(text || ''));
   const lines = normalizedText.split('\n');
   const contentWidth = Math.max(
@@ -6126,7 +6129,7 @@ export function PreformattedScrollBlock({ text, textStyle, nativeSelection = tru
     >
       <View style={[styles.preformattedLines, { width: contentWidth }]}>
         {Platform.OS === 'ios' && nativeSelection ? (
-          <MessageSelectableText style={[textStyle, styles.preformattedLineText]} blockId="preformatted">
+          <MessageSelectableText style={[textStyle, styles.preformattedLineText]} blockId={blockId}>
             {normalizedText || ' '}
           </MessageSelectableText>
         ) : lines.map((line, index) => (

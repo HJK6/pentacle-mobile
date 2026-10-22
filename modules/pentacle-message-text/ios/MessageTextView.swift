@@ -123,6 +123,15 @@ final class MessageTextView: ExpoView, UITextViewDelegate {
     onSelectionChange(["start": range.location, "end": NSMaxRange(range), "length": range.length])
   }
 
+  @available(iOS 17.0, *)
+  func textView(_ textView: UITextView, primaryActionFor textItem: UITextItem, defaultAction: UIAction) -> UIAction? {
+    guard let url = textItem.link else { return defaultAction }
+    let href = textView.attributedText.attribute(.link, at: textItem.range.location, effectiveRange: nil) as? String ?? url.absoluteString
+    return UIAction(title: defaultAction.title, image: defaultAction.image) { [weak self] _ in
+      self?.onLinkPress(["href": href])
+    }
+  }
+
   func textView(_ textView: UITextView, shouldInteractWith URL: URL, in characterRange: NSRange,
                 interaction: UITextItemInteraction) -> Bool {
     if interaction == .invokeDefaultAction {

@@ -2,6 +2,7 @@ import React, { createContext, useContext, useId, useMemo, useState } from 'reac
 import { Linking, Platform, StyleSheet, Text, useWindowDimensions, type StyleProp, type TextStyle } from 'react-native';
 import { logTelemetry, type MdInline } from 'pentacle-chat-core';
 import { Tokens } from '../../constants/Colors';
+import { MOBILE_TELEMETRY_EVENTS } from '../services/mobileTelemetryEvents';
 import type { MessageTextNativeProps, MessageTextRun } from '../../modules/pentacle-message-text';
 
 export const MessageTextRow = createContext('message');
@@ -82,13 +83,13 @@ export default function MessageSelectableText({ children, nodes, style, inlineSt
       const { start, end, length } = nativeEvent;
       const textLength = runs.reduce((sum, run) => sum + run.text.length, 0);
       if (![start, end, length].every(Number.isInteger) || start < 0 || end < start || end > textLength || end - start !== length) return;
-      logTelemetry('chat:message_selection_changed' as Parameters<typeof logTelemetry>[0], {
+      logTelemetry(MOBILE_TELEMETRY_EVENTS.CHAT_MESSAGE_SELECTION_CHANGED as Parameters<typeof logTelemetry>[0], {
         subsystem: 'chat', bug_ref: 'message_native_text_selection_2026_10', row_id: rowId,
         block_id: blockId ?? localId, start, end, length,
       });
     }}
     onFontError={({ nativeEvent }) => {
-      logTelemetry('chat:message_selection_font_error' as Parameters<typeof logTelemetry>[0], {
+      logTelemetry(MOBILE_TELEMETRY_EVENTS.CHAT_MESSAGE_SELECTION_FONT_ERROR as Parameters<typeof logTelemetry>[0], {
         subsystem: 'chat', bug_ref: 'message_native_text_selection_2026_10', font_family: nativeEvent.fontFamily,
       });
     }}
