@@ -13,7 +13,12 @@ import {
   selectSmartChatList,
 } from '../app/(tabs)/chats';
 import { selectQuestionItems } from '../app/(tabs)/unified';
-import { initialPentacleStreamState } from 'pentacle-chat-core';
+import {
+  applyNotificationFrame,
+  applyNotificationList,
+  applySnapshotWithOptimisticReconciliation,
+  initialPentacleStreamState,
+} from 'pentacle-chat-core';
 import type { PentacleNotification, PentacleSessionSummary } from 'pentacle-chat-core';
 
 function session(
@@ -196,28 +201,42 @@ describe('subscription scope narrowing — Nexus AC-A: answerable card with no s
 
 describe('subscription scope narrowing — Nexus AC-B: reconnect-resync & replay stability', () => {
   test('exactly one synthesized card across snapshot -> resync -> notification replay (no dup, no vanish)', () => {
+    const now = Date.parse('2026-09-05T12:00:00.000Z');
     const notif = agentQuestionNotification('hostc:codex:hidden-q', { notification_id: 'n-hidden-q' });
-    // Snapshot: hidden session present (pre-narrowing shape) OR absent — card count is 1 either way.
-    const afterSnapshot = selectSmartChatList(baseState({
-      sessions: [session('hostc:codex:visible', 'Visible', 'default')],
+    const afterSnapshot = applySnapshotWithOptimisticReconciliation(initialPentacleStreamState, {
+      events: [],
+      sessions: [
+        session('hostc:codex:visible', 'Visible', 'default'),
+        session('hostc:codex:hidden-q', 'Hidden', 'hidden'),
+      ],
       notifications: [notif],
-    })).filter((r) => r.streamId === 'hostc:codex:hidden-q');
-    expect(afterSnapshot.length).toBe(1);
+    }, now);
+    expect(afterSnapshot.sessions.some((s) => s.stream_id === 'hostc:codex:hidden-q')).toBe(true);
 
-    // Reconnect-resync: hello/resync carry events:[] and replace sessions wholesale with
-    // the narrowed set (hidden session still absent); the notifications slice persists.
-    const afterResync = selectSmartChatList(baseState({
+    // The narrowed resync replaces sessions but omits notifications, retaining the question.
+    const afterResync = applySnapshotWithOptimisticReconciliation(afterSnapshot, {
+      events: [],
       sessions: [session('hostc:codex:visible', 'Visible', 'default')],
-      notifications: [notif],
-    })).filter((r) => r.streamId === 'hostc:codex:hidden-q');
-    expect(afterResync.length).toBe(1);
+    }, now);
+    expect(afterResync.sessions.some((s) => s.stream_id === 'hostc:codex:hidden-q')).toBe(false);
 
-    // Notification replay (applyNotificationList re-sends the same id): still exactly one.
-    const afterReplay = selectSmartChatList(baseState({
-      sessions: [session('hostc:codex:visible', 'Visible', 'default')],
-      notifications: [notif, { ...notif }],
-    })).filter((r) => r.streamId === 'hostc:codex:hidden-q');
-    expect(afterReplay.length).toBe(1);
+    const afterListReplay = applyNotificationList(afterResync, [notif]);
+    const afterFrameReplay = applyNotificationFrame(afterListReplay, { ...notif });
+    for (const state of [afterSnapshot, afterResync, afterListReplay, afterFrameReplay]) {
+      const rows = selectSmartChatList(state).filter((r) => r.streamId === 'hostc:codex:hidden-q');
+      expect(rows).toHaveLength(1);
+      expect(rows[0].openQuestions).toHaveLength(1);
+      expect(rows[0].openQuestions[0].id).toBe('n-hidden-q');
+      expect(state.notifications.filter((n) => n.notification_id === 'n-hidden-q')).toHaveLength(1);
+    }
+
+    const afterResolution = applyNotificationFrame(afterFrameReplay, {
+      ...notif,
+      state: 'resolved',
+      resolved_at: '2026-09-05T12:30:00.000Z',
+      question: { ...notif.question!, state: 'resolved' },
+    });
+    expect(selectSmartChatList(afterResolution).find((r) => r.streamId === 'hostc:codex:hidden-q')).toBeUndefined();
   });
 
   test('a resolved question does not leave a synthesized ghost row', () => {
@@ -234,4 +253,3 @@ describe('subscription scope narrowing — Nexus AC-B: reconnect-resync & replay
     expect(ghost).toBeUndefined();
   });
 });
-
