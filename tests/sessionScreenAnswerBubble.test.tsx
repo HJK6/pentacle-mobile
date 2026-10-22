@@ -175,7 +175,7 @@ test('a Cancel-only (empty text) user row produces no answer bubble', () => {
   act(() => { rendered.unmount(); });
 });
 
-test('long-press copying an answer row yields the unchanged on-wire text (presentation only)', () => {
+test('answer-row native selection preserves displayed answer grammar without whole-message copy', () => {
   const text = buildPentacleQuestionAnswerText({
     question: {
       header: 'Deploy',
@@ -193,8 +193,10 @@ test('long-press copying an answer row yields the unchanged on-wire text (presen
   const messageBubble = rendered.getByTestId('message-bubble-user-row-1');
   act(() => { fireEvent(messageBubble, 'longPress'); });
 
-  expect(onCopy).toHaveBeenCalledTimes(1);
-  expect(onCopy.mock.calls[0][0].text).toBe(text);
+  expect(onCopy).not.toHaveBeenCalled();
+  expect(rendered.getByText('Deploy')).toBeTruthy();
+  expect(rendered.getByText('hostc')).toBeTruthy();
+  expect(rendered.getByText('Use the controller.')).toBeTruthy();
 
   act(() => { rendered.unmount(); });
 });
