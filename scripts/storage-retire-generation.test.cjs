@@ -113,3 +113,20 @@ test('claimed host lock uses its exact causal timestamp contract',t=>{const f=fi
 for(const phase of ['journaled','booted_out','plist_renamed','support_renamed','retired'])for(const edge of ['before','after'])test(`phase directory sync ${edge}-${phase}`,t=>{
   const f=fixture(t);f.prepare();const plan=f.plan(),before=snapshot(f),seam=`${edge}-${phase}-journal-parent-fsync-0`,r=f.utility(['apply',f.generation,plan.plan_digest],{RETIRE_TEST_CRASH:seam});assert.equal(r.status,91,r.stderr);f.afterChildDeath();const file=path.join(f.archive(),'retirement.json'),original=JSON.parse(fs.readFileSync(file));const resumed=f.utility(['apply',f.generation,plan.plan_digest]);assert.equal(resumed.status,0,resumed.stderr);const after=JSON.parse(fs.readFileSync(file));assert.deepEqual(after.writer,original.writer);assert.deepEqual(after.plan,original.plan);assert.deepEqual(manifest(path.join(f.archive(),'support')),before.support);
 });
+
+test('dedicated UID admits the shared immutable interpreter but mutable roots retain same-UID ownership',t=>{
+  const {executableIdentity}=require('./storage-retire-generation.cjs'),uid=process.getuid;let observed;
+  try{process.getuid=()=>502;observed=executableIdentity(process.execPath);}finally{process.getuid=uid;}
+  assert.equal(observed.uid,fs.lstatSync(fs.realpathSync(process.execPath)).uid);assert.equal(observed.sha256,sha(fs.readFileSync(process.execPath)));
+  const f=fixture(t),binary=path.join(f.home,'writable-node');fs.copyFileSync(process.execPath,binary);fs.chmodSync(binary,0o755);assert.throws(()=>executableIdentity(binary),/INTERPRETER_IDENTITY/);
+  try{process.getuid=()=>502;assert.throws(()=>require('./storage-retire-generation.cjs').createRecovery({home:f.home},{context:()=>({})}).inspect(),/PATH_IDENTITY/);}finally{process.getuid=uid;}
+});
+for(const kind of ['foreign-plist','running-label','pending-history','invalid-history','reserved-temp'])test(`attached inactive census retains ${kind}`,t=>{
+  const f=fixture(t);f.install();const before=manifest(f.support),n=f.commands().length;
+  if(kind==='foreign-plist')fs.appendFileSync(f.plist,'foreign');const c=f.config();if(kind==='running-label')c.running=true;f.save(c);
+  // Delegate the existing reseal observation through its in-process seam; actual new census is under test.
+  const layout={home:f.home,support:f.support,stateImage:f.image,state:f.state,scratchImages:path.join(f.support,'ScratchImages'),evidenceImages:path.join(f.support,'EvidenceImages'),scratchMount:path.join(f.support,'Scratch'),evidenceMount:path.join(f.support,'Evidence'),worktrees:path.join(f.home,'agent-workspace/worktrees'),repositories:{'pentacle-mobile':path.join(f.home,'repos/pentacle-mobile')},schedulerRoot:f.repo,launchAgent:f.plist};
+  let calls=0;const expected={argv:[process.execPath,path.join(f.repo,'scripts/storage-janitor-scheduled.cjs'),'storage:janitor','dry-run'],working_directory:f.repo};
+  const platform={context:()=>({source:{repository:f.repo},interpreter:{canonical:process.execPath}}),inventory:()=>[{image:f.image,entities:[{mount:f.state,device:'/dev/fixture'}]}],attachedObservation:()=>({normal_admission:!kind.includes('history'),refusal:kind.includes('history')?'AUTHORITY_RESEAL_PENDING':null,journal:kind.includes('history')?{state:kind==='pending-history'?'prepared':'invalid'}:null,reserved_temporaries:kind==='reserved-temp'?['.authority-reseal-reserved.tmp']:[]}),dead:()=>{throw Error('unexpected owner');},argvFromPlist:()=>{calls++;return expected;},launchd:()=>{calls++;if(kind==='running-label')throw Error('RETIREMENT_LIVE_JANITOR');return {loaded:true,...expected};}};
+  const result=require('./storage-retire-generation.cjs').createRecovery(layout,platform).inspect();assert.equal(calls,2);assert.ok(result.failures.some(s=>kind==='foreign-plist'?/PLIST_DIGEST/.test(s):kind==='running-label'?/LIVE_JANITOR/.test(s):/RESEAL_/.test(s)));assert.ok(result.failures.includes('RETIREMENT_ATTACHED'));assert.deepEqual(manifest(f.support),before);assert.deepEqual(unintended(f.commands().slice(n)),[]);f.detach();
+});

@@ -6,7 +6,10 @@ mount an image read-only: every real invocation, including `inspect` and `plan`,
 requires a separate FD allocation. Do not run it merely to discover a generation.
 
 Use the fixed, clean public scheduler clone and its reviewed Node interpreter.
-There are no caller-selected roots or environment overrides:
+Mutable roots remain owned by the account. The shared read-only executable may
+belong to its provisioner; its canonical inode, UID, mode and byte hash are bound
+separately, with writable/substituted binaries refused. There are no caller-selected
+roots or environment overrides:
 
 ```sh
 node scripts/storage-retire-generation.cjs inspect

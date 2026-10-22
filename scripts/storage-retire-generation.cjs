@@ -28,6 +28,19 @@ function owned(p, directory = true) {
   return { device: String(stat.dev), inode: String(stat.ino), uid: stat.uid, mode: stat.mode & 0o777 };
 }
 
+// The reviewed shared interpreter is immutable input, not an account-owned mutable root.
+function executableIdentity(target = process.execPath) {
+  const canonical = fs.realpathSync(target), before = fs.lstatSync(canonical);
+  if (!before.isFile() || before.isSymbolicLink() || before.nlink !== 1 || (before.mode & 0o7222) || !(before.mode & 0o111)) fail('INTERPRETER_IDENTITY');
+  const fd = fs.openSync(canonical, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+  let bytes;
+  try { const held = fs.fstatSync(fd); if (held.dev !== before.dev || held.ino !== before.ino) fail('INTERPRETER_RACE'); bytes = fs.readFileSync(fd); }
+  finally { fs.closeSync(fd); }
+  const after = fs.lstatSync(canonical);
+  for (const key of ['dev','ino','uid','mode','nlink','size','mtimeMs','ctimeMs']) if (after[key] !== before[key]) fail('INTERPRETER_RACE');
+  return { canonical, device:String(before.dev), inode:String(before.ino), uid:before.uid, mode:before.mode & 0o777, sha256:digest(bytes) };
+}
+
 function manifest(root) {
   const result = [];
   const dev = owned(root).device;
@@ -91,7 +104,7 @@ function hostPlatform(layout) {
       || argv[2] !== 'storage:janitor' || argv[3] !== 'dry-run' || !path.isAbsolute(argv[0] || '')
       || fs.realpathSync(argv[0]) !== fs.realpathSync(process.execPath)
       || p.WorkingDirectory !== (argv[1] === legacy ? layout.repositories['pentacle-mobile'] : layout.schedulerRoot)) fail('PLIST_ARGV');
-    owned(path.dirname(layout.launchAgent)); owned(p.WorkingDirectory); owned(argv[1], false); owned(fs.realpathSync(argv[0]), false);
+    owned(path.dirname(layout.launchAgent)); owned(p.WorkingDirectory); owned(argv[1], false); executableIdentity(argv[0]);
     return { argv, working_directory: p.WorkingDirectory };
   };
   return {
@@ -99,7 +112,7 @@ function hostPlatform(layout) {
     context: () => {
       const source = assertPublicRoot(layout, __dirname);
       const executable = fs.realpathSync(process.execPath);
-      return { source: { ...source, identity: owned(source.repository) }, interpreter: { canonical: executable, ...owned(executable, false), sha256: digest(fs.readFileSync(executable)), version: process.version } };
+      return { source: { ...source, identity: owned(source.repository) }, interpreter: { ...executableIdentity(executable), version: process.version } };
     },
     epoch: state.processStartToken,
     dead: owner => {
@@ -231,8 +244,17 @@ function createRecovery(layout = fixedLayout(), platform = hostPlatform(layout))
     const attached = inventory.some(i => i.image === layout.stateImage || i.entities.some(e => e.mount === layout.state));
     if (attached) {
       const observation = platform.attachedObservation();
-      const inner = census(layout.state,true);
-      return { attached:true, eligible:false, context:ctx, ...inner, reseal:observation, failures:[...inner.failures, 'RETIREMENT_ATTACHED'] };
+      const inner = census(layout.state,true), failures = [...inner.failures];
+      let expected = null, scheduler = null;
+      try { owned(layout.launchAgent,false); expected = platform.argvFromPlist(fs.readFileSync(layout.launchAgent)); }
+      catch (error) { failures.push(error.message); }
+      try { scheduler = platform.launchd(expected); }
+      catch (error) { failures.push(error.message); }
+      if (!require('./storage-scheduler.cjs').plistOwned(layout.launchAgent,inner.committed_digest)) failures.push('RETIREMENT_PLIST_DIGEST');
+      if (!observation.normal_admission && observation.refusal !== 'AUTHORITY_ROOT_DRIFT') failures.push(`RETIREMENT_RESEAL_NOT_READY:${observation.refusal || 'unknown'}`);
+      if (observation.journal && observation.journal.state !== 'committed') failures.push('RETIREMENT_RESEAL_HISTORY_NOT_READY');
+      if (observation.reserved_temporaries?.length) failures.push('RETIREMENT_RESEAL_TEMPORARIES');
+      return { attached:true, eligible:false, context:ctx, ...inner, scheduler, reseal:observation, failures:[...failures,'RETIREMENT_ATTACHED'] };
     }
     detached(); capacity();
     if (exists(retired) && owned(retired).device !== supportIdentity.device || owned(path.join(layout.home,'Library')).device !== supportIdentity.device) fail('ARCHIVE_CROSS_DEVICE');
@@ -366,4 +388,4 @@ if (require.main === module) {
     const result=createRecovery()[verb](generation,planDigest);process.stdout.write(`${JSON.stringify(result)}\n`);
   } catch (error) { process.stderr.write(`${error.message}\n`);process.exitCode=1; }
 }
-module.exports={createRecovery,hostPlatform,manifest,readOnlyMount};
+module.exports={createRecovery,executableIdentity,hostPlatform,manifest,readOnlyMount};

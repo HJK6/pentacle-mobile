@@ -40,9 +40,9 @@ function preflight(args) {
   if(exists(layout.support)||exists(layout.launchAgent)||!missingLabel(id.uid))fail('INITIAL_RESOURCES_EXIST');
   command('/bin/launchctl',['print',`gui/${id.uid}`]);
   const space=fs.statfsSync(HOME,{bigint:true});if(space.bavail*space.bsize<60n*2n**30n)fail('CAPACITY');
-  const executable=fs.realpathSync(process.execPath);owned(executable,false);
+  const executable=fs.realpathSync(process.execPath),interpreter=require('./storage-retire-generation.cjs').executableIdentity(executable);
   if(!process.version.startsWith('v22.'))fail('NODE22_REQUIRED');
-  return {id,layout,source,identities,node:{path:executable,sha256:sha(fs.readFileSync(executable)),version:process.version}};
+  return {id,layout,source,identities,node:{...interpreter,path:executable,version:process.version}};
 }
 
 // Separate owned observer keeps running while the actual installer waits for launchd's smoke.
