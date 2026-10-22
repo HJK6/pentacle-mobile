@@ -148,6 +148,7 @@ import {
   type DurableQuestionItemModel,
 } from '../../../src/services/agentQuestionNotifications';
 import { handleChatCopy, type ChatCopyKind } from '../../../src/utils/chatCopy';
+import MessageSelectableText, { MessageTextRow } from '../../../src/components/MessageSelectableText';
 import {
   mobileQuestionItems,
   QuestionFab,
@@ -3859,10 +3860,17 @@ export function SessionScreen(props: SessionScreenProps) {
   );
 }
 
+// iOS body containers leave UIKit's text recognizers in charge of the gesture.
+function MessageBodyContainer({ onLongPress, delayLongPress, ...props }: React.ComponentProps<typeof View> & {
+  onLongPress?: () => void; delayLongPress?: number;
+}) {
+  return Platform.OS === 'ios' ? <View {...props} /> : <Pressable {...props} onLongPress={onLongPress} delayLongPress={delayLongPress} />;
+}
+
 // Renders an Option-B answer message as a human-friendly structured block:
 // per question, the header label, the chosen answer (option label(s) or free
 // text), and the optional note. Presentation only — the underlying event text
-// is unchanged (copy still yields the raw on-wire grammar).
+// is unchanged; native selection copies the displayed selected substring.
 function AnswerBubble({ answer }: { answer: PentacleQuestionAnswerDisplay }) {
   return (
     <View style={styles.answerBlock} testID="answer-bubble">
@@ -3870,21 +3878,21 @@ function AnswerBubble({ answer }: { answer: PentacleQuestionAnswerDisplay }) {
         const labels = item.selectedLabels ?? [];
         return (
           <View key={index} style={index > 0 ? styles.answerItemSpacing : undefined}>
-            <Text {...NON_SELECTABLE_TEXT} style={styles.answerHeader}>{item.header}</Text>
+            <MessageSelectableText shrinkToFit fallbackSelectable={false} style={styles.answerHeader}>{item.header}</MessageSelectableText>
             {labels.length > 1
               ? labels.map((label, labelIndex) => (
                   <View key={labelIndex} style={styles.answerBulletRow}>
                     <Text {...NON_SELECTABLE_TEXT} style={styles.answerBullet}>•</Text>
-                    <Text {...SELECTABLE_TEXT} style={styles.answerValue}>{label}</Text>
+                    <MessageSelectableText shrinkToFit style={styles.answerValue}>{label}</MessageSelectableText>
                   </View>
                 ))
               : labels.length === 1
-                ? <Text {...SELECTABLE_TEXT} style={styles.answerValue}>{labels[0]}</Text>
+                ? <MessageSelectableText shrinkToFit style={styles.answerValue}>{labels[0]}</MessageSelectableText>
                 : item.text !== undefined
-                  ? <Text {...SELECTABLE_TEXT} style={styles.answerValue}>{item.text}</Text>
+                  ? <MessageSelectableText shrinkToFit style={styles.answerValue}>{item.text}</MessageSelectableText>
                   : null}
             {item.note !== undefined
-              ? <Text {...SELECTABLE_TEXT} style={styles.answerNote}>{item.note}</Text>
+              ? <MessageSelectableText shrinkToFit style={styles.answerNote}>{item.note}</MessageSelectableText>
               : null}
           </View>
         );
@@ -4243,9 +4251,9 @@ export const TranscriptRow = memo(function TranscriptRow({
           </>
         ) : item.voice ? <View style={styles.voiceCaptionRow} testID="voice-message-caption" accessibilityLabel="Transcribed from voice"><View style={styles.voiceDurationTag}><MicGlyph color={Tokens.palette.green} size={10} /><Text style={[styles.voiceCaptionText, styles.voiceDurationText]}>{formatDuration(item.voice.duration_s)}</Text></View></View> : null}
         {hasTextBody ? (
-          <Pressable
+          <MessageBodyContainer
             testID={`message-bubble-${item.id}`}
-            onLongPress={() => onCopy?.({ targetId, copyKind: 'message', text: item.text })}
+            onLongPress={Platform.OS === 'ios' ? undefined : () => onCopy?.({ targetId, copyKind: 'message', text: item.text })}
             delayLongPress={350}
           >
             <Bevel
@@ -4255,11 +4263,13 @@ export const TranscriptRow = memo(function TranscriptRow({
               style={[styles.userBubble, item.pending === false && styles.userBubbleFailed]}
               contentStyle={styles.userBubbleContent}
             >
-              {answer
-                ? <AnswerBubble answer={answer} />
-                : <Text {...SELECTABLE_TEXT} style={styles.userText}>{item.text}</Text>}
+              <MessageTextRow.Provider value={item.id}>
+                {answer
+                  ? <AnswerBubble answer={answer} />
+                  : <MessageSelectableText shrinkToFit style={styles.userText} blockId="user-body">{item.text}</MessageSelectableText>}
+              </MessageTextRow.Provider>
             </Bevel>
-          </Pressable>
+          </MessageBodyContainer>
         ) : null}
         {item.voiceAnswersStatus ? <VoiceAnswersStatusNote status={item.voiceAnswersStatus} /> : null}
         {canceled ? (
@@ -4384,7 +4394,7 @@ export const TranscriptRow = memo(function TranscriptRow({
       <Animated.View style={[styles.assistantRow, animatedStyle]}>
         <View style={styles.assistantCard}>
           <View style={styles.codeBlock}>
-            <PreformattedScrollBlock text={item.text} textStyle={styles.codeText} />
+            <PreformattedScrollBlock text={item.text} textStyle={styles.codeText} nativeSelection={false} />
           </View>
         </View>
       </Animated.View>
@@ -4457,13 +4467,14 @@ export const TranscriptRow = memo(function TranscriptRow({
           ))}
         </View>
       ) : null}
-      <Pressable
+      <MessageBodyContainer
         testID={`message-card-${item.id}`}
         accessible={false}
         style={styles.assistantCard}
-        onLongPress={() => onCopy?.({ targetId: messageTargetId, copyKind: 'message', text: item.text })}
+        onLongPress={Platform.OS === 'ios' ? undefined : () => onCopy?.({ targetId: messageTargetId, copyKind: 'message', text: item.text })}
         delayLongPress={350}
       >
+        <MessageTextRow.Provider value={item.id}>
         {blocks.map((block, index) => {
           if (block.type === 'edit') {
             return (
@@ -4482,8 +4493,8 @@ export const TranscriptRow = memo(function TranscriptRow({
           if (block.type === 'command') {
             return (
               <View key={`${item.id}-cmd-${index}`} style={[styles.commandCard, { backgroundColor: chrome.surface, borderColor: chrome.border }]}>
-                <Text {...SELECTABLE_TEXT} style={[styles.commandTitle, { color: chrome.accent }]}>{block.command}</Text>
-                {block.output ? <Text {...SELECTABLE_TEXT} style={styles.commandOutput}>{block.output}</Text> : null}
+                <MessageSelectableText style={[styles.commandTitle, { color: chrome.accent }]}>{block.command}</MessageSelectableText>
+                {block.output ? <MessageSelectableText style={styles.commandOutput}>{block.output}</MessageSelectableText> : null}
               </View>
             );
           }
@@ -4497,7 +4508,8 @@ export const TranscriptRow = memo(function TranscriptRow({
             />
           );
         })}
-      </Pressable>
+        </MessageTextRow.Provider>
+      </MessageBodyContainer>
     </Animated.View>
   );
 });
@@ -5567,6 +5579,13 @@ const ACTION_PREFIX = /^(Edited|Added|Wrote|Created|Updated)\s+(.+?)(?:\s+\((.+)
 // Render a shared chat-core markdown inline token tree to RN <Text> children.
 // RN <Text> nests styles, so strong/em/code/link compose by nesting. Leaf
 // strings are passed straight to <Text> (inert — no escaping needed on RN).
+function MessageInlineText({ nodes, style, blockId }: { nodes: MdInline[]; style: any; blockId: string }) {
+  return <MessageSelectableText nodes={nodes} style={style} blockId={blockId}
+    inlineStyles={{ strong: styles.mdStrong, em: styles.mdEm, code: styles.mdCode, link: styles.mdLink }}>
+    {renderMdInline(nodes, blockId)}
+  </MessageSelectableText>;
+}
+
 function renderMdInline(nodes: MdInline[], keyPrefix: string): React.ReactNode[] {
   return nodes.map((node, i) => {
     const key = `${keyPrefix}-${i}`;
@@ -5738,17 +5757,12 @@ function renderMdTableGrid(block: unknown, key: string): React.ReactNode {
                     { width: column.minWidth },
                   ]}
                   >
-                    <Text
-                    {...SELECTABLE_TEXT}
-                      style={[
+                    <MessageInlineText style={[
                         styles.assistantText,
                         styles.tableCellText,
                       rowIndex === 0 && styles.tableHeaderText,
                       { textAlign: textAlignForTableCell(column.align) },
-                    ]}
-                  >
-                    {renderMdInline(row[columnIndex] ?? [], `${key}-r${rowIndex}-c${columnIndex}`)}
-                  </Text>
+                    ]} nodes={row[columnIndex] ?? []} blockId={`${key}-r${rowIndex}-c${columnIndex}`} />
                 </View>
               ))}
             </View>
@@ -5814,15 +5828,11 @@ function renderMdBlocks(
     switch (block.type) {
       case 'heading':
         return (
-          <Text key={key} {...SELECTABLE_TEXT} style={[styles.assistantText, styles.mdHeading, mdHeadingStyle(block.level ?? 3)]}>
-            {renderMdInline(block.children ?? [], key)}
-          </Text>
+          <MessageInlineText key={key} style={[styles.assistantText, styles.mdHeading, mdHeadingStyle(block.level ?? 3)]} nodes={block.children ?? []} blockId={key} />
         );
       case 'paragraph':
         return (
-          <Text key={key} {...SELECTABLE_TEXT} style={styles.assistantText}>
-            {renderMdInline(block.children ?? [], key)}
-          </Text>
+          <MessageInlineText key={key} style={styles.assistantText} nodes={block.children ?? []} blockId={key} />
         );
       case 'code_block':
         {
@@ -5843,7 +5853,7 @@ function renderMdBlocks(
                   {block.ordered ? `${j + 1}.` : '◦'}
                 </Text>
                 <View style={styles.bulletBody}>
-                  <Text {...SELECTABLE_TEXT} style={styles.assistantText}>{renderMdInline(item, `${key}-i${j}`)}</Text>
+                  <MessageInlineText style={styles.assistantText} nodes={item} blockId={`${key}-i${j}`} />
                 </View>
               </View>
             ))}
@@ -5853,9 +5863,7 @@ function renderMdBlocks(
         const quoteText = mdBlockPlainText(block);
         return quoteText ? (
           <View key={key} style={styles.mdQuote}>
-            <Text {...SELECTABLE_TEXT} style={[styles.assistantText, styles.mdQuoteText]}>
-              {renderMdInline(parseInline(quoteText), key)}
-            </Text>
+            <MessageInlineText style={[styles.assistantText, styles.mdQuoteText]} nodes={parseInline(quoteText)} blockId={key} />
           </View>
         ) : null;
       }
@@ -5874,9 +5882,7 @@ function renderMdBlocks(
         {
           const fallbackText = mdBlockPlainText(block);
           return fallbackText ? (
-            <Text key={key} {...SELECTABLE_TEXT} style={styles.assistantText}>
-              {fallbackText}
-            </Text>
+            <MessageSelectableText key={key} style={styles.assistantText} blockId={key}>{fallbackText}</MessageSelectableText>
           ) : null;
         }
     }
@@ -5906,7 +5912,7 @@ export function FormattedAssistantText({
                       {entry.ordered ? entry.marker : '◦'}
                     </Text>
                     <View style={styles.bulletBody}>
-                      <Text {...SELECTABLE_TEXT} style={styles.assistantText}>{renderMdInline(parseInline(entry.content), `li-${index}-${bulletIndex}`)}</Text>
+                      <MessageInlineText style={styles.assistantText} nodes={parseInline(entry.content)} blockId={`li-${index}-${bulletIndex}`} />
                     </View>
                   </View>
                 );
@@ -6102,7 +6108,7 @@ function parsePipeTableRow(line: string) {
   return { cells, isSeparator };
 }
 
-export function PreformattedScrollBlock({ text, textStyle }: { text: string; textStyle: any }) {
+export function PreformattedScrollBlock({ text, textStyle, nativeSelection = true }: { text: string; textStyle: any; nativeSelection?: boolean }) {
   const normalizedText = normalizePipeTable(String(text || ''));
   const lines = normalizedText.split('\n');
   const contentWidth = Math.max(
@@ -6119,13 +6125,12 @@ export function PreformattedScrollBlock({ text, textStyle }: { text: string; tex
       contentContainerStyle={styles.preformattedContent}
     >
       <View style={[styles.preformattedLines, { width: contentWidth }]}>
-        {lines.map((line, index) => (
-          <Text
-            key={`pre-line-${index}`}
-            {...SELECTABLE_TEXT}
-            numberOfLines={1}
-            style={[textStyle, styles.preformattedLineText]}
-          >
+        {Platform.OS === 'ios' && nativeSelection ? (
+          <MessageSelectableText style={[textStyle, styles.preformattedLineText]} blockId="preformatted">
+            {normalizedText || ' '}
+          </MessageSelectableText>
+        ) : lines.map((line, index) => (
+          <Text key={`pre-line-${index}`} {...SELECTABLE_TEXT} numberOfLines={1} style={[textStyle, styles.preformattedLineText]}>
             {line.length > 0 ? line : ' '}
           </Text>
         ))}
