@@ -754,42 +754,21 @@ test('a live append at 3px preserves the anchor until jump-to-latest is tapped',
   expect(rendered.queryByTestId('new-messages-pill')).toBeNull();
 });
 
-test('long-press copies a message while visible copy buttons stay removed', async () => {
+test.each(['USER', 'ASSIST'])('message text long press leaves native selection in control for %s', async (kind) => {
   mockState.events = [{
     daemon_seq: 1,
     stream_id: 'hostc:codex:one',
-    host: 'hostc',
-    provider: 'codex',
-    session_name: 'one',
+    host: 'hostc', provider: 'codex', session_name: 'one',
     timestamp: '2026-05-08T00:00:00Z',
-    kind: 'USER',
-    text: 'Ship Phase B',
-  }, {
-    daemon_seq: 2,
-    stream_id: 'hostc:codex:one',
-    host: 'hostc',
-    provider: 'codex',
-    session_name: 'one',
-    timestamp: '2026-05-08T00:00:01Z',
-    kind: 'ASSIST',
-    text: 'Phase B is underway',
+    kind,
+    text: 'Copper silver amber violet',
   }];
-
   const rendered = render(<SessionScreen />);
-  expect(await screen.findByText('Ship Phase B')).toBeTruthy();
+  const body = await screen.findByText('Copper silver amber violet');
   expect(rendered.queryAllByTestId(/^copy-/)).toHaveLength(0);
-
-  const userBubble = rendered
-    .UNSAFE_getAllByProps({ delayLongPress: 350 })
-    .find((node) => String(node.props.testID || '').startsWith('message-bubble-'));
-  expect(userBubble).toBeTruthy();
-
-  await act(async () => {
-    fireEvent(userBubble!, 'longPress');
-  });
-
-  await waitFor(() => expect(mockSetStringAsync).toHaveBeenCalledWith('Ship Phase B'));
-  expect(screen.getByTestId('chat-copy-confirmation')).toBeTruthy();
+  await act(async () => { fireEvent(body, 'longPress'); await Promise.resolve(); });
+  expect(mockSetStringAsync.mock.calls).toEqual([]);
+  expect(screen.queryByTestId('chat-copy-confirmation')).toBeNull();
 });
 
 test('primary input action sends composer text', async () => {
@@ -904,4 +883,24 @@ test('renders missing-session error state', () => {
   render(<SessionScreen />);
 
   expect(screen.getByText('Returning to chats...')).toBeTruthy();
+});
+
+
+test.each(['USER', 'ASSIST'])('native selection callbacks preserve attachments and the unsent draft for %s', async kind => {
+  mockState.events = [{
+    daemon_seq: 1, stream_id: 'hostc:codex:one', host: 'hostc', provider: 'codex', session_name: 'one',
+    timestamp: '2026-05-08T00:00:00Z', kind, text: 'Copper silver amber violet',
+    attachments: [{ key: 'b'.repeat(64), mime: 'image/png', width: 120, height: 80, uri: 'data:image/png;base64,synthetic' }],
+  }];
+  const rendered = render(<SessionScreen />);
+  fireEvent.changeText(screen.getByTestId('composer-input'), 'keep this unsent');
+  // Inspect the real facade boundary for the rendered row, rather than invoke a copy helper.
+  const body = await screen.findByText('Copper silver amber violet');
+  await act(async () => {
+    fireEvent(body, 'selectionChange', { nativeEvent: { start: 7, end: 13, length: 6 } });
+  });
+  rendered.rerender(<SessionScreen />);
+  expect(screen.getByTestId('composer-input').props.value).toBe('keep this unsent');
+  expect(screen.getByTestId(kind === 'USER' ? 'message-image-0' : 'assistant-message-image-0')).toBeTruthy();
+  expect(mockSetStringAsync.mock.calls).toEqual([]);
 });

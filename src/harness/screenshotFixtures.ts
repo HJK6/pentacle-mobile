@@ -76,7 +76,8 @@ export type HarnessVariant =
   | 'tool_call_latest'
   | 'offline'
   | 'native_question'
-  | 'status_card';
+  | 'status_card'
+  | 'text_selection';
 
 // ---------------------------------------------------------------------------
 // Shared building blocks (fixed timestamps for deterministic renders).
@@ -865,6 +866,26 @@ const RICH_MARKDOWN_SNAPSHOT: HarnessSnapshot = {
 // phone viewport, used to prove horizontal panning reveals clipped columns.
 // ---------------------------------------------------------------------------
 
+// Both baseline and candidate use these exact offline, synthetic selection inputs.
+const SELECTION_PHOTO = {
+  key: 'b'.repeat(64), mime: 'image/png', width: 120, height: 80,
+  uri: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a0YQAAAAASUVORK5CYII=',
+};
+const SELECTION_TEXTS = ['Copper silver amber violet', 'A 😀 silver amber violet', 'café silver\namber violet'];
+const TEXT_SELECTION_EVENTS: PentacleEvent[] = SELECTION_TEXTS.flatMap((text, index) => [
+  { ...userEvent(SESSION_STREAM_ID, 'hosta', 'claude', 'analysis-sample', index * 2 + 1, text, `2026-05-30T15:5${index}:00.000Z`),
+    ...(index === 0 ? { attachments: [SELECTION_PHOTO] } : {}) },
+  assistEvent(SESSION_STREAM_ID, 'hosta', 'claude', 'analysis-sample', index * 2 + 2, text, `2026-05-30T15:5${index}:01.000Z`),
+]);
+TEXT_SELECTION_EVENTS.push(assistEvent(SESSION_STREAM_ID, 'hosta', 'claude', 'analysis-sample', 7,
+  '[Local selection link](http://127.0.0.1:17889/f2-link)\n\n| First long column | Second long column | Third long column | Fourth long column | Last column |\n| --- | --- | --- | --- | --- |\n| Copper silver amber | long middle text | another middle column | clipped continuation | FAR_TABLE_MARKER |\n\n```text\n' + 'START_CODE_MARKER-' + 'wide-code-'.repeat(10) + '-END_CODE_MARKER\n```',
+  '2026-05-30T15:59:00.000Z'));
+const TEXT_SELECTION_SNAPSHOT: HarnessSnapshot = {
+  hosts: POPULATED_HOSTS,
+  sessions: POPULATED_SESSIONS.filter(s => s.stream_id === SESSION_STREAM_ID).map(s => ({ ...s, title: 'Native selection fixture', last_text: '', draft: '', working: false })),
+  events: TEXT_SELECTION_EVENTS,
+};
+
 const WIDE_TABLE_TEXT = [
   "Mobile table repro:",
   "",
@@ -1243,6 +1264,7 @@ export const FIXTURES: Record<string, HarnessFixture> = {
       error: "Harness asset RPC error",
     },
   },
+  "session:text_selection": { snapshot: TEXT_SELECTION_SNAPSHOT, opts: SEEDED },
   "session:populated": { snapshot: POPULATED_SNAPSHOT, opts: SEEDED },
   "session:loading": { snapshot: {}, opts: LOADING },
   // session:question — the FAB/overlay AskUserQuestion flow (question_flow feature).
