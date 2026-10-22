@@ -85,6 +85,10 @@ function event(seq: number) {
   };
 }
 
+async function flushMicrotasks() {
+  for (let i = 0; i < 5; i += 1) await Promise.resolve();
+}
+
 beforeEach(async () => {
   await AsyncStorage.clear();
   delete process.env.EXPO_PUBLIC_HARNESS;
@@ -100,6 +104,11 @@ describe('pentacleStream resumable history backfill', () => {
     const stream = loadStream();
     const socket = openSocket(stream);
     const history = stream.requestStreamEvents('mock-host:mock-session', 300, { purpose: 'mount-fetch' });
+    let settled = 0;
+    const resolved = history.then((rows) => {
+      settled += 1;
+      return rows;
+    });
     const request = lastRequestFrame(socket);
     const chunk = (seq: number) => socket.message({
       type: 'request_stream_events.chunk', request_id: request.request_id,
@@ -112,12 +121,30 @@ describe('pentacleStream resumable history backfill', () => {
     }] });
     socket.message({ type: 'pong', request_id: 'independent-control' });
     expect(stream.getPentacleStreamState().sessions[0].bootstrap_state).toBe('ready');
+    await flushMicrotasks();
+    expect(settled).toBe(0);
+    socket.message({
+      type: 'request_stream_events.ok', request_id: 'unrelated-request',
+      stream_id: 'mock-host:mock-session', events: [event(99)], complete: true,
+    });
+    await flushMicrotasks();
+    expect(settled).toBe(0);
+    expect(stream.getPentacleStreamState().events.map((item) => item.daemon_seq)).not.toContain(99);
     chunk(2);
     socket.message({
       type: 'request_stream_events.ok', request_id: request.request_id,
       stream_id: 'mock-host:mock-session', events: [], complete: true,
     });
-    await history;
+    const rows = await resolved;
+    expect(rows.map((item) => item.daemon_seq)).toEqual([1, 2]);
+    expect(rows.every((item) => item.stream_id === 'mock-host:mock-session')).toBe(true);
+    expect(settled).toBe(1);
+    socket.message({
+      type: 'request_stream_events.ok', request_id: request.request_id,
+      stream_id: 'mock-host:mock-session', events: [], complete: true,
+    });
+    await flushMicrotasks();
+    expect(settled).toBe(1);
     expect(stream.getPentacleStreamState().events.map((item) => item.daemon_seq)).toEqual([1, 2]);
     expect(stream.getPentacleStreamState().sessions[0].bootstrap_state).toBe('ready');
     expect(MockWebSocket.instances).toHaveLength(1);
