@@ -44,3 +44,16 @@ jest.mock('expo-sharing', () => ({
   isAvailableAsync: jest.fn().mockResolvedValue(true),
   shareAsync: jest.fn().mockResolvedValue(undefined),
 }));
+
+// OS boundary only: parser, run conversion, row rendering and callbacks remain real.
+// Word selection, handles and Copy require the dedicated native Release journey.
+jest.mock('../modules/pentacle-message-text', () => {
+  const React = require('react');
+  const { Text } = require('react-native');
+  return { __esModule: true, default: ({ runs, ...props }: any) => React.createElement(Text, props,
+    ...runs.map((run: any, index: number) => React.createElement(Text, { key: index, style: {
+      fontFamily: run.fontFamily, color: run.color, fontSize: run.fontSize,
+      fontStyle: run.italic ? 'italic' : 'normal', backgroundColor: run.backgroundColor,
+      textAlign: run.alignment, lineHeight: run.lineHeight,
+    } }, run.text))) };
+});
