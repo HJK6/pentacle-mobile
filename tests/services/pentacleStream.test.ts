@@ -235,7 +235,7 @@ test('production clients without a credential require enrollment without opening
 
 test('armed auth-disabled harness waits for token reload and connects after a generation change', async () => {
   const previousNodeEnv = process.env.NODE_ENV;
-  process.env.NODE_ENV = 'production';
+  Reflect.set(process.env, 'NODE_ENV', 'production');
   process.env.EXPO_PUBLIC_HARNESS = '1';
   try {
     const stream = loadStream();
@@ -259,7 +259,11 @@ test('armed auth-disabled harness waits for token reload and connects after a ge
     harnessRuntime.reset();
     unsubscribe();
   } finally {
-    process.env.NODE_ENV = previousNodeEnv;
+    if (previousNodeEnv === undefined) {
+      Reflect.deleteProperty(process.env, 'NODE_ENV');
+    } else {
+      Reflect.set(process.env, 'NODE_ENV', previousNodeEnv);
+    }
   }
 });
 
