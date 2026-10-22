@@ -230,3 +230,19 @@ Each invocation needs a new output directory. Retain result.json, command exits,
 AX, PNG/Vision frames, PID-bound range telemetry, finalized video and file hashes.
 The runner reports its owned app/recorder/log cleanup counts; the allocation owner
 then stops its own companion and shuts down only its allocated simulator.
+
+
+Source-only oracle controls (no simulator commands):
+
+```sh
+python3 test/e2e/message_text_selection.py --check-oracles /absolute/new/output
+```
+
+These reject an unchanged transcript even if unrelated pixels change, accept a
+moved-row control and retain partial diagnostics from a real owned command timeout.
+`SOURCE_CONTROLS_PASS` is never native acceptance. Native vertical scrolling requires
+real AX row movement/visible-row changes. Draft readbacks follow all scrolling and
+an observed same-row rerender. That rerender uses the allocated simulator's existing
+`simctl ui content_size` setting to exercise RN fontScale and native measurement;
+the runner retains/restores the exact per-device preimage in finally. It changes no
+host or physical-device preference and still requires the explicit native window.

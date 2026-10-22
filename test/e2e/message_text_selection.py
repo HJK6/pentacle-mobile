@@ -100,13 +100,30 @@ class Journey:
         self.context = None
         self.env = dict(os.environ)
         self.owned_pid = None
+        self.content_size_preimage = None
         self.cleanup = {"expected": 0, "closed": 0, "errors": [], "borrowed_companion_stopped": False}
 
     def command(self, args, *, input=None, timeout=25, category="HARNESS_ERROR"):
         started = time.time()
-        result = subprocess.run(args, input=input, text=True, capture_output=True, env=self.env, timeout=timeout)
-        self.commands.append({"argv": args, "start": started, "exit": result.returncode,
-                              "stdout": result.stdout, "stderr": result.stderr})
+        def decoded(value):
+            return value.decode("utf-8", errors="replace") if isinstance(value, bytes) else str(value or "")
+        receipt = {"argv": args, "start": started, "timeout_s": timeout}
+        try:
+            result = subprocess.run(args, input=input, text=True, capture_output=True, env=self.env, timeout=timeout)
+            receipt.update(exit=result.returncode, signal=-result.returncode if result.returncode < 0 else None,
+                           stdout=result.stdout, stderr=result.stderr)
+        except (subprocess.TimeoutExpired, OSError) as error:
+            receipt.update(exit=None, signal=None, error=type(error).__name__, errno=getattr(error, "errno", None),
+                           stdout=decoded(getattr(error, "stdout", "")), stderr=decoded(getattr(error, "stderr", "")))
+            raise JourneyError("HARNESS_ERROR", f"command:{args[0]}:{type(error).__name__}") from error
+        finally:
+            receipt["finished_at"] = time.time()
+            receipt["duration_s"] = receipt["finished_at"] - started
+            for stream in ("stdout", "stderr"):
+                value = receipt.get(stream, "")
+                receipt[stream + "_truncated"] = len(value) > 65536
+                receipt[stream] = value[:65536]
+            self.commands.append(receipt)
         require(result.returncode == 0, category, f"command:{args[0]}:{result.returncode}:{result.stderr[:300]}")
         return result.stdout
 
@@ -396,6 +413,62 @@ class Journey:
         current = self.command(["node", "-e", "process.stdout.write(String(require('./scripts/gate-app-ready.cjs').currentPid({deviceSetRoot:process.argv[1],udid:process.argv[2],bundleId:process.argv[3]})))", self.args.device_set, self.args.udid, self.args.bundle_id]).strip()
         require(current == str(self.owned_pid), "PRODUCT_FAIL", "candidate_not_live_at_final_observation")
 
+    @classmethod
+    def transcript_landmarks(cls, rows, screen_height):
+        landmarks = {}
+        for row in rows:
+            identity = str(row.get("AXUniqueId") or row.get("identifier") or "")
+            x,y,w,h = cls.frame(row)
+            if identity.startswith("message-text-") and w > 0 and h > 0 and y+h > 90 and y < screen_height-120:
+                landmarks[identity] = {"frame": (x,y,w,h), "label": cls.label(row)}
+        return landmarks
+
+    @staticmethod
+    def require_transcript_moved(before, after):
+        common = set(before) & set(after)
+        moved = [identity for identity in common if abs(before[identity]["frame"][1] - after[identity]["frame"][1]) >= 8]
+        changed_visible_set = bool(set(before)-set(after) and set(after)-set(before))
+        require(bool(moved) or changed_visible_set, "PRODUCT_FAIL", "vertical_transcript_landmarks_did_not_move")
+        return {"moved_row_ids": sorted(moved), "before_rows": sorted(before), "after_rows": sorted(after)}
+
+    def require_draft(self, name):
+        rows = self.ax(name)
+        require(any(row.get("AXUniqueId") == "composer-input" and "F2 unsent local draft" in self.label(row) for row in rows),
+                "PRODUCT_FAIL", "unsent_draft_lost:"+name)
+        return rows
+
+    def same_row_rerender(self):
+        # A per-device content-size change exercises the existing RN fontScale ->
+        # run props -> native measurement -> JS-height rerender path. It never
+        # sets selection, injects a message or changes a production preference.
+        text = "Copper silver amber violet"
+        row = self.seek(text, "USER")
+        identity = row.get("AXUniqueId") or row.get("identifier")
+        before = self.frame(row)
+        self.screenshot("same-row-rerender-before")
+        category = self.sim("ui", self.args.udid, "content_size").strip()
+        categories = {"extra-small", "small", "medium", "large", "extra-large", "extra-extra-large", "extra-extra-extra-large",
+                      "accessibility-medium", "accessibility-large", "accessibility-extra-large", "accessibility-extra-extra-large", "accessibility-extra-extra-extra-large"}
+        require(category in categories, "HARNESS_ERROR", "content_size_preimage_unavailable")
+        self.content_size_preimage = category
+        self.cleanup["expected"] += 1
+        target = "extra-extra-extra-large" if category != "extra-extra-extra-large" else "large"
+        self.sim("ui", self.args.udid, "content_size", target)
+        changed = None
+        for attempt in range(20):
+            rows = self.ax(f"same-row-rerender-{attempt}")
+            changed = next((item for item in rows if (item.get("AXUniqueId") or item.get("identifier")) == identity), None)
+            if changed and abs(self.frame(changed)[3] - before[3]) >= 1:
+                break
+            time.sleep(0.1)
+        require(changed is not None and abs(self.frame(changed)[3]-before[3]) >= 1,
+                "PRODUCT_FAIL", "same_row_fontScale_measurement_rerender_not_observed")
+        require(text in self.label(changed), "PRODUCT_FAIL", "same_row_text_changed_during_rerender")
+        self.screenshot("same-row-rerender-after")
+        self.require_draft("draft-after-same-row-rerender")
+        return {"row_id": identity, "before_frame": before, "after_frame": self.frame(changed),
+                "content_size_before": category, "content_size_after": target, "draft_preserved": True}
+
     def regressions(self):
         # Test real inline link routing against one owned loopback HTTP receiver.
         requests = []
@@ -437,15 +510,17 @@ class Journey:
         self.idb("ui", "text", "F2 unsent local draft")
         # Do not tap Send; selection must dismiss the editable keyboard and retain draft.
         self.selection_case("USER", "Copper silver amber violet", 7, "silver amber")
-        rows = self.ax("composer-preserved")
-        require(any("F2 unsent local draft" in self.label(row) for row in rows), "PRODUCT_FAIL", "unsent_draft_lost")
+        self.require_draft("draft-after-selection")
         # Real vertical movement must change which transcript text is visible.
         rows, screen = self.capture("vertical-before")
         width, height = screen["screen_points"]
-        before = self.output / "vertical-before.png"
+        landmarks_before = self.transcript_landmarks(rows, height)
+        require(bool(landmarks_before), "HARNESS_ERROR", "visible_transcript_landmarks_missing")
         self.swipe(width/2, height*0.7, width/2, height*0.3)
-        after = self.screenshot("vertical-after")
-        require(digest(before) != digest(after), "PRODUCT_FAIL", "vertical_scroll_did_not_move")
+        rows_after = self.ax("vertical-after")
+        self.screenshot("vertical-after")
+        landmarks_after = self.transcript_landmarks(rows_after, height)
+        movement = self.require_transcript_moved(landmarks_before, landmarks_after)
         # Horizontal table/code proof uses OCR of visible marker text, never full AX labels.
         for prefix, marker in (("table", "FAR_TABLE_MARKER"), ("code", "END_CODE_MARKER")):
             surface = self.seek(marker)
@@ -462,10 +537,22 @@ class Journey:
                 if normalize(marker) in visible:
                     break
             require(normalize(marker) in visible, "PRODUCT_FAIL", prefix+"_horizontal_marker_not_visible")
+        self.require_draft("draft-after-all-scrolling")
+        rerender = self.same_row_rerender()
+        self.require_draft("draft-final-after-scrolling-and-rerender")
         self.checks.append({"links_exactly_once": True, "linked_word_selection": True, "attachment_viewer": True,
-                            "unsent_draft": True, "vertical_scroll": True, "table_horizontal": True, "code_horizontal": True})
+                            "unsent_draft": True, "vertical_scroll": movement, "table_horizontal": True, "code_horizontal": True,
+                            "same_row_rerender": rerender, "draft_checked_after_all_scrolling_and_rerender": True})
 
     def cleanup_owned(self):
+        if self.content_size_preimage is not None:
+            try:
+                self.sim("ui", self.args.udid, "content_size", self.content_size_preimage)
+                require(self.sim("ui", self.args.udid, "content_size").strip() == self.content_size_preimage,
+                        "CLEANUP_FAIL", "content_size_preimage_not_restored")
+                self.cleanup["closed"] += 1
+            except Exception as error:
+                self.cleanup["errors"].append(f"content_size:{error}")
         for process, handle, label in reversed(self.children):
             try:
                 os.killpg(process.pid, signal.SIGINT if label == "video" else signal.SIGTERM)
@@ -494,6 +581,39 @@ class Journey:
                 self.cleanup["closed"] += 1
             except Exception as error:
                 self.cleanup["errors"].append(f"app:{error}")
+
+
+def check_source_oracles(output):
+    """Focused source controls only; these can never be native acceptance."""
+    destination = Path(output).resolve()
+    destination.mkdir(parents=True, exist_ok=False)
+    before = {"message-text-fixture:body": {"frame": (20, 200, 250, 22), "label": "synthetic row"}}
+    unchanged = {key: dict(value) for key, value in before.items()}
+    rejected = False
+    try:
+        Journey.require_transcript_moved(before, unchanged)
+    except JourneyError as error:
+        rejected = error.category == "PRODUCT_FAIL" and error.predicate == "vertical_transcript_landmarks_did_not_move"
+    require(rejected, "HARNESS_ERROR", "nonmoving_transcript_negative_control_was_accepted")
+    moved = {"message-text-fixture:body": {"frame": (20, 120, 250, 22), "label": "synthetic row"}}
+    positive = Journey.require_transcript_moved(before, moved)
+    journey = Journey(argparse.Namespace(output=str(destination / "timeout-counterpart")))
+    timed_out = False
+    try:
+        journey.command([sys.executable, "-c", "import sys,time; sys.stderr.write('F2_TIMEOUT_DIAGNOSTIC'); sys.stderr.flush(); time.sleep(3)"], timeout=1)
+    except JourneyError as error:
+        timed_out = error.category == "HARNESS_ERROR"
+    require(timed_out and len(journey.commands) == 1, "HARNESS_ERROR", "timeout_receipt_missing")
+    receipt = journey.commands[0]
+    require(receipt.get("error") == "TimeoutExpired" and "F2_TIMEOUT_DIAGNOSTIC" in receipt.get("stderr", "")
+            and receipt.get("duration_s", 0) >= 1 and receipt.get("timeout_s") == 1,
+            "HARNESS_ERROR", "timeout_partial_diagnostics_not_retained")
+    proof = {"verdict": "SOURCE_CONTROLS_PASS", "native_acceptance": False, "runner_sha256": digest(__file__),
+             "nonmoving_rows_with_unrelated_pixel_changes": "REFUSED", "moved_rows_positive": positive,
+             "timeout_command_receipt": receipt, "native_commands": [], "owned_timeout_child": "reaped by subprocess.run"}
+    (destination / "source-controls.json").write_text(json.dumps(proof, indent=2)+"\n")
+    print(json.dumps({"verdict": proof["verdict"], "native_acceptance": False, "evidence": str(destination)}))
+    return 0
 
 
 def parse_args():
@@ -542,4 +662,6 @@ def main():
 
 
 if __name__ == "__main__":
+    if len(sys.argv) == 3 and sys.argv[1] == "--check-oracles":
+        sys.exit(check_source_oracles(sys.argv[2]))
     sys.exit(main())
