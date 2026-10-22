@@ -148,3 +148,23 @@ bound report afterward. The regular `disabled` file in the installed state is
 the kill-switch for apply mode. Do not replace lifecycle commands with manual
 deletion. Failed-run recovery uses `storage:recover-run RUN_ID` and retains the
 same identity and ownership checks.
+
+## Detached storage retirement source tests
+
+Run the hermetic preservation journey and manual-driver guard tests with Node22:
+
+```sh
+node --test --test-concurrency=1 scripts/storage-retire-generation.test.cjs scripts/storage-retire-generation-rehearsal.test.cjs
+```
+
+The tests copy current scripts into an owned filesystem and use a closed native
+boundary preload. They execute the actual utility, ordinary installer, scheduled
+wrapper and janitor; the janitor produces the real transaction-bound reports.
+Negative and interruption cases require retained bytes and no unintended native
+actions. Existing epoch tests still need working real process probes; an emulated
+epoch is not equivalent evidence for those tests.
+
+The manual `storage-retire-generation-rehearsal.cjs` driver is deliberately outside
+the `.test.cjs` glob. Never run it as part of source validation. Its separately
+allocated real-account prerequisites and the unpassed real host/native gates are
+in [storage generation recovery](storage-generation-recovery.md).
