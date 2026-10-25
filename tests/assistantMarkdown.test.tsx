@@ -7,7 +7,7 @@
 
 import React from 'react';
 import { render } from '@testing-library/react-native';
-import { ScrollView, View } from 'react-native';
+import { ScrollView, StyleSheet, View } from 'react-native';
 import { parseMarkdown } from 'pentacle-chat-core';
 
 import { deriveMdTableGrid, FormattedAssistantText } from '../app/pentacle/session/[streamId]';
@@ -187,4 +187,12 @@ test('wide table renders horizontal scroll content wider than the phone viewport
     .map((node) => styleWidth(node.props.style))
     .filter((width): width is number => typeof width === 'number');
   expect(Math.max(...contentWidths)).toBeGreaterThan(390);
+});
+
+
+test('native boundary preserves parsed table text, alignment and strong styling', () => {
+  const view = render(<FormattedAssistantText text="__TABLE_TOKEN_FIXTURE__" />);
+  expect(StyleSheet.flatten(view.getByText('Name').props.style).textAlign).toBe('left');
+  expect(StyleSheet.flatten(view.getByText('42').props.style).textAlign).toBe('right');
+  expect(StyleSheet.flatten(view.getByText('Ada').props.style).fontFamily).toBe('Rajdhani_700Bold');
 });

@@ -168,3 +168,81 @@ The manual `storage-retire-generation-rehearsal.cjs` driver is deliberately outs
 the `.test.cjs` glob. Never run it as part of source validation. Its separately
 allocated real-account prerequisites and the unpassed real host/native gates are
 in [storage generation recovery](storage-generation-recovery.md).
+
+## Native message text selection
+
+iOS message text uses UIKit selection within each existing contiguous text block.
+A word can expand across wrapped lines within that block. Selection does not span
+separate paragraphs, table cells, controls or attachments. Android/web keep the
+existing text renderer. Peer-agent and independent code-copy actions keep their
+existing behavior.
+
+Start with the rendered-row and component regressions:
+
+```sh
+npm test -- --runTestsByPath tests/app/pentacle/session.test.tsx --runInBand -t 'message text long press'
+npm test -- --runTestsByPath tests/messageSelectableText.test.tsx tests/assistantMarkdown.test.tsx tests/sessionScreenCopy.test.ts tests/composerLayout.test.tsx tests/composerNonBlocking.test.tsx --runInBand
+```
+
+The shared Jest mock replaces only the UIKit boundary. It cannot prove native
+word recognition, handles, Copy, links, wrapping or scrolling. Added native code
+requires the full certified nine-case gate above plus the focused Release journey.
+
+Only a granted allocation owner may prepare/build/install the synthetic simulator
+artifact. Use the same `session:text_selection` fixture and runner bytes for the
+unchanged-product baseline and candidate. Build with
+`EXPO_PUBLIC_SCREENSHOT_HARNESS=1`,
+`EXPO_PUBLIC_SCREENSHOT_HARNESS_DEFAULT=session:text_selection`,
+`EXPO_PUBLIC_DISABLE_BIOMETRIC_LOCK=1` and `EXPO_PUBLIC_HARNESS=1`; the last flag
+installs the existing native telemetry sink for range evidence. These flags belong
+only to the isolated fixture build. No live token, Send or provider call is used.
+The fixture link uses one owned loopback receiver at `127.0.0.1:17889`; an occupied
+port refuses instead of reusing another service.
+
+The runner borrows the existing storage-owner companion. In addition to the
+explicit `IDB_COMPANION`, inherit the owner's
+`PENTACLE_REPORT_VIEWER_INPUT_CONTEXT` and `SIM_QUEUE_OWNER_VERIFIED_PID`.
+The existing context binds device set, UDID, owner PID, companion PID/kernel birth
+and socket; every idb invocation receives that exact socket. It must already be
+Booted and return a real AX tree. No discovery, boot, reset, companion launch or
+foreign cleanup occurs in this runner. The owner supplies `F2_ARTIFACT_MANIFEST`,
+a JSON file binding `source_sha`, `fixture_sha256`, `config_sha256`,
+`app_binary_sha256` and `embedded_bundle_sha256` from the exact built/installed app.
+
+```sh
+IDB_COMPANION="$F2_IDB_COMPANION" python3 test/e2e/message_text_selection.py   --device-set "$SIM_DEVICE_SET" --udid "$SIM_UDID"   --bundle-id "$F2_BUNDLE_ID" --source-sha "$CANDIDATE_SHA"   --output "$F2_EVIDENCE_DIR"
+```
+
+Use `--baseline` for unchanged product plus the identical fixture/harness delta:
+expected exit 1, `PRODUCT_FAIL`, with both roles' whole-message copy or missing
+word range. Candidate exit 0 requires exact `silver`, then `silver amber`, Unicode
+UTF-16 and multiline subranges, two native handles, link routing/linked selection,
+scrolling, attachment viewing and a retained unsent draft. Apple Vision locates
+words in real screenshots; coordinates use the actual AX/screenshot scale, and
+idb performs every press/handle drag. No selection or copy is set programmatically.
+Python, Node, Swift/Vision, idb, simctl and ffprobe must be installed before entry.
+
+`--preflight-only` performs no fixture/clipboard/gesture mutation. With
+`IDB_COMPANION` omitted it must exit 2 as `HARNESS_ERROR` before any native command;
+verify `commands=[]` in result.json. Missing/stale/mismatched context or a degenerate
+AX tree also refuses. Those failures are harness errors and cannot be baseline RED.
+Each invocation needs a new output directory. Retain result.json, command exits,
+AX, PNG/Vision frames, PID-bound range telemetry, finalized video and file hashes.
+The runner reports its owned app/recorder/log cleanup counts; the allocation owner
+then stops its own companion and shuts down only its allocated simulator.
+
+
+Source-only oracle controls (no simulator commands):
+
+```sh
+python3 test/e2e/message_text_selection.py --check-oracles /absolute/new/output
+```
+
+These reject an unchanged transcript even if unrelated pixels change, accept a
+moved-row control and retain partial diagnostics from a real owned command timeout.
+`SOURCE_CONTROLS_PASS` is never native acceptance. Native vertical scrolling requires
+real AX row movement/visible-row changes. Draft readbacks follow all scrolling and
+an observed same-row rerender. That rerender uses the allocated simulator's existing
+`simctl ui content_size` setting to exercise RN fontScale and native measurement;
+the runner retains/restores the exact per-device preimage in finally. It changes no
+host or physical-device preference and still requires the explicit native window.
