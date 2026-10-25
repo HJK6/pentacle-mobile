@@ -86,3 +86,23 @@ test('Xcode bundle phase keeps embedded-Debug bundling after a clean prebuild', 
 test('Xcode bundle phase patch fails closed when the template phase is absent', () => {
   assert.throws(() => patchXcodeProject({ hash: { project: { objects: { PBXShellScriptBuildPhase: {} } } } }), /expected one/);
 });
+
+test('Xcode bundle phase patch accepts the tracked project and every consumer shares one flag name', () => {
+  const xcode = require('xcode');
+  const root = path.join(__dirname, '..');
+  const project = xcode.project(path.join(root, 'ios', 'Pentacle.xcodeproj', 'project.pbxproj')).parseSync();
+  assert.doesNotThrow(() => patchXcodeProject(project));
+
+  const names = new Set();
+  for (const file of [
+    'plugins/withHarnessLaunchUrl.js',
+    'metro.config.js',
+    'scripts/assert-embedded-bundle.cjs',
+    'ios/Pentacle.xcodeproj/project.pbxproj',
+  ]) {
+    const found = fs.readFileSync(path.join(root, file), 'utf8').match(/[A-Z]+_E2E_EMBEDDED_DEBUG/g) || [];
+    assert.ok(found.length > 0, `${file} names the embedded-Debug flag`);
+    found.forEach((name) => names.add(name));
+  }
+  assert.deepEqual([...names], ['PENTACLE_E2E_EMBEDDED_DEBUG']);
+});

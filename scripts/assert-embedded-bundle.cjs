@@ -113,9 +113,9 @@ if (!bundleStat) {
   fail(
     `${productName} contains no main.jsbundle — the bundling phase was skipped, so this app will `
     + 'red-screen with "No script URL provided" instead of arming.\n'
-    + '  Most likely cause: EXAMPLE_E2E_EMBEDDED_DEBUG did not reach the Xcode script phase.\n'
+    + '  Most likely cause: PENTACLE_E2E_EMBEDDED_DEBUG did not reach the Xcode script phase.\n'
     + '  Xcode exports BUILD SETTINGS to script phases, not the calling shell\'s environment, so\n'
-    + '  the flag must be passed as an xcodebuild argument (EXAMPLE_E2E_EMBEDDED_DEBUG=1), not\n'
+    + '  the flag must be passed as an xcodebuild argument (PENTACLE_E2E_EMBEDDED_DEBUG=1), not\n'
     + '  only exported in the surrounding shell.\n'
     + `  Product: ${appPath}`,
   );

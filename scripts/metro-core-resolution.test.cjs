@@ -33,8 +33,8 @@ test('near-name packages use the ordinary resolver path', () => {
 });
 
 test('embedded-debug devtools redirect remains gated and local', () => {
-  const previous = process.env.EXAMPLE_E2E_EMBEDDED_DEBUG;
-  process.env.EXAMPLE_E2E_EMBEDDED_DEBUG = '1';
+  const previous = process.env.PENTACLE_E2E_EMBEDDED_DEBUG;
+  process.env.PENTACLE_E2E_EMBEDDED_DEBUG = '1';
   try {
     const config = loadConfig();
     const context = {
@@ -46,7 +46,7 @@ test('embedded-debug devtools redirect remains gated and local', () => {
       filePath: path.join(projectRoot, 'src/harness/noopDevtoolsMessageSocket.ts'),
     });
   } finally {
-    if (previous === undefined) delete process.env.EXAMPLE_E2E_EMBEDDED_DEBUG;
-    else process.env.EXAMPLE_E2E_EMBEDDED_DEBUG = previous;
+    if (previous === undefined) delete process.env.PENTACLE_E2E_EMBEDDED_DEBUG;
+    else process.env.PENTACLE_E2E_EMBEDDED_DEBUG = previous;
   }
 });
