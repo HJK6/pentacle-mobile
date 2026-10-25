@@ -153,15 +153,22 @@ test('work_index is independently tolerant, including unavailable snapshots and 
   assert.deepEqual(inventory!.work_index, { available: false, error: null });
 });
 
-test('optional additions never change unled-to-paused or fail-closed navigation rules', () => {
-  const inventory = normalizePatch({ lead: null, visible_chat: { ...sampleLane.visible_chat, generation: 7 },
-    members_total: -1, completion_pending: true, lead_reported_done: true, stale: true });
+test('optional additions preserve lead_lost, deliberate pauses and fail-closed navigation', () => {
+  const optionalPatch = { lead: null, visible_chat: { ...sampleLane.visible_chat, generation: 7 },
+    members_total: -1, completion_pending: true, lead_reported_done: true, stale: true };
+  const inventory = normalizePatch(optionalPatch);
   const lane = inventory.lanes[0];
-  assert.equal(lane.state, 'paused');
-  assert.equal(lane.state_reason, 'lead_lost_unreconciled');
+  assert.equal(lane.state, 'active');
+  assert.equal(lane.state_reason, 'lead_lost');
   assert.deepEqual(resolveWorkLaneTap(lane), { action: 'unavailable' });
   for (const key of ['members_total', 'completion_pending', 'lead_reported_done', 'stale']) absent(lane, key);
   assert.deepEqual(lane.members, sampleLane.members);
+  const paused = normalizePatch({ ...optionalPatch, state: 'paused', state_reason: 'fd' }).lanes[0];
+  assert.equal(paused.state, 'paused');
+  assert.equal(paused.state_reason, 'fd');
+  assert.deepEqual(resolveWorkLaneTap(paused), { action: 'unavailable' });
+  for (const key of ['members_total', 'completion_pending', 'lead_reported_done', 'stale']) absent(paused, key);
+  assert.deepEqual(paused.members, sampleLane.members);
 });
 
 const showBase = () => ({ type: 'work_lanes.show.ok', lane: { lane_id: sampleLane.lane_id },

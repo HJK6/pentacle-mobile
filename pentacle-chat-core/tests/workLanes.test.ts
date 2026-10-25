@@ -65,20 +65,24 @@ test('done lanes never appear in the header list', () => {
   assert.deepEqual(inventory.lanes.map((lane) => lane.lane_id), fixture.expected.order);
 });
 
-test('active without a qualifying lead presents paused unless blocked', () => {
+test('active without a qualifying lead presents lead_lost; deliberate pauses and blocks survive', () => {
   const base = fixture.inventory_frame.lanes[1];
   const unqualified = { ...base, lane_id: 'wl-x1', lead: { ...base.lead, qualifies: false } };
   const leadless = { ...base, lane_id: 'wl-x2', lead: null };
   const blocked = { ...fixture.inventory_frame.lanes[0], lane_id: 'wl-x3', lead: null };
+  const paused = { ...base, lane_id: 'wl-x4', state: 'paused', state_reason: 'fd', lead: null };
   const inventory = normalizeWorkLanesInventory({
-    ...fixture.inventory_frame, lanes: [unqualified, leadless, blocked],
+    ...fixture.inventory_frame, lanes: [unqualified, leadless, blocked, paused],
   });
   assert.ok(inventory);
   const byId = Object.fromEntries(inventory.lanes.map((lane) => [lane.lane_id, lane]));
-  assert.equal(byId['wl-x1'].state, 'paused');
-  assert.equal(byId['wl-x1'].state_reason, 'lead_lost_unreconciled');
-  assert.equal(byId['wl-x2'].state, 'paused');
+  assert.equal(byId['wl-x1'].state, 'active');
+  assert.equal(byId['wl-x1'].state_reason, 'lead_lost');
+  assert.equal(byId['wl-x2'].state, 'active');
+  assert.equal(byId['wl-x2'].state_reason, 'lead_lost');
   assert.equal(byId['wl-x3'].state, 'blocked');
+  assert.equal(byId['wl-x4'].state, 'paused');
+  assert.equal(byId['wl-x4'].state_reason, 'fd');
 });
 
 test('malformed frames and lanes are rejected without throwing', () => {
@@ -181,17 +185,21 @@ test('sweep: a present-but-invalid visible_chat keeps the lane and fails the tap
   }
 });
 
-test('sweep: a present-but-invalid lead never leaves a lane ACTIVE; blocked stays blocked', () => {
+test('sweep: invalid leads mark active lanes lead_lost; deliberate pauses and blocks survive', () => {
   for (const lead of [...INVALID_SHAPES, { stream_id: 7 }, { stream_id: '' }]) {
     const inventory = normalizeWorkLanesInventory({
       ...fixture.inventory_frame,
-      lanes: [{ ...lane1(), lead }, { ...lane0(), lane_id: 'wl-b', lead }],
+      lanes: [{ ...lane1(), lead }, { ...lane0(), lane_id: 'wl-b', lead },
+        { ...lane1(), lane_id: 'wl-p', state: 'paused', state_reason: 'fd', lead }],
     });
     assert.ok(inventory, JSON.stringify(lead));
-    const [active, blocked] = inventory.lanes;
-    assert.equal(active.state, 'paused', JSON.stringify(lead));
+    const [active, blocked, paused] = inventory.lanes;
+    assert.equal(active.state, 'active', JSON.stringify(lead));
+    assert.equal(active.state_reason, 'lead_lost', JSON.stringify(lead));
     assert.equal(active.lead, null);
     assert.equal(blocked.state, 'blocked');
+    assert.equal(paused.state, 'paused', JSON.stringify(lead));
+    assert.equal(paused.state_reason, 'fd', JSON.stringify(lead));
   }
   for (const nested of INVALID_SHAPES) {
     const inventory = normalizeWorkLanesInventory({
