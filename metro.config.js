@@ -13,7 +13,7 @@ config.resolver = config.resolver ?? {};
 const defaultResolveRequest = config.resolver.resolveRequest;
 config.resolver.resolveRequest = (context, moduleName, platform) => {
   if (
-    process.env.EXAMPLE_E2E_EMBEDDED_DEBUG === '1' &&
+    process.env.PENTACLE_E2E_EMBEDDED_DEBUG === '1' &&
     moduleName === './async-require/messageSocket' &&
     String(context.originModulePath || '').includes(`${path.sep}node_modules${path.sep}expo${path.sep}src${path.sep}Expo.fx`)
   ) {
