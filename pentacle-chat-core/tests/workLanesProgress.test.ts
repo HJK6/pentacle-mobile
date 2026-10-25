@@ -24,10 +24,10 @@ const normalizePatch = (patch: Record<string, unknown>) => normalizeWorkLanesInv
 })!;
 
 // The fixture is the byte-for-byte public daemon contract, never a client rewrite.
-test('shared work-lanes fixture v2 has its exact accepted SHA256', () => {
-  assert.equal(fixture.fixture_version, 2);
+test('shared work-lanes fixture v3 has its exact accepted SHA256', () => {
+  assert.equal(fixture.fixture_version, 3);
   assert.equal(createHash('sha256').update(fixtureBytes).digest('hex'),
-    '2be3dd8d99046c3c8dc293ae4d90a187ab72cb082ef36153d957037a39ddcce1');
+    '57b2ce87c7e8d1f42a3d490bdce3cb2f5e4c0d0edd5bcb5b34c70b5c8408e809');
   assert.deepEqual(progress.map((entry) => entry.name), [
     'active_progress', 'paused_leadless', 'blocked', 'missing_member',
     'ambiguous_member', 'missing_estimate', 'no_spec', 'index_unavailable',
