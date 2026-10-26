@@ -530,6 +530,9 @@ class MockDaemon:
             "by": "pentacle-mobile",
         }
         record["resolved_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        if isinstance(record.get("question"), dict):
+            # v2 answer_agent_question_for_notification: the saved answer leaves the question answered.
+            record["question"] = {**record["question"], "state": "answered"}
         for waiter in self.await_waiters.pop(nid, []):
             if not waiter.done():
                 waiter.set_result(True)
@@ -570,8 +573,10 @@ class MockDaemon:
     def _notification_record(self, notification: dict[str, Any]) -> dict[str, Any]:
         record = dict(notification)
         record.setdefault("notification_id", f"mock-notif-{int(_now() * 1000)}")
-        # v2 notifications are born open.
+        # v2 notifications, and the agent question they carry, are born open.
         record.setdefault("state", "open")
+        if isinstance(record.get("question"), dict):
+            record["question"] = {**record["question"], "state": record["question"].get("state", "open")}
         self.notifications[record["notification_id"]] = record
         return record
 

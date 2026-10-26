@@ -260,6 +260,7 @@ async def _inject_question(app, harness, actions: list[dict]) -> str:
     assert ack["type"] == "debug_replay_notification.ack" and ack["status"] == "ok"
     pushed = json.loads(await asyncio.wait_for(app.recv(), timeout=5))
     assert pushed["type"] == "notification" and pushed["notification"]["state"] == "open"
+    assert pushed["notification"]["question"]["state"] == "open"
     return ack["notification"]["notification_id"]
 
 
@@ -289,6 +290,7 @@ def test_notification_resolve_settles_like_v2_and_wakes_await(registry):
                 assert ok["notification"]["resolution"]["action_kind"] == "ack"
                 broadcast = next(f for f in frames if f["type"] == "notification")
                 assert broadcast["notification"]["state"] == "acked"
+                assert broadcast["notification"]["question"]["state"] == "answered"
                 woke = json.loads(await asyncio.wait_for(harness.recv(), timeout=5))
                 assert woke["type"] == "notification.await.ok" and woke["request_id"] == "w1"
                 assert woke["answer"]["action_kind"] == "ack"
