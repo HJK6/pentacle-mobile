@@ -329,6 +329,68 @@ function pentacleEvent(overrides: Record<string, unknown> = {}) {
   };
 }
 
+describe.each([
+  { label: 'unarmed harness', flag: '1', action: undefined, append: false },
+  { label: 'other armed action', flag: '1', action: 'force_ws_reconnect', append: false },
+  { label: 'armed all-chats', flag: '1', action: 'all_chats_regression', append: true },
+  { label: 'compile-off control', flag: '0', action: 'all_chats_regression', append: false },
+])('snapshot append gate: $label', ({ flag, action, append }) => {
+  test('retains prior rows only for the armed all-chats harness', async () => {
+    const priorFlag = process.env.EXPO_PUBLIC_HARNESS;
+    const priorWebSocket = global.WebSocket;
+    process.env.EXPO_PUBLIC_HARNESS = flag;
+    const stream = loadStream();
+    const runtime = require('../../src/utils/harnessRuntime') as typeof import('../../src/utils/harnessRuntime');
+    let unsubscribe: (() => void) | undefined;
+    try {
+      runtime.reset();
+      // Resolve auth before arming so the other-action control cannot schedule
+      // its force-reconnect action during socket startup.
+      runtime.markBootResolved();
+      stream.setPentacleAuthToken(OPERATOR_V2_ENVELOPE);
+      const connection = subscribeAndCreateSocket(stream);
+      unsubscribe = connection.unsubscribe;
+      const socket = connection.socket;
+      socket.open();
+      await flushMicrotasks();
+      socket.message(operatorV2Welcome());
+      expect(stream.getPentacleStreamState().connected).toBe(true);
+      runtime.reset();
+      if (action) expect(runtime.applyURL(`pentacle://harness?actions=${action}`)).toBe(true);
+      expect(runtime.isArmed()).toBe(Boolean(action));
+      expect(runtime.hasAction('all_chats_regression')).toBe(action === 'all_chats_regression');
+
+      const sessions = [sessionSummary('hostc:codex:one', { last_text: '' })];
+      const stale = pentacleEvent({ daemon_seq: 10, text: 'prior assistant' });
+      const overlap = pentacleEvent({ daemon_seq: 20, text: 'overlap assistant' });
+      const incoming = pentacleEvent({ daemon_seq: 30, text: 'incoming assistant' });
+      socket.message({ type: 'snapshot', sessions, events: [stale, overlap] });
+      expect(stream.getPentacleStreamState().events.map(event => event.daemon_seq)).toEqual([10, 20]);
+
+      socket.message({ type: 'snapshot', sessions, events: [overlap, incoming] });
+      expect(stream.getPentacleStreamState().events.map(event => [event.daemon_seq, event.text])).toEqual([
+        ...(append ? [[10, 'prior assistant']] : []),
+        [20, 'overlap assistant'], [30, 'incoming assistant'],
+      ]);
+    } finally {
+      unsubscribe?.();
+      stream.__resetPentacleStreamForTests();
+      await flushMicrotasks();
+      runtime.reset();
+      const openSockets = MockWebSocket.instances.filter(socket => socket.readyState !== MockWebSocket.CLOSED);
+      const remainingTimers = jest.getTimerCount();
+      for (const socket of openSockets) socket.close();
+      jest.clearAllTimers();
+      global.WebSocket = priorWebSocket;
+      if (priorFlag === undefined) delete process.env.EXPO_PUBLIC_HARNESS;
+      else process.env.EXPO_PUBLIC_HARNESS = priorFlag;
+      jest.resetModules();
+      expect(openSockets).toHaveLength(0);
+      expect(remainingTimers).toBe(0);
+    }
+  });
+});
+
 test('wire-level trusted status correction never renders an internal notice while stale replay cannot downgrade it', () => {
   const fixture = require('../fixtures/trusted_status_wire_v1.json') as {
     stream_id: string;
