@@ -44,6 +44,9 @@ STREAM_EVENTS_FRAME_BUDGET_BYTES = 900 * 1024
 RECENT_LIMIT_DEFAULT = 500
 SEED_HISTORY_PRODUCER = "pentacle.mobile.seed_history.v1"
 MOCK_REMOVE_PRODUCER = "pentacle.mobile.mock_remove_session.v1"
+# v2 `_shared/notifications_store.py` _ACTION_TO_STATE: the resolved client state
+# follows the resolution's action kind.
+NOTIFICATION_ACTION_STATE = {"ack": "acked", "yes_no": "answered", "spawn_worker": "spawned", "resolved": "resolved"}
 
 
 def _now() -> float:
@@ -75,6 +78,9 @@ class MockDaemon:
         self.stream_events_config: dict[str, dict[str, Any]] = {}
         self.thread_history: dict[str, dict[str, Any]] = {}
         self.send_echo: dict[str, Any] | None = None
+        # Notification state (debug-injected records, resolved by the app).
+        self.notifications: dict[str, dict[str, Any]] = {}
+        self.await_waiters: dict[str, list[asyncio.Future]] = {}
 
     # ---- lifecycle ---------------------------------------------------------
     async def handler(self, websocket: Any) -> None:
@@ -132,6 +138,7 @@ class MockDaemon:
             "debug_replay_notification": self._on_debug_notification,
             "debug_replay_close": self._on_debug_close,
             "notification.await": self._on_notification_await,
+            "notification.resolve": self._on_notification_resolve,
         }.get(mtype)
         if handler is None:
             return
@@ -466,9 +473,68 @@ class MockDaemon:
         await self._ack(ws, msg.get("request_id"), "ok", ack_type="debug_replay_close.ack", extra={"closed": closed, "target_client": target})
 
     async def _on_notification_await(self, ws: Any, msg: dict[str, Any]) -> None:
-        # Minimal: the scripted resolution is driven by a follow-up notification;
-        # answer immediately as resolved so the injector proceeds.
-        await self._send(ws, {"type": "notification.await.ok", "request_id": msg.get("request_id"), "answer": {"state": "resolved", "notification_id": msg.get("notification_id")}})
+        # v2 `_notif_await`: reply once the app resolves, carrying its answer.
+        request_id = msg.get("request_id")
+        nid = str(msg.get("notification_id") or "")
+        record = self.notifications.get(nid)
+        if record is None:
+            await self._send(ws, {"type": "notification.error", "request_id": request_id, "error_code": "notification_not_found", "error": "notification_not_found", "notification_id": nid})
+            return
+        if record.get("state") == "open":
+            waiter = asyncio.get_running_loop().create_future()
+            self.await_waiters.setdefault(nid, []).append(waiter)
+            try:
+                await asyncio.wait_for(waiter, timeout=float(msg.get("timeout", 30.0)))
+            except asyncio.TimeoutError:
+                await self._send(ws, {"type": "notification.await.timeout", "request_id": request_id, "notification_id": nid, "reason": "await_timeout"})
+                return
+            finally:
+                waiters = self.await_waiters.get(nid, [])
+                if waiter in waiters:
+                    waiters.remove(waiter)
+        await self._send(ws, {"type": "notification.await.ok", "request_id": request_id, "answer": self._notification_answer(self.notifications[nid])})
+
+    async def _on_notification_resolve(self, ws: Any, msg: dict[str, Any]) -> None:
+        # v2 `_notif_resolve` for the app's question answers: a selection takes the
+        # matching stored action's kind, a custom-only answer is `resolved`, anything
+        # else keeps the sent kind; the state follows that kind.
+        request_id = msg.get("request_id")
+        nid = str(msg.get("notification_id") or "")
+        record = self.notifications.get(nid)
+        if record is None:
+            await self._send(ws, {"type": "notification.error", "request_id": request_id, "error_code": "notification_not_found", "error": "notification_not_found", "notification_id": nid})
+            return
+        if record.get("state") != "open":
+            await self._send(ws, {"type": "notification.resolve.ok", "request_id": request_id, "notification": record, "replayed": True})
+            return
+        action_kind = str(msg.get("action_kind") or "")
+        action_id = msg.get("action_id") if isinstance(msg.get("action_id"), str) else None
+        choice = msg.get("choice") if isinstance(msg.get("choice"), bool) else None
+        selections = msg.get("selections") if isinstance(msg.get("selections"), list) else None
+        text = msg.get("text") if isinstance(msg.get("text"), str) else None
+        custom_text = msg.get("custom_text") if isinstance(msg.get("custom_text"), str) else None
+        if text is None and selections:
+            action = next((a for a in record.get("actions") or [] if isinstance(a, dict) and a.get("value") == selections[0]), None)
+            if action is not None:
+                action_id = action_id or action.get("action_id")
+                action_kind = str(action.get("kind") or action_kind)
+                if action_kind == "yes_no" and choice is None and isinstance(action.get("choice"), bool):
+                    choice = action["choice"]
+        elif custom_text is not None:
+            action_kind = "resolved"
+        action_kind = action_kind or "resolved"
+        record["state"] = NOTIFICATION_ACTION_STATE.get(action_kind, "resolved")
+        record["resolution"] = {
+            "action_kind": action_kind, "action_id": action_id, "choice": choice, "selections": selections,
+            "text": text, "custom_text": custom_text, "note": msg.get("note") if isinstance(msg.get("note"), str) else None,
+            "by": "pentacle-mobile",
+        }
+        record["resolved_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        for waiter in self.await_waiters.pop(nid, []):
+            if not waiter.done():
+                waiter.set_result(True)
+        await self._send(ws, {"type": "notification.resolve.ok", "request_id": request_id, "notification": record, "replayed": False})
+        await self._broadcast_app({"type": "notification", "notification": record})
 
     # ---- helpers -----------------------------------------------------------
     def _append_recent(self, event: dict[str, Any]) -> None:
@@ -504,7 +570,27 @@ class MockDaemon:
     def _notification_record(self, notification: dict[str, Any]) -> dict[str, Any]:
         record = dict(notification)
         record.setdefault("notification_id", f"mock-notif-{int(_now() * 1000)}")
+        # v2 notifications are born open.
+        record.setdefault("state", "open")
+        self.notifications[record["notification_id"]] = record
         return record
+
+    @staticmethod
+    def _notification_answer(record: dict[str, Any]) -> dict[str, Any]:
+        # v2 `_answer_payload`: the resolution as the asker receives it.
+        resolution = record.get("resolution") or {}
+        answer = {
+            "notification_id": record.get("notification_id"),
+            "state": record.get("state"),
+            "action_id": resolution.get("action_id"),
+            "action_kind": resolution.get("action_kind"),
+            "selections": resolution.get("selections"),
+            "note": resolution.get("note"),
+        }
+        for key in ("text", "custom_text"):
+            if isinstance(resolution.get(key), str):
+                answer[key] = resolution[key]
+        return answer
 
     def _normalize_seed_event(self, raw_event: Any) -> dict[str, Any] | None:
         if not isinstance(raw_event, dict):

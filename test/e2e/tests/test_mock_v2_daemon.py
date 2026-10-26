@@ -245,3 +245,90 @@ def test_daemon_stats_counts_clients(registry):
             await server.wait_closed()
 
     asyncio.run(scenario())
+
+
+def _question_notification(actions: list[dict]) -> dict:
+    return {"producer": "agent_question.v1", "severity": "info", "title": "Mock durable question",
+            "body": "Answer it.", "actions": actions,
+            "question": {"schema_version": 1, "question_id": "mock-q-1", "response_mode": "free_text"}}
+
+
+async def _inject_question(app, harness, actions: list[dict]) -> str:
+    await harness.send(json.dumps({"type": "debug_replay_notification", "request_id": "n1",
+                                   "notification": _question_notification(actions)}))
+    ack = json.loads(await asyncio.wait_for(harness.recv(), timeout=5))
+    assert ack["type"] == "debug_replay_notification.ack" and ack["status"] == "ok"
+    pushed = json.loads(await asyncio.wait_for(app.recv(), timeout=5))
+    assert pushed["type"] == "notification" and pushed["notification"]["state"] == "open"
+    return ack["notification"]["notification_id"]
+
+
+def test_notification_resolve_settles_like_v2_and_wakes_await(registry):
+    """The app's notification.resolve gets v2's resolve.ok (ack action -> acked) and the
+    injector's notification.await returns only then, carrying the submitted answer."""
+    _reg, cred_id, envelope, reg_path = registry
+
+    async def scenario():
+        daemon, server, url = await _boot(reg_path)
+        try:
+            async with websockets.connect(url, max_size=None) as app, websockets.connect(url, max_size=None) as harness:
+                await _app_hello(app, cred_id, envelope, subscribe={"snapshot": True})
+                for _ in range(3):
+                    await asyncio.wait_for(app.recv(), timeout=5)
+                await _harness_hello(harness)
+                nid = await _inject_question(app, harness, [{"kind": "ack", "action_id": "free-text-action", "label": "Submit"}])
+                await harness.send(json.dumps({"type": "notification.await", "request_id": "w1", "notification_id": nid, "timeout": 5}))
+                with pytest.raises(asyncio.TimeoutError):
+                    await asyncio.wait_for(harness.recv(), timeout=0.3)
+                await app.send(json.dumps({"type": "notification.resolve", "request_id": "r1", "notification_id": nid,
+                                           "action_kind": "ack", "question_id": "mock-q-1", "text": "exact answer", "note": "a note"}))
+                frames = [json.loads(await asyncio.wait_for(app.recv(), timeout=5)) for _ in range(2)]
+                ok = next(f for f in frames if f["type"] == "notification.resolve.ok")
+                assert ok["request_id"] == "r1" and ok["replayed"] is False
+                assert ok["notification"]["state"] == "acked"
+                assert ok["notification"]["resolution"]["action_kind"] == "ack"
+                broadcast = next(f for f in frames if f["type"] == "notification")
+                assert broadcast["notification"]["state"] == "acked"
+                woke = json.loads(await asyncio.wait_for(harness.recv(), timeout=5))
+                assert woke["type"] == "notification.await.ok" and woke["request_id"] == "w1"
+                assert woke["answer"]["action_kind"] == "ack"
+                assert woke["answer"]["text"] == "exact answer" and woke["answer"]["note"] == "a note"
+        finally:
+            server.close()
+            await server.wait_closed()
+
+    asyncio.run(scenario())
+
+
+def test_notification_resolve_selection_takes_stored_action_kind(registry):
+    """As in v2, a selection resolves with the matching stored action's kind (yes_no -> answered)."""
+    _reg, cred_id, envelope, reg_path = registry
+
+    async def scenario():
+        daemon, server, url = await _boot(reg_path)
+        try:
+            async with websockets.connect(url, max_size=None) as app, websockets.connect(url, max_size=None) as harness:
+                await _app_hello(app, cred_id, envelope, subscribe={"snapshot": True})
+                for _ in range(3):
+                    await asyncio.wait_for(app.recv(), timeout=5)
+                await _harness_hello(harness)
+                nid = await _inject_question(app, harness, [
+                    {"kind": "yes_no", "action_id": "a-approve", "label": "Approve", "value": "approve", "choice": True},
+                    {"kind": "yes_no", "action_id": "a-decline", "label": "Decline", "value": "decline", "choice": False},
+                ])
+                await app.send(json.dumps({"type": "notification.resolve", "request_id": "r2", "notification_id": nid,
+                                           "action_kind": "ack", "selections": ["decline"]}))
+                frames = [json.loads(await asyncio.wait_for(app.recv(), timeout=5)) for _ in range(2)]
+                ok = next(f for f in frames if f["type"] == "notification.resolve.ok")
+                assert ok["notification"]["state"] == "answered"
+                resolution = ok["notification"]["resolution"]
+                assert resolution["action_kind"] == "yes_no" and resolution["action_id"] == "a-decline"
+                assert resolution["choice"] is False and resolution["selections"] == ["decline"]
+                await harness.send(json.dumps({"type": "notification.await", "request_id": "w2", "notification_id": nid, "timeout": 5}))
+                woke = json.loads(await asyncio.wait_for(harness.recv(), timeout=5))
+                assert woke["type"] == "notification.await.ok" and woke["answer"]["selections"] == ["decline"]
+        finally:
+            server.close()
+            await server.wait_closed()
+
+    asyncio.run(scenario())
