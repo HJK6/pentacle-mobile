@@ -9,8 +9,9 @@ Source files and tests for the assistant tab are listed in the
 ## Always-on assistant
 
 The first tab is the assistant's conversation. The tab and header use the
-assistant session's display name (default **Zephyr**); the screenshots use a
-session named **Assistant**. Setup is in the README's
+assistant session's display name (default **Zephyr**). Most screenshots use a
+session named **Assistant**; the expanded-specs image has no assistant session
+and shows the default name. Setup is in the README's
 [Always-on assistant](../README.md#always-on-assistant) section.
 
 <p>
@@ -43,7 +44,8 @@ session named **Assistant**. Setup is in the README's
 - **Questions.** **?** opens one deck with every open question across chats, one
   question per page. Answer some and submit, skip, or use **See chat** to jump to
   the asking chat. Details: [Questions overlay](QUESTIONS_OVERLAY.md).
-- **Status card.** In a session, tap the header title to open its status card:
+- **Status card.** In a session that publishes a status card, tap the header
+  title to open it:
   goal, context use, plan steps, the latest update and spec progress. On the
   assistant tab, the header opens the lanes list instead.
 
@@ -57,15 +59,15 @@ infer lanes from chats. Open the list from the assistant header
 
 <p>
 <img src="images/mobile-lanes-list.png" width="260" alt="Work lanes list: the latest update card, then four invented open lanes, one BLOCKED with its blocker, one WORKING and two PAUSED with LEAD LOST" />
-<img src="images/mobile-lanes-specs.png" width="260" alt="Work lanes list with the first lane expanded to show its two specs and their acceptance progress, plus est. work ranges and spec progress bars" />
+<img src="images/mobile-lanes-specs.png" width="260" alt="Work lanes list under a DATA AS OF stale-index banner, with the first lane expanded to show its two specs and their acceptance progress, plus est. work ranges and spec progress bars" />
 </p>
 
 - **Latest update.** The newest lane update, and **All updates · N** for the
   full update log, newest first. These are the same updates that appear as cards
   in the assistant's conversation.
 - **Open lanes · N.** One card per open lane. Each card shows the state
-  (**WORKING**, **ACTIVE · IDLE**, **BLOCKED**, **PAUSED** or
-  **PAUSED · LEAD LOST**), the lead's host (or *no lead*) and how long ago the
+  (**WORKING**, **ACTIVE · IDLE**, **ACTIVE · RECOVERING** while a lost lead is
+  being replaced, **BLOCKED**, **PAUSED** or **PAUSED · LEAD LOST**), the lead's host (or *no lead*) and how long ago the
   lane last changed. On the right, **EST WORK** gives the open-work range in
   hours, or a short status such as *All specs done*. A blocked lane shows its
   blocker. When the daemon reports specs, a segmented bar and
