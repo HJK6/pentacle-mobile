@@ -353,3 +353,16 @@ test('live assistant name and host changes update the header through the single 
   view.rerender(<AssistantScreen />);
   expect(screen.getByLabelText('Zephyr status, 0 open lanes')).toBeTruthy();
 });
+
+
+test('the assistant header omits Scheduled while retaining its active controls', async () => {
+  render(<AssistantScreen />);
+  await act(async () => {});
+  expect(screen.queryByTestId('assistant-scheduled')).toBeNull();
+  expect(screen.queryByLabelText('Scheduled')).toBeNull();
+  expect(screen.queryByText(/SCHEDULED/)).toBeNull();
+  expect(screen.getByLabelText('Sessions, 0 need you')).toBeTruthy();
+  expect(screen.getByLabelText('Lews status, 0 open lanes')).toBeTruthy();
+  expect(screen.getByLabelText('Questions, 0 pending')).toBeTruthy();
+  expect(screen.getByTestId('header-voice-mic')).toBeTruthy();
+});
