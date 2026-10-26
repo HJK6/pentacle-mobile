@@ -104,3 +104,14 @@ clean `git am` application and final-tree equality. The Ruby and archive tests
 need Ruby and bsdtar as documented for the existing native tooling tests; they
 must not be skipped or replaced with stubs. An iOS export is a separate check,
 not a device or assembled-home certificate.
+
+
+The Sessions drawer uses the same `selectSmartChatList` preview as Agents.
+Summary-mode inventory can omit message text, so the drawer's section list
+passes visible session IDs to the existing `prefetchSettledStreams` history
+queue after 250 ms of viewability. Section headers and offscreen rows are
+excluded, and a closed drawer requests nothing. The shared queue retains its
+freshness, coalescing and concurrency controls and tagged prefetch telemetry.
+Fetched events update the canonical preview; truly empty chats retain
+“Waiting for first message…”. `tests/components/assistant/ChatsDrawer.test.tsx`
+covers visible-row hydration, preview updates, empty chats and close/reopen.

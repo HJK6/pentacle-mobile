@@ -1,7 +1,10 @@
 import React from 'react';
-import { Keyboard, Modal, PanResponder, ScrollView } from 'react-native';
+import { Keyboard, Modal, PanResponder, ScrollView, SectionList } from 'react-native';
 import { act, fireEvent, render } from '@testing-library/react-native';
 import { initialPentacleStreamState } from 'pentacle-chat-core';
+import { prefetchSettledStreams } from '../../../src/services/pentacleStream';
+import { selectDrawerGroups } from '../../../src/components/assistant/assistantSelectors';
+import { assistantSession, assistantState, NOW } from './fixtures';
 import { selectSmartChatList } from '../../../app/(tabs)/chats';
 import ChatsDrawer from '../../../src/components/assistant/ChatsDrawer';
 import { resetChatOpenNavigationIntents } from '../../../src/services/chatOpenNavigationIntent';
@@ -10,6 +13,11 @@ jest.mock('expo-router', () => require('../../helpers/mocks/expoRouter').makeMoc
 jest.mock('@expo/vector-icons/FontAwesome', () => 'FontAwesome');
 jest.mock('expo-constants', () => require('../../helpers/stubs/expoConstants.cjs'));
 jest.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ top: 0, bottom: 0 }) }));
+
+jest.mock('../../../src/services/pentacleStream', () => ({
+  ...jest.requireActual('../../../src/services/pentacleStream'),
+  prefetchSettledStreams: jest.fn(),
+}));
 
 const close = jest.fn();
 const newSession = jest.fn();
@@ -101,4 +109,36 @@ test('plus is disabled when the shared flow cannot start', () => {
   fireEvent.press(view.getByLabelText('New session'));
   expect(close).not.toHaveBeenCalled();
   expect(newSession).not.toHaveBeenCalled();
+});
+
+
+test('visible drawer rows hydrate through the Agents prefetch service and paint canonical previews', () => {
+  const populated = assistantSession('hostc:claude:populated', { last_text: '', last_kind: '' });
+  const empty = assistantSession('hostc:claude:empty', { last_text: '', last_kind: '', last_event_at: '' });
+  const state = { ...assistantState(), sessions: [populated, empty] };
+  const before = selectDrawerGroups(state);
+  const props = { open: true, groups: before, canStart: true, onClose: close, onNewSession: newSession };
+  const view = render(<ChatsDrawer {...props} />);
+  expect(prefetchSettledStreams).not.toHaveBeenCalled();
+  expect(view.getAllByText('Waiting for first message…')).toHaveLength(2);
+  const visible = [{ item: before[2].chats[0], isViewable: true }, { item: before[2].chats[1], isViewable: true },
+    { item: { streamId: 'hostc:claude:offscreen' }, isViewable: false }, { item: { title: 'IDLE' }, isViewable: true }];
+  act(() => view.UNSAFE_getByType(SectionList).props.onViewableItemsChanged({ viewableItems: visible }));
+  expect(prefetchSettledStreams).toHaveBeenLastCalledWith([populated.stream_id, empty.stream_id], 'list-settle');
+  // A normal stream.events response fills the same store input Agents consumes.
+  const hydrated = { ...state, events: [{ daemon_seq: 42, stream_id: populated.stream_id,
+    session_id: populated.stream_id, session_name: populated.session_name, host: populated.host,
+    provider: populated.provider, timestamp: NOW, kind: 'ASSIST', text: 'The sample task is complete.' }] };
+  const after = selectDrawerGroups(hydrated);
+  expect(after.flatMap((group) => group.chats)).toEqual(selectSmartChatList(hydrated));
+  view.rerender(<ChatsDrawer {...props} groups={after} />);
+  expect(view.getByText('The sample task is complete.')).toBeTruthy();
+  expect(view.getAllByText('Waiting for first message…')).toHaveLength(1);
+  view.rerender(<ChatsDrawer {...props} open={false} groups={after} />);
+  jest.mocked(prefetchSettledStreams).mockClear();
+  act(() => view.UNSAFE_getByType(SectionList).props.onViewableItemsChanged({ viewableItems: visible }));
+  expect(prefetchSettledStreams).not.toHaveBeenCalled();
+  view.rerender(<ChatsDrawer {...props} groups={after} />);
+  act(() => view.UNSAFE_getByType(SectionList).props.onViewableItemsChanged({ viewableItems: visible }));
+  expect(prefetchSettledStreams).toHaveBeenLastCalledWith([populated.stream_id, empty.stream_id], 'list-settle');
 });

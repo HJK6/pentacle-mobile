@@ -2,7 +2,7 @@ import HeaderVoiceMic from '../voice/HeaderVoiceMic';
 import { useVoiceSurface } from '../../services/voicePresentation';
 import VoiceRecordingOverlay from '../voice/VoiceRecordingOverlay';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, Easing, Keyboard, Modal, PanResponder, Platform, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { Animated, Easing, Keyboard, Modal, PanResponder, Platform, Pressable, SectionList, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Fonts, Tokens } from '@/constants/Colors';
@@ -10,6 +10,7 @@ import type { SmartChatListItem } from '../../../app/(tabs)/chats';
 import { performChatOpenNavigation } from '../../services/chatOpenNavigation';
 import StatusTag from '../StatusTag';
 import MachineMark from './MachineMark';
+import { prefetchSettledStreams } from '../../services/pentacleStream';
 
 type Group = { title: 'NEEDS YOU' | 'WORKING' | 'IDLE'; chats: SmartChatListItem[] };
 type Props = { open: boolean; groups: Group[]; canStart: boolean; onClose(): void; onNewSession(): void };
@@ -22,6 +23,20 @@ export default function ChatsDrawer({ open, groups, canStart, onClose, onNewSess
   useVoiceSurface({ page_id: 'sessions', title: 'Sessions' }, mounted, { priority: 2, bottom: Math.max(insets.bottom, 14) + 10, top: Math.max(insets.top, 52) + 64 });
   const slide = useRef(new Animated.Value(0)).current;
   const fade = useRef(new Animated.Value(0)).current;
+  const drawerOpen = useRef(open);
+  drawerOpen.current = open;
+  const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 65, minimumViewTime: 250 }).current;
+  const onViewableItemsChanged = useRef(({ viewableItems }: {
+    viewableItems: Array<{ item?: { streamId?: string }; isViewable?: boolean }>;
+  }) => {
+    if (!drawerOpen.current) return;
+    // Summary-mode inventory may carry no message text. Use the same bounded,
+    // freshness-aware history queue as Agents, and the same preview selector.
+    prefetchSettledStreams(viewableItems
+      .filter((item) => item.isViewable !== false)
+      .map((item) => item.item?.streamId)
+      .filter((streamId): streamId is string => Boolean(streamId)), 'list-settle');
+  }).current;
   const newOpening = useRef(false);
   const afterDismiss = useRef<(() => void) | null>(null);
   const finishDismiss = useCallback(() => {
@@ -72,10 +87,12 @@ export default function ChatsDrawer({ open, groups, canStart, onClose, onNewSess
             <Text style={styles.plusText}>+</Text>
           </Pressable>
         </View>
-        <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
-          {groups.filter((group) => group.chats.length > 0).map((group) => <View key={group.title}>
-            <Text accessibilityRole="header" style={styles.group}>{group.title} · {group.chats.length}</Text>
-            {group.chats.map((chat) => <Pressable key={chat.streamId} testID={`assistant-drawer-row-${chat.streamId}`}
+        <SectionList sections={groups.filter((group) => group.chats.length > 0).map((group) => ({ key: group.title, title: group.title, data: group.chats }))}
+          showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" stickySectionHeadersEnabled={false}
+          viewabilityConfig={viewabilityConfig} onViewableItemsChanged={onViewableItemsChanged}
+          keyExtractor={(chat) => chat.streamId}
+          renderSectionHeader={({ section }) => <Text accessibilityRole="header" style={styles.group}>{section.title} · {section.data.length}</Text>}
+          renderItem={({ item: chat, section }) => <Pressable testID={`assistant-drawer-row-${chat.streamId}`}
               accessibilityRole="button" accessibilityLabel={`Open ${chat.title}, ${chat.statusLabel}, ${chat.hostTitle}`}
               onPress={() => { if (open) performChatOpenNavigation(chat.streamId, router, onClose); }} style={styles.row}>
               <MachineMark machine={chat.machineName} />
@@ -83,11 +100,10 @@ export default function ChatsDrawer({ open, groups, canStart, onClose, onNewSess
                 <View style={styles.rowHeading}><StatusTag status={chat.status} />
                   <Text style={styles.rowTitle} numberOfLines={1}>{chat.title}</Text>
                   <Text style={styles.time}>{chat.updatedLabel}</Text></View>
-                <Text style={[styles.preview, group.title === 'NEEDS YOU' && styles.needsYou]} numberOfLines={1}>{chat.previewText}</Text>
+                <Text style={[styles.preview, section.title === 'NEEDS YOU' && styles.needsYou]} numberOfLines={1}>{chat.previewText}</Text>
               </View>
-            </Pressable>)}
-          </View>)}
-        </ScrollView>
+            </Pressable>}
+        />
       </Animated.View>
     </View>
     <VoiceRecordingOverlay visible={mounted} priority={2} onReturn={onClose} hostName="chats-drawer" />
