@@ -235,7 +235,8 @@ export function agentQuestionStreamId(notification: PentacleNotification) {
 // A v2 seat ID carries no provider. Prefer explicit metadata, then the provider
 // segment in legacy three-part IDs; missing metadata stays unknown.
 export function agentQuestionProvider(notification: PentacleNotification) {
-  const explicit = String(notification.question?.producer_provider || '').trim().toLowerCase();
+  const question = notification.question as ExtendedAgentQuestionPayload | null | undefined;
+  const explicit = String(question?.producer_provider || '').trim().toLowerCase();
   if (explicit === 'claude' || explicit === 'codex') return explicit;
   const parts = agentQuestionStreamId(notification).split(':');
   const legacy = parts.length >= 3 ? parts[1].toLowerCase() : '';
@@ -283,6 +284,7 @@ export function selectOpenAgentQuestionNotificationsForStream(
 }
 
 type ExtendedAgentQuestionPayload = PentacleAgentQuestionPayload & {
+  producer_provider?: string;
   allow_custom?: boolean;
   header?: string;
   title?: string;
