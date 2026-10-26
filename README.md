@@ -7,29 +7,18 @@ the phone app does not run it. The desktop app is optional for mobile users.
 
 ## See the app
 
-[View iOS screenshots](docs/screenshots.md) of the agent list, a conversation
-and the New Chat picker, using a single-machine workspace with invented data.
+*Screenshots use invented fixture data.*
 
-*The screenshots below also use sample data — invented conversations and
-synthetic machine names. The images predate the current assistant-home tab bar.*
+<p>
+<img src="docs/images/mobile-assistant-home.png" width="260" alt="Assistant tab with lane counts in the header and lane update cards in the conversation" />
+<img src="docs/images/mobile-lanes-list.png" width="260" alt="Work lanes list with the latest update and four invented open lanes" />
+</p>
 
-Your machines, ready to chat with or summon:
-
-![Mobile chat list and summon view showing several machines, each with its agent label](docs/images/kitv2-mobile-machines.png)
-
-A machine's live status at a glance:
-
-![Mobile status card showing a machine's current goal and progress](docs/images/kitv2-mobile-status-card.png)
-
-Talk to the always-on assistant:
-
-![Mobile chat with the always-on assistant showing a sample conversation](docs/images/kitv2-mobile-assistant-chat.png)
-
-Open any machine and read its chat:
-
-![Mobile chat from a single machine showing its transcript](docs/images/kitv2-mobile-machine-chat.png)
-
-Agents also publish reviewable reports and assets you can open and read on the phone.
+The assistant tab is your always-on assistant's conversation. Its header opens
+the Sessions drawer, pending Questions and the work lanes list.
+[Assistant and work lanes](docs/assistant_and_lanes.md) walks through each
+screen. Agents also publish reviewable reports and assets you can open and read
+on the phone.
 
 ## Getting started
 
@@ -49,7 +38,8 @@ login, Apple signing or a device trust/unlock prompt yourself.
 The tab bar is **Assistant · Personal · Dashboards · Settings** (using your assistant’s configured
 name). Choose the assistant tab for the
 coordinator's existing conversation, open Sessions from its left header button,
-open pending Questions from **?**, or tap the assistant’s name for the open work lanes list.
+open pending Questions from **?**, or tap the assistant’s name for the open
+[work lanes list](docs/assistant_and_lanes.md#work-lanes).
 Personal needs an optional household service that the daemon reaches via `PENTACLE_COSMO_URL`;
 without it the tab is empty or unavailable.
 Dashboards shows optional runtime catalog boards; its static registry is empty by default. Chats, Unified, and Updates remain

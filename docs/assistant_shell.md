@@ -1,5 +1,8 @@
 # Assistant tab shell
 
+For what these screens look like and how to use them, see
+[Assistant and work lanes](assistant_and_lanes.md). This page covers the implementation.
+
 The tab bar is implemented in [`app/(tabs)/_layout.tsx`](../app/(tabs)/_layout.tsx):
 **Zephyr · Personal · Dashboards · Settings**, using the configured assistant
 name instead of the default. The `assistant` route is the navigator’s initial tab.
