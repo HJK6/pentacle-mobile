@@ -304,6 +304,22 @@ class MockDaemon:
         if not question_id:
             await self._send(ws, {"type": "prompt.answer.error", "request_id": request_id, "error_code": "question_id_required", "error": "question_id is required"})
             return
+
+        async def invalid(message: str) -> None:
+            await self._send(ws, {"type": "prompt.error", "request_id": request_id, "ok": False,
+                                  "error_code": "prompt_invalid", "error": "prompt_invalid",
+                                  "question_id": question_id, "message": message})
+
+        for legacy in ("custom_text", "value", "note"):
+            if msg.get(legacy) is not None:
+                await invalid(f"{legacy} is not a valid answer field; send selections and/or text")
+                return
+        if msg.get("text") is not None and not isinstance(msg["text"], str):
+            await invalid("text must be a string")
+            return
+        if msg.get("selections") is not None and not isinstance(msg["selections"], list):
+            await invalid("selections must be a list")
+            return
         record = next((r for r in self.notifications.values()
                        if isinstance(r.get("question"), dict) and r["question"].get("question_id") == question_id), None)
         if record is None:
@@ -321,13 +337,46 @@ class MockDaemon:
                 return
             self._resolve_record(record, action_kind="resolved", selections=[], text=text)
         else:
-            action = next((a for a in record.get("actions") or [] if isinstance(a, dict) and a.get("value") == selections[0]), None) if selections else None
+            custom_text = text if (text or "").strip() else None
+            error = None
+            if selections is None and custom_text is None:
+                error = "selections are required"
+            elif selections is not None and not selections:
+                error = "selections must contain at least one value"
+            elif selections is not None and any(not isinstance(i, str) or not i for i in selections):
+                error = "selections must contain non-empty strings"
+            elif selections is not None and len(set(selections)) != len(selections):
+                error = "selections must be unique"
+            elif question.get("response_mode") not in {"single_choice", "multi_choice"}:
+                error = "selections are only valid for choice questions"
+            elif selections is not None and question.get("response_mode") == "single_choice" and len(selections) != 1:
+                error = "single_choice questions require exactly one selection"
+            else:
+                option_values = {o["value"] for o in question.get("options") or []
+                                 if isinstance(o, dict) and isinstance(o.get("value"), str)}
+                if selections is not None and any(i not in option_values for i in selections):
+                    error = "selections must be option values for the question"
+            if error is not None:
+                await invalid(error)
+                return
+            action = None
+            if selections:
+                for candidate in record.get("actions") or []:
+                    if not isinstance(candidate, dict):
+                        continue
+                    value = candidate.get("value")
+                    if value == selections[0] or isinstance(value, dict) and value.get("answer") == selections[0]:
+                        action = candidate
+                        break
+            if selections and action is None:
+                await invalid("notification action for first selection not found")
+                return
             kind = str(action.get("kind") or "") if action is not None else "resolved"
             self._resolve_record(
                 record, action_kind=kind or "resolved", selections=selections,
                 action_id=action.get("action_id") if action is not None else None,
                 choice=action.get("choice") if action is not None and kind == "yes_no" and isinstance(action.get("choice"), bool) else None,
-                custom_text=text if (text or "").strip() else None)
+                custom_text=custom_text)
         await self._send(ws, {"type": "prompt.answer.ok", "request_id": request_id, "ok": True, "question": record["question"], "notification": record})
         await self._broadcast_app({"type": "notification", "notification": record})
 

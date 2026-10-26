@@ -210,8 +210,9 @@ The mock daemon gives injected notifications and their questions v2's `open` sta
 the app as v2 does. The app answers an agent question with `prompt.answer`: a free-text answer
 resolves the linked notification as `resolved`, a choice takes the selected action's kind (`ack` to
 `acked`, `yes_no` to `answered`) and carries any text as `custom_text`, and the question becomes
-`answered`. `notification.resolve` follows the same rule. The daemon replies, broadcasts the record,
-and only then answers the injector's `notification.await` with the submitted answer. The question
+`answered`. `notification.resolve` follows the same rule. The daemon saves the resolution and
+makes the answer available through the app reply, notification broadcast and injector's
+`notification.await`; cross-socket delivery order is not guaranteed. The question
 scenarios therefore assert the `harness:ui_trace` `prompt_answer_dispatched` trace followed by the
 resolved `notification:frame_applied`; the app emits `notification:resolve_sent`/`resolve_settled`
 only for notifications answered through `notification.resolve`. Wiring `mock_*`
