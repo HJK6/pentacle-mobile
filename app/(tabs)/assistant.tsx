@@ -27,7 +27,6 @@ export default function AssistantScreen() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const questionsOpening = useRef(false);
   const lanesOpening = useRef(false);
-  const scheduledOpening = useRef(false);
   const groups = useMemo(() => selectDrawerGroups(state), [state]);
   const machines = useMemo(() => selectMachineStatusList(state).filter((machine) => !isIdentityHost(machine.host))
     .map(({ host, title, online }) => ({ host, title, online })), [state]);
@@ -41,7 +40,6 @@ export default function AssistantScreen() {
     if (isFocused) {
       questionsOpening.current = false;
       lanesOpening.current = false;
-      scheduledOpening.current = false;
       resetChatOpenNavigationIntents();
       logFocusedTab('assistant');
     } else { setDrawerOpen(false); }
@@ -55,13 +53,6 @@ export default function AssistantScreen() {
     try { router.push('/pentacle/lanes'); }
     catch { lanesOpening.current = false; }
   }, [isFocused, router]);
-  const openScheduled = useCallback(() => {
-    if (!isFocused || scheduledOpening.current) return;
-    scheduledOpening.current = true;
-    Keyboard.dismiss();
-    try { router.push('/pentacle/scheduled'); }
-    catch { scheduledOpening.current = false; }
-  }, [isFocused, router]);
   const openQuestions = useCallback(() => {
     if (!isFocused || questionsOpening.current) return;
     questionsOpening.current = true;
@@ -70,7 +61,7 @@ export default function AssistantScreen() {
     catch { questionsOpening.current = false; }
   }, [isFocused, router]);
   return <View style={styles.root}>
-    <AssistantThread {...header} top={insets.top} onDrawer={openDrawer} onStatus={openLanes} onQuestions={openQuestions} onScheduled={openScheduled} />
+    <AssistantThread {...header} top={insets.top} onDrawer={openDrawer} onStatus={openLanes} onQuestions={openQuestions} />
     {isFocused ? <AssistantSessions open={drawerOpen} groups={groups} machines={machines} onClose={() => setDrawerOpen(false)} /> : null}
   </View>;
 }

@@ -56,12 +56,9 @@ test('blocked lanes are called out next to the lane count; none shows nothing ex
   expect(none.queryByTestId('assistant-lanes-blocked')).toBeNull();
 });
 
-test('the Scheduled entry sits beside the lanes entry and opens the Scheduled screen', () => {
-  const onScheduled = jest.fn();
-  const view = render(<AssistantHeader {...props} onScheduled={onScheduled} />);
-  fireEvent.press(view.getByLabelText('Scheduled'));
-  expect(onScheduled).toHaveBeenCalledTimes(1);
-  expect(props.onStatus).not.toHaveBeenCalledTimes(2);
-  view.unmount();
-  expect(render(<AssistantHeader {...props} />).queryByTestId('assistant-scheduled')).toBeNull();
+test('the header has no Scheduled entry', () => {
+  const view = render(<AssistantHeader {...props} />);
+  expect(view.queryByTestId('assistant-scheduled')).toBeNull();
+  expect(view.queryByLabelText('Scheduled')).toBeNull();
+  expect(view.queryByText(/SCHEDULED/)).toBeNull();
 });
