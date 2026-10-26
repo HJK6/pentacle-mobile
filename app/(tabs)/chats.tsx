@@ -89,6 +89,7 @@ import {
 import { resetChatOpenNavigationIntents } from '../../src/services/chatOpenNavigationIntent';
 import {
   agentQuestionSurfaceStreamId,
+  agentQuestionProvider,
   agentQuestionMatchesSessionQuestion,
   durableQuestionCardModel,
   fullyCoveredOptimisticQuestionNotificationIds,
@@ -216,7 +217,7 @@ function synthesizeQuestionChatItem(
     streamId,
     host,
     hostTitle: host,
-    provider: (parts.length >= 3 ? parts[1] : '').toUpperCase(),
+    provider: agentQuestionProvider(notification).toUpperCase(),
     sessionName: parts.at(-1) || streamId,
     title: notification.title || 'Agent question',
     previewText: notification.body || 'Waiting for your answer…',
@@ -1657,10 +1658,11 @@ const MutedProviderLabel = memo(function MutedProviderLabel({ provider }: { prov
   const normalized = String(provider).toLowerCase();
   const isClaude = normalized === 'claude';
   const isComposite = normalized === 'composite';
+  const isCodex = normalized === 'codex';
   return (
     <View style={styles.providerMuted}>
       {isClaude || isComposite ? <Spark size={11} color={Tokens.palette.muted} /> : <Brackets size={11} color={Tokens.palette.muted} />}
-      <Text {...SELECTABLE_TEXT} style={styles.providerMutedText}>{isClaude ? 'Claude' : isComposite ? 'Assistant' : 'Codex'}</Text>
+      <Text {...SELECTABLE_TEXT} style={styles.providerMutedText}>{isClaude ? 'Claude' : isComposite ? 'Assistant' : isCodex ? 'Codex' : 'Agent'}</Text>
     </View>
   );
 });

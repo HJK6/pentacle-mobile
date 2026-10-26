@@ -4116,7 +4116,8 @@ function handleMessageInner(raw: string) {
     const events = Array.isArray(message.events)
       ? (message.events as PentacleEvent[])
       : undefined;
-    const snapshotEvents = process.env.EXPO_PUBLIC_HARNESS === '1' && events?.length
+    const snapshotEvents = process.env.EXPO_PUBLIC_HARNESS === '1' &&
+      harnessRuntime.isArmed() && harnessRuntime.hasAction('all_chats_regression') && events?.length
       ? [...state.events, ...events]
       : events;
     for (const event of events || []) {
