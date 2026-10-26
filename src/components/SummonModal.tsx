@@ -8,6 +8,9 @@ import ProviderTag from './ProviderTag';
 import { modelDisplayName } from '../services/modelDisplay';
 import type { SpawnCatalog, SpawnProvider } from '../services/pentacleStream';
 import { getHostMachineName } from '../config/local';
+import { spawnPickerModels, spawnPickerProviders } from '../services/spawnCatalog';
+import { logTelemetry } from 'pentacle-chat-core';
+import { MOBILE_TELEMETRY_EVENTS } from '../services/mobileTelemetryEvents';
 
 export type SummonMachine = {
   host: string;
@@ -52,7 +55,10 @@ export default function SummonModal({
 }: Props) {
   useVoiceSurface({ page_id: 'agents', title: 'Summon' }, visible, { priority: 2, bottom: 24 });
   const [selected, setSelected] = useState<SummonMachine | null>(null);
-  const [provider, setProvider] = useState<SpawnProvider>('codex');
+  const [preferredProvider, setProvider] = useState<SpawnProvider>('codex');
+  const providers = catalog ? spawnPickerProviders(catalog) : [];
+  const provider = providers.includes(preferredProvider) ? preferredProvider
+    : providers.includes('codex') ? 'codex' : providers[0] ?? 'codex';
   const [byProvider, setByProvider] = useState<Partial<Record<SpawnProvider, { model: string; effort: string }>>>({});
   // The sheet owns its own pending state. Routing the pending paint through the parent's
   // `submitting` prop means it lands only after the chats screen commits, and that commit is slow
@@ -86,12 +92,10 @@ export default function SummonModal({
 
   useEffect(() => {
     if (!visible || !catalog) return;
-    const profile = catalog.profiles.desktop_manual || {};
-    setByProvider((current) => Object.keys(current).length > 0 ? current : ({
-      ...(profile.claude ? { claude: { model: profile.claude[0], effort: profile.claude[1] } } : {}),
-      ...(profile.codex ? { codex: { model: profile.codex[0], effort: profile.codex[1] } } : {}),
-    }));
-    setProvider(profile.codex ? 'codex' : 'claude');
+    logTelemetry(MOBILE_TELEMETRY_EVENTS.SPAWN_PICKER_VISIBILITY as Parameters<typeof logTelemetry>[0], {
+      subsystem: 'new_chat', bug_ref: 'provider_visibility_followup_2026_10',
+      offered_providers: spawnPickerProviders(catalog),
+    });
   }, [catalog, visible]);
 
   const grid = useMemo(
@@ -113,26 +117,19 @@ export default function SummonModal({
   const selectedName = selected ? getHostMachineName(selected.host) : undefined;
   const selectedMeta = selectedName ? MACHINES[selectedName] : MACHINES[MACHINE_ORDER[0]];
   const profileDefault = catalog?.profiles.desktop_manual?.[provider];
-  // Display-only filtering (operator dispatch 7c2717e4; mirrors web
-  // catalogForNewSession): the picker OFFERS available_models[provider] when the
-  // daemon sends it, in that config list order, else the full models catalog.
-  const availableForProvider = catalog?.available_models?.[provider];
-  // Defensive: an empty narrowed map (validateSpawnCatalog already refuses one,
-  // but guard anyway) must never strand the picker — fall back to full models.
-  const pickerModels = availableForProvider && Object.keys(availableForProvider).length > 0
-    ? availableForProvider
-    : (catalog?.models[provider] ?? {});
+  const pickerModels = catalog ? spawnPickerModels(catalog)[provider] ?? {} : {};
   const models = catalog ? Object.entries(pickerModels) : [];
   const seeded = byProvider[provider] || (profileDefault ? { model: profileDefault[0], effort: profileDefault[1] } : null);
   // Narrowing must never strand a valid tuple: if the seeded model (e.g. a hidden
   // profile default) is not in the visible set, fall back to the first visible
   // model so there is always a submittable selection. The full catalog.models
   // stays authoritative for explicit/handoff resolution elsewhere (Spec QA finding 1).
-  const seededVisible = !!seeded && models.some(([model]) => model === seeded.model);
-  const selection = seeded && !seededVisible && models.length > 0
-    ? { model: models[0][0], effort: models[0][1].efforts.includes(seeded.effort) ? seeded.effort : models[0][1].efforts[0] }
-    : seeded;
-  const efforts = selection ? (catalog?.models[provider]?.[selection.model]?.efforts || []) : [];
+  const selectedModel = seeded && pickerModels[seeded.model] ? seeded.model : models[0]?.[0];
+  const efforts = selectedModel ? pickerModels[selectedModel].efforts : [];
+  const selection = selectedModel && efforts.length ? {
+    model: selectedModel,
+    effort: seeded && efforts.includes(seeded.effort) ? seeded.effort : efforts[0],
+  } : null;
   const canSubmit = Boolean(
     selected &&
     selection &&
@@ -140,13 +137,15 @@ export default function SummonModal({
     !catalogLoading &&
     catalog &&
     !catalogError &&
+    providers.includes(provider) &&
     models.some(([model]) => model === selection.model) &&
     efforts.includes(selection.effort),
   );
 
   const chooseModel = (model: string) => {
-    const allowed = catalog?.models[provider]?.[model]?.efforts || [];
-    const fallback = catalog?.profiles.desktop_manual?.[provider]?.[1] || allowed[0] || '';
+    const allowed = pickerModels[model]?.efforts || [];
+    const defaultEffort = catalog?.profiles.desktop_manual?.[provider]?.[1];
+    const fallback = defaultEffort && allowed.includes(defaultEffort) ? defaultEffort : allowed[0] || '';
     setByProvider((current) => ({
       ...current,
       [provider]: { model, effort: allowed.includes(selection?.effort || '') ? selection!.effort : fallback },
@@ -196,7 +195,7 @@ export default function SummonModal({
             <ScrollView contentContainerStyle={styles.providerStack}>
               <Text style={styles.sectionLabel}>Provider</Text>
               <View style={styles.choiceRow}>
-              {(['claude', 'codex'] as const).map((candidate) => (
+              {providers.map((candidate) => (
                 <Pressable
                   key={candidate}
                   testID={`summon-provider-${candidate}`}
@@ -211,6 +210,10 @@ export default function SummonModal({
                 </Pressable>
               ))}
               </View>
+
+              {catalog && !catalogLoading && !catalogError && providers.length === 0 ? (
+                <Text testID="summon-no-providers" style={styles.errorText}>No supported providers are available.</Text>
+              ) : null}
 
               {catalogLoading ? <ActivityIndicator testID="summon-catalog-loading" color={Tokens.palette.green} /> : null}
               {catalogError ? (
@@ -384,4 +387,3 @@ const styles = StyleSheet.create({
     fontSize: 12,
   },
 });
-

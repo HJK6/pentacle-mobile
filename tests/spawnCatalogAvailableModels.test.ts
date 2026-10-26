@@ -38,10 +38,11 @@ test('rejects available_models listing a model absent from the full catalog', ()
   expect(() => validateSpawnCatalog(input)).toThrow(/incomplete/);
 });
 
-test('rejects available_models under an unknown provider', () => {
+test('tolerates additive unsupported providers without changing the full supported catalog', () => {
   const input = base();
   input.available_models = { nope: { 'gpt-6-luna': { efforts: EFFORTS } } };
-  expect(() => validateSpawnCatalog(input)).toThrow(/incomplete/);
+  expect(validateSpawnCatalog(input)).toBe(input);
+  expect(Object.keys(input.models)).toEqual(['claude', 'codex']);
 });
 
 test('rejects an empty available_models provider map (would narrow the picker to nothing)', () => {

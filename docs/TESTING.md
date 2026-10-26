@@ -246,3 +246,48 @@ an observed same-row rerender. That rerender uses the allocated simulator's exis
 `simctl ui content_size` setting to exercise RN fontScale and native measurement;
 the runner retains/restores the exact per-device preimage in finally. It changes no
 host or physical-device preference and still requires the explicit native window.
+
+## Normal Send and provider queue release
+
+Agent chats always use ordinary Send. A busy provider owns queueing; the app
+sends the original input once and never holds it until idle. Sending remains
+until a matching receipt or USER processing proof arrives. A positive provider
+queue receipt shows Queued and offers Send now on that row. Send now issues
+one generation-fenced interrupt, without resending text or attachments. Stop
+shares that budget while provider-owned queued rows remain pending. An
+unconfirmed interrupt preserves Queued; only an explicit failure permits a
+user-requested retry. Composite and question sends retain their own routes.
+
+Focused coverage is in `sessionScreenSteerQueueStop.test.tsx`,
+`sessionScreenQueuedSendRender.test.tsx`, `sessionScreenEscInterrupt.test.tsx`,
+`sendWhileWorkingQueue.test.ts` and `sendTurnAction.test.ts`. Run the vendored
+core tests separately with `npm --prefix pentacle-chat-core test`; root Jest
+excludes that directory. `composerRenderedManifest.test.tsx` captures identical
+baseline/candidate states with `PENTACLE_RENDER_MANIFEST=/absolute/output.json`.
+The actual rendered tree covers idle/working drafts, unconfirmed/provider-queued/
+processing rows, composite/question routes, and Copy message presentation.
+
+A scoped device release also requires a reviewed full diff and rendered-state
+manifest against the exact installed artifact, including upstream changes.
+The owned release recipe checks reviewed source/config/render pins before build
+and before install. An unexplained visible change, changed pin, or missing
+expected UI effect refuses release. Preserve the configured assistant identity,
+signing, endpoint and bundle guards, the installed app preimage, and physical
+journey evidence. Source/render green does not establish native gestures or
+provider processing. Phone actions remain inside the release owner's named
+operator window; no TestFlight or OTA is implied.
+
+## Advertised provider visibility and committed pending sends
+
+Run `npx jest --runInBand --runTestsByPath tests/summonProviderVisibility.test.tsx tests/summonModelPickerFilter.test.tsx tests/spawnCatalogAvailableModels.test.ts tests/committedPendingSend.test.tsx` for the affected picker and actual transport/reducer/transcript paths.
+
+A present `available_models` map is exhaustive: omitted providers stay hidden,
+unsupported additions are ignored, and an empty supported set disables Start.
+An absent map retains the legacy full supported catalog. Open-sheet refreshes
+revalidate provider/model/effort choices; explicit and handoff resolution keeps
+the unchanged full catalog.
+
+`committed_pending_proof` is accepted with proof pending, even without a
+compatibility `state` field. Verify Sending without Failed or Retry, original
+identities, no resend after timers/reconnect, matching late receipt/USER
+convergence, and terminal/identity controls. Voice retains its existing route.

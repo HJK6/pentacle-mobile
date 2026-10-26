@@ -690,6 +690,12 @@ export function recordOptimisticSendAcceptanceByRequestId(
   if (!optimisticId || !current) return state;
 
   const nextSend: OptimisticSendState = { ...current };
+  // A late queue receipt cannot revive a terminal or already processing row.
+  if (acceptance.provider_queued !== undefined
+      && current.provider_queued !== false
+      && !['failed', 'cancelled', 'returned_to_prompt', 'echoed', 'reconciled'].includes(current.status)) {
+    nextSend.provider_queued = acceptance.provider_queued;
+  }
   if (acceptance.message_id != null) nextSend.message_id = acceptance.message_id;
   if (acceptance.routing_state != null) nextSend.routing_state = acceptance.routing_state;
   if (acceptance.accepted_sequence != null) nextSend.accepted_sequence = acceptance.accepted_sequence;
@@ -701,6 +707,7 @@ export function recordOptimisticSendAcceptanceByRequestId(
 
   const priorEvent = withSend.events[eventIndex];
   const nextEvent: PentacleEvent = { ...priorEvent };
+  if (nextSend.provider_queued !== undefined) nextEvent.provider_queued = nextSend.provider_queued;
   if (acceptance.message_id != null) nextEvent.message_id = acceptance.message_id;
   if (acceptance.routing_state != null) nextEvent.routing_state = acceptance.routing_state;
   if (acceptance.accepted_sequence != null) nextEvent.accepted_sequence = acceptance.accepted_sequence;
@@ -901,6 +908,7 @@ export function retryOptimisticSend(
       turn_queued: false,
       failed_at: undefined,
       failure_reason: undefined,
+      provider_queued: undefined,
     };
   });
   if (reArmed === state) return state;
@@ -908,7 +916,7 @@ export function retryOptimisticSend(
     reArmed,
     reArmed.events.map((event) => (
       event.optimistic_id === optimisticId
-        ? { ...event, pending: true }
+        ? { ...event, pending: true, provider_queued: undefined }
         : event
     )),
   );

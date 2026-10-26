@@ -1822,7 +1822,7 @@ test('fetched USER echo reconciles an optimistic user row without per-event appl
   expect(
     core.selectSessionDetail(state, 'hostc:codex:one', { visibleCount: 'all' })
       ?.transcriptItems.find((item) => item.optimisticId === optimisticId)?.queuedWhileWorking,
-  ).toBe(true);
+  ).toBeUndefined();
   unsubscribe();
 });
 

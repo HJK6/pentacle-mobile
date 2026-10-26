@@ -73,7 +73,7 @@ function userItem(overrides: Partial<PentacleTranscriptItem> = {}): PentacleTran
 
 test('a queued-while-working row renders the ❯ Queued affordance + body text', () => {
   const renderer = render(
-    <TranscriptRow item={userItem({ sendState: 'queued', pending: true })} chrome={chrome} queuedWhileWorking />,
+    <TranscriptRow item={userItem({ sendState: 'queued', receiptCaption: 'queued', pending: true })} chrome={chrome} queuedWhileWorking />,
   );
   expect(has(renderer, 'queued-message-row')).toBe(true);
   expect(has(renderer, 'user-send-sent')).toBe(false);
@@ -84,18 +84,19 @@ test('a queued-while-working row renders the ❯ Queued affordance + body text',
   act(() => { renderer.unmount(); });
 });
 
-test('the in-flight (sending) state still shows Queued — it has not been delivered yet', () => {
+test('the in-flight state shows Sending without positive queue proof', () => {
   const renderer = render(
     <TranscriptRow item={userItem({ sendState: 'sending', pending: true })} chrome={chrome} queuedWhileWorking />,
   );
-  expect(has(renderer, 'queued-message-row')).toBe(true);
+  expect(has(renderer, 'queued-message-row')).toBe(false);
+  expect(has(renderer, 'user-send-sending')).toBe(true);
   expect(has(renderer, 'user-send-sent')).toBe(false);
   act(() => { renderer.unmount(); });
 });
 
 test('a queued row never infers Sent when its optimistic send state clears', () => {
   const renderer = render(
-    <TranscriptRow item={userItem({ sendState: 'queued', pending: true })} chrome={chrome} queuedWhileWorking />,
+    <TranscriptRow item={userItem({ sendState: 'queued', receiptCaption: 'queued', pending: true })} chrome={chrome} queuedWhileWorking />,
   );
   expect(has(renderer, 'queued-message-row')).toBe(true);
   expect(has(renderer, 'user-send-sent')).toBe(false);
@@ -114,9 +115,9 @@ test('a queued row never infers Sent when its optimistic send state clears', () 
 test('multiple queued rows render FIFO (oldest first) with the queued affordance', () => {
   const renderer = render(
     <View>
-      <TranscriptRow item={userItem({ id: 'r1', text: 'first queued', sendState: 'queued', pending: true })} chrome={chrome} queuedWhileWorking />
-      <TranscriptRow item={userItem({ id: 'r2', text: 'second queued', sendState: 'queued', pending: true })} chrome={chrome} queuedWhileWorking />
-      <TranscriptRow item={userItem({ id: 'r3', text: 'third queued', sendState: 'queued', pending: true })} chrome={chrome} queuedWhileWorking />
+      <TranscriptRow item={userItem({ id: 'r1', text: 'first queued', sendState: 'queued', receiptCaption: 'queued', pending: true })} chrome={chrome} queuedWhileWorking />
+      <TranscriptRow item={userItem({ id: 'r2', text: 'second queued', sendState: 'queued', receiptCaption: 'queued', pending: true })} chrome={chrome} queuedWhileWorking />
+      <TranscriptRow item={userItem({ id: 'r3', text: 'third queued', sendState: 'queued', receiptCaption: 'queued', pending: true })} chrome={chrome} queuedWhileWorking />
     </View>,
   );
   // All three render the queued affordance.
@@ -187,3 +188,12 @@ test('a cancelled queued row reads "Canceled" (cancel wins over the queued/sent 
   act(() => { renderer.unmount(); });
 });
 
+
+test('default-send regression: busy origin alone stays Sending until provider queue proof', () => {
+  const renderer = render(
+    <TranscriptRow item={userItem({ sendState: 'sending', pending: true })} chrome={chrome} queuedWhileWorking />,
+  );
+  expect(has(renderer, 'queued-message-row')).toBe(false);
+  expect(has(renderer, 'user-send-sending')).toBe(true);
+  act(() => { renderer.unmount(); });
+});

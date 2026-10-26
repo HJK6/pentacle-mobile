@@ -255,3 +255,18 @@ test('sendTurn rejects empty text without setting any state or firing telemetry'
 
   unsubscribe();
 });
+
+test('default-send regression: real provider queue receipt projects Queued after RPC settles', async () => {
+  const { stream, socket, unsubscribe } = bootStream();
+  socket.message({ type: 'session.inventory', sessions: [session(STREAM_ID, { session_generation: 'g1' })] });
+  const id = stream.enqueueTurn(STREAM_ID, 'provider queue proof');
+  stream.dispatchQueuedSendsByOptimisticId(STREAM_ID, id);
+  const row = stream.getPentacleStreamState().optimisticSends?.[id];
+  socket.message({ type: 'send.result', request_id: row?.request_id, delivery: 'landed', provider_queued: true });
+  await Promise.resolve();
+  const core = require('pentacle-chat-core');
+  const item = core.selectSessionDetail(stream.getPentacleStreamState(), STREAM_ID).transcriptItems.find((x: any) => x.optimisticId === id);
+  expect(item?.receiptCaption).toBe('queued');
+  expect(item?.queuedWhileWorking).toBe(true);
+  unsubscribe();
+});

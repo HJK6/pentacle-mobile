@@ -10,6 +10,7 @@ import {
   initialPentacleStreamState,
   applyPentacleSessionInventory,
   markOptimisticAckedByRequestId,
+  recordOptimisticSendAcceptanceByRequestId,
   markOptimisticCancelledByRequestId,
   markOptimisticDispatchedByRequestId,
   applyPentacleEvent,
@@ -732,7 +733,7 @@ test('enqueueOptimisticMessage compatibility path remains reconcilable', () => {
     ?.transcriptItems.find((item) => item.optimisticId === OPTIMISTIC_ID) as
       | { queuedWhileWorking?: boolean }
       | undefined;
-  assert.equal(queuedRow?.queuedWhileWorking, true);
+  assert.equal(queuedRow?.queuedWhileWorking, undefined);
 
   const next = applyPentacleEvent(nativeQueued, lateServerUserEvent({
     daemon_seq: 55,
@@ -748,7 +749,7 @@ test('enqueueOptimisticMessage compatibility path remains reconcilable', () => {
     ?.transcriptItems.find((item) => item.optimisticId === OPTIMISTIC_ID) as
       | { queuedWhileWorking?: boolean }
       | undefined;
-  assert.equal(reconciledRow?.queuedWhileWorking, true);
+  assert.equal(reconciledRow?.queuedWhileWorking, undefined);
 });
 
 test('two queued-origin sends keep independent origin when USER echoes reconcile in reverse order', () => {
@@ -786,8 +787,8 @@ test('two queued-origin sends keep independent origin when USER echoes reconcile
   assert.equal(eventsById.get(OPTIMISTIC_ID)?.queued_at, CREATED_AT);
   assert.equal(eventsById.get(secondOptimisticId)?.queued_at, CREATED_AT + 1);
   const items = selectSessionDetail(reconciled, STREAM_ID, { visibleCount: 'all' })?.transcriptItems ?? [];
-  assert.equal(items.find((item) => item.optimisticId === OPTIMISTIC_ID)?.queuedWhileWorking, true);
-  assert.equal(items.find((item) => item.optimisticId === secondOptimisticId)?.queuedWhileWorking, true);
+  assert.equal(items.find((item) => item.optimisticId === OPTIMISTIC_ID)?.queuedWhileWorking, undefined);
+  assert.equal(items.find((item) => item.optimisticId === secondOptimisticId)?.queuedWhileWorking, undefined);
 });
 
 test('same-text server row from another stream is not absorbed by an optimistic send', () => {
@@ -1147,7 +1148,7 @@ test('snapshot optimistic reconcile uses optimistic id when multiline server ech
   assert.equal(next.events[0].text, 'first line second line third line');
   assert.equal(
     selectSessionDetail(next, STREAM_ID, { visibleCount: 'all' })?.transcriptItems[0]?.queuedWhileWorking,
-    true,
+    undefined,
   );
 });
 
@@ -1297,4 +1298,21 @@ test('render-stability telemetry exports the transcript-mounted harness event an
     TELEMETRY_EVENT_BUG_REFS[TELEMETRY_EVENTS.HARNESS_TRANSCRIPT_ITEM_MOUNTED],
     CHAT_RENDER_STABILITY_REF,
   );
+});
+
+test('provider receipt proof alone marks a pending queue; processing and USER echo retire it', () => {
+  const initial = enqueueOptimisticMessage(buildState(), { streamId: STREAM_ID, text: 'hello', optimisticId: OPTIMISTIC_ID, requestId: REQUEST_ID, createdAt: CREATED_AT, queuedAt: CREATED_AT });
+  const row = (state: PentacleStreamState) => selectSessionDetail(state, STREAM_ID, { visibleCount: 'all' })?.transcriptItems.find(item => item.optimisticId === OPTIMISTIC_ID);
+  assert.equal(row(initial)?.receiptCaption, 'sending');
+  assert.equal(row(initial)?.queuedWhileWorking, undefined);
+  const queued = recordOptimisticSendAcceptanceByRequestId(initial, REQUEST_ID, { provider_queued: true });
+  assert.equal(row(queued)?.receiptCaption, 'queued');
+  assert.equal(row(queued)?.queuedWhileWorking, true);
+  const processing = recordOptimisticSendAcceptanceByRequestId(queued, REQUEST_ID, { provider_queued: false });
+  const late = recordOptimisticSendAcceptanceByRequestId(processing, REQUEST_ID, { provider_queued: true });
+  assert.equal(row(late)?.receiptCaption, 'sent');
+  assert.equal(row(late)?.queuedWhileWorking, undefined);
+  const echoed = applyPentacleEvent(queued, lateServerUserEvent({ daemon_seq: 456, optimistic_id: OPTIMISTIC_ID }));
+  assert.equal(row(echoed)?.queuedWhileWorking, undefined);
+  assert.equal(echoed.optimisticSends?.[OPTIMISTIC_ID], undefined);
 });

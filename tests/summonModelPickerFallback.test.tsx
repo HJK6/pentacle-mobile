@@ -2,13 +2,8 @@ import React from 'react';
 import { fireEvent, render, screen } from '@testing-library/react-native';
 import SummonModal from '../src/components/SummonModal';
 
-// Non-vacuity companion to summonModelPickerFilter.test.tsx. Those tests route
-// an empty available_models provider map through validateSpawnCatalog, which
-// REFUSES it — so they never reach SummonModal's own defensive guard (the
-// "empty narrowed map => fall back to full models" branch, SummonModal.tsx
-// lines ~119-121). This renders SummonModal DIRECTLY with catalogs the
-// validator would reject, exercising that guard's BOTH branches independently
-// of validation. Deleting the guard makes the fallback test fail.
+// Defensive direct-render controls complement the validator. Malformed known
+// empty provider maps must never restore hidden models from the full catalog.
 jest.mock('expo-constants', () => require('./helpers/stubs/expoConstants.cjs'));
 jest.mock('@expo/vector-icons/FontAwesome', () => 'FontAwesome');
 
@@ -82,18 +77,16 @@ function modelChipOrder(): string[] {
   return screen.getAllByTestId(/^summon-model-/).map((node) => String(node.props.testID).replace('summon-model-', ''));
 }
 
-test('an empty narrowed provider map falls back to the full catalog (guard, not an empty picker)', () => {
+test('an empty narrowed provider map cannot restore the full catalog', () => {
   // The validator would refuse this; the component must still render a usable
   // picker rather than a stranded empty list. Feed it straight to SummonModal.
   renderPicker({
     codex: {}, // empty narrowed map for the default provider
     claude: { 'claude-opus-4-8': def(['opus']) },
   });
-  // Codex falls back to the FULL models catalog, in declaration order…
-  expect(modelChipOrder()).toEqual(['gpt-5.6-terra', 'gpt-6-sol', 'gpt-6.1-sol', 'gpt-6-luna', 'gpt-6-astra']);
-  // …including a model that only exists in the full map, proving the fallback
-  // fired (removing the guard narrows this to [] and fails the assertion above).
-  expect(screen.getByTestId('summon-model-gpt-5.6-terra')).toBeTruthy();
+  expect(screen.queryByTestId('summon-provider-codex')).toBeNull();
+  expect(modelChipOrder()).toEqual(['claude-opus-4-8']);
+  expect(screen.queryByTestId('summon-model-gpt-5.6-terra')).toBeNull();
 });
 
 test('a non-empty narrowed provider map still narrows + reorders (guard keeps the filter)', () => {

@@ -1344,6 +1344,8 @@ const streamActions = Object.freeze({
   dispatchQueuedSendsByOptimisticId,
   flushQueuedSends,
   interruptSend,
+  canSendQueuedNow,
+  sendQueuedNow,
   replaceOptimisticAttachments,
   appendOptimisticUserMessage,
   beginOptimisticQuestionAnswer,
@@ -1814,7 +1816,13 @@ function setState(next: PentacleStreamState, notify = true) {
     intentPrefetchQueue.delete(streamId);
     deferredIntentPrefetches.delete(streamId);
   }
+  for (const [id, row] of Object.entries(next.optimisticSends ?? {})) {
+    if (!composerSendGenerations.has(id) && !previous.optimisticSends?.[id]) {
+      composerSendGenerations.set(id, next.sessions.find(session => session.stream_id === row.stream_id)?.session_generation ?? null);
+    }
+  }
   state = next;
+  pruneComposerInterrupts();
   pruneUploadRetries(next);
   emitHarnessUiTrace('store_state_transition', {
     connected: next.connected,
@@ -3784,10 +3792,32 @@ function sendAcceptanceFromFrame(frame: Record<string, unknown>): PentacleSendAc
     ...(typeof queueSequence === 'number' && Number.isFinite(queueSequence)
       ? { queue_sequence: queueSequence }
       : {}),
-    ...(typeof value('action_committed') === 'boolean'
-      ? { action_committed: value('action_committed') as boolean }
+    ...(frame.delivery === 'committed_pending_proof' || typeof value('action_committed') === 'boolean'
+      ? { action_committed: frame.delivery === 'committed_pending_proof' || value('action_committed') === true }
       : {}),
   };
+}
+
+function isCommittedPendingSendFrame(frame: Record<string, unknown>): boolean {
+  if (frame.delivery === 'not_landed' || frame.state === 'not_landed' || frame.receipt_state === 'not_landed') return false;
+  return frame.delivery === 'committed_pending_proof' ||
+    (sendAcceptanceFromFrame(frame).action_committed === true &&
+      frame.confirmation_pending === true && frame.do_not_resubmit === true);
+}
+
+function canApplyPendingSendFrame(requestId: string, frame: Record<string, unknown>): boolean {
+  const id = state.optimisticByRequestId?.[requestId];
+  const row = id ? state.optimisticSends?.[id] : undefined;
+  if (!row) return true; // Command settlement can outlive the optimistic row.
+  // Provider-queued acknowledgements are still waiting, and ambiguous proof
+  // must disable Send now without erasing the truthful Queued caption.
+  if (!['queued', 'dispatched', 'indeterminate'].includes(row.status) &&
+      !(row.status === 'acked' && row.provider_queued === true)) return false;
+  if (frame.to_stream_id !== undefined && frame.to_stream_id !== row.stream_id) return false;
+  const generation = row.origin_generation ?? composerSendGenerations.get(id!) ?? null;
+  const current = state.sessions.find(session => session.stream_id === row.stream_id)?.session_generation ?? null;
+  return generation === current && ['session_generation', 'origin_generation', 'generation'].every(key =>
+    frame[key] === undefined || frame[key] === generation);
 }
 
 function handleExplicitSendRejection(
@@ -4494,6 +4524,16 @@ function handleMessageInner(raw: string) {
     const receiptState = String(message.state || '');
     const acceptance = sendAcceptanceFromFrame(message);
     if (message.delivery === 'landed' || receiptState === 'landed') {
+      const queueAcceptance = providerQueueAcceptance(message);
+      setState(recordOptimisticSendAcceptanceByRequestId(state, message.request_id, queueAcceptance));
+      // Receipts remain useful after a timeout/accepted response settled the RPC.
+      if (!pending) {
+        const id = state.optimisticByRequestId?.[message.request_id];
+        const row = id ? state.optimisticSends?.[id] : undefined;
+        if (row && !['failed', 'cancelled', 'returned_to_prompt', 'echoed', 'reconciled'].includes(row.status)) {
+          setState(markOptimisticAckedByRequestId(state, message.request_id, Date.now()));
+        }
+      }
       if (pending) {
         const optimisticId = state.optimisticByRequestId?.[message.request_id];
         const optimistic = optimisticId ? state.optimisticSends?.[optimisticId] : undefined;
@@ -4518,7 +4558,10 @@ function handleMessageInner(raw: string) {
         const settled = settlePendingRequest(message.request_id);
         settled?.resolve(true);
       }
-    } else if (message.delivery === 'proof_unavailable' || receiptState === 'accepted') {
+    } else if (isCommittedPendingSendFrame(message) || message.delivery === 'proof_unavailable' || receiptState === 'accepted') {
+      // Committed is acceptance, not landing proof. Late pending evidence must
+      // never demote a row whose matching landed/USER proof already arrived.
+      if (!canApplyPendingSendFrame(message.request_id, message)) return;
       const acceptedState = recordOptimisticSendAcceptanceByRequestId(
         state,
         message.request_id,
@@ -4528,6 +4571,12 @@ function handleMessageInner(raw: string) {
       const settled = settlePendingRequest(message.request_id);
       settled?.resolve(true);
       queueSendReceiptQuery(message.request_id);
+      if (isCommittedPendingSendFrame(message)) {
+        logTelemetry(MOBILE_TELEMETRY_EVENTS.CHAT_SEND_COMMITTED_PENDING as Parameters<typeof logTelemetry>[0], {
+          subsystem: 'send', bug_ref: 'committed_pending_transport_classification_2026_10',
+          action_committed: true, confirmation_pending: true,
+        });
+      }
     } else {
       if (pending) {
         handleExplicitSendRejection(message.request_id, 'send.result', message);
@@ -4543,10 +4592,11 @@ function handleMessageInner(raw: string) {
       ? receipts[0] as Record<string, unknown> : undefined;
     // A late timed-out reply cannot consume a different current lookup. Old
     // servers omit the outer request_id, so correlate an available inner one.
-    if (lookup && (lookup.originalRequest || (receipt && activeVoiceIntent(receipt.request_id)))
-      && ((message.request_id !== undefined && message.request_id !== lookup.requestId)
+    if (lookup && ((message.request_id !== undefined && message.request_id !== lookup.requestId)
         || (receipt && receipt.request_id !== lookup.requestId))) {
-      if (receipt) applyVoiceSendFrame(receipt, 'receipt');
+      if (receipt && !applyVoiceSendFrame(receipt, 'receipt')) {
+        applyDurableSendReceipt(receipt, { requestId: String(receipt.request_id || ''), toStreamId: String(receipt.to_stream_id || '') });
+      }
       return;
     }
     if (lookup) {
@@ -4557,7 +4607,9 @@ function handleMessageInner(raw: string) {
         ? { ...voiceUnknown(intent), absent: true } : voiceUnknown(intent));
     } else if (receipt) {
       // Authenticated terminal evidence survives loss of an in-memory waiter.
-      applyVoiceSendFrame(receipt, 'receipt');
+      if (!applyVoiceSendFrame(receipt, 'receipt')) {
+        applyDurableSendReceipt(receipt, { requestId: String(receipt.request_id || ''), toStreamId: String(receipt.to_stream_id || '') });
+      }
     }
     drainReceiptQueryQueue();
     return;
@@ -5510,7 +5562,7 @@ function applyDurableSendReceipt(
   const receiptState = String(receipt.state || receipt.receipt_state || '');
   const acceptance = sendAcceptanceFromFrame(receipt);
   if (receiptState === 'landed') {
-    const acceptedState = recordOptimisticSendAcceptanceByRequestId(state, requestId, acceptance);
+    const acceptedState = recordOptimisticSendAcceptanceByRequestId(state, requestId, { ...acceptance, ...providerQueueAcceptance(receipt) });
     setState(event
       ? reconcileOptimisticSendWithServerEvent(acceptedState, optimisticId, event)
       : markOptimisticAckedByRequestId(acceptedState, requestId, Date.now()));
@@ -5531,7 +5583,8 @@ function applyDurableSendReceipt(
     ));
     return true;
   }
-  if (receiptState === 'accepted') {
+  if (receiptState === 'accepted' || isCommittedPendingSendFrame(receipt)) {
+    if (!canApplyPendingSendFrame(requestId, receipt)) return false;
     const acceptedState = recordOptimisticSendAcceptanceByRequestId(state, requestId, acceptance);
     setState(markOptimisticIndeterminateByRequestId(acceptedState, requestId, Date.now()));
     return true;
@@ -6160,18 +6213,104 @@ export function flushQueuedSends(streamId: string) {
   }
 }
 
-// B1 (ESC cancel): interrupt the stream's current working turn via the daemon's
-// `send.interrupt` RPC. The daemon issues a single tmux Escape; with a non-empty
-// native queue Claude Code auto-flushes it as one combined turn (D4) — the client
-// does not advance the queue here. The session screen debounces presses to exactly
-// one effective interrupt per working turn (multi-ESC spam is dangerous, D4).
+// Shared process-owned Stop/Send now budget. It survives screen remounts and
+// phase churn, while provider-owned rows remain pending in the same lifetime.
+const composerSendGenerations = new Map<string, string | null>();
+type ComposerQueueBudget = { generation: string; rows: Set<string> };
+type ComposerInterrupt = { generation: string | undefined; turn: string; pending: boolean; retryable: boolean; promise: Promise<InterruptSendResult> };
+const composerQueueBudgets = new Map<string, ComposerQueueBudget>();
+const composerInterrupts = new Map<string, ComposerInterrupt>();
+const COALESCED_INTERRUPT: InterruptSendResult = { interrupted: false, landed: false, confirm: 'coalesced', coalesced: true };
+
+function providerQueueAcceptance(frame: Record<string, unknown>): PentacleSendAcceptance {
+  const id = state.optimisticByRequestId?.[String(frame.request_id || '')];
+  const row = id ? state.optimisticSends?.[id] : undefined;
+  if (id && row && composerSendGenerations.get(id) !== (state.sessions.find(session => session.stream_id === row.stream_id)?.session_generation ?? null)) return {};
+  const reason = String(frame.reason || '');
+  return { provider_queued: frame.provider_queued === true || reason === 'provider_queued' || reason.endsWith(';provider_queued') };
+}
+
+function providerQueueRowPending(streamId: string, id: string, generation: string): boolean {
+  const row = state.optimisticSends?.[id];
+  return composerSendGenerations.get(id) === generation && !!row && !isVoiceOwnedSend(row)
+    && row.stream_id === streamId && row.provider_queued === true
+    && !['failed', 'cancelled', 'returned_to_prompt', 'echoed', 'reconciled'].includes(row.status);
+}
+function pruneComposerInterrupts() {
+  for (const [streamId, budget] of composerQueueBudgets) {
+    const session = state.sessions.find(item => item.stream_id === streamId);
+    if (session?.session_generation !== budget.generation || (session as { status?: string }).status === 'closed') {
+      composerQueueBudgets.delete(streamId);
+      continue;
+    }
+    for (const id of budget.rows) if (!providerQueueRowPending(streamId, id, budget.generation)) budget.rows.delete(id);
+    if (!budget.rows.size) composerQueueBudgets.delete(streamId);
+  }
+  for (const id of composerSendGenerations.keys()) if (!state.optimisticSends?.[id]) composerSendGenerations.delete(id);
+  for (const [streamId, request] of composerInterrupts) {
+    const session = state.sessions.find(item => item.stream_id === streamId);
+    const turn = state.workingByStream?.[streamId];
+    const idle = !session?.working && (!turn || turn.phase === 'idle');
+    if (!session || (session as { status?: string }).status === 'closed' || session.session_generation !== request.generation
+        || (!request.pending && !composerQueueBudgets.has(streamId) && idle)) composerInterrupts.delete(streamId);
+  }
+}
+function composerTurnIdentity(streamId: string): string {
+  const turn = state.workingByStream?.[streamId];
+  return `${turn?.optimisticId ?? ''}:${turn?.sentAt ?? ''}`;
+}
+export function canSendQueuedNow(streamId: string, optimisticId: string): boolean {
+  pruneComposerInterrupts();
+  const session = state.sessions.find(item => item.stream_id === streamId);
+  const generation = session?.session_generation;
+  const row = state.optimisticSends?.[optimisticId];
+  if (!state.connected || !session || (session as { status?: string }).status === 'closed' || session.session_kind === 'assistant_composite'
+      || !generation || !providerQueueRowPending(streamId, optimisticId, generation) || row?.status === 'indeterminate') return false;
+  const prior = composerInterrupts.get(streamId);
+  return !composerQueueBudgets.has(streamId)
+    && !(prior?.generation === generation && (prior.pending || (!prior.retryable && prior.turn === composerTurnIdentity(streamId))));
+}
+export function sendQueuedNow(streamId: string, optimisticId: string): Promise<InterruptSendResult> {
+  // Re-read at press time. Never send text, rotate identities or change the queue.
+  if (!canSendQueuedNow(streamId, optimisticId)) return Promise.resolve(COALESCED_INTERRUPT);
+  return interruptSend(streamId);
+}
 export function interruptSend(streamId: string): Promise<InterruptSendResult> {
-  const session = state.sessions.find((item) => item.stream_id === streamId);
-  if (!session) return Promise.reject(new Error('No session for interrupt'));
-  return sendCommand<InterruptSendResult>(
-    { type: 'send.interrupt', host: session.host, session_name: session.session_name },
-    'send.interrupt',
-  );
+  pruneComposerInterrupts();
+  const session = state.sessions.find(item => item.stream_id === streamId);
+  if (!session || (session as { status?: string }).status === 'closed' || session.session_kind === 'assistant_composite') return Promise.reject(new Error('No agent session for interrupt'));
+  const generation = session.session_generation;
+  const turn = composerTurnIdentity(streamId);
+  const prior = composerInterrupts.get(streamId);
+  if (composerQueueBudgets.has(streamId)) return Promise.resolve(COALESCED_INTERRUPT);
+  if (prior && prior.generation === generation && (prior.pending || (prior.turn === turn && !prior.retryable))) return prior.promise;
+  const rows = generation ? Object.keys(state.optimisticSends ?? {}).filter(id => providerQueueRowPending(streamId, id, generation)) : [];
+  const budget = generation && rows.length ? { generation, rows: new Set(rows) } : undefined;
+  if (budget) composerQueueBudgets.set(streamId, budget);
+  const request: ComposerInterrupt = { generation, turn, pending: true, retryable: false, promise: undefined as unknown as Promise<InterruptSendResult> };
+  composerInterrupts.set(streamId, request);
+  const rearm = () => {
+    if (composerInterrupts.get(streamId) !== request) return;
+    request.retryable = true;
+    if (composerQueueBudgets.get(streamId) === budget) composerQueueBudgets.delete(streamId);
+  };
+  request.promise = sendCommand<InterruptSendResult>(
+    { type: 'send.interrupt', host: session.host, session_name: session.session_name,
+      ...(generation ? { expected_session_generation: generation } : {}) }, 'send.interrupt',
+  ).then(result => {
+    request.pending = false;
+    if (result.confirm === 'pane_unavailable' || result.confirm === 'not_working') rearm();
+    logTelemetry(MOBILE_TELEMETRY_EVENTS.COMPOSER_INTERRUPT as Parameters<typeof logTelemetry>[0], { subsystem: 'composer', bug_ref: 'composer_send_default_queue_state_2026_10', stream_id: streamId, confirm: result.confirm, queued_count: rows.length });
+    return result;
+  }, error => {
+    request.pending = false;
+    // Only this sendCommand precondition proves no frame left the client.
+    // Disconnects, timeouts and unknown transport errors may follow a delivered
+    // Escape; retain its budget until provider rows process or generation ends.
+    if (error instanceof Error && error.message === 'Pentacle stream is not connected') rearm();
+    throw error;
+  });
+  return request.promise;
 }
 
 export function markOptimisticFailed(optimistic_id: string, reason = 'send_error') {

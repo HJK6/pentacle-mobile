@@ -147,6 +147,19 @@ test('absent available_models shows the full catalog (shipped public default)', 
   expect(modelChipOrder()).toEqual(['gpt-5.6-terra', 'gpt-5.6-sol', 'gpt-6-sol', 'gpt-6.1-sol', 'gpt-6-luna', 'gpt-6-astra']);
 });
 
+test('New Chat never restores a provider omitted by installation visibility', async () => {
+  const catalog = withAvailableModels();
+  delete (catalog.available_models as Partial<typeof catalog.available_models>).codex;
+  mockActions.getSpawnCatalog.mockResolvedValue(catalog);
+  await openPicker();
+  expect(screen.queryByTestId('summon-provider-codex')).toBeNull();
+  expect(screen.queryByTestId('summon-provider-gemini')).toBeNull();
+  await act(async () => { fireEvent.press(screen.getByTestId('summon-submit')); });
+  await waitFor(() => expect(mockActions.spawnSessionV2).toHaveBeenCalledWith(expect.objectContaining({
+    provider: 'claude', model: 'claude-opus-4-8',
+  })));
+});
+
 test('a hidden profile default never gates submission — falls back to first visible model', async () => {
   // Installation hides its own profile default (gpt-6-sol) from the picker.
   const catalog = withAvailableModels();
