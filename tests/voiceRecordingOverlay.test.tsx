@@ -298,14 +298,15 @@ const recoveryTop = (view: ReturnType<typeof render>) => view.UNSAFE_getAllByTyp
   .find(style => style?.zIndex === 10000 && style.left === 12)?.top;
 test('the passive recovery card sits below a covering surface header so its Close stays hittable', async () => {
   const h = install(); await h.ready(); await h.take();
-  const view = render(<CoveringSurface top={124} />);
+  const view = render(<CoveringSurface top={200} />);
   expect(view.getByTestId('voice-recording-overlay')).toBeTruthy();
-  expect(recoveryTop(view)).toBe(124);
+  expect(recoveryTop(view)).toBe(200);
   h.delivery.dispose();
 });
-test('control: without a declared surface top the recovery card keeps its safe-area offset', async () => {
+test('without a declared surface top the recovery card still clears the standard header at 375pt', async () => {
   const h = install(); await h.ready(); await h.take();
   const view = render(<CoveringSurface />);
-  expect(recoveryTop(view)).toBe(48);
+  // Insets are mocked to 0 (a 375pt SE has 20): headers then start at TOP_INSET 52 and end above +72.
+  expect(recoveryTop(view)).toBe(52 + 72);
   h.delivery.dispose();
 });
