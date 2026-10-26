@@ -1360,6 +1360,8 @@ export function SessionScreen(props: SessionScreenProps) {
     update: 'No current Nexus status card.',
     updated_at: session?.last_event_at || new Date(0).toISOString(),
   };
+  // A tap can set the flag on a session with no card; only a rendered overlay covers the chat.
+  const statusOverlayShown = statusOverlayOpen && !!session && (!!session.status_card || session.role === 'nexus');
   const transcriptPeerSourceById = useMemo(
     () => new Map(transcriptPeerSources.map((item) => [item.id, item.sourceStreamId])),
     [transcriptPeerSources],
@@ -1395,7 +1397,7 @@ export function SessionScreen(props: SessionScreenProps) {
     page_id: streamId === ASSISTANT_STREAM_ID ? 'assistant' : 'chat',
     title: streamId === ASSISTANT_STREAM_ID ? selectAssistantIdentity({ sessions: getPentacleStreamState?.()?.sessions ?? [] }).name : title,
     ...(streamId === ASSISTANT_STREAM_ID ? {} : { entity_id: streamId }),
-  }, isFocused && !!session && !statusOverlayOpen && !questionOverlayOpen && !menuVisible && !renameVisible && !reportsVisible && !viewerUri && !agentThreadTarget, { chat: true });
+  }, isFocused && !!session && !statusOverlayShown && !questionOverlayOpen && !menuVisible && !renameVisible && !reportsVisible && !viewerUri && !agentThreadTarget, { chat: true });
   const connecting = streamConnecting || shellSlice.connecting;
   useEffect(() => {
     if (!isFocused || !connectionSlice.connected || !streamId) return;
@@ -3442,7 +3444,7 @@ export function SessionScreen(props: SessionScreenProps) {
                 sendingDelayMs={0}
                 label={headerStatusLabel}
                 onVisibleStatusCommit={
-                  process.env.EXPO_PUBLIC_HARNESS === '1' && isFocused && appState === 'active' && !statusOverlayOpen
+                  process.env.EXPO_PUBLIC_HARNESS === '1' && isFocused && appState === 'active' && !statusOverlayShown
                     ? handleVisibleHeaderStatusCommit
                     : undefined
                 }
@@ -3492,7 +3494,7 @@ export function SessionScreen(props: SessionScreenProps) {
       {/* A1 (photo/camera send): full-screen viewer for a tapped attachment. */}
       <ImageViewerModal uri={viewerUri} onClose={() => setViewerUri(null)} />
       <ReportViewerModal visible={reportsVisible || (process.env.EXPO_PUBLIC_SCREENSHOT_HARNESS === '1' && params.reportHarness === '1')} streamId={streamId} accent={chrome.accent} onClose={() => setReportsVisible(false)} />
-      {statusOverlayOpen && (session.status_card || session.role === 'nexus') ? <StatusOverlay
+      {statusOverlayShown ? <StatusOverlay
         active={isFocused}
         session={session}
         card={statusOverlayCard}

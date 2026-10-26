@@ -207,3 +207,82 @@ describe('pentacleStream resumable history backfill', () => {
     );
   });
 });
+
+describe('pentacleStream terminal history replies for an absent target', () => {
+  const ABSENT = 'mock-host:absent-assistant';
+  const snapshotWithout = {
+    type: 'snapshot', events_mode: 'summary',
+    sessions: [{ stream_id: 'mock-host:present-assistant', host: 'mock-host', session_name: 'present-assistant', bootstrap_state: 'started' }],
+    hosts: { 'mock-host': { host: 'mock-host', online: true } },
+  };
+
+  function historyFrames(socket: MockWebSocket) {
+    return socket.sent.map((frame) => JSON.parse(frame)).filter((frame) => frame.type === 'request_stream_events');
+  }
+
+  async function idleWithPongs(socket: MockWebSocket, seconds: number) {
+    for (let i = 0; i < seconds; i += 1) {
+      socket.message({ type: 'pong' });
+      jest.advanceTimersByTime(1000);
+      await flushMicrotasks();
+    }
+  }
+
+  it('settles unmatched terminal replies so no orphaned timeout closes the healthy socket', async () => {
+    const stream = loadStream();
+    stream.__handlePentacleAppStateChangeForTests('active');
+    const unregister = stream.registerFocusedPentacleStream(ABSENT);
+    const socket = openSocket(stream);
+    const second = stream.requestStreamEvents(ABSENT, 25, { purpose: 'mount-fetch' });
+    const requests = historyFrames(socket).filter((frame) => frame.stream_id === ABSENT);
+    expect(requests.length).toBeGreaterThanOrEqual(2);
+    socket.message(snapshotWithout);
+    for (const request of requests) {
+      socket.message({ type: 'request_stream_events.ok', request_id: request.request_id, stream_id: ABSENT, events: [], complete: true });
+    }
+    const outcome: { rows?: unknown[]; error?: string } = {};
+    second.then((rows) => { outcome.rows = rows; }, (error: Error) => { outcome.error = error.message; });
+    await idleWithPongs(socket, 70);
+    expect(socket.readyState).toBe(MockWebSocket.OPEN);
+    expect(outcome).toEqual({ rows: [] });
+    expect(MockWebSocket.instances).toHaveLength(1);
+    expect(stream.getPentacleStreamState().events.filter((item) => item.stream_id === ABSENT)).toEqual([]);
+    unregister();
+  });
+
+  it('settles an unmatched terminal error without applying it or closing the socket', async () => {
+    const stream = loadStream();
+    const socket = openSocket(stream);
+    const history = stream.requestStreamEvents(ABSENT, 25, { purpose: 'mount-fetch' });
+    const request = historyFrames(socket).at(-1);
+    socket.message(snapshotWithout);
+    socket.message({ type: 'request_stream_events.error', request_id: request.request_id, stream_id: 'mock-host:other', error: 'not found' });
+    const outcome: { error?: string } = {};
+    history.catch((error: Error) => { outcome.error = error.message; });
+    await idleWithPongs(socket, 70);
+    expect(socket.readyState).toBe(MockWebSocket.OPEN);
+    expect(outcome.error).toBe('not found');
+  });
+
+  it('control: a present target still applies its history and keeps the socket open', async () => {
+    const stream = loadStream();
+    const socket = openSocket(stream);
+    const history = stream.requestStreamEvents('mock-host:mock-session', 300, { purpose: 'mount-fetch' });
+    const request = historyFrames(socket).at(-1);
+    socket.message({ type: 'request_stream_events.ok', request_id: request.request_id, stream_id: 'mock-host:mock-session', events: [event(1), event(2)], complete: true });
+    expect((await history).map((item) => item.daemon_seq)).toEqual([1, 2]);
+    expect(stream.getPentacleStreamState().events.map((item) => item.daemon_seq)).toEqual([1, 2]);
+    await idleWithPongs(socket, 70);
+    expect(socket.readyState).toBe(MockWebSocket.OPEN);
+  });
+
+  it('control: an unanswered history request still hits its genuine command deadline', async () => {
+    const stream = loadStream();
+    const socket = openSocket(stream);
+    const history = stream.requestStreamEvents('mock-host:mock-session', 300, { purpose: 'mount-fetch' });
+    history.catch(() => undefined);
+    await idleWithPongs(socket, 70);
+    await expect(history).rejects.toThrow('Pentacle command timed out');
+    expect(socket.readyState).toBe(MockWebSocket.CLOSED);
+  });
+});

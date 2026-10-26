@@ -62,3 +62,15 @@ test('the header has no Scheduled entry', () => {
   expect(view.queryByLabelText('Scheduled')).toBeNull();
   expect(view.queryByText(/SCHEDULED/)).toBeNull();
 });
+
+test('the lanes/status meta row keeps a 44pt tap target without changing header layout', () => {
+  const view = render(<AssistantHeader {...props} />);
+  const meta = view.getByLabelText('3 open lanes');
+  expect(StyleSheet.flatten(meta.props.style)).toMatchObject({ marginTop: 3 });
+  const area = StyleSheet.flatten(view.getByTestId('assistant-meta-hit-area').props.style);
+  // The 9.5pt mono row renders about 12.7pt tall; the hit area extends it to at least 44pt.
+  expect(area).toMatchObject({ position: 'absolute', left: 0, right: 0 });
+  expect(12.7 - area.top - area.bottom).toBeGreaterThanOrEqual(44);
+  fireEvent.press(view.getByTestId('assistant-meta-hit-area'));
+  expect(props.onStatus).toHaveBeenCalled();
+});

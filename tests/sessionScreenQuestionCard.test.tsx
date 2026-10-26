@@ -404,6 +404,15 @@ test('an unfocused session Status overlay releases context and yields to a nativ
   expect(voicePresentationSnapshot().surface).toBeNull();
 });
 
+test('a no-card status tap opens nothing and keeps the chat voice surface', () => {
+  resetState(CLAUDE_STREAM_ID);
+  const view = render(<SessionScreen />);
+  expect(voicePresentationSnapshot().surface?.page.page_id).toBe('chat');
+  fireEvent.press(view.getByTestId('session-status-overlay-trigger'));
+  expect(view.queryByText('Session status')).toBeNull();
+  expect(voicePresentationSnapshot().surface?.page).toMatchObject({ page_id: 'chat', entity_id: CLAUDE_STREAM_ID });
+});
+
 test('renders the question card with one tappable row per non-meta option', () => {
   resetState(CLAUDE_STREAM_ID, { question: QUESTION });
   renderQuestionScreen();

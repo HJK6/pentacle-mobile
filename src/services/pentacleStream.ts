@@ -3374,6 +3374,11 @@ function activeStreamEventsRequest(pending: StreamEventsPendingToken | undefined
     : undefined;
 }
 
+function streamEventsRequestOwnsWindow(requestId: string, pending: StreamEventsPendingToken | undefined) {
+  return !!pending && pending.socketMatches && pending.generation === currentSocketGeneration
+    && activeStreamEventsRequest(pending)?.token === requestId;
+}
+
 function streamEventsCoverage(pending: StreamEventsPendingToken | undefined): EventBucketCoverage | undefined {
   return pending
     ? state.eventBucketsByStream?.[pending.streamId]?.coverageByWindow?.[pending.window]
@@ -4909,7 +4914,16 @@ function handleMessageInner(raw: string) {
       now: Date.now(),
       freshnessMs: PREFETCH_COVERAGE_FRESH_MS,
     });
-    if (!result.matched || !token) return;
+    if (!result.matched || !token) {
+      // A request that lost its window (absent/superseded target, stale socket)
+      // can never match; settle it so its timeout cannot close a healthy socket.
+      // A mismatched reply for a still-live window keeps waiting for its own.
+      if (!streamEventsRequestOwnsWindow(message.request_id, token)) {
+        settlePendingRequest(message.request_id);
+        pending.resolve([]);
+      }
+      return;
+    }
     const acceptedEvents = tailSelection?.events ?? accumulated;
     let cursorChanged = false;
     if (result.cursorEvidence) {
@@ -4965,8 +4979,11 @@ function handleMessageInner(raw: string) {
         now: Date.now(),
         freshnessMs: PREFETCH_COVERAGE_FRESH_MS,
       });
-      if (!result.matched || !token) return;
-      setState(applyStreamEventsFinalState(state, token, result));
+      if (!result.matched || !token) {
+        if (streamEventsRequestOwnsWindow(message.request_id, token)) return;
+      } else {
+        setState(applyStreamEventsFinalState(state, token, result));
+      }
       settlePendingRequest(message.request_id);
       pending.reject(new Error(String(message.error || 'request_stream_events failed')));
     }

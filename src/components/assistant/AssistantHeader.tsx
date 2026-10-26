@@ -44,6 +44,8 @@ export default function AssistantHeader({ identity, others, pending, lanes, bloc
           <StatusTag status={working ? 'working' : 'idle'} />
           <Text style={styles.lanes}>{lanes} LANES</Text>
           {blocked > 0 ? <Text testID="assistant-lanes-blocked" style={styles.blocked}>{blocked} BLOCKED</Text> : null}
+          {/* Extends the ~13pt row to a 44pt target; unlike hitSlop, the overflowing child is hit-tested outside the parent. */}
+          <View testID="assistant-meta-hit-area" style={styles.metaHitArea} />
         </Pressable>
       </View>
       <HeaderVoiceMic />
@@ -65,6 +67,7 @@ const styles = StyleSheet.create({
   nameBlock: compactHeaderLayout.copy,
   name: { color: Tokens.palette.text, fontFamily: Fonts.rajdhani.bold, fontSize: 17, lineHeight: 19 },
   meta: { flexDirection: 'row', alignItems: 'center', gap: 9, marginTop: 3 },
+  metaHitArea: { position: 'absolute', left: 0, right: 0, top: -16, bottom: -16 },
   lanes: { color: Tokens.palette.muted, fontFamily: Fonts.jetBrainsMono.regular, fontSize: 9.5, letterSpacing: 0.5 },
   blocked: { color: Tokens.palette.amber, fontFamily: Fonts.jetBrainsMono.bold, fontSize: 9.5, letterSpacing: 0.5 },
 });
