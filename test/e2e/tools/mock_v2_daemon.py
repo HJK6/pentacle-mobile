@@ -295,11 +295,41 @@ class MockDaemon:
         })
 
     async def _on_prompt_answer(self, ws: Any, msg: dict[str, Any]) -> None:
+        # v2 `_prompt_answer`/`_apply_answer`, the route the app uses to answer an agent
+        # question: a free-text answer resolves the linked notification as `resolved` with
+        # its text; a choice takes the selected action's kind (else `resolved`) and carries
+        # any text as custom_text. Questions the mock did not inject keep the old ack.
+        request_id = msg.get("request_id")
         question_id = str(msg.get("question_id") or "")
         if not question_id:
-            await self._send(ws, {"type": "prompt.answer.error", "request_id": msg.get("request_id"), "error_code": "question_id_required", "error": "question_id is required"})
+            await self._send(ws, {"type": "prompt.answer.error", "request_id": request_id, "error_code": "question_id_required", "error": "question_id is required"})
             return
-        await self._send(ws, {"type": "prompt.answer.ok", "request_id": msg.get("request_id"), "question_id": question_id})
+        record = next((r for r in self.notifications.values()
+                       if isinstance(r.get("question"), dict) and r["question"].get("question_id") == question_id), None)
+        if record is None:
+            await self._send(ws, {"type": "prompt.answer.ok", "request_id": request_id, "question_id": question_id})
+            return
+        question = record["question"]
+        if question.get("state") != "open":
+            await self._send(ws, {"type": "prompt.answer.ok", "request_id": request_id, "ok": True, "question": question, "already_answered": True})
+            return
+        text = msg.get("text") if isinstance(msg.get("text"), str) else None
+        selections = list(msg["selections"]) if isinstance(msg.get("selections"), list) else None
+        if question.get("response_mode") == "free_text":
+            if selections or not (text or "").strip():
+                await self._send(ws, {"type": "prompt.error", "request_id": request_id, "ok": False, "error_code": "prompt_invalid", "error": "prompt_invalid", "question_id": question_id})
+                return
+            self._resolve_record(record, action_kind="resolved", selections=[], text=text)
+        else:
+            action = next((a for a in record.get("actions") or [] if isinstance(a, dict) and a.get("value") == selections[0]), None) if selections else None
+            kind = str(action.get("kind") or "") if action is not None else "resolved"
+            self._resolve_record(
+                record, action_kind=kind or "resolved", selections=selections,
+                action_id=action.get("action_id") if action is not None else None,
+                choice=action.get("choice") if action is not None and kind == "yes_no" and isinstance(action.get("choice"), bool) else None,
+                custom_text=text if (text or "").strip() else None)
+        await self._send(ws, {"type": "prompt.answer.ok", "request_id": request_id, "ok": True, "question": record["question"], "notification": record})
+        await self._broadcast_app({"type": "notification", "notification": record})
 
     @staticmethod
     def _encoded_len(frame: dict[str, Any]) -> int:
@@ -522,22 +552,27 @@ class MockDaemon:
                     choice = action["choice"]
         elif custom_text is not None:
             action_kind = "resolved"
-        action_kind = action_kind or "resolved"
+        self._resolve_record(record, action_kind=action_kind or "resolved", action_id=action_id, choice=choice,
+                             selections=selections, text=text, custom_text=custom_text,
+                             note=msg.get("note") if isinstance(msg.get("note"), str) else None)
+        await self._send(ws, {"type": "notification.resolve.ok", "request_id": request_id, "notification": record, "replayed": False})
+        await self._broadcast_app({"type": "notification", "notification": record})
+
+    def _resolve_record(self, record: dict[str, Any], *, action_kind: str, action_id: Any = None, choice: Any = None,
+                        selections: Any = None, text: Any = None, custom_text: Any = None, note: Any = None) -> None:
+        # v2 store resolve_notification: the state follows the action kind; the saved
+        # answer leaves the linked question answered and wakes notification.await.
         record["state"] = NOTIFICATION_ACTION_STATE.get(action_kind, "resolved")
         record["resolution"] = {
             "action_kind": action_kind, "action_id": action_id, "choice": choice, "selections": selections,
-            "text": text, "custom_text": custom_text, "note": msg.get("note") if isinstance(msg.get("note"), str) else None,
-            "by": "pentacle-mobile",
+            "text": text, "custom_text": custom_text, "note": note, "by": "pentacle-mobile",
         }
         record["resolved_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         if isinstance(record.get("question"), dict):
-            # v2 answer_agent_question_for_notification: the saved answer leaves the question answered.
             record["question"] = {**record["question"], "state": "answered"}
-        for waiter in self.await_waiters.pop(nid, []):
+        for waiter in self.await_waiters.pop(str(record.get("notification_id") or ""), []):
             if not waiter.done():
                 waiter.set_result(True)
-        await self._send(ws, {"type": "notification.resolve.ok", "request_id": request_id, "notification": record, "replayed": False})
-        await self._broadcast_app({"type": "notification", "notification": record})
 
     # ---- helpers -----------------------------------------------------------
     def _append_recent(self, event: dict[str, Any]) -> None:

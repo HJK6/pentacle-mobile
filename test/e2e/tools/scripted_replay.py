@@ -655,6 +655,7 @@ async def inject_script(
                         selections=answer.get("selections"),
                         text=answer.get("text"),
                         note=answer.get("note"),
+                        custom_text=answer.get("custom_text"),
                     )
                 continue
 

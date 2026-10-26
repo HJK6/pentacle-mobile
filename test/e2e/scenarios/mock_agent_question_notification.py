@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import time
 from pathlib import Path
 
@@ -14,6 +13,7 @@ name = "mock_agent_question_notification"
 MARKER = "Mock durable question"
 SELECTION = "approve"
 NOTE = "mock note"
+QUESTION_ID = "mock-agent-question-1"
 
 
 def _fixture_path() -> Path:
@@ -46,21 +46,6 @@ def params(config: dict) -> dict[str, str]:
 
 def preflight(config: dict, repo_root=None) -> str | None:
     return M.preflight(config, repo_root)
-
-
-def _await_daemon_resolve(log_path: Path, timeout_s: float = 15.0) -> dict | None:
-    deadline = time.monotonic() + timeout_s
-    while time.monotonic() < deadline:
-        if log_path.exists():
-            for line in log_path.read_text(encoding="utf-8").splitlines():
-                try:
-                    row = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                if row.get("event") == "notification.resolve":
-                    return row
-        time.sleep(0.2)
-    return None
 
 
 def _await_answered_rows(stream, *, not_before: float, timeout_s: float = 20.0) -> dict[int, object]:
@@ -130,14 +115,17 @@ def run(config: dict, stream, cap=None) -> Verdict:
             extras={"card_rendered": dict(card.data)},
         ).finish()
 
+    # The app answers an agent question through prompt.answer (answerDaemonPrompt),
+    # not notification.resolve, so the oracle is its dispatch trace followed by the
+    # resolved notification the daemon broadcasts: a selection takes the stored ack action, so acked.
     sent = await_event(
         stream,
-        EventSpec("notification:resolve_sent", where={"notification_id": notification_id, "action_kind": "ack"}, timeout_s=20),
+        EventSpec("harness:ui_trace", where={"kind": "prompt_answer_dispatched", "question_id": QUESTION_ID}, timeout_s=20),
         not_before=card.received_at,
     )
     settled = await_event(
         stream,
-        EventSpec("notification:resolve_settled", where={"notification_id": notification_id, "state": "acked"}, timeout_s=20),
+        EventSpec("notification:frame_applied", where={"notification_id": notification_id, "state": "acked"}, timeout_s=20),
         not_before=sent.received_at if sent else card.received_at,
     )
     if not sent or not settled:
@@ -158,7 +146,7 @@ def run(config: dict, stream, cap=None) -> Verdict:
         answered_texts[seq] = answered_text
 
     log_path = Path(str(config.get("scripted_daemon_log_path") or ""))
-    resolved = _await_daemon_resolve(log_path)
+    resolved = M.await_daemon_resolve(log_path)
     verdict = Verdict(
         name=name,
         verdict="PASS",
@@ -172,9 +160,10 @@ def run(config: dict, stream, cap=None) -> Verdict:
     if not resolved:
         verdict.verdict = "FAIL"
         verdict.error = "scripted daemon did not record notification.resolve"
-    elif resolved.get("selections") != [SELECTION] or resolved.get("note") != NOTE:
+    elif resolved.get("selections") != [SELECTION] or resolved.get("custom_text") != NOTE:
+        # prompt.answer carries the note as the choice's free text (v2 custom_text).
         verdict.verdict = "FAIL"
-        verdict.error = "scripted daemon resolve payload did not match selections/note"
+        verdict.error = "scripted daemon resolve payload did not match selections/custom_text"
 
     verdict.fold_negative_watch(
         assert_no_events(

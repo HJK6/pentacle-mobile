@@ -334,3 +334,55 @@ def test_notification_resolve_selection_takes_stored_action_kind(registry):
             await server.wait_closed()
 
     asyncio.run(scenario())
+
+
+async def _prompt_answer_scenario(reg_path, cred_id, envelope, *, actions, response_mode, answer):
+    daemon, server, url = await _boot(reg_path)
+    try:
+        async with websockets.connect(url, max_size=None) as app, websockets.connect(url, max_size=None) as harness:
+            await _app_hello(app, cred_id, envelope, subscribe={"snapshot": True})
+            for _ in range(3):
+                await asyncio.wait_for(app.recv(), timeout=5)
+            await _harness_hello(harness)
+            notification = _question_notification(actions)
+            notification["question"]["response_mode"] = response_mode
+            await harness.send(json.dumps({"type": "debug_replay_notification", "request_id": "n1", "notification": notification}))
+            nid = json.loads(await asyncio.wait_for(harness.recv(), timeout=5))["notification"]["notification_id"]
+            await asyncio.wait_for(app.recv(), timeout=5)
+            await harness.send(json.dumps({"type": "notification.await", "request_id": "w1", "notification_id": nid, "timeout": 5}))
+            await app.send(json.dumps({"type": "prompt.answer", "request_id": "p1", "question_id": "mock-q-1", **answer}))
+            frames = [json.loads(await asyncio.wait_for(app.recv(), timeout=5)) for _ in range(2)]
+            woke = json.loads(await asyncio.wait_for(harness.recv(), timeout=5))
+            return frames, woke
+    finally:
+        server.close()
+        await server.wait_closed()
+
+
+def test_prompt_answer_free_text_resolves_the_question_like_v2(registry):
+    """v2 _answer_free_text: the app's prompt.answer resolves the linked notification as
+    `resolved` with the text, broadcasts it, leaves the question answered and wakes await."""
+    _reg, cred_id, envelope, reg_path = registry
+    frames, woke = asyncio.run(_prompt_answer_scenario(
+        reg_path, cred_id, envelope, actions=[{"kind": "ack", "action_id": "free-text-action", "label": "Submit"}],
+        response_mode="free_text", answer={"text": "exact answer"}))
+    ok = next(f for f in frames if f["type"] == "prompt.answer.ok")
+    assert ok["request_id"] == "p1" and ok["ok"] is True and ok["question"]["state"] == "answered"
+    assert ok["notification"]["state"] == "resolved"
+    broadcast = next(f for f in frames if f["type"] == "notification")
+    assert broadcast["notification"]["state"] == "resolved"
+    assert broadcast["notification"]["question"]["state"] == "answered"
+    assert woke["type"] == "notification.await.ok"
+    assert woke["answer"]["action_kind"] == "resolved" and woke["answer"]["text"] == "exact answer"
+
+
+def test_prompt_answer_choice_takes_stored_action_kind_and_custom_text(registry):
+    """v2 _answer_choice: a selection takes the stored action's kind and text rides as custom_text."""
+    _reg, cred_id, envelope, reg_path = registry
+    frames, woke = asyncio.run(_prompt_answer_scenario(
+        reg_path, cred_id, envelope, actions=[{"kind": "ack", "action_id": "answer-2", "label": "Answer 2", "value": "2"}],
+        response_mode="single_choice", answer={"selections": ["2"], "text": "a note"}))
+    broadcast = next(f for f in frames if f["type"] == "notification")
+    assert broadcast["notification"]["state"] == "acked"
+    assert broadcast["notification"]["resolution"]["action_id"] == "answer-2"
+    assert woke["answer"]["selections"] == ["2"] and woke["answer"]["custom_text"] == "a note"
