@@ -16,6 +16,16 @@ Keep fixtures synthetic and preserve protocol fields, error messages, author
 prefixes and config keys: those values affect behavior even in synthetic data.
 The test host configuration uses hosta, hostb, and hostc.
 
+`tests/summaryFallbackFormatting.test.ts` replays the same captured synthetic
+provider-ingestion fixture as the web core/browser regression. Before transcript
+backfill, summary bubbles preserve Markdown and code whitespace. Once the matching
+event is held, later tool activity or working-state changes cannot append a second
+summary bubble. Summary matching uses kind and normalized text; `last_event_at`
+describes all activity rather than message identity. An identical repeated message
+renders when its own transcript event arrives. Run the matching vendored core
+suite separately with `npm --prefix pentacle-chat-core test`; the root Jest suite
+excludes core tests.
+
 tests/contracts/assistant_preview_thread_parity.test.ts guards that the Chats-list
 preview for the assistant composite equals the thread's last rendered row, and
 that a turn-final projection row (an assistant status row, not a published
