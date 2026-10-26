@@ -193,6 +193,16 @@ Do not include message bodies, credentials, absolute paths, host inventories, or
 private URLs in telemetry. A render beacon must carry only a bounded prefix or
 digest.
 
+## Chats list preview
+
+The one-line row preview in the Chats list and sessions drawer shows the latest
+message as the words its Markdown renders to: bold, italic, strike, link and
+image markers and heading, list and quote prefixes are dropped, and code spans
+keep their content without ticks. It uses the same rule as the web sidebar
+preview. The transcript keeps full Markdown. The rule runs in the mobile list
+selector (`selectSmartChatList`) over the shared core's whitespace-collapsed
+preview; moving it into the shared core is a tracked follow-up.
+
 ## Shared-core parity
 
 When desktop and mobile use a shared core, keep one decision surface for event
