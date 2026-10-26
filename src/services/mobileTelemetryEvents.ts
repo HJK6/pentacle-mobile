@@ -1,7 +1,10 @@
 import { TELEMETRY_EVENTS, TELEMETRY_EVENT_BUG_REFS } from 'pentacle-chat-core';
 
 export const MOBILE_TELEMETRY_EVENTS = {
+  SPAWN_PICKER_VISIBILITY: 'spawn:picker_visibility',
+  CHAT_SEND_COMMITTED_PENDING: 'chat:send_committed_pending',
   VOICE_DELIVERY_LIFECYCLE: 'voice_delivery:lifecycle',
+  COMPOSER_INTERRUPT: 'chat:composer_interrupt',
   CHAT_MESSAGE_SELECTION_CHANGED: 'chat:message_selection_changed',
   CHAT_MESSAGE_SELECTION_FONT_ERROR: 'chat:message_selection_font_error',
   QUESTION_REOPEN_FETCH_ATTEMPT: TELEMETRY_EVENTS.QUESTION_REOPEN_FETCH_ATTEMPT,
@@ -69,6 +72,9 @@ export const MOBILE_TELEMETRY_EVENTS = {
   CHAT_OPEN_FRESHNESS_REFETCH: 'chat.open.freshness_refetch',
 } as const;
 
+(TELEMETRY_EVENT_BUG_REFS as Record<string, string>)[MOBILE_TELEMETRY_EVENTS.SPAWN_PICKER_VISIBILITY] = 'provider_visibility_followup_2026_10';
+(TELEMETRY_EVENT_BUG_REFS as Record<string, string>)[MOBILE_TELEMETRY_EVENTS.CHAT_SEND_COMMITTED_PENDING] = 'committed_pending_transport_classification_2026_10';
+
 export type MobileTelemetryEvent =
   (typeof MOBILE_TELEMETRY_EVENTS)[keyof typeof MOBILE_TELEMETRY_EVENTS];
 
@@ -80,3 +86,5 @@ export const MOBILE_TELEMETRY_EVENT_NAMES = Object.values(MOBILE_TELEMETRY_EVENT
 for (const event of [MOBILE_TELEMETRY_EVENTS.CHAT_MESSAGE_SELECTION_CHANGED, MOBILE_TELEMETRY_EVENTS.CHAT_MESSAGE_SELECTION_FONT_ERROR]) {
   (TELEMETRY_EVENT_BUG_REFS as Record<string, string>)[event] = 'message_native_text_selection_2026_10';
 }
+
+(TELEMETRY_EVENT_BUG_REFS as Record<string, string>)[MOBILE_TELEMETRY_EVENTS.COMPOSER_INTERRUPT] = 'composer_send_default_queue_state_2026_10';

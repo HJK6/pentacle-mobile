@@ -21,7 +21,8 @@ const mockActions = {
   sendMessage: jest.fn(),
   sendTurn: jest.fn(),
   enqueueTurn: jest.fn(() => 'optimistic_queued_1'),
-  takeSteerNotTaken: jest.fn(() => false),
+  canSendQueuedNow: jest.fn(() => true),
+  sendQueuedNow: jest.fn().mockResolvedValue({ confirm: 'interrupt_unconfirmed', interrupted: true }),
   dispatchQueuedSendsByOptimisticId: jest.fn(),
   flushQueuedSends: jest.fn(),
   interruptSend: jest.fn((): Promise<unknown> => Promise.resolve(true)),
@@ -61,6 +62,11 @@ jest.mock('expo-router', () => {
 jest.mock('@expo/vector-icons/FontAwesome', () => 'FontAwesome');
 jest.mock('@react-navigation/native', () => ({ useIsFocused: () => true }));
 jest.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ bottom: 0, left: 0, right: 0, top: 0 }) }));
+jest.mock('../src/services/imageCapture', () => ({
+  ...jest.requireActual('../src/services/imageCapture'),
+  pickImagesFromLibrary: jest.fn().mockResolvedValue([{ uri: 'file:///owned-staged.jpg', fileName: 'owned-staged.jpg', mimeType: 'image/jpeg', width: 1, height: 1 }]),
+  compressForUpload: jest.fn().mockResolvedValue({ uri: 'file:///owned-staged.jpg', fileName: 'owned-staged.jpg', mimeType: 'image/jpeg', width: 1, height: 1, bytes: 3 }),
+}));
 jest.mock('../src/hooks/usePentacleToken', () => jest.fn());
 jest.mock('../src/services/pentacleStream', () => ({
   usePentacleStreamActions: jest.fn(),
@@ -111,6 +117,7 @@ function session(overrides: Partial<PentacleSessionSummary> = {}): PentacleSessi
     pending: false,
     working: false,
     online: true,
+    session_generation: 'g1',
     ...overrides,
   };
 }
@@ -152,6 +159,8 @@ beforeEach(() => {
   (usePentacleStreamActions as jest.Mock).mockReturnValue(mockActions);
   (usePentacleStreamSelectorWhen as jest.Mock).mockImplementation((_enabled: boolean, selector: any) => selector(mockState));
   (useUserPreference as jest.Mock).mockImplementation(() => [false, jest.fn()]);
+  mockActions.canSendQueuedNow.mockReturnValue(true);
+  mockActions.sendQueuedNow.mockResolvedValue({ confirm: 'interrupt_unconfirmed', interrupted: true });
   mockActions.sendMessage.mockResolvedValue(true);
   mockActions.sendTurn.mockReturnValue('optimistic_test_1');
   mockActions.interruptSend.mockReturnValue(Promise.resolve(true));
@@ -180,183 +189,110 @@ async function send(text: string) {
   });
 }
 
-const selected = (option: 'queue' | 'steer') => screen.getByTestId(`send-mode-${option}`).props.accessibilityState.selected;
-
-test('the mode control is hidden while idle, shown while an agent chat works, and defaults to Queue', async () => {
-  const rendered = render(<SessionScreen />);
-  expect(screen.queryByTestId('send-mode-row')).toBeNull();
-
-  setTurn(WORKING);
-  await act(async () => {
-    rendered.rerender(<SessionScreen />);
+function addQueued(providerQueued: boolean = true) {
+  const core = require('pentacle-chat-core');
+  mockState = core.enqueueOptimisticMessage(mockState, {
+    streamId: STREAM_ID, text: 'queued payload', optimisticId: 'optimistic_q', requestId: 'request-q',
+    createdAt: Date.now(), queuedAt: Date.now(),
   });
-  revealWorkingRow();
-  expect(screen.getByTestId('send-mode-row')).toBeTruthy();
-  expect(selected('queue')).toBe(true);
-  expect(selected('steer')).toBe(false);
-});
+  if (providerQueued) mockState = core.recordOptimisticSendAcceptanceByRequestId(mockState, 'request-q', { provider_queued: true });
+}
 
-test('the assistant composite chat shows no mode control even while working, and never sends urgent', async () => {
-  renderWorking({ session_kind: 'assistant_composite', provider: 'composite' } as Partial<PentacleSessionSummary>);
-  expect(screen.queryByTestId('send-mode-row')).toBeNull();
-
-  await send('to the composite');
-  expect(mockActions.enqueueTurn).toHaveBeenCalledWith(STREAM_ID, 'to the composite', undefined);
-  for (const [args] of mockActions.sendMessage.mock.calls as Array<[Record<string, unknown>]>) {
-    expect('urgent' in args).toBe(false);
-  }
-});
-
-test('Queue sends through the native queue exactly as before', async () => {
+test('default-send regression: working composer has no per-send chooser', async () => {
   renderWorking();
-  await send('run after this turn');
-  expect(mockActions.enqueueTurn).toHaveBeenCalledWith(STREAM_ID, 'run after this turn', undefined);
+  expect(screen.queryByTestId('send-mode-row')).toBeNull();
+  await send('ordinary busy send');
   expect(mockActions.dispatchQueuedSendsByOptimisticId).toHaveBeenCalledWith(STREAM_ID, 'optimistic_queued_1');
   expect(mockActions.sendMessage).not.toHaveBeenCalled();
 });
 
-test('Steer now sends urgent directly (no held queue), then the mode returns to Queue', async () => {
+test('ordinary idle Send keeps the existing direct dispatch path', async () => {
+  render(<SessionScreen />);
+  await send('ordinary idle');
+  expect(mockActions.sendTurn).toHaveBeenCalledWith(STREAM_ID, 'ordinary idle');
+  expect(mockActions.sendMessage).toHaveBeenCalledWith(expect.objectContaining({ text: 'ordinary idle' }));
+  expect(mockActions.sendMessage.mock.calls[0][0]).not.toHaveProperty('urgent');
+});
+
+test('composite Send retains its normal wire route and no chooser', async () => {
+  renderWorking({ session_kind: 'assistant_composite', provider: 'composite' } as Partial<PentacleSessionSummary>);
+  expect(screen.queryByTestId('send-mode-row')).toBeNull();
+  await send('to composite');
+  expect(mockActions.enqueueTurn).toHaveBeenCalledWith(STREAM_ID, 'to composite', undefined);
+  expect(mockActions.sendQueuedNow).not.toHaveBeenCalled();
+});
+
+test('only provider queue proof offers row Send now; it leaves the unsent draft and row intact', async () => {
+  addQueued();
   renderWorking();
-  fireEvent.press(screen.getByTestId('send-mode-steer'));
-  expect(selected('steer')).toBe(true);
-
-  await send('interrupt and do this');
-  expect(mockActions.enqueueTurn).toHaveBeenCalledWith(STREAM_ID, 'interrupt and do this', undefined, undefined, { steer: true });
-  expect(mockActions.sendMessage).toHaveBeenCalledWith({
-    host: 'hostc', sessionName: 'one', text: 'interrupt and do this', optimisticId: 'optimistic_queued_1', urgent: true,
-  });
-  expect(mockActions.dispatchQueuedSendsByOptimisticId).not.toHaveBeenCalled();
-  expect(selected('queue')).toBe(true);
-  expect(screen.queryByTestId('composer-notice')).toBeNull();
+  fireEvent.changeText(screen.getByTestId('composer-input'), 'unsent draft');
+  await act(async () => { fireEvent.press(screen.getByTestId('queued-send-now')); });
+  expect(mockActions.sendQueuedNow).toHaveBeenCalledWith(STREAM_ID, 'optimistic_q');
+  expect(mockActions.enqueueTurn).not.toHaveBeenCalled();
+  expect(mockActions.sendMessage).not.toHaveBeenCalled();
+  expect(screen.getByTestId('composer-input').props.value).toBe('unsent draft');
+  expect(screen.getByTestId('composer-notice').props.children).toMatch(/Waiting for the queued message/);
+  expect(mockState.optimisticSends!.optimistic_q.text).toBe('queued payload');
 });
 
-test('Steer now on a daemon-only working seat (no local turn) still sends urgent', async () => {
-  // The seat works because the daemon says so (started elsewhere, or before this
-  // screen opened); the app has no local turn. The control is offered, so it must work.
-  renderWorking({ working: true }, { phase: 'idle' } as TurnState);
-  expect(screen.getByTestId('send-mode-row')).toBeTruthy();
-  fireEvent.press(screen.getByTestId('send-mode-steer'));
-  expect(selected('steer')).toBe(true);
-
-  await send('interrupt and do this');
-  expect(mockActions.sendMessage).toHaveBeenCalledWith({
-    host: 'hostc', sessionName: 'one', text: 'interrupt and do this', optimisticId: 'optimistic_queued_1', urgent: true,
-  });
-  expect(mockActions.dispatchQueuedSendsByOptimisticId).not.toHaveBeenCalled();
+test('provider queue action survives stale local idle hints', async () => {
+  addQueued();
+  render(<SessionScreen />);
+  await act(async () => { fireEvent.press(screen.getByTestId('queued-send-now')); });
+  expect(mockActions.sendQueuedNow).toHaveBeenCalledTimes(1);
+  expect(screen.getByTestId('composer-notice').props.children).toMatch(/Waiting/);
 });
 
-test('a second Steer now in the same turn is queued with the did-not-take notice', async () => {
+test('busy origin without receipt shows Sending and no Send now', () => {
+  addQueued(false);
   renderWorking();
-  fireEvent.press(screen.getByTestId('send-mode-steer'));
-  await send('first steer');
-  fireEvent.press(screen.getByTestId('send-mode-steer'));
-  await send('second steer');
-
-  expect(mockActions.sendMessage).toHaveBeenCalledTimes(1);
-  expect(mockActions.enqueueTurn).toHaveBeenLastCalledWith(STREAM_ID, 'second steer', undefined);
-  expect(mockActions.dispatchQueuedSendsByOptimisticId).toHaveBeenCalledTimes(1);
-  expect(screen.getByTestId('composer-notice').props.children).toBe('Steer did not take; queued instead');
+  expect(screen.queryByTestId('queued-send-now')).toBeNull();
+  expect(screen.getByTestId('user-send-sending')).toBeTruthy();
 });
 
-test('Stop and Steer now share one Escape per working turn, and a new turn re-arms it', async () => {
-  const rendered = renderWorking();
-  await act(async () => {
-    fireEvent.press(screen.getByTestId('esc-interrupt-button'));
-  });
+test('current service eligibility disables a stale or spent row action', () => {
+  addQueued();
+  mockActions.canSendQueuedNow.mockReturnValue(false);
+  renderWorking();
+  expect(screen.getByTestId('queued-send-now').props.accessibilityState.disabled).toBe(true);
+});
+
+test('Stop preserves queued messages and announces native release', async () => {
+  addQueued();
+  renderWorking();
+  await act(async () => { fireEvent.press(screen.getByTestId('esc-interrupt-button')); });
   expect(mockActions.interruptSend).toHaveBeenCalledTimes(1);
-
-  // Steer now after Stop: demoted to a queued send.
-  fireEvent.press(screen.getByTestId('send-mode-steer'));
-  await send('steer after stop');
-  expect(mockActions.sendMessage).not.toHaveBeenCalled();
-  expect(screen.getByTestId('composer-notice').props.children).toBe('Steer did not take; queued instead');
-
-  // A new working turn re-arms the Escape.
-  setTurn({ ...WORKING, optimisticId: 'opt-2', sentAt: 2000, firstServerEventAt: 2000 });
-  await act(async () => {
-    rendered.rerender(<SessionScreen />);
-  });
-  revealWorkingRow();
-  fireEvent.press(screen.getByTestId('send-mode-steer'));
-  await send('steer in the new turn');
-  expect(mockActions.sendMessage).toHaveBeenCalledWith(expect.objectContaining({ text: 'steer in the new turn', urgent: true }));
-});
-
-test('Stop after Steer now spent the turn Escape is a no-op', async () => {
-  renderWorking();
-  fireEvent.press(screen.getByTestId('send-mode-steer'));
-  await send('steer first');
-  await act(async () => {
-    fireEvent.press(screen.getByTestId('esc-interrupt-button'));
-  });
-  expect(mockActions.interruptSend).not.toHaveBeenCalled();
-});
-
-test('a delivered but unconfirmed Stop keeps the turn Escape spent, so Steer now is queued', async () => {
-  mockActions.interruptSend.mockResolvedValueOnce({ interrupted: true, landed: false, confirm: 'interrupt_unconfirmed', coalesced: false });
-  renderWorking();
-  await act(async () => {
-    fireEvent.press(screen.getByTestId('esc-interrupt-button'));
-  });
-  fireEvent.press(screen.getByTestId('send-mode-steer'));
-  await send('steer after a delivered stop');
-  expect(mockActions.sendMessage).not.toHaveBeenCalled();
-  expect(screen.getByTestId('composer-notice').props.children).toBe('Steer did not take; queued instead');
-});
-
-test('a failed interrupt request re-arms the Escape for Steer now', async () => {
-  mockActions.interruptSend.mockResolvedValueOnce({ interrupted: false, landed: false, confirm: 'pane_unavailable', coalesced: false });
-  renderWorking();
-  await act(async () => {
-    fireEvent.press(screen.getByTestId('esc-interrupt-button'));
-  });
-  fireEvent.press(screen.getByTestId('send-mode-steer'));
-  await send('steer after a failed stop');
-  expect(mockActions.sendMessage).toHaveBeenCalledWith(expect.objectContaining({ urgent: true }));
-});
-
-test('a steer whose receipt still says provider_queued shows the did-not-take notice', async () => {
-  mockActions.takeSteerNotTaken.mockReturnValueOnce(true);
-  renderWorking();
-  fireEvent.press(screen.getByTestId('send-mode-steer'));
-  await send('steer that stays queued');
-  expect(screen.getByTestId('composer-notice').props.children).toBe('Steer did not take; queued instead');
-});
-
-test('a failed Steer now send marks its row failed and re-arms the Escape', async () => {
-  mockActions.sendMessage.mockRejectedValueOnce(new Error('boom'));
-  renderWorking();
-  fireEvent.press(screen.getByTestId('send-mode-steer'));
-  fireEvent.changeText(screen.getByTestId('composer-input'), 'will fail');
-  await act(async () => {
-    fireEvent.press(screen.getByTestId('composer-send-button'));
-  });
-  expect(mockActions.markOptimisticFailed).toHaveBeenCalledWith('optimistic_queued_1', 'boom');
-
-  fireEvent.press(screen.getByTestId('send-mode-steer'));
-  await send('try again');
-  expect(mockActions.sendMessage).toHaveBeenLastCalledWith(expect.objectContaining({ text: 'try again', urgent: true }));
-});
-
-test('Stop says queued messages run next while queued rows remain, and does not clear them', async () => {
-  const core = require('pentacle-chat-core');
-  mockState = core.enqueueOptimisticMessage(mockState, {
-    streamId: STREAM_ID, text: 'queued behind the turn', optimisticId: 'optimistic_q', requestId: 'request-q',
-    createdAt: Date.now(), queuedAt: Date.now(),
-  });
-  renderWorking();
-  await act(async () => {
-    fireEvent.press(screen.getByTestId('esc-interrupt-button'));
-  });
   expect(screen.getByTestId('composer-notice').props.children).toBe('Stopped. Queued messages run next');
-  expect(mockActions.interruptSend).toHaveBeenCalledTimes(1);
-  expect(mockState.optimisticSends!.optimistic_q.status).toBe('queued');
+  expect(mockState.optimisticSends!.optimistic_q.text).toBe('queued payload');
 });
 
-test('Stop with no queued rows shows no notice', async () => {
+test('unconfirmed Stop retains Queued and says it is waiting for processing', async () => {
+  addQueued();
+  mockActions.interruptSend.mockResolvedValueOnce({ confirm: 'interrupt_unconfirmed', interrupted: true });
   renderWorking();
-  await act(async () => {
-    fireEvent.press(screen.getByTestId('esc-interrupt-button'));
-  });
-  expect(screen.queryByTestId('composer-notice')).toBeNull();
+  await act(async () => { fireEvent.press(screen.getByTestId('esc-interrupt-button')); });
+  expect(screen.getByTestId('queued-message-row')).toBeTruthy();
+  expect(screen.getByTestId('composer-notice').props.children).toMatch(/Waiting for queued messages/);
+});
+
+test('Send now preserves the real composer staged attachment and draft without upload/resend', async () => {
+  addQueued(); renderWorking();
+  fireEvent.changeText(screen.getByTestId('composer-input'), 'unsent with image');
+  await act(async () => { fireEvent.press(screen.getByTestId('composer-plus-button')); });
+  await act(async () => { fireEvent.press(screen.getByTestId('composer-photo-button')); });
+  const before = screen.getByTestId('composer-attachment-thumb-0').props.source;
+  expect(before).toEqual({ uri: 'file:///owned-staged.jpg' });
+  await act(async () => { fireEvent.press(screen.getByTestId('queued-send-now')); });
+  expect(screen.getByTestId('composer-attachment-thumb-0').props.source).toEqual(before);
+  expect(screen.getByTestId('composer-input').props.value).toBe('unsent with image');
+  expect(mockActions.sendMessage).not.toHaveBeenCalled(); expect(mockActions.enqueueTurn).not.toHaveBeenCalled();
+  await act(async () => { fireEvent.press(screen.getByTestId('composer-attachment-remove-0')); });
+});
+
+test('a coalesced or stale Send now press does not claim another interrupt was requested', async () => {
+  addQueued(); renderWorking();
+  mockActions.sendQueuedNow.mockResolvedValueOnce({ confirm: 'coalesced', interrupted: false });
+  await act(async () => { fireEvent.press(screen.getByTestId('queued-send-now')); });
+  expect(screen.getByTestId('composer-notice').props.children).toBe('No new Send now request was sent.');
+  expect(mockActions.sendMessage).not.toHaveBeenCalled();
 });

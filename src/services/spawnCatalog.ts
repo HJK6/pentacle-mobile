@@ -17,6 +17,19 @@ export type SpawnCatalog = {
 
 const SPAWN_PROVIDERS: SpawnProvider[] = ['claude', 'codex'];
 
+// A present advertised map is exhaustive, including when it offers no
+// supported providers. Full models are only the legacy, absent-map fallback.
+export function spawnPickerModels(catalog: SpawnCatalog) {
+  return catalog.available_models ?? catalog.models;
+}
+
+export function spawnPickerProviders(catalog: SpawnCatalog): SpawnProvider[] {
+  const offered = spawnPickerModels(catalog);
+  return Object.keys(offered).filter((provider): provider is SpawnProvider =>
+    SPAWN_PROVIDERS.includes(provider as SpawnProvider) &&
+    Object.keys(offered[provider as SpawnProvider] ?? {}).length > 0);
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
 }
@@ -59,10 +72,11 @@ export function validateSpawnCatalog(value: unknown): SpawnCatalog {
   if (value.available_models !== undefined) {
     if (!isRecord(value.available_models)) malformedCatalog();
     for (const [provider, providerModels] of Object.entries(value.available_models)) {
-      if (!SPAWN_PROVIDERS.includes(provider as SpawnProvider) || !isRecord(providerModels)) malformedCatalog();
-      // A present-but-empty provider map would narrow the picker to nothing.
-      // Mirror the daemon's non-empty rule and fail closed (the picker also
-      // falls back to the full catalog defensively — see SummonModal).
+      // An additive provider cannot make an older supported picker unusable.
+      // It is never offered or used as a fallback by this client.
+      if (!SPAWN_PROVIDERS.includes(provider as SpawnProvider)) continue;
+      if (!isRecord(providerModels)) malformedCatalog();
+      // Keep known-provider definitions strict; empty top-level maps are valid.
       if (Object.keys(providerModels).length === 0) malformedCatalog();
       const fullProviderModels = value.models[provider as SpawnProvider];
       for (const [model, definition] of Object.entries(providerModels)) {
@@ -70,6 +84,8 @@ export function validateSpawnCatalog(value: unknown): SpawnCatalog {
         if (!model || !isRecord(fullProviderModels) || !isRecord(fullProviderModels[model])) malformedCatalog();
         if (!isRecord(definition) || !Array.isArray(definition.efforts) || definition.efforts.length === 0) malformedCatalog();
         if (!definition.efforts.every((effort) => typeof effort === 'string' && effort.length > 0)) malformedCatalog();
+        const fullDefinition = fullProviderModels[model] as Record<string, unknown>;
+        if (!definition.efforts.every((effort) => (fullDefinition.efforts as string[]).includes(effort))) malformedCatalog();
       }
     }
   }

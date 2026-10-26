@@ -151,3 +151,49 @@ hosts, icons always appear, including for offline hosts and when filtering to
 one host. No setting is required. `hosts` and `hostOrder` in the local config
 plus the live roster determine the count; the example palette's `MACHINE_ORDER`
 does not. Labels, accents and assistant identity artwork remain.
+
+## Normal Send and provider queue release
+
+Agent chats always use ordinary Send. A busy provider owns queueing; the app
+sends the original input once and never holds it until idle. Sending remains
+until a matching receipt or USER processing proof arrives. A positive provider
+queue receipt shows Queued and offers Send now on that row. Send now issues
+one generation-fenced interrupt, without resending text or attachments. Stop
+shares that budget while provider-owned queued rows remain pending. An
+unconfirmed interrupt preserves Queued; only an explicit failure permits a
+user-requested retry. Composite and question sends retain their own routes.
+
+Focused coverage is in `sessionScreenSteerQueueStop.test.tsx`,
+`sessionScreenQueuedSendRender.test.tsx`, `sessionScreenEscInterrupt.test.tsx`,
+`sendWhileWorkingQueue.test.ts` and `sendTurnAction.test.ts`. Run the vendored
+core tests separately with `npm --prefix pentacle-chat-core test`; root Jest
+excludes that directory. `composerRenderedManifest.test.tsx` captures identical
+baseline/candidate states with `PENTACLE_RENDER_MANIFEST=/absolute/output.json`.
+The actual rendered tree covers idle/working drafts, unconfirmed/provider-queued/
+processing rows, composite/question routes, and Copy message presentation.
+
+A scoped device release also requires a reviewed full diff and rendered-state
+manifest against the exact installed artifact, including upstream changes.
+The owned release recipe checks reviewed source/config/render pins before build
+and before install. An unexplained visible change, changed pin, or missing
+expected UI effect refuses release. Preserve the configured assistant identity,
+signing, endpoint and bundle guards, the installed app preimage, and physical
+journey evidence. Source/render green does not establish native gestures or
+provider processing. Phone actions remain inside the release owner's named
+operator window; no TestFlight or OTA is implied.
+
+## Provider visibility and pending-send behavior
+
+New Chat offers supported providers/models from the advertised catalog when
+present. Hidden providers never return through full-catalog fallback; no
+supported choices shows an empty state and disables Start. Legacy catalogs
+without the advertised map retain their supported full catalog.
+
+A committed send awaiting proof stays Sending while receipts reconcile. It
+must not show Failed or offer a resend. A later matching landing/USER proof
+advances the original message. Retain explicit non-delivery retry behavior.
+
+For a direct release, compare every visible change against the exact installed
+source, preserve Copy and private configuration, and bind the reviewed source
+to the signed app/build/bundle. Validate chats loading and the affected real
+runtime journeys before delivery; distinguish simulator from physical evidence.

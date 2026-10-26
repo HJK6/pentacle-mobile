@@ -38,6 +38,8 @@ export interface PentacleSessionCapabilities {
 
 /** Additive acceptance metadata returned by the existing authenticated send. */
 export interface PentacleSendAcceptance {
+  /** Positive provider queue proof, or confirmed processing (false). */
+  provider_queued?: boolean;
   message_id?: string | null;
   routing_state?: string | null;
   accepted_sequence?: number | null;
@@ -114,6 +116,7 @@ export interface PentacleEvent {
   accepted_sequence?: number | null;
   queue_sequence?: number | null;
   action_committed?: boolean | null;
+  provider_queued?: boolean;
   correlatedDaemonSeq?: number | null;
   pending?: boolean;
   created_at?: number;
@@ -522,6 +525,7 @@ export type OptimisticSendStatus =
 export type PentacleSendState = 'queued' | 'sending' | 'failed' | 'cancelled';
 
 export interface OptimisticSendState {
+  provider_queued?: boolean;
   // Optional captured destination lifetime. Kept through reconnect/retry/rekey;
   // null means the original inventory did not carry a generation.
   origin_generation?: string | null;

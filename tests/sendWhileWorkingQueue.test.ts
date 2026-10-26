@@ -284,8 +284,8 @@ test('release gate: delayed one-LF composite echo reconciles two identical nativ
     queuedWhileWorking: item.queuedWhileWorking,
     sendState: item.sendState,
   }))).toEqual([
-    { queuedWhileWorking: true, sendState: undefined },
-    { queuedWhileWorking: true, sendState: undefined },
+    { queuedWhileWorking: undefined, sendState: undefined },
+    { queuedWhileWorking: undefined, sendState: undefined },
   ]);
 
   jest.setSystemTime(new Date('2026-06-17T12:03:34.700Z'));
@@ -320,8 +320,8 @@ test('release gate: delayed one-LF composite echo reconciles two identical nativ
     sendState: item.sendState,
     correlatedDaemonSeq: item.correlatedDaemonSeq,
   }))).toEqual([
-    { optimisticId: firstId, queuedWhileWorking: true, sendState: undefined, correlatedDaemonSeq: 91 },
-    { optimisticId: secondId, queuedWhileWorking: true, sendState: undefined, correlatedDaemonSeq: 91 },
+    { optimisticId: firstId, queuedWhileWorking: undefined, sendState: undefined, correlatedDaemonSeq: 91 },
+    { optimisticId: secondId, queuedWhileWorking: undefined, sendState: undefined, correlatedDaemonSeq: 91 },
   ]);
 
   remountUnsubscribe();
@@ -609,4 +609,213 @@ test('an ordinary send never reports a steer outcome and the composite payload n
   expect(compositeFrame.msg_id).toBe(compositeId);
   expect('urgent' in compositeFrame).toBe(false);
   unsubscribe();
+});
+
+// Exact new contract through real mobile service/reducer and counterpart WS.
+function bootGeneration(generation: string | undefined = 'g1') {
+  const env = bootStream();
+  env.socket.message({ type: 'session.inventory', sessions: [session(STREAM_ID, { session_generation: generation })] });
+  return env;
+}
+function queueReceipt(env: ReturnType<typeof bootGeneration>, text = 'same', queued = true) {
+  const id = env.stream.enqueueTurn(STREAM_ID, text);
+  env.stream.dispatchQueuedSendsByOptimisticId(STREAM_ID, id);
+  const frame = sentFrames(env.socket, 'send').at(-1)!;
+  env.socket.message({ type: 'send.result', request_id: frame.request_id, delivery: 'landed', ...(queued ? { provider_queued: true } : {}) });
+  return { id, frame };
+}
+function interruptReply(env: ReturnType<typeof bootGeneration>, confirm = 'interrupt_unconfirmed') {
+  const frame = sentFrames(env.socket, 'send.interrupt').at(-1)!;
+  env.socket.message({ type: 'send.interrupt.ok', request_id: frame.request_id, interrupted: confirm === 'interrupt_unconfirmed', landed: false, confirm, coalesced: false });
+}
+function caption(env: ReturnType<typeof bootGeneration>, id: string) {
+  return require('pentacle-chat-core').selectSessionDetail(env.stream.getPentacleStreamState(), STREAM_ID, { visibleCount: 'all' }).transcriptItems.find((item: any) => item.optimisticId === id)?.receiptCaption;
+}
+
+test('Send now uses one generation-fenced Escape across two rows, double taps and Stop, without replay', async () => {
+  const env = bootGeneration();
+  const one = queueReceipt(env); const two = queueReceipt(env);
+  const before = env.stream.getPentacleStreamState().optimisticSends;
+  const originalSends = sentFrames(env.socket, 'send');
+  expect(env.stream.canSendQueuedNow(STREAM_ID, one.id)).toBe(true);
+  const first = env.stream.sendQueuedNow(STREAM_ID, one.id);
+  const second = env.stream.sendQueuedNow(STREAM_ID, two.id);
+  const stop = env.stream.interruptSend(STREAM_ID);
+  expect(sentFrames(env.socket, 'send.interrupt')).toHaveLength(1);
+  expect(sentFrames(env.socket, 'send.interrupt')[0].expected_session_generation).toBe('g1');
+  interruptReply(env);
+  await Promise.all([first, second, stop]);
+  expect(env.stream.getPentacleStreamState().optimisticSends).toBe(before);
+  expect(sentFrames(env.socket, 'send')).toEqual(originalSends);
+  expect(caption(env, one.id)).toBe('queued');
+  expect(env.stream.canSendQueuedNow(STREAM_ID, two.id)).toBe(false);
+  env.unsubscribe();
+});
+
+test('Stop first shares the row budget across remount, pending→working→idle churn and reconnect inventory', async () => {
+  const env = bootGeneration();
+  const one = queueReceipt(env);
+  const stopping = env.stream.interruptSend(STREAM_ID); interruptReply(env); await stopping;
+  const remount = env.stream.subscribePentacleStream(jest.fn());
+  env.socket.message({ type: 'session.inventory', sessions: [session(STREAM_ID, { session_generation: 'g1', working: true })] });
+  endOfTurn(env.socket, 91);
+  env.socket.message({ type: 'session.inventory', sessions: [session(STREAM_ID, { session_generation: 'g1', working: false })] });
+  await env.stream.sendQueuedNow(STREAM_ID, one.id);
+  expect(sentFrames(env.socket, 'send.interrupt')).toHaveLength(1);
+  expect(env.stream.canSendQueuedNow(STREAM_ID, one.id)).toBe(false);
+  remount(); env.unsubscribe();
+});
+
+test.each(['pane_unavailable', 'not_working'])('explicit %s re-arms only a deliberate retry', async confirm => {
+  const env = bootGeneration(); const row = queueReceipt(env);
+  const first = env.stream.sendQueuedNow(STREAM_ID, row.id); interruptReply(env, confirm); await first;
+  expect(env.stream.canSendQueuedNow(STREAM_ID, row.id)).toBe(true);
+  expect(sentFrames(env.socket, 'send.interrupt')).toHaveLength(1);
+  const retry = env.stream.sendQueuedNow(STREAM_ID, row.id); interruptReply(env); await retry;
+  expect(sentFrames(env.socket, 'send.interrupt')).toHaveLength(2);
+  expect(caption(env, row.id)).toBe('queued'); env.unsubscribe();
+});
+
+test('missing/replaced generation and composite routes cannot release another lifetime queue', async () => {
+  const env = bootGeneration(''); const unknown = queueReceipt(env);
+  expect(env.stream.canSendQueuedNow(STREAM_ID, unknown.id)).toBe(false);
+  env.socket.message({ type: 'session.inventory', sessions: [session(STREAM_ID, { session_generation: 'g1' })] });
+  expect(env.stream.canSendQueuedNow(STREAM_ID, unknown.id)).toBe(false);
+  const old = queueReceipt(env);
+  env.socket.message({ type: 'session.inventory', sessions: [session(STREAM_ID, { session_generation: 'g2' })] });
+  await env.stream.sendQueuedNow(STREAM_ID, old.id);
+  expect(sentFrames(env.socket, 'send.interrupt')).toHaveLength(0);
+  const current = queueReceipt(env);
+  expect(env.stream.canSendQueuedNow(STREAM_ID, current.id)).toBe(true);
+  env.socket.message({ type: 'session.inventory', sessions: [{ ...session(STREAM_ID, { session_generation: 'g2' }), session_kind: 'assistant_composite' }] });
+  expect(env.stream.canSendQueuedNow(STREAM_ID, current.id)).toBe(false); env.unsubscribe();
+});
+
+test('late provider receipt after accepted settlement updates Queued, durable query reason also recovers it', async () => {
+  const env = bootGeneration();
+  const id = env.stream.enqueueTurn(STREAM_ID, 'late'); env.stream.dispatchQueuedSendsByOptimisticId(STREAM_ID, id);
+  const frame = sentFrames(env.socket, 'send').at(-1)!;
+  env.socket.message({ type: 'send.result', request_id: frame.request_id, delivery: 'proof_unavailable', state: 'accepted' });
+  await Promise.resolve();
+  expect(caption(env, id)).toBe('sending');
+  env.socket.message({ type: 'send.result', request_id: frame.request_id, delivery: 'landed', provider_queued: true });
+  expect(caption(env, id)).toBe('queued');
+  // A late authenticated lookup survives loss of the original RPC waiter.
+  env.socket.message({ type: 'send.receipt.get.ok', found: true, receipts: [{ request_id: frame.request_id, to_stream_id: STREAM_ID, state: 'landed', reason: 'coalesced_replay:prior;provider_queued' }] });
+  expect(caption(env, id)).toBe('queued');
+  expect(env.stream.canSendQueuedNow(STREAM_ID, id)).toBe(true); env.unsubscribe();
+});
+
+test('nonqueue landed receipt is Sent; accepted proof alone never claims Sent or Queued', () => {
+  const env = bootGeneration(); const row = queueReceipt(env, 'processed', false);
+  expect(caption(env, row.id)).toBe('sent'); expect(env.stream.canSendQueuedNow(STREAM_ID, row.id)).toBe(false);
+  const id = env.stream.enqueueTurn(STREAM_ID, 'unknown'); env.stream.dispatchQueuedSendsByOptimisticId(STREAM_ID, id);
+  const frame = sentFrames(env.socket, 'send').at(-1)!;
+  env.socket.message({ type: 'send.result', request_id: frame.request_id, state: 'accepted', delivery: 'proof_unavailable' });
+  expect(caption(env, id)).toBe('sending'); env.unsubscribe();
+});
+
+test('processing evidence drains budget; old queue receipts cannot resurrect it', async () => {
+  const env = bootGeneration(); const row = queueReceipt(env);
+  const first = env.stream.sendQueuedNow(STREAM_ID, row.id); interruptReply(env); await first;
+  env.socket.message({ type: 'send.result', request_id: row.frame.request_id, delivery: 'landed' });
+  expect(caption(env, row.id)).toBe('sent');
+  env.socket.message({ type: 'send.result', request_id: row.frame.request_id, delivery: 'landed', provider_queued: true });
+  expect(caption(env, row.id)).toBe('sent'); expect(env.stream.canSendQueuedNow(STREAM_ID, row.id)).toBe(false); env.unsubscribe();
+});
+
+test('uncertain delivery retains truthful queue caption but disables Send now', () => {
+  const env = bootGeneration(); const row = queueReceipt(env);
+  env.socket.message({ type: 'send.result', request_id: row.frame.request_id, state: 'accepted', delivery: 'proof_unavailable' });
+  expect(caption(env, row.id)).toBe('queued'); expect(env.stream.canSendQueuedNow(STREAM_ID, row.id)).toBe(false); env.unsubscribe();
+});
+
+test('USER echo retires the row and late queue evidence cannot recreate the action', () => {
+  const env = bootGeneration(); const row = queueReceipt(env, 'echoed text');
+  env.socket.message({ type: 'chat.event', event: { daemon_seq: 155, host: 'hostc', provider: 'codex', session_id: STREAM_ID, session_name: 'chat-1', stream_id: STREAM_ID, timestamp: '2026-06-17T12:00:01.000Z', kind: 'USER', text: 'echoed text', optimistic_id: row.id } });
+  expect(env.stream.getPentacleStreamState().optimisticSends?.[row.id]).toBeUndefined();
+  env.socket.message({ type: 'send.result', request_id: row.frame.request_id, delivery: 'landed', provider_queued: true });
+  expect(env.stream.canSendQueuedNow(STREAM_ID, row.id)).toBe(false); env.unsubscribe();
+});
+
+test('a failed row cannot be resurrected as queued by a late receipt', () => {
+  const env = bootGeneration(); const row = queueReceipt(env);
+  env.stream.markOptimisticFailed(row.id, 'terminal');
+  env.socket.message({ type: 'send.result', request_id: row.frame.request_id, delivery: 'landed', provider_queued: true });
+  expect(caption(env, row.id)).not.toBe('queued');
+  expect(env.stream.canSendQueuedNow(STREAM_ID, row.id)).toBe(false); env.unsubscribe();
+});
+
+test('stale generation receipt cannot introduce new queue proof or an action', () => {
+  const env = bootGeneration();
+  const id = env.stream.enqueueTurn(STREAM_ID, 'old target'); env.stream.dispatchQueuedSendsByOptimisticId(STREAM_ID, id);
+  const frame = sentFrames(env.socket, 'send').at(-1)!;
+  env.socket.message({ type: 'session.inventory', sessions: [session(STREAM_ID, { session_generation: 'g2' })] });
+  env.socket.message({ type: 'send.result', request_id: frame.request_id, delivery: 'landed', provider_queued: true });
+  expect(caption(env, id)).not.toBe('queued'); expect(env.stream.canSendQueuedNow(STREAM_ID, id)).toBe(false); env.unsubscribe();
+});
+
+test('new generation cannot inherit old queue Escape consumption', async () => {
+  const env = bootGeneration(); const old = queueReceipt(env);
+  const first = env.stream.sendQueuedNow(STREAM_ID, old.id); interruptReply(env); await first;
+  env.socket.message({ type: 'session.inventory', sessions: [session(STREAM_ID, { session_generation: 'g2' })] });
+  const current = queueReceipt(env);
+  expect(env.stream.canSendQueuedNow(STREAM_ID, current.id)).toBe(true);
+  const next = env.stream.sendQueuedNow(STREAM_ID, current.id); interruptReply(env); await next;
+  expect(sentFrames(env.socket, 'send.interrupt').map(x => x.expected_session_generation)).toEqual(['g1', 'g2']); env.unsubscribe();
+});
+
+test('explicit retry retains logical identity and can acquire fresh queue proof for its new attempt', async () => {
+  const env = bootGeneration(); const row = queueReceipt(env, 'retry queue', false);
+  env.stream.markOptimisticFailed(row.id, 'terminal');
+  const retry = env.stream.retryOptimisticSend(row.id);
+  const next = sentFrames(env.socket, 'send').at(-1)!;
+  expect(next.optimistic_id).toBe(row.id); expect(next.request_id).not.toBe(row.frame.request_id);
+  env.socket.message({ type: 'send.result', request_id: next.request_id, delivery: 'landed', provider_queued: true });
+  await retry;
+  expect(caption(env, row.id)).toBe('queued'); expect(env.stream.canSendQueuedNow(STREAM_ID, row.id)).toBe(true); env.unsubscribe();
+});
+
+test('queued attachment payload and original request remain byte-equivalent across Send now', async () => {
+  const env = bootGeneration();
+  const attachments = [{ key: 'owned-test-image', mime: 'image/jpeg', width: 1, height: 1 }];
+  const id = env.stream.enqueueTurn(STREAM_ID, 'caption', attachments);
+  env.stream.dispatchQueuedSendsByOptimisticId(STREAM_ID, id);
+  const frame = sentFrames(env.socket, 'send').at(-1)!;
+  env.socket.message({ type: 'send.result', request_id: frame.request_id, delivery: 'landed', provider_queued: true });
+  const before = env.stream.getPentacleStreamState().optimisticSends?.[id];
+  const sends = sentFrames(env.socket, 'send');
+  const release = env.stream.sendQueuedNow(STREAM_ID, id); interruptReply(env); await release;
+  expect(env.stream.getPentacleStreamState().optimisticSends?.[id]).toBe(before);
+  expect(before?.attachments).toEqual(attachments);
+  expect(sentFrames(env.socket, 'send')).toEqual(sends);
+  env.unsubscribe();
+});
+
+test('in-flight Escape plus disconnect retains one native-queue budget through reconnect', async () => {
+  const env = bootGeneration(); const row = queueReceipt(env);
+  const attempt = env.stream.sendQueuedNow(STREAM_ID, row.id).catch(error => error.message);
+  expect(sentFrames(env.socket, 'send.interrupt')).toHaveLength(1);
+  env.socket.close(); await attempt;
+  jest.advanceTimersByTime(1000);
+  const recovered = MockWebSocket.instances[1];
+  expect(recovered).toBeDefined(); recovered.open();
+  recovered.message({ type: 'session.inventory', sessions: [session(STREAM_ID, { session_generation: 'g1' })] });
+  recovered.message({ type: 'send.result', request_id: row.frame.request_id, delivery: 'landed', provider_queued: true });
+  expect(env.stream.canSendQueuedNow(STREAM_ID, row.id)).toBe(false);
+  await env.stream.sendQueuedNow(STREAM_ID, row.id);
+  await env.stream.interruptSend(STREAM_ID);
+  expect(sentFrames(env.socket, 'send.interrupt').length + sentFrames(recovered, 'send.interrupt').length).toBe(1);
+  expect(caption(env, row.id)).toBe('queued'); env.unsubscribe();
+});
+
+test('provable pre-dispatch offline rejection permits one deliberate retry without an extra Escape', async () => {
+  const env = bootGeneration(); const row = queueReceipt(env);
+  env.socket.readyState = MockWebSocket.CLOSED;
+  await expect(env.stream.sendQueuedNow(STREAM_ID, row.id)).rejects.toThrow('Pentacle stream is not connected');
+  expect(sentFrames(env.socket, 'send.interrupt')).toHaveLength(0);
+  env.socket.readyState = MockWebSocket.OPEN;
+  expect(env.stream.canSendQueuedNow(STREAM_ID, row.id)).toBe(true);
+  const attempt = env.stream.sendQueuedNow(STREAM_ID, row.id); interruptReply(env); await attempt;
+  expect(sentFrames(env.socket, 'send.interrupt')).toHaveLength(1); env.unsubscribe();
 });

@@ -38,7 +38,7 @@ import {
 
 export type PentacleSessionStatus = 'unresponsive' | 'working' | 'sending' | 'live' | 'idle' | 'offline';
 export type PentacleTranscriptTone = 'user' | 'agent' | 'assistant' | 'tool' | 'thinking' | 'system';
-export type PentacleReceiptCaption = 'sending' | 'sent' | 'failed';
+export type PentacleReceiptCaption = 'sending' | 'queued' | 'sent' | 'failed';
 
 export type PentacleMachineCard = {
   host: string;
@@ -1796,9 +1796,11 @@ function buildSessionTranscriptRows(
         staleKeys: Array.isArray(answersStatus.stale_keys) ? answersStatus.stale_keys.filter((key) => typeof key === 'string') : [],
       };
     }
-    if (send?.queued_at !== undefined || event.queued_at !== undefined) {
-      nextItem.queuedWhileWorking = true;
-    }
+    // Queue origin/busy hints are not native queue proof. USER reconciliation
+    // retires the optimistic row, so old receipts cannot resurrect its action.
+    const providerQueued = send?.provider_queued === true
+      && !['failed', 'cancelled', 'returned_to_prompt', 'echoed', 'reconciled'].includes(send.status);
+    if (providerQueued) nextItem.queuedWhileWorking = true;
     if (event.client_origin === true) {
       if (send?.status === 'returned_to_prompt') continue;
       const sendState = deriveSendState(send);
@@ -1811,6 +1813,12 @@ function buildSessionTranscriptRows(
     if (event === latestUserEvent && send?.status !== 'cancelled') {
       const receiptCaption = receiptCaptionForLatestUserEvent(event);
       if (receiptCaption) nextItem.receiptCaption = receiptCaption;
+    }
+    if (event.client_origin === true && send && !['failed', 'cancelled', 'returned_to_prompt'].includes(send.status)) {
+      nextItem.receiptCaption = providerQueued ? 'queued'
+        : send.provider_queued === false ? 'sent'
+        : nextItem.receiptCaption === 'sent' && send.status === 'indeterminate' ? 'sending'
+        : nextItem.receiptCaption ?? 'sending';
     }
     transcriptItems.push(reuseTranscriptItem(previousItems, nextItem));
   }
