@@ -13,7 +13,8 @@ import VoiceTakeList from './VoiceTakeList';
 import GlobalVoiceBar from './GlobalVoiceBar';
 
 export function useSharedVoiceControlsActive() { return useVoicePresentationState().host !== null; }
-/** Only the highest covering native/route/root host exposes the floating bar or recovery controls. */
+/** Only the highest covering native/route/root host exposes the floating bar or recovery controls.
+ * Recovery controls start below a covering surface's declared header (`top`) so they never cover its Close. */
 export default function VoiceRecordingOverlay({ visible = true, priority = 0, onReturn, hostName = 'root' }: { visible?: boolean; priority?: number; onReturn?: () => void; hostName?: string }) {
   const host = useVoiceOverlayHost(visible, priority, hostName);
   const value = useVoicePresentation();
@@ -39,7 +40,7 @@ function ActiveOverlay({ onReturn, hostName }: { onReturn?: () => void; hostName
   const showRecovery = recording ? recording.status === 'paused' || recording.status === 'finalized' || !!recording.error || !!delivery.storageError : !!primary;
   return <View pointerEvents="box-none" style={StyleSheet.absoluteFill} testID="voice-recording-overlay" accessibilityLabel={`Recording controls, ${hostName}`}>
     {!value.anchored ? <GlobalVoiceBar onReturn={open} /> : null}
-    <View pointerEvents="box-none" style={[styles.recovery, { top: insets.top + 48 }]}>
+    <View pointerEvents="box-none" style={[styles.recovery, { top: value.surface?.top ?? insets.top + 48 }]}>
       {showRecovery && !value.suppressTakeProgress ? <VoiceTakeControls recording={recording} take={primary} onReturn={open} storageError={delivery.storageError} primaryControls={false} /> : null}
       {count > 1 || (!!value.receipt && count > 0) ? <View style={styles.switcher}><VoiceControlButton label={expanded ? 'Hide retained recordings' : 'Show retained recordings'} onPress={() => setExpanded(!expanded)}>{`${count} takes ${expanded ? '⌃' : '⌄'}`}</VoiceControlButton></View> : null}
       {expanded ? <VoiceTakeList takes={recording ? takes : takes.filter(take => take.recordingId !== primary?.recordingId)} onReturn={open} storageError={delivery.storageError} /> : null}

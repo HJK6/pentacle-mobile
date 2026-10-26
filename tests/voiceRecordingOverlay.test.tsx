@@ -6,7 +6,8 @@ import { VoiceDelivery, type VoiceDeliveryIO } from '../src/services/voiceDelive
 import { VoiceTakeStore, type VoiceTakeIO, type VoiceTakeManifest } from '../src/services/voiceTakeStore';
 import type { VoiceDispatchIntent, VoiceSendEvidence } from '../src/services/pentacleStream';
 import VoiceRecordingOverlay from '../src/components/voice/VoiceRecordingOverlay';
-import { resetVoicePresentationForTests } from '../src/services/voicePresentation';
+import { resetVoicePresentationForTests, useVoiceSurface } from '../src/services/voicePresentation';
+import { StyleSheet, View } from 'react-native';
 let mockDelivery: VoiceDelivery;
 let mockStore: VoiceTakeStore;
 const mockLifecycle = { foreground: true, unlocked: true };
@@ -287,4 +288,24 @@ test('retained takes expose an accessible list and discard removes only the chos
   expect(view.getByTestId('voice-take-list')).toBeTruthy(); expect(view.getAllByLabelText('Discard recording')).toHaveLength(2);
   await act(async () => { fireEvent.press(view.getAllByLabelText('Discard recording')[1]); await flush(); });
   expect(h.store.get(first.recordingId)).toBeDefined(); expect(h.store.get(second.recordingId)).toBeUndefined(); h.delivery.dispose();
+});
+function CoveringSurface({ top }: { top?: number }) {
+  useVoiceSurface({ page_id: 'lanes', title: 'Work lanes' }, true, { priority: 2, ...(top === undefined ? {} : { top }) });
+  return <VoiceRecordingOverlay priority={1} hostName="lanes" />;
+}
+const recoveryTop = (view: ReturnType<typeof render>) => view.UNSAFE_getAllByType(View)
+  .map(node => StyleSheet.flatten(node.props.style))
+  .find(style => style?.zIndex === 10000 && style.left === 12)?.top;
+test('the passive recovery card sits below a covering surface header so its Close stays hittable', async () => {
+  const h = install(); await h.ready(); await h.take();
+  const view = render(<CoveringSurface top={124} />);
+  expect(view.getByTestId('voice-recording-overlay')).toBeTruthy();
+  expect(recoveryTop(view)).toBe(124);
+  h.delivery.dispose();
+});
+test('control: without a declared surface top the recovery card keeps its safe-area offset', async () => {
+  const h = install(); await h.ready(); await h.take();
+  const view = render(<CoveringSurface />);
+  expect(recoveryTop(view)).toBe(48);
+  h.delivery.dispose();
 });
