@@ -10,7 +10,7 @@ from ..harness.asserts import DEFAULT_DENY_LIST, EventSpec, Verdict, assert_no_e
 
 
 name = "mock_agent_question_free_text_notification"
-MARKER = "Example durable free text"
+MARKER = "Mock durable free text"
 TEXT = "  exact\nfree-text answer  "
 NOTE = "example free-text note"
 QUESTION_ID = "example-free-text-1"
