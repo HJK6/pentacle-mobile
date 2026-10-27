@@ -76,7 +76,24 @@
       }
     }
   },
-  "frames": [],
+  "frames": [
+    {
+      "id": "anchor",
+      "at_ms": 0,
+      "type": "chat.event",
+      "wait_for_client": true,
+      "event": {
+        "daemon_seq": 40,
+        "stream_id": "mock-host:mock-session",
+        "host": "mock-host",
+        "provider": "codex",
+        "session_name": "mock-session",
+        "timestamp": "2026-01-01T12:00:00.000Z",
+        "kind": "ASSIST",
+        "text": "Assistant fixture ready for history and a durable free-text question."
+      }
+    }
+  ],
   "notifications": [
     {
       "id": "durable-question",
@@ -88,13 +105,28 @@
         "severity": "info",
         "title": "History question",
         "body": "Provide the exact free-text assertion.",
-        "actions": [{ "kind": "ack", "action_id": "ack-history" }],
+        "actions": [
+          {
+            "kind": "ack",
+            "action_id": "ack-history"
+          }
+        ],
         "question": {
           "question_id": "history-question",
           "producer_stream_id": "mock-host:mock-session",
           "response_mode": "free_text",
-          "options": [],
-          "ttl_seconds": 3600
+          "options": [
+            {
+              "id": "acknowledge",
+              "label": "Acknowledge"
+            }
+          ],
+          "ttl_seconds": 3600,
+          "schema_version": 1,
+          "body": "Provide the exact free-text assertion.",
+          "producer_provider": "codex",
+          "title": "History question",
+          "dedup_key": "history-question"
         }
       }
     }
