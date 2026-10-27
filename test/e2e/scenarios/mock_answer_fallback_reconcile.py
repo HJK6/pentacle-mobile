@@ -61,7 +61,7 @@ def seed_summary(config):
 def _hold(stream):
     deadline = time.monotonic() + 1
     while time.monotonic() < deadline:
-        stream.next_event(timeout_s=min(.2, deadline - time.monotonic()))
+        stream.next_event(timeout_s=max(0, min(.2, deadline - time.monotonic())))
 
 
 def evaluate_trace(events, stages):

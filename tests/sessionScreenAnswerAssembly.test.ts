@@ -175,7 +175,7 @@ test('the native staged fixture reaches every real selector and durable-projecti
   const streamId = fixture.snapshot.sessions[0].stream_id;
   for (const [events, authoritative] of [[[], []], [[], projections], [[fixture.echo], projections]] as const) {
     const detail = selectSessionDetail({ ...base, events }, streamId, { includeTools: false, visibleCount: 'all' });
-    const rows = assembleSessionTranscriptRows(authoritative, {}, detail!.transcriptItems, new Map());
+    const rows = assembleSessionTranscriptRows([...authoritative], {}, detail!.transcriptItems, new Map());
     expect(rows).toHaveLength(1);
     expect(rows[0].text).toBe('Operator answered: Keep one answer.');
   }
