@@ -637,6 +637,8 @@ def execute_native(name, config, runs_dir, stem, *, _catalog_phase=None):
 
 
 def _execute_native(name, config, runs_dir, stem, *, _catalog_phase=None, _configured=None):
+    if name == "nexus_agents_history_questions" and config.get("M1_BROAD") == "1":
+        importlib.import_module(REPORT_MODULES[name]).params(config)
     if name == "dashboard_catalog":
         dashboard_catalog_inputs(config)
         if _catalog_phase is None:
@@ -653,7 +655,7 @@ def _execute_native(name, config, runs_dir, stem, *, _catalog_phase=None, _confi
     if not re.fullmatch(r"[0-9A-Fa-f]{8}(?:-[0-9A-Fa-f]{4}){3}-[0-9A-Fa-f]{12}", udid or "") or not bundle:
         raise ValueError("exact bound simulator and bundle are required")
     simctl = scenario_simctl_command(config=config)
-    if name == "dashboard_catalog":
+    if name == "dashboard_catalog" or (name == "nexus_agents_history_questions" and config.get("M1_BROAD") == "1"):
         require_idb_visible_device_set(config)
     config["SIMULATOR_UDID"] = udid
     run_id, sentinel = config["scenario_run_id"], config.get("runtime_sentinel", "clean")
