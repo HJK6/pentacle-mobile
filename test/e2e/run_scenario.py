@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
+import contextlib
 import http.server
 import importlib
 import json
@@ -25,6 +27,9 @@ from e2e.harness.log_capture import LogStream
 from recorder_preflight import VideoRecorder
 
 
+CONFIGURED_M1 = "m1_configured_roster_history"
+CONFIGURED_M1_MODULE = "e2e.scenarios.m1_configured_roster_history"
+
 REPORT_MODULES = {
     "nexus_agents_history_questions": "e2e.scenarios.nexus_agents_history_questions",
     "mock_answer_fallback_reconcile": "e2e.scenarios.mock_answer_fallback_reconcile",
@@ -42,8 +47,9 @@ class _CatalogDaemonRefusal(RuntimeError):
 
 class _SecretMask:
     """Mask the launch credential before any runner-owned evidence is written."""
-    def __init__(self, secret):
-        forms = {secret, quote(secret, safe=""), quote_plus(secret)}
+    def __init__(self, secret, *additional):
+        secrets = (secret, *additional)
+        forms = {value for item in secrets for value in (item, quote(item, safe=""), quote_plus(item))}
         frontier = set(forms)
         # Native NDJSON wraps the JSON telemetry in eventMessage: two escaping
         # layers, including platform ASCII/slash escape choices, reach raw logs.
@@ -53,11 +59,36 @@ class _SecretMask:
             encoded |= {value.replace("/", "\\/") for value in encoded}
             forms.update(encoded)
             frontier = encoded
+        # Native/URL producers may change percent-hex case, escape all ASCII,
+        # or nest JSON. Cover those forms as well as mixed character escapes.
+        forms.update("".join("%%%02X" % byte for byte in item.encode()) for item in secrets)
+        forms.update("".join("\\u%04x" % ord(char) for char in item) for item in secrets if item.isascii())
+        for _ in range(2):
+            forms.update(quote(value, safe="") for value in list(forms))
+            forms.update(json.dumps(value)[1:-1] for value in list(forms))
+        forms.update(re.sub(r"%[0-9A-Fa-f]{2}", lambda m: m[0].lower(), value) for value in list(forms))
         self.forms = sorted(forms, key=len, reverse=True)
+        patterns = []
+        for item in secrets:
+            if not item.isascii():
+                continue
+            parts = []
+            for char in item:
+                byte = "%02x" % ord(char)
+                options = [re.escape(char), "(?i:%" + byte + ")", "(?i:%25" + byte + ")"]
+                options.extend(re.escape("\\" * depth + "u00") + "(?i:" + byte + ")" for depth in (1, 2, 4))
+                if char in '/"\\':
+                    options.extend(re.escape("\\" * depth + char) for depth in (1, 2, 4))
+                parts.append("(?:" + "|".join(options) + ")")
+            patterns.append(re.compile("".join(parts)))
+        self.patterns = patterns
+        self.max_form_length = max(max(map(len, self.forms)), max(map(len, secrets)) * 12)
 
     def __call__(self, text):
         for value in self.forms:
             text = text.replace(value, "[REDACTED]")
+        for pattern in self.patterns:
+            text = pattern.sub("[REDACTED]", text)
         return text
 
     def value(self, value):
@@ -80,9 +111,10 @@ def _sanitize_command_result(result, mask):
 
 
 class _SecretSafeWriter:
-    def __init__(self, output, mask):
+    def __init__(self, output, mask, *, close_output=True):
         self.output, self.mask, self.pending = output, mask, ""
-        self.keep = max(map(len, mask.forms)) - 1
+        self.close_output = close_output
+        self.keep = getattr(mask, "max_form_length", max(map(len, mask.forms))) - 1
 
     def write(self, text):
         # A log chunk can end in the middle of a token. Retain enough text to
@@ -99,7 +131,19 @@ class _SecretSafeWriter:
     def close(self):
         self.output.write(self.mask(self.pending))
         self.pending = ""
-        self.output.close()
+        if self.close_output:
+            self.output.close()
+        else:
+            self.output.flush()
+
+
+class _DiscardLogPath:
+    """Configured captures never retain raw native/user transcript bytes."""
+    def __init__(self, path):
+        self.path = path
+    def open(self, *args, **kwargs):
+        output = self.path.open(*args, **kwargs)
+        return SimpleNamespace(write=lambda text: len(text), flush=output.flush, close=output.close)
 
 
 class _SecretSafeLogPath:
@@ -148,7 +192,7 @@ def _read_dashboard_token(config):
     # generated, installed in SecureStore, echoed, or included in the report.
     descriptor = None
     try:
-        descriptor = os.open(config["daemon_token_file"], os.O_RDONLY | os.O_NOFOLLOW)
+        descriptor = os.open(config["daemon_token_file"], os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
         info = os.fstat(descriptor)
         if not stat.S_ISREG(info.st_mode) or stat.S_IMODE(info.st_mode) != 0o600 or info.st_uid != os.getuid():
             raise ValueError("daemon_token_file must be an owned regular 0600 file")
@@ -400,6 +444,7 @@ class QuestionContract:
 def build_scenarios(*, peer_hosts=None, reachability=None, codex_preflight=None):
     scenarios = {name: SimpleNamespace(module=importlib.import_module(module)) for name, module in REPORT_MODULES.items()}
     scenarios["dashboard_catalog"] = SimpleNamespace(module=DashboardCatalogScenario())
+    scenarios[CONFIGURED_M1] = SimpleNamespace(module=importlib.import_module(CONFIGURED_M1_MODULE))
     for name in ["agent_question_multi", "agent_question_note"]:
         scenarios[name] = SimpleNamespace(module=QuestionContract(name))
     return scenarios
@@ -555,6 +600,43 @@ def require_idb_visible_device_set(config, environ=None):
 
 
 def execute_native(name, config, runs_dir, stem, *, _catalog_phase=None):
+    if name != CONFIGURED_M1:
+        return _execute_native(name, config, runs_dir, stem, _catalog_phase=_catalog_phase)
+    module = importlib.import_module(CONFIGURED_M1_MODULE)
+    module.inputs(config)
+    if not re.fullmatch(r"[A-Za-z0-9_.-]{1,128}", stem or "") or any(runs_dir.glob(stem + "*")):
+        raise module.ConfiguredError("configured M1 evidence identity already exists or is invalid")
+    # All configuration/credential checks precede socket or native effects.
+    udid = config.get("PENTACLE_GATE_BOUND_SIMULATOR_UDID") or config.get("PENTACLE_SIMULATOR_UDID")
+    bundle = config.get("PENTACLE_GATE_BOUND_BUNDLE_ID") or config.get("PENTACLE_BUNDLE_ID")
+    if (not re.fullmatch(r"[0-9A-Fa-f]{8}(?:-[0-9A-Fa-f]{4}){3}-[0-9A-Fa-f]{12}", udid or "")
+            or not isinstance(bundle, str) or not re.fullmatch(r"[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)+", bundle)):
+        raise module.ConfiguredError("exact bound configured M1 simulator and bundle are required")
+    scenario_simctl_command(config=config)
+    try:
+        token = _read_dashboard_token(config)
+        decoded = module.credential(token)
+    except Exception:
+        raise module.ConfiguredError("configured M1 credential file/envelope invalid") from None
+    mask = _SecretMask(token, module.auth.encode_b64url(decoded["proof_key"]))
+    if any(mask(str(value)) != str(value) for value in module.inputs(config).values()):
+        raise module.ConfiguredError("configured M1 identity/rows must not contain credential material")
+    output, errors = _SecretSafeWriter(sys.stdout, mask, close_output=False), _SecretSafeWriter(sys.stderr, mask, close_output=False)
+    try:
+        with contextlib.redirect_stdout(output), contextlib.redirect_stderr(errors):
+            before = asyncio.run(module.observe(config, token))
+            scenario = module.Scenario(token, before)
+            return _execute_native(name, config, runs_dir, stem, _configured=(scenario, token, mask))
+    except module.ConfiguredError:
+        raise
+    except Exception:
+        raise module.ConfiguredError("configured M1 native setup/capture failed") from None
+    finally:
+        output.close()
+        errors.close()
+
+
+def _execute_native(name, config, runs_dir, stem, *, _catalog_phase=None, _configured=None):
     if name == "dashboard_catalog":
         dashboard_catalog_inputs(config)
         if _catalog_phase is None:
@@ -562,8 +644,8 @@ def execute_native(name, config, runs_dir, stem, *, _catalog_phase=None):
         if _catalog_phase not in {"configured", "unset"}:
             raise ValueError("invalid internal dashboard catalog phase")
         config = {**config, "_dashboard_catalog_phase": _catalog_phase}
-    if name not in REPORT_MODULES and name != "dashboard_catalog":
-        raise ValueError("only public report fixture and dashboard_catalog scenarios are executable here")
+    if name not in REPORT_MODULES and name not in {"dashboard_catalog", CONFIGURED_M1}:
+        raise ValueError("scenario is not supported by the public native runner")
     if name == "dashboard_catalog":
         dashboard_catalog_inputs(config, internal_phase=True)
     udid = config.get("PENTACLE_GATE_BOUND_SIMULATOR_UDID") or config.get("PENTACLE_SIMULATOR_UDID")
@@ -575,19 +657,35 @@ def execute_native(name, config, runs_dir, stem, *, _catalog_phase=None):
         require_idb_visible_device_set(config)
     config["SIMULATOR_UDID"] = udid
     run_id, sentinel = config["scenario_run_id"], config.get("runtime_sentinel", "clean")
-    module = DashboardCatalogScenario() if name == "dashboard_catalog" else importlib.import_module(REPORT_MODULES[name])
-    credential_token = _read_dashboard_token(config) if name == "dashboard_catalog" else None
-    mask = _SecretMask(credential_token) if credential_token else lambda value: value
+    if _configured:
+        module, credential_token, mask = _configured
+    else:
+        module = DashboardCatalogScenario() if name == "dashboard_catalog" else importlib.import_module(REPORT_MODULES[name])
+        credential_token = _read_dashboard_token(config) if name == "dashboard_catalog" else None
+        mask = _SecretMask(credential_token) if credential_token else lambda value: value
     raw_name, trace_name = stem + ".log", stem + ".ui.jsonl"
-    stream = LogStream(udid, _SecretSafeLogPath(runs_dir / raw_name, mask) if credential_token else runs_dir / raw_name,
+    stream = LogStream(udid, _DiscardLogPath(runs_dir / raw_name) if _configured else _SecretSafeLogPath(runs_dir / raw_name, mask) if credential_token else runs_dir / raw_name,
                        bundle_id=bundle, config=config)
     if credential_token:
         native_feed_line = stream.feed_line
-        stream.feed_line = lambda line: native_feed_line(mask(line))
+        if _configured:
+            project = importlib.import_module(CONFIGURED_M1_MODULE).filtered_line
+            def feed_owned(line):
+                safe = project(mask(line), config)
+                if safe:
+                    native_feed_line(safe)
+            stream.feed_line = feed_owned
+        else:
+            stream.feed_line = lambda line: native_feed_line(mask(line))
     recorder = VideoRecorder(udid, runs_dir / (stem + ".mp4"), config=config)
     cap = NativeCapture(config, runs_dir, stem)
     trace_file = (runs_dir / trace_name).open("w", encoding="utf-8")
     def trace(action, result):
+        if _configured:
+            # Native argv/output can contain credentials or unrelated user data.
+            trace_file.write(json.dumps({"action": action.split(" ", 2)[:2], "at": time.time(), "returncode": result.returncode}) + "\n")
+            trace_file.flush()
+            return
         trace_file.write(json.dumps({"action": mask(action), "at": time.time(), "returncode": result.returncode,
             "stdout": mask(result.stdout), "stderr": mask(result.stderr)}) + "\n")
         trace_file.flush()
@@ -597,10 +695,12 @@ def execute_native(name, config, runs_dir, stem, *, _catalog_phase=None):
             result = subprocess.run([*simctl, *args], capture_output=True, text=True, timeout=30, check=False, env=env)
         except Exception as exc:
             if credential_token:
-                raise RuntimeError(mask(str(exc))) from None
+                raise RuntimeError("configured M1 native command failed" if _configured else mask(str(exc))) from None
             raise
         if credential_token:
             result = _sanitize_command_result(result, mask)
+            if _configured:
+                result.stderr = ""
         trace("simctl " + " ".join(args), result)
         return result
     def liveness():
@@ -610,6 +710,7 @@ def execute_native(name, config, runs_dir, stem, *, _catalog_phase=None):
         return {"checked_at": started, "completed_at": time.time(), "returncode": result.returncode,
             "stderr": result.stderr, "resolved_bundle_id": bundle, "resolved_pids": pids, "bundle_present": bool(pids)}
     launch_pid = None
+    launch_attempted = False
     release_server = None
     release_ready, request_arrived = threading.Event(), threading.Event()
     result = Verdict(name, "SETUP_FAIL", error="native setup did not complete")
@@ -647,6 +748,9 @@ def execute_native(name, config, runs_dir, stem, *, _catalog_phase=None):
         if credential_token:
             query["pentacle_token"] = credential_token
         url = "pentacle://harness?" + urlencode(query)
+        launch_attempted = True
+        if _configured:
+            teardown["attempted"] = 1
         launched = command("launch", udid, bundle, "-HarnessUrl", url,
             env={**os.environ, "SIMCTL_CHILD_PENTACLE_ALLOW_HARNESS_LAUNCH_ARG": "1"})
         match = re.fullmatch(re.escape(bundle) + r":\s*(\d+)\s*", launched.stdout.strip())
@@ -684,7 +788,8 @@ def execute_native(name, config, runs_dir, stem, *, _catalog_phase=None):
             errors = [e for e in stream.all_events() if e.message == "harness:runtime_error" and e.data.get("scenario_run_id") == run_id and getattr(e, "native_pid", None) == launch_pid]
             signal_evidence = crash_signal(stream.lines, launch_pid)
             owned = sentinel if name == "report_viewer_runtime_sentinel" and sentinel in {"crash_only", "liveness_loss"} else None
-            kind = "harness_owned_crash" if owned == "crash_only" else "harness_owned_termination" if owned == "liveness_loss" else "alive" if after["bundle_present"] else "unexpected_exit"
+            identity_changed = bool(_configured and after["resolved_pids"] != [launch_pid])
+            kind = "identity_changed" if identity_changed else "harness_owned_crash" if owned == "crash_only" else "harness_owned_termination" if owned == "liveness_loss" else "alive" if after["bundle_present"] else "unexpected_exit"
             monitor = {"settle_s": 2.5, "fresh_crash_report": None, "crash_exit_signal": signal_evidence,
                 "liveness": after, "process_identity": identity, "outcome": {"kind": kind, "pids": after["resolved_pids"]}, "owned_termination": owned,
                 "owned_signal": owned_signal}
@@ -694,19 +799,32 @@ def execute_native(name, config, runs_dir, stem, *, _catalog_phase=None):
                 monitor["post_identity_release"] = {"verified": bool(released and request_arrived.is_set() and release_ready.is_set()), "transport": "loopback_ack", "sentinel": sentinel, "scenario_run_id": run_id, "telemetry_pid": launch_pid}
                 monitor["fatal_runtime_error_identity"] = {"verified": bool(fatal), "sentinel": sentinel, "scenario_run_id": run_id, "telemetry_pid": launch_pid}
             result.extras["runtime_monitor"] = monitor
-            if errors or not after["bundle_present"]:
+            if identity_changed:
+                result.verdict, result.error = "FAIL", "configured M1 native process identity changed after arming"
+            elif errors or not after["bundle_present"]:
                 result.verdict, result.error = "FAIL", "observed native runtime error or process exit"
-            cap.screenshot("settled")
+            if not identity_changed:
+                cap.screenshot("settled")
     except Exception as exc:
+        if _configured and not isinstance(exc, importlib.import_module(CONFIGURED_M1_MODULE).ConfiguredError):
+            exc = RuntimeError("configured M1 native journey/capture failed")
         result = _native_failure_result(name, result, exc, monitor, mask)
     finally:
         if release_server:
             release_ready.set()
             release_server.shutdown()
             release_server.server_close()
+        if _configured and launch_attempted and not launch_pid:
+            # A timeout/bad response can follow a successful launch. Without its
+            # exact returned PID, never adopt/kill a census result or claim clean.
+            teardown["orphans"].append(f"native:{udid}:unverified-launch")
+            record_cleanup_failure(result, "configured M1 launch identity unresolved; owner recovery required")
         if launch_pid:
             try:
                 current = liveness()["resolved_pids"]
+                if _configured and current and current != [launch_pid]:
+                    result.extras["unresolved_native_pids"] = current
+                    raise RuntimeError("configured M1 teardown process identity changed")
                 if current == [launch_pid]:
                     stopped = command("terminate", udid, bundle)
                     if stopped.returncode:
@@ -714,27 +832,36 @@ def execute_native(name, config, runs_dir, stem, *, _catalog_phase=None):
                     deadline = time.monotonic() + 5
                     while liveness()["resolved_pids"] == [launch_pid] and time.monotonic() < deadline:
                         time.sleep(.1)
-                if launch_pid in liveness()["resolved_pids"]:
+                remaining = liveness()["resolved_pids"]
+                if _configured and remaining:
+                    result.extras["unresolved_native_pids"] = remaining
+                    raise RuntimeError("configured M1 teardown process identity unresolved")
+                if launch_pid in remaining:
                     raise RuntimeError("owned app survived teardown")
                 teardown["closed"].append(f"native:{udid}:{launch_pid}")
             except Exception as exc:
                 teardown["orphans"].append(f"native:{udid}:{launch_pid}")
-                record_cleanup_failure(result, str(exc))
+                record_cleanup_failure(result, "configured M1 owned teardown failed" if _configured else mask(str(exc)))
         if recorder.process:
             try:
                 video = recorder.stop()
+                if _configured:
+                    video = {key: value for key, value in video.items() if key in {
+                        "video_ready", "video_started_at", "video_ready_at", "video_ready_wait_s", "video_finished_at",
+                        "video_returncode", "video_finalized", "video_forced_kill", "video_alive_after_teardown",
+                        "video_bytes", "video_sha256"}}
                 if not video.get("video_finalized") or video.get("video_alive_after_teardown") or video.get("video_forced_kill"):
                     record_cleanup_failure(result, "case recorder teardown failed")
             except Exception as exc:
-                record_cleanup_failure(result, "case recorder teardown failed: " + mask(str(exc)))
+                record_cleanup_failure(result, "configured M1 recorder teardown failed" if _configured else "case recorder teardown failed: " + mask(str(exc)))
         try:
             stream.close()
         except Exception as exc:
-            record_cleanup_failure(result, str(exc))
+            record_cleanup_failure(result, "configured M1 owned teardown failed" if _configured else mask(str(exc)))
         try:
             trace_file.close()
         except Exception as exc:
-            record_cleanup_failure(result, "UI trace close failed: " + mask(str(exc)))
+            record_cleanup_failure(result, "configured M1 trace teardown failed" if _configured else "UI trace close failed: " + mask(str(exc)))
         teardown.update(closed_count=len(teardown["closed"]), orphan_count=len(teardown["orphans"]))
     result.finish()
     payload = {"scenario": name, "verdict": result.verdict, "result": result.to_dict(),
@@ -766,7 +893,10 @@ def main(argv=None, *, execute=execute_native):
         config.update(scenario_run_id=run_id, runtime_sentinel=os.environ.get("PENTACLE_RUNTIME_SENTINEL", "clean"), env_file=str(args.env_file))
         payload, proof = execute(args.scenario, config, args.runs_dir, stem)
     except Exception as exc:
-        result = Verdict(args.scenario, "SETUP_FAIL", error=str(exc)).finish()
+        error = str(exc)
+        if args.scenario == CONFIGURED_M1 and not isinstance(exc, importlib.import_module(CONFIGURED_M1_MODULE).ConfiguredError):
+            error = "configured M1 setup failed"
+        result = Verdict(args.scenario, "SETUP_FAIL", error=error).finish()
         payload = {"scenario": args.scenario, "verdict": result.verdict, "result": result.to_dict(), "all_events": []}
     payload["owned_session_teardown_sidecar"] = teardown_path.name
     teardown_path.write_text(json.dumps(proof, indent=2) + "\n", encoding="utf-8")

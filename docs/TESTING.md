@@ -372,3 +372,8 @@ Run the native-oracle controls with
 `python3 -m pytest -q test/e2e/tests/test_answer_fallback_native_oracle.py`.
 The fallback keeps the interpreter's notification identity; cached rows compare
 that identity so equal text from a later notification remains a separate answer.
+
+The separate [configured M1 roster/history harness](configured_m1_harness.md)
+uses explicit owned identities, an in-memory mobile credential and a bounded
+authenticated observer. Its offline controls do not grant runtime access or
+qualify a real configured native journey.
