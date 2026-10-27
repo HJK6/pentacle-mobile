@@ -345,3 +345,8 @@ tests/services/harnessOpenExistingChat.test.ts tests/services/chatOpenNavigation
 Run the oracle replay and missing-evidence controls with
 `python3 -m pytest -q test/e2e/tests/test_nexus_history_contract.py`.
 These offline checks do not replace the recorded native scenario.
+
+The history oracle waits for the fixture's content-bearing page, since the
+modal first reports empty rows while fetching. Free-text answer dispatch and
+roster rendering are independent harness actions; the answer may dispatch
+before the roster opens. Both must be observed in the same bound native run.

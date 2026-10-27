@@ -44,13 +44,12 @@ def run(config: dict, stream, cap=None) -> Verdict:
     )
     history = await_event(
         stream,
-        EventSpec("harness:ui_trace", where={"kind": "nexus_agents_history_rendered", "child_stream_id": CHILD_STREAM_ID}, timeout_s=25),
+        EventSpec("harness:ui_trace", where={"kind": "nexus_agents_history_rendered", "child_stream_id": CHILD_STREAM_ID, "row_texts": [HISTORY_TEXT]}, timeout_s=25),
         not_before=roster.received_at if roster else None,
     )
     answer = await_event(
         stream,
         EventSpec("harness:ui_trace", where={"kind": "prompt_answer_dispatched", "question_id": "history-question"}, timeout_s=25),
-        not_before=roster.received_at if roster else None,
     )
     failures: list[str] = []
     if not roster or CHILD_STREAM_ID not in roster.data.get("child_stream_ids", []):

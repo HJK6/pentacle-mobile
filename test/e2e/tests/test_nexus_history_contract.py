@@ -33,3 +33,15 @@ def test_product_history_signals_keep_every_native_predicate(monkeypatch, missin
     stream = _Stream([_event('harness:ui_trace', i, **data) for i, data in enumerate((roster, history, answer), 1)])
     verdict = scenario.run({}, stream)
     assert verdict.verdict == ('PASS' if missing is None else 'FAIL')
+
+
+def test_answer_can_precede_roster_and_initial_history_can_be_empty(monkeypatch):
+    _patch_await(monkeypatch, scenario)
+    monkeypatch.setattr(scenario.M, 'await_mock_session_open', lambda *args, **kwargs: None)
+    stream = _Stream([
+        _event('harness:ui_trace', 1, kind='prompt_answer_dispatched', question_id='history-question', text_present=True),
+        _event('harness:ui_trace', 2, kind='nexus_agents_roster_rendered', child_stream_ids=[scenario.CHILD_STREAM_ID], child_names=[scenario.CHILD_NAME]),
+        _event('harness:ui_trace', 3, kind='nexus_agents_history_rendered', child_stream_id=scenario.CHILD_STREAM_ID, row_texts=[]),
+        _event('harness:ui_trace', 4, kind='nexus_agents_history_rendered', child_stream_id=scenario.CHILD_STREAM_ID, row_texts=[scenario.HISTORY_TEXT]),
+    ])
+    assert scenario.run({}, stream).verdict == 'PASS'
