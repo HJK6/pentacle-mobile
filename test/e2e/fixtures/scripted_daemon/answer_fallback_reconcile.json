@@ -1,0 +1,97 @@
+{
+  "name": "answer_fallback_reconcile",
+  "snapshot": {
+    "sessions": [
+      {
+        "stream_id": "mock-host:mock-session",
+        "host": "mock-host",
+        "provider": "codex",
+        "session_name": "mock-session",
+        "last_text": "{\"type\":\"notification.answer\",\"notification_id\":\"answer-reconcile-notification\",\"question_id\":\"answer-reconcile-question\",\"answer\":{\"action_kind\":\"resolved\",\"text\":\"Keep one answer.\"}}",
+        "last_kind": "USER",
+        "last_event_at": "2026-10-27T05:47:08.081Z",
+        "online": true,
+        "working": false
+      }
+    ],
+    "events": [
+      {
+        "host": "mock-host",
+        "kind": "THINKING",
+        "provider": "codex",
+        "raw": {
+          "codex_payload_type": "reasoning",
+          "codex_record_type": "response_item",
+          "host": "mock-host",
+          "jsonl_event_index": 0,
+          "jsonl_record_uuid": "rs_0799a5e24481c74a016ae03adb0f4c81a3bd1e3afe636d10b6",
+          "ordinal": 1607,
+          "provider": "codex",
+          "session_name": "mock-session",
+          "source": "Thinking",
+          "source_session_identity": "01a17bb5-1062-71b0-a881-746b0b912ed7",
+          "thinking": "",
+          "transport": "codex-rollout",
+          "uuid": "rs_0799a5e24481c74a016ae03adb0f4c81a3bd1e3afe636d10b6"
+        },
+        "session_id": "Thinking",
+        "session_name": "mock-session",
+        "stream_id": "mock-host:mock-session",
+        "text": "Thinking",
+        "timestamp": "2026-10-27T05:47:07.081Z",
+        "daemon_seq": 460967975
+      }
+    ]
+  },
+  "resolved_notification": {
+    "notification_id": "answer-reconcile-notification",
+    "stream_id": "mock-host:mock-session",
+    "producer": "agent_question.v1",
+    "state": "resolved",
+    "severity": "info",
+    "title": "Answer reconciliation",
+    "body": "Keep one answer.",
+    "resolved_at": "2026-10-27T05:47:08.081Z",
+    "actions": [
+      {
+        "kind": "ack",
+        "action_id": "answer-reconcile-submit"
+      }
+    ],
+    "resolution": {
+      "action_kind": "resolved",
+      "text": "Keep one answer.",
+      "at": "2026-10-27T05:47:08.081Z"
+    },
+    "question": {
+      "schema_version": 1,
+      "question_id": "answer-reconcile-question",
+      "dedup_key": "answer-reconcile-question",
+      "producer_stream_id": "mock-host:mock-session",
+      "producer_provider": "codex",
+      "state": "answered",
+      "response_mode": "free_text",
+      "title": "Answer reconciliation",
+      "body": "Keep one answer.",
+      "options": [
+        {
+          "id": "ack",
+          "label": "Acknowledge"
+        }
+      ],
+      "answer": {
+        "text": "Keep one answer."
+      }
+    }
+  },
+  "echo": {
+    "daemon_seq": 460967976,
+    "host": "mock-host",
+    "provider": "codex",
+    "session_name": "mock-session",
+    "stream_id": "mock-host:mock-session",
+    "timestamp": "2026-10-27T05:47:08.081Z",
+    "kind": "USER",
+    "text": "{\"type\":\"notification.answer\",\"notification_id\":\"answer-reconcile-notification\",\"question_id\":\"answer-reconcile-question\",\"answer\":{\"action_kind\":\"resolved\",\"text\":\"Keep one answer.\"}}"
+  }
+}

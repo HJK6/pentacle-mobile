@@ -720,6 +720,7 @@ function sameTranscriptItem(a: PentacleTranscriptItem, b: PentacleTranscriptItem
     a.laneUpdate?.summary === b.laneUpdate?.summary &&
     a.eventCase === b.eventCase &&
     a.displayRule === b.displayRule &&
+    a.notificationId === b.notificationId &&
     a.disclosure?.previewText === b.disclosure?.previewText &&
     a.disclosure?.previewTail === b.disclosure?.previewTail &&
     a.disclosure?.expandable === b.disclosure?.expandable &&
@@ -1995,6 +1996,7 @@ function buildSessionTranscriptRows(
       isUser: fallbackInterpretation.tone === 'user',
       eventCase: fallbackInterpretation.caseId,
       displayRule: fallbackInterpretation.displayRule,
+      ...(fallbackInterpretation.notificationId ? { notificationId: fallbackInterpretation.notificationId } : {}),
       ...(fallbackInterpretation.disclosure ? { disclosure: fallbackInterpretation.disclosure } : {}),
       eventKey: 'uncorrelated_fallback',
     });
