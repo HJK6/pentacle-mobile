@@ -788,7 +788,8 @@ def _execute_native(name, config, runs_dir, stem, *, _catalog_phase=None, _confi
             errors = [e for e in stream.all_events() if e.message == "harness:runtime_error" and e.data.get("scenario_run_id") == run_id and getattr(e, "native_pid", None) == launch_pid]
             signal_evidence = crash_signal(stream.lines, launch_pid)
             owned = sentinel if name == "report_viewer_runtime_sentinel" and sentinel in {"crash_only", "liveness_loss"} else None
-            kind = "harness_owned_crash" if owned == "crash_only" else "harness_owned_termination" if owned == "liveness_loss" else "alive" if after["bundle_present"] else "unexpected_exit"
+            identity_changed = bool(_configured and after["resolved_pids"] != [launch_pid])
+            kind = "identity_changed" if identity_changed else "harness_owned_crash" if owned == "crash_only" else "harness_owned_termination" if owned == "liveness_loss" else "alive" if after["bundle_present"] else "unexpected_exit"
             monitor = {"settle_s": 2.5, "fresh_crash_report": None, "crash_exit_signal": signal_evidence,
                 "liveness": after, "process_identity": identity, "outcome": {"kind": kind, "pids": after["resolved_pids"]}, "owned_termination": owned,
                 "owned_signal": owned_signal}
@@ -798,9 +799,12 @@ def _execute_native(name, config, runs_dir, stem, *, _catalog_phase=None, _confi
                 monitor["post_identity_release"] = {"verified": bool(released and request_arrived.is_set() and release_ready.is_set()), "transport": "loopback_ack", "sentinel": sentinel, "scenario_run_id": run_id, "telemetry_pid": launch_pid}
                 monitor["fatal_runtime_error_identity"] = {"verified": bool(fatal), "sentinel": sentinel, "scenario_run_id": run_id, "telemetry_pid": launch_pid}
             result.extras["runtime_monitor"] = monitor
-            if errors or not after["bundle_present"]:
+            if identity_changed:
+                result.verdict, result.error = "FAIL", "configured M1 native process identity changed after arming"
+            elif errors or not after["bundle_present"]:
                 result.verdict, result.error = "FAIL", "observed native runtime error or process exit"
-            cap.screenshot("settled")
+            if not identity_changed:
+                cap.screenshot("settled")
     except Exception as exc:
         if _configured and not isinstance(exc, importlib.import_module(CONFIGURED_M1_MODULE).ConfiguredError):
             exc = RuntimeError("configured M1 native journey/capture failed")
@@ -818,6 +822,9 @@ def _execute_native(name, config, runs_dir, stem, *, _catalog_phase=None, _confi
         if launch_pid:
             try:
                 current = liveness()["resolved_pids"]
+                if _configured and current and current != [launch_pid]:
+                    result.extras["unresolved_native_pids"] = current
+                    raise RuntimeError("configured M1 teardown process identity changed")
                 if current == [launch_pid]:
                     stopped = command("terminate", udid, bundle)
                     if stopped.returncode:
@@ -825,7 +832,11 @@ def _execute_native(name, config, runs_dir, stem, *, _catalog_phase=None, _confi
                     deadline = time.monotonic() + 5
                     while liveness()["resolved_pids"] == [launch_pid] and time.monotonic() < deadline:
                         time.sleep(.1)
-                if launch_pid in liveness()["resolved_pids"]:
+                remaining = liveness()["resolved_pids"]
+                if _configured and remaining:
+                    result.extras["unresolved_native_pids"] = remaining
+                    raise RuntimeError("configured M1 teardown process identity unresolved")
+                if launch_pid in remaining:
                     raise RuntimeError("owned app survived teardown")
                 teardown["closed"].append(f"native:{udid}:{launch_pid}")
             except Exception as exc:

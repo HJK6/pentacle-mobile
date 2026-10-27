@@ -166,7 +166,7 @@ def test_fake_credential_file_refused_before_native_and_socket(tmp_path, supplie
 def native_rehearsal(tmp_path, config, token, monkeypatch, *, fault=None, bad_ui=None, cli=False):
     if cli:
         config["scenario_run_id"] = "candidate"
-    state = {"launched": False, "stream_closed": False, "video_closed": False}
+    state = {"launched": False, "stream_closed": False, "video_closed": False, "censuses": 0, "terminations": 0}
     sockets, launches = [], []
     real_observe = m1.observe
     def connect(*args, **kwargs):
@@ -214,8 +214,16 @@ def native_rehearsal(tmp_path, config, token, monkeypatch, *, fault=None, bad_ui
             if fault == "launch": raise subprocess.TimeoutExpired(argv, 30, output=token, stderr=token)
             state["launched"] = True
             output = config["PENTACLE_GATE_BOUND_BUNDLE_ID"] + ": 91\n"
-        elif args[0] == "terminate": state["launched"] = False; output = ""
-        elif args[0] == "spawn": output = ("91 0 UIKitApplication:" + config["PENTACLE_GATE_BOUND_BUNDLE_ID"] + "[owned]\n") if state["launched"] else ""
+        elif args[0] == "terminate":
+            state["terminations"] += 1; state["launched"] = False; output = ""
+        elif args[0] == "spawn":
+            state["censuses"] += 1
+            pids = [91] if state["launched"] else []
+            if fault in {"replacement", "additional"} and state["censuses"] >= 3:
+                pids = [92] if fault == "replacement" else [91, 92]
+            if fault == "post_terminate" and state["terminations"]:
+                pids = [92]
+            output = "".join(str(pid) + " 0 UIKitApplication:" + config["PENTACLE_GATE_BOUND_BUNDLE_ID"] + "[owned]\n" for pid in pids)
         elif args[0] == "io": Path(args[-1]).write_bytes(b"owned synthetic image"); output = ""
         else: raise AssertionError("unexpected native command")
         return subprocess.CompletedProcess(argv, 0, output, token + " UNRELATED_USER_TRANSCRIPT")
@@ -243,11 +251,16 @@ def native_rehearsal(tmp_path, config, token, monkeypatch, *, fault=None, bad_ui
     assert "UNRELATED_USER_TRANSCRIPT" not in retained
     assert state["stream_closed"] and state["video_closed"]
     assert all(ws.closed for ws in sockets)
-    assert not state["launched"]
+    if fault in {"replacement", "additional", "post_terminate"}:
+        assert proof["closed_count"] == 0 and proof["orphan_count"] == 1
+        assert payload["result"]["extras"]["unresolved_native_pids"] == (["91", "92"] if fault == "additional" else ["92"])
+        assert state["terminations"] == (1 if fault == "post_terminate" else 0)
+    else:
+        assert not state["launched"]
     return payload, proof, launches, sockets
 
 
-@pytest.mark.parametrize("fault,verdict", [(None, "PASS"), ("launch", "SETUP_FAIL"), ("cleanup", "SETUP_FAIL")])
+@pytest.mark.parametrize("fault,verdict", [(None, "PASS"), ("launch", "SETUP_FAIL"), ("cleanup", "SETUP_FAIL"), ("replacement", "SETUP_FAIL"), ("additional", "SETUP_FAIL"), ("post_terminate", "SETUP_FAIL")])
 def test_actual_entry_query_oracle_capture_and_cleanup(tmp_path, supplied, monkeypatch, capsys, fault, verdict):
     config, token, _ = supplied
     payload, proof, launches, sockets = native_rehearsal(tmp_path, config, token, monkeypatch, fault=fault)
