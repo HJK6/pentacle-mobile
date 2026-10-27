@@ -42,6 +42,32 @@ Jest covers modeled behavior; it does not certify native builds, device signing,
 or live spawn/send journeys. Those require the configured daemon and native
 runtime described in [Native builds](PENTACLE_MOBILE_BUILD.md).
 
+The explicit installed-client seam entry replays a same-run candidate daemon
+capture through the real `pentacleStream` WebSocket callback, history request
+handling and shared model. It checks multiline summary/history, ordered live
+updates, stable committed identities and reconnect/duplicate delivery. Its
+missing/malformed/legacy summary controls are separately labeled synthetic.
+
+```bash
+PENTACLE_CLIENT_SEAM_CAPTURE=/path/to/client-seam-wire.json \
+PENTACLE_CLIENT_SEAM_CAPTURE_SHA256=CAPTURE_SHA256 \
+PENTACLE_CLIENT_SEAM_PRODUCER_SHA=PRODUCER_SHA \
+PENTACLE_CLIENT_SEAM_RECEIPT=/path/to/mobile-seam-receipt.json \
+npm test -- --runInBand --runTestsByPath test/seams/installedClientSeam.ts --testMatch '**/test/seams/*.ts'
+```
+
+The capture comes from Pentacle's existing web gate `installed-client-seam`
+scenario. Missing input refuses the run; this explicit entry is outside normal
+unit-test discovery. All producer application payloads are retained; only
+history RPC request IDs are rebound to the real adapter's receiving request.
+Record the capture hash and producer pin with the mobile consumer source,
+lockfile and test instrumentation hashes. Use the actual installed build/source
+receipt to select an isolated pinned checkout with its locked dependencies;
+copy this test instrumentation there without changing its transport/model.
+Run candidate and installed versions separately unless their sources are
+identical. Replayed model assertions do not prove native rendering, mobile
+authentication or native reconnect timing; those retain their runtime gates.
+
 The web harness can connect the real client to an isolated test daemon using the
 EXPO_PUBLIC_HARNESS, EXPO_PUBLIC_HARNESS_TOKEN and EXPO_PUBLIC_PENTACLE_WS_URL
 environment variables. Its credential must be synthetic and temporary; never
