@@ -137,6 +137,10 @@ export function attemptOpenExistingChat(
   // navigation throw (harness cold launch fires before RootLayout mounts) is
   // swallowed while the caller still gets its stream_id back. Production keeps
   // the NOOP paint sink, so nothing is emitted there.
-  performHarnessChatOpen(streamId, router);
+  performHarnessChatOpen(streamId, router, {
+    openStatus: harnessRuntime.getParam('openStatus'),
+    agentHistory: harnessRuntime.getParam('agentHistory'),
+    agentHistoryGeneration: harnessRuntime.getParam('agentHistoryGeneration'),
+  });
   return streamId;
 }

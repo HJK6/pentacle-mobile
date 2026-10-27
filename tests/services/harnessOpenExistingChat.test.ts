@@ -1,4 +1,5 @@
 import { attemptOpenExistingChat } from '../../src/services/harnessOpenExistingChat';
+import * as harnessRuntime from '../../src/utils/harnessRuntime';
 import { setTelemetrySink, type TelemetryPayload } from 'pentacle-chat-core';
 import { TELEMETRY_EVENTS } from 'pentacle-chat-core';
 import type { PentacleSessionSummary, PentacleStreamState } from 'pentacle-chat-core';
@@ -45,9 +46,42 @@ function state(sessions: PentacleSessionSummary[]): PentacleStreamState {
 }
 
 afterEach(() => {
+  harnessRuntime.reset();
   setTelemetrySink(null);
   setChatOpenPaintSink(null);
   resetChatOpenNavigationIntents();
+});
+
+test.each(['push', 'replace'] as const)('existing chat %s preserves status and child-history route params', (action) => {
+  const router = { push: jest.fn(), replace: jest.fn() };
+  const paint: ChatOpenPaintSignal[] = [];
+  setChatOpenPaintSink((signal) => paint.push(signal));
+  if (action === 'replace') {
+    attemptOpenExistingChat(state([]), 'hostc', router, 'codex', 'hostc:previous');
+    router.push.mockClear();
+    paint.length = 0;
+  }
+  harnessRuntime.applyURL('pentacle://harness?actions=open_existing_chat&openStatus=1&agentHistory=hostc%3Achild%2Fwith%20space&agentHistoryGeneration=child%2Bgeneration&unrelated=private');
+  attemptOpenExistingChat(state([]), 'hostc', router, 'codex', 'hostc:parent');
+  const href = router[action].mock.calls[0][0] as string;
+  const url = new URL(href, 'https://example.test');
+  expect(url.pathname).toBe('/pentacle/session/hostc%3Aparent');
+  expect(Object.fromEntries(url.searchParams)).toEqual({
+    openStatus: '1',
+    agentHistory: 'hostc:child/with space',
+    agentHistoryGeneration: 'child+generation',
+  });
+  expect(paint.map((signal) => signal.phase)).toEqual(['tap', 'router-dispatch-return']);
+  expect(acknowledgeChatRowNavigationIntent('hostc:parent')).toBeTruthy();
+});
+
+test('status/history params preserve a pending same-chat navigation noop', () => {
+  const router = { push: jest.fn(), replace: jest.fn() };
+  harnessRuntime.applyURL('pentacle://harness?actions=open_existing_chat&openStatus=1&agentHistory=hostc%3Achild');
+  attemptOpenExistingChat(state([]), 'hostc', router, 'codex', 'hostc:parent');
+  attemptOpenExistingChat(state([]), 'hostc', router, 'codex', 'hostc:parent');
+  expect(router.push).toHaveBeenCalledTimes(1);
+  expect(router.replace).not.toHaveBeenCalled();
 });
 
 test('opens the most-recent online session for the requested normalized host', () => {

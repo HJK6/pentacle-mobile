@@ -61,9 +61,16 @@ export type HarnessRouterLike = {
 export function performHarnessChatOpen(
   streamId: string,
   router: HarnessRouterLike,
+  params: { openStatus?: string | null; agentHistory?: string | null; agentHistoryGeneration?: string | null } = {},
 ): ChatOpenNavigationResult {
+  const query = new URLSearchParams();
+  for (const key of ['openStatus', 'agentHistory', 'agentHistoryGeneration'] as const) {
+    if (params[key]) query.set(key, params[key]);
+  }
+  const search = query.toString();
+  const withParams = (href: string) => search ? `${href}?${search}` : href;
   return performChatOpenNavigation(streamId, {
-    push: (href) => { try { router.push(href); } catch { /* pre-mount navigation */ } },
-    replace: (href) => { try { router.replace?.(href); } catch { /* pre-mount navigation */ } },
+    push: (href) => { href = withParams(href); try { router.push(href); } catch { /* pre-mount navigation */ } },
+    replace: (href) => { href = withParams(href); try { router.replace?.(href); } catch { /* pre-mount navigation */ } },
   });
 }

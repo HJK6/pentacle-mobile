@@ -327,3 +327,21 @@ the unchanged full catalog.
 compatibility `state` field. Verify Sending without Failed or Retry, original
 identities, no resend after timers/reconnect, matching late receipt/USER
 convergence, and terminal/identity controls. Voice retains its existing route.
+
+## Direct-child history harness navigation
+
+The `nexus_agents_history_questions` scenario is registered with
+`test/e2e/run_scenario.py`. Its synthetic parent has role `nexus`, and it
+requires the product's `nexus_agents_roster_rendered` and
+`nexus_agents_history_rendered` telemetry plus the durable free-text answer.
+Prepare the existing scripted mock daemon and fixture injector before running
+it, and bind the runner to the owned simulator and installed harness bundle.
+The existing-chat harness forwards only `openStatus`, `agentHistory` and
+`agentHistoryGeneration` to the session route. Ordinary opens keep their bare
+route and shared paint/navigation coordination.
+
+Run the navigation regressions with `npx jest --runInBand --runTestsByPath
+tests/services/harnessOpenExistingChat.test.ts tests/services/chatOpenNavigation.test.ts`.
+Run the oracle replay and missing-evidence controls with
+`python3 -m pytest -q test/e2e/tests/test_nexus_history_contract.py`.
+These offline checks do not replace the recorded native scenario.

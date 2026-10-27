@@ -16,7 +16,7 @@
         "provider": "codex",
         "session_name": "mock-session",
         "title": "Assistant history fixture",
-        "role": "assistant",
+        "role": "nexus",
         "session_generation": "parent-generation",
         "last_event_at": "2026-01-01T12:00:00.000Z",
         "last_text": "History fixture ready.",
@@ -132,4 +132,3 @@
     }
   ]
 }
-
