@@ -27,6 +27,7 @@ from recorder_preflight import VideoRecorder
 
 REPORT_MODULES = {
     "nexus_agents_history_questions": "e2e.scenarios.nexus_agents_history_questions",
+    "mock_answer_fallback_reconcile": "e2e.scenarios.mock_answer_fallback_reconcile",
     "report_viewer_horizontal_scroll": "e2e.scenarios.report_viewer_horizontal_scroll",
     "report_viewer_runtime_sentinel": "e2e.scenarios.report_viewer_runtime_sentinel",
     "report_viewer_comments_keyboard": "e2e.scenarios.report_viewer_comments_keyboard",

@@ -4,9 +4,10 @@ import { resolve } from 'node:path';
 import {
   assembleSessionTranscriptRows,
   formatNotificationAnswerTellItem,
+  resolvedDurableQuestionProjections,
 } from '../app/pentacle/session/[streamId]';
 import { buildDurableQuestionAnswerText } from '../src/services/agentQuestionNotifications';
-import { isSessionSending } from 'pentacle-chat-core';
+import { isSessionSending, selectSessionDetail } from 'pentacle-chat-core';
 import { voiceTakeRow, type VoiceTake } from '../src/services/voiceDelivery';
 import type { PentacleSessionSummary, PentacleTranscriptItem } from 'pentacle-chat-core';
 
@@ -106,6 +107,79 @@ function answerRows(rows: PentacleTranscriptItem[]) {
 function rawRows(rows: PentacleTranscriptItem[]) {
   return rows.filter((row) => RAW_MARKER_RE.test(row.text));
 }
+
+test('a resolved answer stays single while summary fallback precedes its durable transcript echo', () => {
+  const projection = authoritativeProjection();
+  const streamId = 'hostc:answer-transition';
+  const event = {
+    daemon_seq: 501, host: 'hostc', provider: 'codex', session_id: 'answer-transition',
+    session_name: 'answer-transition', stream_id: streamId,
+    timestamp: projection.answeredAt, kind: 'USER' as const, text: projection.text,
+  };
+  const base = {
+    connected: true, connecting: false, events: [], drafts: {}, hosts: {}, machineStats: {},
+    sessions: [{ ...event, last_event_at: event.timestamp, last_text: event.text, last_kind: 'USER', draft: '', pending: false, working: false, online: true }],
+    updates: [], notifications: [],
+  };
+  const stages = [
+    { name: 'summary before notification', state: base, authoritative: [] },
+    { name: 'resolved notification before echo', state: base, authoritative: [projection] },
+    { name: 'durable echo caught up', state: { ...base, events: [event] }, authoritative: [projection] },
+  ];
+  for (const stage of stages) {
+    const detail = selectSessionDetail(stage.state, streamId, { includeTools: false, visibleCount: 'all' });
+    expect(detail).toBeTruthy();
+    const rows = assemble({ detail: detail!.transcriptItems, authoritative: stage.authoritative });
+    expect({ stage: stage.name, cards: answerRows(rows).map((row) => row.text) }).toEqual({ stage: stage.name, cards: ['Operator answered: continue'] });
+  }
+});
+
+function summaryDetail(text: string, streamId: string) {
+  return selectSessionDetail({
+    connected: true, connecting: false, events: [], drafts: {}, hosts: {}, machineStats: {},
+    sessions: [{ stream_id: streamId, host: 'hostc', provider: 'codex', session_name: 'summary-answer',
+      last_event_at: '2026-09-17T14:33:20.000Z', last_text: text, last_kind: 'USER',
+      draft: '', pending: false, working: false, online: true }],
+    updates: [], notifications: [],
+  }, streamId, { includeTools: false, visibleCount: 'all' })!;
+}
+
+test('equal answer text from another notification survives a warm fallback cache', () => {
+  const first = authoritativeProjection();
+  const streamId = 'hostc:answer-warm-cache';
+  expect(summaryDetail(first.text, streamId).transcriptItems[0].notificationId).toBe(NOTIFICATION_ID);
+  const secondId = '00000000-0000-4000-8000-000000000002';
+  const second = summaryDetail(buildDurableQuestionAnswerText({
+    notificationId: secondId, actionKind: 'answered', selections: ['continue'],
+  }), streamId);
+  expect(second.transcriptItems[0].notificationId).toBe(secondId);
+  expect(answerRows(assemble({ detail: second.transcriptItems, authoritative: [first] }))).toHaveLength(2);
+});
+
+test('partial coverage preserves the fallback answer and identity-free prose is never suppressed', () => {
+  const projection = authoritativeProjection();
+  const partial = summaryDetail(projection.text, 'hostc:partial-answer-fallback');
+  expect(answerRows(assemble({ detail: partial.transcriptItems, authoritative: [{ ...projection, childCount: 2 }] }))).toHaveLength(2);
+  const prose = summaryDetail('Operator answered: continue', 'hostc:ordinary-answer-prose');
+  const rows = assemble({ detail: prose.transcriptItems, authoritative: [projection] });
+  expect(rows).toHaveLength(2);
+  expect(rows.some((row) => row.displayRule === 'bubble:user' && row.text === 'Operator answered: continue')).toBe(true);
+});
+
+test('the native staged fixture reaches every real selector and durable-projection state', () => {
+  const fixture = JSON.parse(readFileSync('test/e2e/fixtures/scripted_daemon/answer_fallback_reconcile.json', 'utf8'));
+  const projections = resolvedDurableQuestionProjections(fixture.resolved_notification);
+  expect(projections).toHaveLength(1);
+  expect(projections[0].key).toBe('durable:answer-reconcile-notification:answer-reconcile-question');
+  const base = { connected: true, connecting: false, drafts: {}, hosts: {}, machineStats: {}, updates: [], notifications: [], ...fixture.snapshot };
+  const streamId = fixture.snapshot.sessions[0].stream_id;
+  for (const [events, authoritative] of [[[], []], [[], projections], [[fixture.echo], projections]] as const) {
+    const detail = selectSessionDetail({ ...base, events }, streamId, { includeTools: false, visibleCount: 'all' });
+    const rows = assembleSessionTranscriptRows(authoritative, {}, detail!.transcriptItems, new Map());
+    expect(rows).toHaveLength(1);
+    expect(rows[0].text).toBe('Operator answered: Keep one answer.');
+  }
+});
 
 test('AC2: the live notice echo + authoritative projection assemble to exactly one card, zero raw markers', () => {
   const rows = assemble({

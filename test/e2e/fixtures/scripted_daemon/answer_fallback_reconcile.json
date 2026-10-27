@@ -1,0 +1,70 @@
+{
+  "name": "answer_fallback_reconcile",
+  "snapshot": {
+    "sessions": [
+      {
+        "stream_id": "mock-host:mock-session",
+        "host": "mock-host",
+        "provider": "codex",
+        "session_name": "mock-session",
+        "last_text": "{\"type\":\"notification.answer\",\"notification_id\":\"answer-reconcile-notification\",\"question_id\":\"answer-reconcile-question\",\"answer\":{\"action_kind\":\"resolved\",\"text\":\"Keep one answer.\"}}",
+        "last_kind": "USER",
+        "last_event_at": "2026-01-01T12:00:00Z",
+        "online": true,
+        "working": false
+      }
+    ],
+    "events": []
+  },
+  "resolved_notification": {
+    "notification_id": "answer-reconcile-notification",
+    "stream_id": "mock-host:mock-session",
+    "producer": "agent_question.v1",
+    "state": "resolved",
+    "severity": "info",
+    "title": "Answer reconciliation",
+    "body": "Keep one answer.",
+    "resolved_at": "2026-01-01T12:00:00Z",
+    "actions": [
+      {
+        "kind": "ack",
+        "action_id": "answer-reconcile-submit"
+      }
+    ],
+    "resolution": {
+      "action_kind": "resolved",
+      "text": "Keep one answer.",
+      "at": "2026-01-01T12:00:00Z"
+    },
+    "question": {
+      "schema_version": 1,
+      "question_id": "answer-reconcile-question",
+      "dedup_key": "answer-reconcile-question",
+      "producer_stream_id": "mock-host:mock-session",
+      "producer_provider": "codex",
+      "state": "answered",
+      "response_mode": "free_text",
+      "title": "Answer reconciliation",
+      "body": "Keep one answer.",
+      "options": [
+        {
+          "id": "ack",
+          "label": "Acknowledge"
+        }
+      ],
+      "answer": {
+        "text": "Keep one answer."
+      }
+    }
+  },
+  "echo": {
+    "daemon_seq": 501,
+    "host": "mock-host",
+    "provider": "codex",
+    "session_name": "mock-session",
+    "stream_id": "mock-host:mock-session",
+    "timestamp": "2026-01-01T12:00:00Z",
+    "kind": "USER",
+    "text": "{\"type\":\"notification.answer\",\"notification_id\":\"answer-reconcile-notification\",\"question_id\":\"answer-reconcile-question\",\"answer\":{\"action_kind\":\"resolved\",\"text\":\"Keep one answer.\"}}"
+  }
+}

@@ -350,3 +350,25 @@ The history oracle waits for the fixture's content-bearing page, since the
 modal first reports empty rows while fetching. Free-text answer dispatch and
 roster rendering are independent harness actions; the answer may dispatch
 before the roster opens. Both must be observed in the same bound native run.
+
+## Answer fallback reconciliation
+
+`mock_answer_fallback_reconcile` holds the summary-only, resolved-notification
+and durable-echo states behind native rendering acknowledgements. Its fixture
+uses only synthetic records. Start the existing loopback mock daemon, seed the
+scenario's summary with `seed_summary(config)`, then invoke
+`python3 test/e2e/run_scenario.py mock_answer_fallback_reconcile --env-file
+<owned-env> --runs-dir <fresh-output>` with an installed harness app and the
+exact owned simulator/device-set binding. The environment file must include
+`ws_url=ws://127.0.0.1:<mock-port>`. The scenario releases the resolved record
+only after the fallback mounts, and releases the echo only after the durable
+row mounts. It requires all three stages, one assembled row throughout, no
+pending/queued state, retained answer text, three screenshots and continuous
+runner video. Missing middle-state evidence fails with the echo withheld.
+
+Run the selector-to-screen transitions and identity controls with
+`npx jest --runInBand --runTestsByPath tests/sessionScreenAnswerAssembly.test.ts`.
+Run the native-oracle controls with
+`python3 -m pytest -q test/e2e/tests/test_answer_fallback_native_oracle.py`.
+The fallback keeps the interpreter's notification identity; cached rows compare
+that identity so equal text from a later notification remains a separate answer.
