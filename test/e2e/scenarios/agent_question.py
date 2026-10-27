@@ -234,14 +234,17 @@ def run(config: dict, stream, cap=None) -> Verdict:
     verdict.extras["card_counts"] = actual_counts
 
     # 3. resolve_notification must send the answer over the local daemon RPC.
+    # The app answers an agent question through prompt.answer (answerDaemonPrompt),
+    # not notification.resolve, so the oracle is its dispatch trace followed by the
+    # resolved notification the daemon broadcasts: a selection takes the stored ack action, so acked.
     sent = await_event(
         stream,
-        EventSpec("notification:resolve_sent", where={"notification_id": notification_id, "action_kind": "ack"}, timeout_s=20),
+        EventSpec("harness:ui_trace", where={"kind": "prompt_answer_dispatched", "question_id": "mock-agent-question-main"}, timeout_s=20),
         not_before=card.received_at,
     )
     settled = await_event(
         stream,
-        EventSpec("notification:resolve_settled", where={"notification_id": notification_id, "state": "acked"}, timeout_s=20),
+        EventSpec("notification:frame_applied", where={"notification_id": notification_id, "state": "acked"}, timeout_s=20),
         not_before=sent.received_at if sent else card.received_at,
     )
     if not sent or not settled:

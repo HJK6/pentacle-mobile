@@ -121,6 +121,22 @@ def preflight(config: dict, _repo_root: Path | None = None) -> str | None:
     return None
 
 
+def await_daemon_resolve(log_path: Path, timeout_s: float = 15.0) -> dict | None:
+    """Return the injector's `notification.resolve` log row: the answer the daemon woke it with."""
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        if log_path.exists():
+            for line in log_path.read_text(encoding="utf-8").splitlines():
+                try:
+                    row = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if row.get("event") == "notification.resolve":
+                    return row
+        time.sleep(0.2)
+    return None
+
+
 def await_mock_session_open(stream, *, name: str) -> Verdict | None:
     ws_open = await_event(stream, EventSpec("chat:ws_open", timeout_s=20))
     if not ws_open:

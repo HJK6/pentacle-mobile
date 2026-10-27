@@ -79,8 +79,19 @@
         "actions": [
           {
             "kind": "ack",
-            "action_id": "overlay-action-0",
-            "label": "Submit"
+            "action_id": "overlay-action-0-proceed",
+            "label": "Proceed",
+            "value": {
+              "answer": "proceed"
+            }
+          },
+          {
+            "kind": "ack",
+            "action_id": "overlay-action-0-wait",
+            "label": "Wait",
+            "value": {
+              "answer": "wait"
+            }
           }
         ],
         "question": {
@@ -123,8 +134,19 @@
         "actions": [
           {
             "kind": "ack",
-            "action_id": "overlay-action-1",
-            "label": "Submit"
+            "action_id": "overlay-action-1-proceed",
+            "label": "Proceed",
+            "value": {
+              "answer": "proceed"
+            }
+          },
+          {
+            "kind": "ack",
+            "action_id": "overlay-action-1-wait",
+            "label": "Wait",
+            "value": {
+              "answer": "wait"
+            }
           }
         ],
         "question": {
@@ -167,8 +189,19 @@
         "actions": [
           {
             "kind": "ack",
-            "action_id": "overlay-action-2",
-            "label": "Submit"
+            "action_id": "overlay-action-2-proceed",
+            "label": "Proceed",
+            "value": {
+              "answer": "proceed"
+            }
+          },
+          {
+            "kind": "ack",
+            "action_id": "overlay-action-2-wait",
+            "label": "Wait",
+            "value": {
+              "answer": "wait"
+            }
           }
         ],
         "question": {

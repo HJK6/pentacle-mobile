@@ -75,6 +75,7 @@ import {
 } from 'pentacle-chat-core';
 import { logFocusedTab } from '../../src/services/mobileTabsTelemetry';
 import * as harnessRuntime from '../../src/utils/harnessRuntime';
+import { plainInlineMarkdown } from '../../src/utils/plainInlineMarkdown';
 import ReportViewerModal from '../../src/components/ReportViewerModal';
 import { reportUnreadCount, useSessionReports } from '../../src/services/pentacleAssets';
 import { MOBILE_TELEMETRY_EVENTS } from '../../src/services/mobileTelemetryEvents';
@@ -482,8 +483,10 @@ export function selectSmartChatList(
     .map((chat) => {
       const session = sessionsByStream.get(chat.streamId);
       const machineName = getChatMachineName(chat.host, chat.sessionKind ?? session?.session_kind ?? null);
+      const previewText = plainInlineMarkdown(chat.previewText) || chat.previewText;
       const candidate: SmartChatListItem = {
         ...chat,
+        previewText,
         machineName,
         status_card: session?.status_card ?? null,
         context_tokens: session?.context_tokens ?? null,
@@ -503,7 +506,7 @@ export function selectSmartChatList(
           questionIndex.terminalByStream.get(chat.streamId),
           questionIndex.pendingByStream.get(chat.streamId),
         ),
-        latestMessages: latestMessagesForStream(eventIndex.latestMessagesByStream, chat.streamId, chat.previewText),
+        latestMessages: latestMessagesForStream(eventIndex.latestMessagesByStream, chat.streamId, previewText),
         lastEventMs: Number.isFinite(Date.parse(session?.last_event_at || '')) ? Date.parse(session?.last_event_at || '') : 0,
       };
       const previous = previousByStream.get(candidate.streamId);

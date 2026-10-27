@@ -245,3 +245,229 @@ def test_daemon_stats_counts_clients(registry):
             await server.wait_closed()
 
     asyncio.run(scenario())
+
+
+def _question_notification(actions: list[dict]) -> dict:
+    return {"producer": "agent_question.v1", "severity": "info", "title": "Mock durable question",
+            "body": "Answer it.", "actions": actions,
+            "question": {"schema_version": 1, "question_id": "mock-q-1", "response_mode": "free_text"}}
+
+
+async def _inject_question(app, harness, actions: list[dict]) -> str:
+    await harness.send(json.dumps({"type": "debug_replay_notification", "request_id": "n1",
+                                   "notification": _question_notification(actions)}))
+    ack = json.loads(await asyncio.wait_for(harness.recv(), timeout=5))
+    assert ack["type"] == "debug_replay_notification.ack" and ack["status"] == "ok"
+    pushed = json.loads(await asyncio.wait_for(app.recv(), timeout=5))
+    assert pushed["type"] == "notification" and pushed["notification"]["state"] == "open"
+    assert pushed["notification"]["question"]["state"] == "open"
+    return ack["notification"]["notification_id"]
+
+
+def test_notification_resolve_settles_like_v2_and_wakes_await(registry):
+    """The app's notification.resolve gets v2's resolve.ok (ack action -> acked) and the
+    injector's notification.await returns only then, carrying the submitted answer."""
+    _reg, cred_id, envelope, reg_path = registry
+
+    async def scenario():
+        daemon, server, url = await _boot(reg_path)
+        try:
+            async with websockets.connect(url, max_size=None) as app, websockets.connect(url, max_size=None) as harness:
+                await _app_hello(app, cred_id, envelope, subscribe={"snapshot": True})
+                for _ in range(3):
+                    await asyncio.wait_for(app.recv(), timeout=5)
+                await _harness_hello(harness)
+                nid = await _inject_question(app, harness, [{"kind": "ack", "action_id": "free-text-action", "label": "Submit"}])
+                await harness.send(json.dumps({"type": "notification.await", "request_id": "w1", "notification_id": nid, "timeout": 5}))
+                with pytest.raises(asyncio.TimeoutError):
+                    await asyncio.wait_for(harness.recv(), timeout=0.3)
+                await app.send(json.dumps({"type": "notification.resolve", "request_id": "r1", "notification_id": nid,
+                                           "action_kind": "ack", "question_id": "mock-q-1", "text": "exact answer", "note": "a note"}))
+                frames = [json.loads(await asyncio.wait_for(app.recv(), timeout=5)) for _ in range(2)]
+                ok = next(f for f in frames if f["type"] == "notification.resolve.ok")
+                assert ok["request_id"] == "r1" and ok["replayed"] is False
+                assert ok["notification"]["state"] == "acked"
+                assert ok["notification"]["resolution"]["action_kind"] == "ack"
+                broadcast = next(f for f in frames if f["type"] == "notification")
+                assert broadcast["notification"]["state"] == "acked"
+                assert broadcast["notification"]["question"]["state"] == "answered"
+                woke = json.loads(await asyncio.wait_for(harness.recv(), timeout=5))
+                assert woke["type"] == "notification.await.ok" and woke["request_id"] == "w1"
+                assert woke["answer"]["action_kind"] == "ack"
+                assert woke["answer"]["text"] == "exact answer" and woke["answer"]["note"] == "a note"
+        finally:
+            server.close()
+            await server.wait_closed()
+
+    asyncio.run(scenario())
+
+
+def test_notification_resolve_selection_takes_stored_action_kind(registry):
+    """As in v2, a selection resolves with the matching stored action's kind (yes_no -> answered)."""
+    _reg, cred_id, envelope, reg_path = registry
+
+    async def scenario():
+        daemon, server, url = await _boot(reg_path)
+        try:
+            async with websockets.connect(url, max_size=None) as app, websockets.connect(url, max_size=None) as harness:
+                await _app_hello(app, cred_id, envelope, subscribe={"snapshot": True})
+                for _ in range(3):
+                    await asyncio.wait_for(app.recv(), timeout=5)
+                await _harness_hello(harness)
+                nid = await _inject_question(app, harness, [
+                    {"kind": "yes_no", "action_id": "a-approve", "label": "Approve", "value": "approve", "choice": True},
+                    {"kind": "yes_no", "action_id": "a-decline", "label": "Decline", "value": "decline", "choice": False},
+                ])
+                await app.send(json.dumps({"type": "notification.resolve", "request_id": "r2", "notification_id": nid,
+                                           "action_kind": "ack", "selections": ["decline"]}))
+                frames = [json.loads(await asyncio.wait_for(app.recv(), timeout=5)) for _ in range(2)]
+                ok = next(f for f in frames if f["type"] == "notification.resolve.ok")
+                assert ok["notification"]["state"] == "answered"
+                resolution = ok["notification"]["resolution"]
+                assert resolution["action_kind"] == "yes_no" and resolution["action_id"] == "a-decline"
+                assert resolution["choice"] is False and resolution["selections"] == ["decline"]
+                await harness.send(json.dumps({"type": "notification.await", "request_id": "w2", "notification_id": nid, "timeout": 5}))
+                woke = json.loads(await asyncio.wait_for(harness.recv(), timeout=5))
+                assert woke["type"] == "notification.await.ok" and woke["answer"]["selections"] == ["decline"]
+        finally:
+            server.close()
+            await server.wait_closed()
+
+    asyncio.run(scenario())
+
+
+async def _prompt_answer_scenario(reg_path, cred_id, envelope, *, actions, response_mode, answer, options=None, question_notification=None):
+    daemon, server, url = await _boot(reg_path)
+    try:
+        async with websockets.connect(url, max_size=None) as app, websockets.connect(url, max_size=None) as harness:
+            await _app_hello(app, cred_id, envelope, subscribe={"snapshot": True})
+            for _ in range(3):
+                await asyncio.wait_for(app.recv(), timeout=5)
+            await _harness_hello(harness)
+            notification = question_notification or _question_notification(actions)
+            notification["question"]["response_mode"] = response_mode
+            notification["question"]["options"] = options or []
+            await harness.send(json.dumps({"type": "debug_replay_notification", "request_id": "n1", "notification": notification}))
+            nid = json.loads(await asyncio.wait_for(harness.recv(), timeout=5))["notification"]["notification_id"]
+            await asyncio.wait_for(app.recv(), timeout=5)
+            await harness.send(json.dumps({"type": "notification.await", "request_id": "w1", "notification_id": nid, "timeout": 5}))
+            await app.send(json.dumps({"type": "prompt.answer", "request_id": "p1", "question_id": notification["question"]["question_id"], **answer}))
+            frames = [json.loads(await asyncio.wait_for(app.recv(), timeout=5)) for _ in range(2)]
+            woke = json.loads(await asyncio.wait_for(harness.recv(), timeout=5))
+            return frames, woke
+    finally:
+        server.close()
+        await server.wait_closed()
+
+
+def test_prompt_answer_free_text_resolves_the_question_like_v2(registry):
+    """v2 _answer_free_text: the app's prompt.answer resolves the linked notification as
+    `resolved` with the text, broadcasts it, leaves the question answered and wakes await."""
+    _reg, cred_id, envelope, reg_path = registry
+    frames, woke = asyncio.run(_prompt_answer_scenario(
+        reg_path, cred_id, envelope, actions=[{"kind": "ack", "action_id": "free-text-action", "label": "Submit"}],
+        response_mode="free_text", answer={"text": "exact answer"}))
+    ok = next(f for f in frames if f["type"] == "prompt.answer.ok")
+    assert ok["request_id"] == "p1" and ok["ok"] is True and ok["question"]["state"] == "answered"
+    assert ok["notification"]["state"] == "resolved"
+    broadcast = next(f for f in frames if f["type"] == "notification")
+    assert broadcast["notification"]["state"] == "resolved"
+    assert broadcast["notification"]["question"]["state"] == "answered"
+    assert woke["type"] == "notification.await.ok"
+    assert woke["answer"]["action_kind"] == "resolved" and woke["answer"]["text"] == "exact answer"
+
+
+def test_prompt_answer_choice_takes_stored_action_kind_and_custom_text(registry):
+    """v2 _answer_choice: a selection takes the stored action's kind and text rides as custom_text."""
+    _reg, cred_id, envelope, reg_path = registry
+    frames, woke = asyncio.run(_prompt_answer_scenario(
+        reg_path, cred_id, envelope, actions=[{"kind": "ack", "action_id": "answer-2", "label": "Answer 2", "value": "2"}],
+        response_mode="single_choice", answer={"selections": ["2"], "text": "a note"},
+        options=[{"value": "2", "label": "Answer 2"}]))
+    broadcast = next(f for f in frames if f["type"] == "notification")
+    assert broadcast["notification"]["state"] == "acked"
+    assert broadcast["notification"]["resolution"]["action_id"] == "answer-2"
+    assert woke["answer"]["selections"] == ["2"] and woke["answer"]["custom_text"] == "a note"
+
+
+@pytest.mark.parametrize("action_value", ["proceed", {"answer": "proceed"}])
+def test_prompt_answer_choice_matches_v2_action_values(registry, action_value):
+    _reg, cred_id, envelope, reg_path = registry
+    frames, woke = asyncio.run(_prompt_answer_scenario(
+        reg_path, cred_id, envelope,
+        actions=[{"kind": "ack", "action_id": "a-proceed", "label": "Proceed", "value": action_value}],
+        response_mode="single_choice", options=[{"value": "proceed", "label": "Proceed"}],
+        answer={"selections": ["proceed"]}))
+    notification = next(f["notification"] for f in frames if f["type"] == "notification")
+    assert notification["state"] == "acked"
+    assert notification["resolution"]["action_id"] == "a-proceed"
+    assert woke["answer"]["action_kind"] == "ack"
+
+
+@pytest.mark.parametrize("answer,actions,mode", [
+    ({"selections": ["bad"]}, True, "single_choice"),
+    ({}, True, "single_choice"),
+    ({"selections": []}, True, "single_choice"),
+    ({"selections": ["proceed", "proceed"]}, True, "multi_choice"),
+    ({"selections": ["proceed", "wait"]}, True, "single_choice"),
+    ({"selections": [3]}, True, "single_choice"),
+    ({"selections": "proceed"}, True, "single_choice"),
+    ({"selections": ["proceed"]}, False, "single_choice"),
+    ({"selections": ["proceed"]}, True, "unknown"),
+    ({"selections": ["proceed"], "value": "proceed"}, True, "single_choice"),
+])
+def test_prompt_answer_invalid_choice_keeps_notification_open(registry, answer, actions, mode):
+    _reg, cred_id, envelope, reg_path = registry
+
+    async def scenario():
+        daemon, server, url = await _boot(reg_path)
+        try:
+            async with websockets.connect(url, max_size=None) as app, websockets.connect(url, max_size=None) as harness:
+                await _app_hello(app, cred_id, envelope, subscribe={"snapshot": True})
+                for _ in range(3):
+                    await asyncio.wait_for(app.recv(), timeout=5)
+                await _harness_hello(harness)
+                notification = _question_notification(
+                    [{"kind": "ack", "action_id": "a-proceed", "value": {"answer": "proceed"}}] if actions else [])
+                notification["question"].update(response_mode=mode, options=[
+                    {"value": "proceed", "label": "Proceed"}, {"value": "wait", "label": "Wait"}])
+                await harness.send(json.dumps({"type": "debug_replay_notification", "request_id": "n-invalid", "notification": notification}))
+                nid = json.loads(await asyncio.wait_for(harness.recv(), timeout=5))["notification"]["notification_id"]
+                await asyncio.wait_for(app.recv(), timeout=5)
+                await app.send(json.dumps({"type": "prompt.answer", "request_id": "p-invalid", "question_id": "mock-q-1", **answer}))
+                reply = json.loads(await asyncio.wait_for(app.recv(), timeout=5))
+                assert reply["type"] == "prompt.error"
+                assert reply["request_id"] == "p-invalid" and reply["error_code"] == "prompt_invalid"
+                assert daemon.notifications[nid]["state"] == "open"
+                assert daemon.notifications[nid]["question"]["state"] == "open"
+        finally:
+            server.close()
+            await server.wait_closed()
+
+    asyncio.run(scenario())
+
+
+def test_prompt_answer_choice_custom_text_only_remains_valid(registry):
+    _reg, cred_id, envelope, reg_path = registry
+    frames, woke = asyncio.run(_prompt_answer_scenario(
+        reg_path, cred_id, envelope, actions=[], response_mode="single_choice",
+        options=[{"value": "proceed", "label": "Proceed"}], answer={"text": "another answer"}))
+    notification = next(f["notification"] for f in frames if f["type"] == "notification")
+    assert notification["state"] == "resolved"
+    assert woke["answer"]["custom_text"] == "another answer"
+
+
+@pytest.mark.parametrize("index", range(3))
+@pytest.mark.parametrize("selection", ["proceed", "wait"])
+def test_overlay_fixture_choices_resolve_like_v2(registry, index, selection):
+    _reg, cred_id, envelope, reg_path = registry
+    path = Path(__file__).resolve().parents[1] / "fixtures/scripted_daemon/questions_overlay_partial_submit.json"
+    notification = json.loads(path.read_text())["notifications"][index]["notification"]
+    frames, woke = asyncio.run(_prompt_answer_scenario(
+        reg_path, cred_id, envelope, actions=notification["actions"], response_mode="single_choice",
+        options=notification["question"]["options"], question_notification=notification,
+        answer={"selections": [selection]}))
+    broadcast = next(f["notification"] for f in frames if f["type"] == "notification")
+    assert broadcast["state"] == "acked" and broadcast["question"]["state"] == "answered"
+    assert broadcast["resolution"]["action_id"] == f"overlay-action-{index}-{selection}"
+    assert woke["answer"]["selections"] == [selection]

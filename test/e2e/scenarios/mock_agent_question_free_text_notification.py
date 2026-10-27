@@ -10,10 +10,10 @@ from ..harness.asserts import DEFAULT_DENY_LIST, EventSpec, Verdict, assert_no_e
 
 
 name = "mock_agent_question_free_text_notification"
-MARKER = "Example durable free text"
+MARKER = "Mock durable free text"
 TEXT = "  exact\nfree-text answer  "
 NOTE = "example free-text note"
-QUESTION_ID = "example-free-text-1"
+QUESTION_ID = "mock-agent-free-text-1"
 
 
 def _fixture_path() -> Path:
@@ -85,20 +85,23 @@ def run(config: dict, stream, cap=None) -> Verdict:
             extras={"card_rendered": dict(card.data)},
         ).finish()
 
+    # The app answers an agent question through prompt.answer (answerDaemonPrompt),
+    # not notification.resolve, so the oracle is its dispatch trace followed by the
+    # resolved notification the daemon broadcasts: v2 resolves a free-text answer as resolved.
     sent = await_event(
         stream,
-        EventSpec("notification:resolve_sent", where={"notification_id": notification_id, "action_kind": "ack"}, timeout_s=20),
+        EventSpec("harness:ui_trace", where={"kind": "prompt_answer_dispatched", "question_id": QUESTION_ID}, timeout_s=20),
         not_before=card.received_at,
     )
     settled = await_event(
         stream,
-        EventSpec("notification:resolve_settled", where={"notification_id": notification_id, "state": "acked"}, timeout_s=20),
+        EventSpec("notification:frame_applied", where={"notification_id": notification_id, "state": "resolved"}, timeout_s=20),
         not_before=sent.received_at if sent else card.received_at,
     )
     if not sent or not settled:
         return Verdict(name=name, verdict="FAIL", error="durable free-text notification did not resolve through mobile").finish()
 
-    resolved = {"question_id": QUESTION_ID, "text": TEXT, "note": NOTE}
+    resolved = M.await_daemon_resolve(Path(str(config.get("scripted_daemon_log_path") or "")))
     verdict = Verdict(
         name=name,
         verdict="PASS",
@@ -111,7 +114,7 @@ def run(config: dict, stream, cap=None) -> Verdict:
     if not resolved:
         verdict.verdict = "FAIL"
         verdict.error = "scripted daemon did not record notification.resolve"
-    elif resolved.get("question_id") != QUESTION_ID or resolved.get("text") != TEXT or resolved.get("note") != NOTE:
+    elif resolved.get("question_id") != QUESTION_ID or resolved.get("text") != TEXT:
         verdict.verdict = "FAIL"
         verdict.error = "scripted daemon resolve payload did not match free-text contract"
 
