@@ -16,7 +16,7 @@ def trace():
     stages = {
         'summary_list': listed(1, scenario.FALLBACK_ID), 'summary_mount': mounted(1.1, scenario.FALLBACK_ID),
         'durable_list': listed(2, scenario.DURABLE_ID), 'durable_mount': mounted(2.1, scenario.DURABLE_ID),
-        'echo': _event('chat:event_received', 3, stream_id=scenario.M.STREAM_ID, seq=501),
+        'echo': _event('chat:event_received', 3, stream_id=scenario.M.STREAM_ID, seq=460967976),
     }
     return list(stages.values()), stages
 
@@ -45,7 +45,7 @@ def test_native_oracle_rejects_incomplete_or_duplicate_answer_evidence(fault):
     elif fault == 'durable_loss':
         events.append(_event('harness:row_rendered', 3.1, component_name='TranscriptRow', row_id=scenario.DURABLE_ID, lifecycle='unmount', text_prefix=scenario.TEXT))
     elif fault == 'wrong_echo':
-        stages['echo'].data['seq'] = 502
+        stages['echo'].data['seq'] = 460967977
     elif fault == 'wrong_mount':
         stages['durable_mount'].data['row_id'] = 'unrelated'
     else:

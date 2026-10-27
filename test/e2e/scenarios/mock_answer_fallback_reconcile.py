@@ -78,7 +78,7 @@ def evaluate_trace(events, stages):
         }.items()):
             errors.append('stage lacks the bound rendered native answer')
     echo = stages['echo']
-    if echo.message != 'chat:event_received' or echo.data.get('stream_id') != M.STREAM_ID or echo.data.get('seq') != 501:
+    if echo.message != 'chat:event_received' or echo.data.get('stream_id') != M.STREAM_ID or echo.data.get('seq') != 460967976:
         errors.append('terminal echo identity is missing')
     if max(stages['summary_list'].received_at, stages['summary_mount'].received_at) >= min(stages['durable_list'].received_at, stages['durable_mount'].received_at) or echo.received_at <= max(stages['durable_list'].received_at, stages['durable_mount'].received_at):
         errors.append('reconciliation stage barriers are out of order')
@@ -126,7 +126,7 @@ def run(config, stream, cap=None):
     if cap:
         cap.screenshot('answer-resolved-no-echo')
     fixture_rpc(config, 'debug_replay_event', {'event': fixture(config)['echo'], 'expected_stream_id': M.STREAM_ID})
-    stages['echo'] = await_event(stream, EventSpec('chat:event_received', {'stream_id': M.STREAM_ID, 'seq': 501}, 20), not_before=stages['durable_list'].received_at)
+    stages['echo'] = await_event(stream, EventSpec('chat:event_received', {'stream_id': M.STREAM_ID, 'seq': 460967976}, 20), not_before=stages['durable_list'].received_at)
     _hold(stream)
     if cap:
         cap.screenshot('answer-echo-reconciled')

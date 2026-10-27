@@ -9,6 +9,8 @@ import {
 import { buildDurableQuestionAnswerText } from '../src/services/agentQuestionNotifications';
 import { isSessionSending, selectSessionDetail } from 'pentacle-chat-core';
 import { voiceTakeRow, type VoiceTake } from '../src/services/voiceDelivery';
+import { selectSessionShellSlice } from '../src/services/pentacleStream';
+import { selectChatOpenLoadState } from '../src/services/chatOpenLoadState';
 import type { PentacleSessionSummary, PentacleTranscriptItem } from 'pentacle-chat-core';
 
 jest.mock('expo-constants', () => require('./helpers/stubs/expoConstants.cjs'));
@@ -173,7 +175,11 @@ test('the native staged fixture reaches every real selector and durable-projecti
   expect(projections[0].key).toBe('durable:answer-reconcile-notification:answer-reconcile-question');
   const base = { connected: true, connecting: false, drafts: {}, hosts: {}, machineStats: {}, updates: [], notifications: [], ...fixture.snapshot };
   const streamId = fixture.snapshot.sessions[0].stream_id;
-  for (const [events, authoritative] of [[[], []], [[], projections], [[fixture.echo], projections]] as const) {
+  const shell = selectSessionShellSlice({ ...base, eventBucketsByStream: {
+    [streamId]: { events: fixture.snapshot.events, request: { status: 'ready' } },
+  } } as any, streamId);
+  expect(selectChatOpenLoadState(shell).list).toBe('authoritative');
+  for (const [events, authoritative] of [[fixture.snapshot.events, []], [fixture.snapshot.events, projections], [[...fixture.snapshot.events, fixture.echo], projections]] as const) {
     const detail = selectSessionDetail({ ...base, events }, streamId, { includeTools: false, visibleCount: 'all' });
     const rows = assembleSessionTranscriptRows([...authoritative], {}, detail!.transcriptItems, new Map());
     expect(rows).toHaveLength(1);
