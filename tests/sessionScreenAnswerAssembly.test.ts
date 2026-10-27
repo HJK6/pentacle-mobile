@@ -178,7 +178,7 @@ test('the native staged fixture reaches every real selector and durable-projecti
   const shell = selectSessionShellSlice({ ...base, eventBucketsByStream: {
     [streamId]: { events: fixture.snapshot.events, request: { status: 'ready' } },
   } } as any, streamId);
-  expect(selectChatOpenLoadState(shell).list).toBe('authoritative');
+  expect(selectChatOpenLoadState({ ...shell, preview: Boolean(shell.preview) }).list).toBe('authoritative');
   for (const [events, authoritative] of [[fixture.snapshot.events, []], [fixture.snapshot.events, projections], [[...fixture.snapshot.events, fixture.echo], projections]] as const) {
     const detail = selectSessionDetail({ ...base, events }, streamId, { includeTools: false, visibleCount: 'all' });
     const rows = assembleSessionTranscriptRows([...authoritative], {}, detail!.transcriptItems, new Map());
