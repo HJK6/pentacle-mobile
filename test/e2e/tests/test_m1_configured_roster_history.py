@@ -50,7 +50,12 @@ def supplied(tmp_path, monkeypatch):
               "m1_child_stream_id": "hostx:owned-child", "m1_parent_generation": "parent-generation",
               "m1_child_generation": "child-generation", "m1_child_name": "Owned worker",
               "m1_expected_rows": json.dumps([{"row_id": "tell:owned-row", "text": "Owned synthetic history."}])}
-    return config, token, path
+    yield config, token, path
+    # Input placeholders are not retained test evidence.
+    for name in ("fake-token", "token-link", "token-fifo", "synthetic.env"):
+        owned = tmp_path / name
+        if owned.exists() or owned.is_symlink():
+            owned.unlink()
 
 
 def wire(config):
