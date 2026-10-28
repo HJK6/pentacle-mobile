@@ -126,8 +126,9 @@ Reduced modes (the production path only; same admission, daemon, proxy and teard
 
 iOS system alerts are pressed only when they match exactly: `Open in “Pentacle”?` → **Open** (the deep-link
 confirmation) and `“Pentacle” Would Like to Send You Notifications` → **Don’t Allow**. Each press saves an
-accessibility dump under `evidence/ax/`. A known alert without its exact button stops the run with
-SETUP_FAIL. Other alerts are never pressed: the step times out with a dump. Every failed step saves a screenshot and an
+accessibility dump under `evidence/ax/`. The two can chain (Open, then the notification prompt). Once the last one
+is pressed, the app must be back in front, or the run stops with SETUP_FAIL (system UI interception). A known
+alert without its exact button stops the run with SETUP_FAIL. Other alerts are never pressed: the step times out with a dump. Every failed step saves a screenshot and an
 accessibility dump (`ax/*-failure-<step>.json`).
 
 Taps go to screen points, and the accessibility tree also lists off-screen scroll content. Every tap target whose

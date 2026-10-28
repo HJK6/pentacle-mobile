@@ -42,9 +42,9 @@ def test_navigation_tap_checks_foreground_after_input(tmp_path, monkeypatch):
 
 
 def test_exact_system_alert_exempts_precheck_but_checks_return(tmp_path, monkeypatch):
-    ui, calls = make_ui(tmp_path, monkeypatch, ["com.example.pentacle"])
+    ui, calls = make_ui(tmp_path, monkeypatch, ["com.example.pentacle", "com.example.pentacle"])
     button = {"AXLabel": "Open", "type": "Button", "frame": {"x": 10, "y": 10, "width": 44, "height": 44}}
-    screens = iter([[{"AXLabel": "Open in “Pentacle”?", "type": "StaticText"}, button], []])
+    screens = iter([[{"AXLabel": "Open in “Pentacle”?", "type": "StaticText"}, button], [], []])
     ui.elements = lambda: next(screens)
     ui.dump = lambda *_args: Path(tmp_path) / "dump"
     assert ui.clear_system_alerts() == ["Open in “Pentacle”?"]
@@ -121,3 +121,79 @@ def test_foreground_is_checked_before_lookup_can_report_product_failure(tmp_path
     with pytest.raises(run.SystemUIInterception):
         ui.tap('target')
     assert calls == []
+
+
+OPEN = [{"AXLabel": "Open in “Pentacle”?", "type": "StaticText"},
+        {"AXLabel": "Cancel", "type": "Button", "frame": {"x": 10, "y": 10, "width": 44, "height": 44}},
+        {"AXLabel": "Open", "type": "Button", "frame": {"x": 60, "y": 10, "width": 44, "height": 44}}]
+NOTIFY = [{"AXLabel": "“Pentacle” Would Like to Send You Notifications", "type": "StaticText"},
+          {"AXLabel": "Don’t Allow", "type": "Button", "frame": {"x": 10, "y": 60, "width": 44, "height": 44}},
+          {"AXLabel": "Allow", "type": "Button", "frame": {"x": 60, "y": 60, "width": 44, "height": 44}}]
+
+
+def chain_ui(tmp_path, monkeypatch, screens, foregrounds=None):
+    """Each tap advances to the next screen; the app is foreground only when no alert is up, unless overridden."""
+    ui, calls = make_ui(tmp_path, monkeypatch, [])
+    state = {"screen": 0, "reads": 0}
+    ui.elements = lambda: screens[state["screen"]]
+    ui._idb = lambda *args: (calls.append(args), state.update(screen=min(state["screen"] + 1, len(screens) - 1)),
+                             subprocess.CompletedProcess(args, 0, "", ""))[-1]
+    ui.dump = lambda *_args: Path(tmp_path) / "dump"
+    planned = iter(foregrounds) if foregrounds is not None else None
+
+    def read_foreground():
+        state["reads"] += 1
+        if planned is not None:
+            value = next(planned, "exhausted")
+            assert value != "exhausted", "unexpected foreground read"
+            return value
+        labels = {run._norm(element.get("AXLabel")) for element in screens[state["screen"]]}
+        return None if labels & {run._norm(title) for title in run.SYSTEM_ALERTS} else "com.example.pentacle"
+    ui.read_foreground = read_foreground
+    return ui, calls, state
+
+
+def test_chained_allow_listed_alert_is_pressed_then_app_return_checked(tmp_path, monkeypatch):
+    ui, calls, state = chain_ui(tmp_path, monkeypatch, [OPEN, NOTIFY, []])
+    assert ui.clear_system_alerts() == ["Open in “Pentacle”?", "“Pentacle” Would Like to Send You Notifications"]
+    assert len(calls) == 2 and state["reads"] == 2  # after the final tap, and at chain end
+
+
+def test_unknown_ui_after_alert_tap_fails_closed(tmp_path, monkeypatch):
+    unknown = [{"AXLabel": "Allow “Pentacle” to use your location?", "type": "StaticText"},
+               {"AXLabel": "Allow Once", "type": "Button", "frame": {"x": 10, "y": 60, "width": 44, "height": 44}}]
+    ui, calls, _state = chain_ui(tmp_path, monkeypatch, [OPEN, unknown], [None])
+    with pytest.raises(run.SystemUIInterception) as exc:
+        ui.clear_system_alerts()
+    assert len(calls) == 1 and exc.value.foreground == "unavailable"
+
+
+def test_chained_known_alert_without_its_button_is_setup_fail(tmp_path, monkeypatch):
+    ui, calls, _state = chain_ui(tmp_path, monkeypatch, [OPEN, NOTIFY[:1] + NOTIFY[2:]])
+    with pytest.raises(run.SetupFail) as exc:
+        ui.clear_system_alerts()
+    assert not isinstance(exc.value, run.SystemUIInterception) and "Don’t Allow" in str(exc.value)
+    assert len(calls) == 1
+
+
+def test_chain_end_without_app_in_front_fails_closed(tmp_path, monkeypatch):
+    ui, calls, _state = chain_ui(tmp_path, monkeypatch, [OPEN, []], ["com.example.pentacle", None])
+    with pytest.raises(run.SystemUIInterception) as exc:
+        ui.clear_system_alerts()
+    assert len(calls) == 1 and exc.value.foreground == "unavailable"
+
+
+@pytest.mark.parametrize("foreground", [None, "com.apple.Preferences"])
+def test_alert_limit_checks_foreground_before_setup_fail(tmp_path, monkeypatch, foreground):
+    ui, calls, _state = chain_ui(tmp_path, monkeypatch, [OPEN, NOTIFY, OPEN, NOTIFY], [foreground])
+    with pytest.raises(run.SystemUIInterception):
+        ui.clear_system_alerts()
+    assert len(calls) == 3
+
+
+def test_alert_limit_with_app_in_front_is_setup_fail(tmp_path, monkeypatch):
+    ui, calls, _state = chain_ui(tmp_path, monkeypatch, [OPEN, NOTIFY, OPEN, NOTIFY], ["com.example.pentacle"])
+    with pytest.raises(run.SetupFail) as exc:
+        ui.clear_system_alerts()
+    assert not isinstance(exc.value, run.SystemUIInterception) and "kept appearing" in str(exc.value)
+    assert len(calls) == 3
