@@ -38,9 +38,13 @@ def test_registered_in_public_native_runner():
 
 
 def test_dangling_probe_action_removed_and_control_mode_adds_stall():
-    assert S.actions(_config()) == ["autoaccept_biometric"]
+    # The mock daemon issues no operator credential: without the standard
+    # disable_pentacle_auth unblocker the app stops at operator_enrollment_required
+    # and never opens the socket (a native run then fails with chat:ws_open missing).
+    assert S.actions(_config()) == ["autoaccept_biometric", "disable_pentacle_auth"]
     assert "chat_list_load_probe" not in S.actions(_config(PENTACLE_ALL_CHATS_MODE="stall_control"))
-    assert S.actions(_config(PENTACLE_ALL_CHATS_MODE="stall_control")) == ["autoaccept_biometric", "chat_list_js_stall"]
+    assert S.actions(_config(PENTACLE_ALL_CHATS_MODE="stall_control")) == [
+        "autoaccept_biometric", "disable_pentacle_auth", "chat_list_js_stall"]
     with pytest.raises(ValueError):
         S.actions(_config(PENTACLE_ALL_CHATS_MODE="stress"))
 

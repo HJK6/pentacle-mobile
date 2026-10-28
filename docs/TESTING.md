@@ -415,7 +415,10 @@ registry), put `ws_url=ws://127.0.0.1:<mock-port>` in the env file, and run
 `python3 test/e2e/run_scenario.py all_chats_load --env-file <owned-env>
 --runs-dir <fresh-output>` with an installed harness app and the owned
 simulator binding. Set `PENTACLE_ASSISTANT_STREAM_ID` when the build uses a
-non-default assistant stream id.
+non-default assistant stream id. The mock issues no operator credential, so
+the scenario arms the standard `autoaccept_biometric` and
+`disable_pentacle_auth` unblockers; without the latter the app stops at
+`operator_enrollment_required` and never opens the socket.
 
 The scenario seeds eight synthetic sessions, a trigger session and the
 assistant session. It then paces 320 events (40 per stream) at an aggregate
