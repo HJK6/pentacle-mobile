@@ -18,6 +18,16 @@ from ..harness import scenario_simctl_command
 CORRECTIVE_DRAG_BUDGET = 4
 
 
+def _transcript_text(element):
+    label = element.get('AXLabel')
+    if isinstance(label, str) and label:
+        return label
+    value = element.get('AXValue')
+    if label in (None, '') and element.get('role') == 'AXStaticText' and isinstance(value, str):
+        return value
+    return None
+
+
 class SystemUIInterception(Exception):
     def __init__(self, foreground, video_timestamp_s):
         self.foreground = foreground or 'unavailable'
@@ -139,7 +149,7 @@ class NativeUI:
     def hit_visible(self, label, *, roster=False):
         try:
             elements = self.elements()
-            rows = self.visible(elements, label=label)
+            rows = [row for row in self.visible(elements) if _transcript_text(row) == label]
             if len(rows) != 1:
                 return False
             row = rows[0]
@@ -157,7 +167,7 @@ class NativeUI:
             identifier = row.get('AXIdentifier') or row.get('AXUniqueId')
             for px, py in points:
                 hit = json.loads(self._command('describe-point', str(px), str(py), '--json'))
-                if not isinstance(hit, dict) or hit.get('AXLabel') != label:
+                if not isinstance(hit, dict) or _transcript_text(hit) != label:
                     return False
                 if identifier and identifier not in (hit.get('AXIdentifier'), hit.get('AXUniqueId')):
                     return False
@@ -171,7 +181,7 @@ class NativeUI:
     def _labeled_frame(self, label):
         # First on-screen (or off-screen) accessibility node for this label.
         for element in self.elements():
-            if element.get('AXLabel') == label and isinstance(element.get('frame'), dict):
+            if _transcript_text(element) == label and isinstance(element.get('frame'), dict):
                 return element['frame']
         return None
 
@@ -225,7 +235,7 @@ class NativeUI:
     def count(self, label):
         # Include off-screen accessibility nodes when checking duplicate rows.
         self.check_foreground()
-        return sum(1 for element in self.elements() if element.get('AXLabel') == label)
+        return sum(1 for element in self.elements() if _transcript_text(element) == label)
 
     def wait(self, identifier=None, label=None, timeout=20):
         deadline = time.monotonic() + timeout
