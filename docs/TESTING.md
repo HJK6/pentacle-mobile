@@ -424,10 +424,15 @@ The scenario seeds eight synthetic sessions, a trigger session and the
 assistant session. It then paces 320 events (40 per stream) at an aggregate
 10 Hz, at least 100 ms apart, recording each frame's lateness. Meanwhile it
 repeatedly taps the real `Sessions, <n> need you` header button and the
-`Close sessions` scrim. Opening counts only when `assistant-drawer-panel` and
-the witness row appear. Closing counts only when the panel disappears. Both
-changes need JS to commit, so a stalled JS thread shows up as latency. A panel
-that was already present never counts as a response. Each transition must be
+`Close sessions` scrim. idb does not expose the drawer's container testID, so
+the probe reads the exposed scrim and `assistant-drawer-row-<id>` buttons.
+Opening counts only when the scrim and the witness row are present, no row sits
+at negative x (mid-slide), and two consecutive reads agree on the rows'
+horizontal geometry. Closing counts only when both the scrim and every drawer
+row are gone. The close tap lands right of the rows and only after
+`describe-point` confirms the scrim there; otherwise the transition fails.
+Both changes need JS to commit, so a stalled JS thread shows up as latency. A
+drawer that was already open never counts as a response. Each transition must be
 observed within 2000 ms (timeout 8000 ms, measured to the end of the observing
 `idb ui describe-all`). The run needs at least six complete cycles, with one
 starting in each third of the burst. Every injected `(stream_id, seq)` must

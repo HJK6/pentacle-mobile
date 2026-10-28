@@ -43,7 +43,7 @@ POLL_INTERVAL_S = 0.05
 CLAIM = "sampled responsiveness at probe instants; not continuous"
 MODES = {"normal", "stall_control"}
 SESSIONS_LABEL = re.compile(r"Sessions, \d+ need you")
-PANEL_ID = "assistant-drawer-panel"
+ROW_PREFIX = "assistant-drawer-row-"
 SCRIM_LABEL = "Close sessions"
 
 
@@ -191,8 +191,27 @@ def _find(elements, *, identifier=None, label=None) -> list[dict]:
     return found
 
 
-def _panel_open(elements) -> bool:
-    return bool(_find(elements, identifier=PANEL_ID))
+# idb exposes no container testID (the drawer panel is a plain Animated.View),
+# so drawer state is read from the exposed scrim button and row buttons.
+def _drawer_rows(elements) -> list[dict]:
+    return [e for e in elements if _ident(e).startswith(ROW_PREFIX) and _frame(e)
+            and _frame(e)["width"] > 0 and _frame(e)["height"] > 0]
+
+
+def _drawer_closed(elements) -> bool:
+    return not _find(elements, label=SCRIM_LABEL) and not _drawer_rows(elements)
+
+
+def _open_signature(elements, require_rows=()) -> tuple | None:
+    """Horizontal row geometry when the drawer reads open, else None. Rows slide
+    in from negative x; reordering under load moves only y, so a slide is still
+    in flight while this signature changes between reads."""
+    rows = _drawer_rows(elements)
+    if not _find(elements, label=SCRIM_LABEL) or not rows or any(_frame(r)["x"] < 0 for r in rows):
+        return None
+    if not all(_find(elements, identifier=ROW_PREFIX + row) for row in require_rows):
+        return None
+    return tuple(sorted({(round(_frame(r)["x"], 1), round(_frame(r)["width"], 1)) for r in rows}))
 
 
 def _centre(frame) -> tuple[int, int]:
@@ -206,11 +225,11 @@ def _open_target(elements) -> tuple[int, int] | None:
 
 def _close_target(ui, elements) -> tuple[int, int] | None:
     roots = [_frame(e) for e in elements if e.get("role") == "AXApplication" and _frame(e)]
-    panels = _find(elements, identifier=PANEL_ID)
-    if len(roots) != 1 or len(panels) != 1:
+    rows = _drawer_rows(elements)
+    if len(roots) != 1 or not rows:
         return None
-    root, panel = roots[0], _frame(panels[0])
-    left_x, right_x = panel["x"] + panel["width"], root["x"] + root["width"]
+    root = roots[0]
+    left_x, right_x = max(_frame(r)["x"] + _frame(r)["width"] for r in rows), root["x"] + root["width"]
     if right_x - left_x < 20:
         return None
     point = int((left_x + right_x) / 2), int(root["y"] + root["height"] / 2)
@@ -222,7 +241,8 @@ def _transition(ui, kind, *, mono, wall, sleep, require_rows=()) -> tuple[dict, 
     want_open = kind == "open"
     elements = ui.elements()
     record = {"kind": kind, "tap_started_mono": None, "tap_started_wall": None, "observed_mono": None,
-              "latency_ms": None, "outcome": "pre_state", "pre_state_ok": _panel_open(elements) != want_open,
+              "latency_ms": None, "outcome": "pre_state",
+              "pre_state_ok": _open_signature(elements) is not None if not want_open else _drawer_closed(elements),
               "polls": 0, "describe_ms": []}
     if not record["pre_state_ok"]:
         return record, elements
@@ -234,14 +254,20 @@ def _transition(ui, kind, *, mono, wall, sleep, require_rows=()) -> tuple[dict, 
     ui.tap_point(*target)
     deadline = record["tap_started_mono"] + TRANSITION_TIMEOUT_MS / 1000
     record["outcome"] = "timeout"
+    previous = None
     while mono() < deadline:
         before = mono()
         elements = ui.elements()
         after = mono()
         record["polls"] += 1
         record["describe_ms"].append(round((after - before) * 1000, 1))
-        rows_ready = all(_find(elements, identifier=f"assistant-drawer-row-{row}") for row in require_rows)
-        if _panel_open(elements) == want_open and (not want_open or rows_ready):
+        if want_open:
+            # Settled: the same open geometry on two consecutive reads.
+            signature = _open_signature(elements, require_rows)
+            done, previous = signature is not None and signature == previous, signature
+        else:
+            done = _drawer_closed(elements)
+        if done:
             # Conservative upper bound: the observing describe-all has returned.
             record["observed_mono"], record["outcome"] = after, "observed"
             record["latency_ms"] = round((after - record["tap_started_mono"]) * 1000, 1)
@@ -257,7 +283,7 @@ def probe_cycle(ui, *, mono=time.monotonic, wall=time.time, sleep=time.sleep, re
     cycle["transitions"].append(opened)
     if opened["outcome"] != "observed":
         return cycle
-    cycle["rows_present"] = [s for s in BURST_STREAM_IDS if _find(elements, identifier=f"assistant-drawer-row-{s}")]
+    cycle["rows_present"] = [s for s in BURST_STREAM_IDS if _find(elements, identifier=ROW_PREFIX + s)]
     closed, _ = _transition(ui, "close", mono=mono, wall=wall, sleep=sleep)
     cycle["transitions"].append(closed)
     ui.check_foreground()

@@ -181,15 +181,15 @@ def test_injector_through_public_mock_reaches_app_client():
 ROOT = {"role": "AXApplication", "frame": {"x": 0, "y": 0, "width": 400, "height": 800}, "pid": 1}
 BUTTON = {"AXLabel": "Sessions, 2 need you", "role": "AXButton", "frame": {"x": 10, "y": 60, "width": 40, "height": 40}}
 SCRIM = {"AXLabel": "Close sessions", "role": "AXButton", "frame": {"x": 0, "y": 0, "width": 400, "height": 800}}
-PANEL = {"AXIdentifier": "assistant-drawer-panel", "frame": {"x": 0, "y": 0, "width": 300, "height": 800}}
 
 
-def _row(stream_id):
-    return {"AXIdentifier": f"assistant-drawer-row-{stream_id}", "frame": {"x": 0, "y": 200, "width": 300, "height": 60}}
+def _row(stream_id, x=0):
+    return {"AXIdentifier": f"assistant-drawer-row-{stream_id}", "frame": {"x": x, "y": 200, "width": 300, "height": 60}}
 
 
 class _FakeUI:
-    """A simulated app: a tap commits its UI change only after `delay_s` of JS time."""
+    """A simulated app: a tap commits its UI change only after `delay_s` of JS
+    time; like the live drawer, the first read after an open shows rows mid-slide."""
 
     def __init__(self, clock, delay_s=0.2, describe_s=0.1, stall=None):
         self.clock, self.delay_s, self.describe_s = clock, delay_s, describe_s
@@ -202,6 +202,8 @@ class _FakeUI:
     def _settle(self):
         if self.pending and self.clock() >= self.pending[0]:
             self.open, self.pending = self.pending[1], None
+            return self.open
+        return False
 
     def _commit_at(self, at):
         commit = at + self.delay_s
@@ -211,9 +213,9 @@ class _FakeUI:
 
     def elements(self):
         self._advance(self.describe_s)
-        self._settle()
-        rows = [_row(s) for s in S.BURST_STREAM_IDS]
-        return [ROOT, BUTTON] + ([SCRIM, PANEL] + rows if self.open else [])
+        sliding = self._settle()
+        rows = [_row(s, x=-40 if sliding else 0) for s in S.BURST_STREAM_IDS]
+        return [ROOT, BUTTON] + ([SCRIM] + rows if self.open else [])
 
     def tap_point(self, x, y):
         self.taps.append((x, y))
@@ -222,7 +224,7 @@ class _FakeUI:
 
     def describe_point(self, x, y):
         self.points.append((x, y))
-        return SCRIM if self.open and x >= 300 else PANEL if self.open else ROOT
+        return SCRIM if self.open and x >= 300 else _row(S.WITNESS_STREAM_ID) if self.open else ROOT
 
     def check_foreground(self):
         return None
@@ -238,7 +240,7 @@ def test_probe_cycle_measures_js_committed_open_and_close():
     assert all(200 <= t["latency_ms"] <= 600 for t in cycle["transitions"])
     assert cycle["rows_present"] == list(S.BURST_STREAM_IDS)
     assert ui.taps[0] == (30, 80)            # header Sessions button centre
-    assert ui.taps[1][0] >= 300              # scrim point outside the panel
+    assert ui.taps[1][0] >= 300              # scrim point right of the drawer rows
     assert ui.points and ui.points[-1] == ui.taps[1]
 
 
@@ -269,13 +271,101 @@ def test_probe_times_out_when_ui_never_responds():
     assert len(cycle["transitions"]) == 1  # a cycle stops at its first unresolved transition
 
 
-def test_already_present_panel_is_not_a_response():
+def test_already_open_drawer_is_not_a_response():
     clock = _Clock()
     ui = _FakeUI(clock)
     ui.open = True
     cycle = S.probe_cycle(ui, mono=clock, wall=clock, sleep=clock.sleep)
     assert cycle["transitions"][0]["pre_state_ok"] is False
     assert ui.taps == []
+
+
+# ---- live window-2 frames ----------------------------------------------------
+
+LIVE = json.loads((Path(__file__).resolve().parents[1] / "fixtures" / "all_chats_load_drawer_frames.json").read_text())
+LIVE_SCRIM = next(e for e in LIVE["open_settled"] if e.get("AXLabel") == S.SCRIM_LABEL)
+LIVE_ROW = next(e for e in LIVE["open_settled"] if e.get("AXUniqueId") == f"assistant-drawer-row-{S.WITNESS_STREAM_ID}")
+
+
+class _ReplayUI:
+    """Replays captured describe-all reads: closed until the open tap (plus any
+    stall), then the live slide-in frames (the last one repeats), then closed."""
+
+    def __init__(self, clock, opening, stall_s=0.0, describe_s=0.21, hit=LIVE_SCRIM):
+        self.clock, self.opening, self.stall_s, self.describe_s, self.hit = clock, list(opening), stall_s, describe_s, hit
+        self.taps, self.points, self.opened_at = [], [], None
+
+    def elements(self):
+        self.clock.sleep(self.describe_s)
+        if self.opened_at is None or len(self.taps) > 1 or self.clock() < self.opened_at + self.stall_s:
+            return LIVE["closed"]
+        return self.opening.pop(0) if len(self.opening) > 1 else self.opening[0]
+
+    def tap_point(self, x, y):
+        self.taps.append((x, y))
+        if self.opened_at is None:
+            self.opened_at = self.clock()
+
+    def describe_point(self, x, y):
+        self.points.append((x, y))
+        return self.hit
+
+    def check_foreground(self):
+        return None
+
+
+def test_live_frames_expose_rows_and_scrim_but_no_panel_id():
+    settled = LIVE["open_settled"]
+    assert not any("assistant-drawer-panel" in json.dumps(e) for f in LIVE.values() if isinstance(f, list) for e in f)
+    assert {f"assistant-drawer-row-{s}" for s in S.BURST_STREAM_IDS} <= {e.get("AXUniqueId") for e in settled}
+    assert all(e["frame"]["x"] < 0 for e in LIVE["opening"] if str(e.get("AXUniqueId")).startswith("assistant-drawer-row-"))
+
+
+def test_live_drawer_cycle_is_observed_once_settled():
+    clock = _Clock()
+    ui = _ReplayUI(clock, [LIVE["opening"], LIVE["open_settled"], LIVE["open_settled_next"]])
+    cycle = S.probe_cycle(ui, mono=clock, wall=clock, sleep=clock.sleep, require_rows=S.BURST_STREAM_IDS)
+    opened, closed = cycle["transitions"]
+    assert opened["outcome"] == closed["outcome"] == "observed"
+    assert opened["polls"] == 3              # animating read, then two settled reads
+    assert opened["latency_ms"] < S.TRANSITION_BOUND_MS
+    assert cycle["rows_present"] == list(S.BURST_STREAM_IDS)
+    rows_right = LIVE_ROW["frame"]["x"] + LIVE_ROW["frame"]["width"]
+    assert rows_right < ui.taps[1][0] < 402 and ui.points == [ui.taps[1]]
+
+
+def test_live_half_open_drawer_never_counts_as_open():
+    for opening in ([LIVE["opening"]], [LIVE["opening_control"]], [LIVE["opening"], LIVE["open_settled"], LIVE["opening_control"]]):
+        clock = _Clock()
+        cycle = S.probe_cycle(_ReplayUI(clock, opening), mono=clock, wall=clock, sleep=clock.sleep)
+        assert [t["outcome"] for t in cycle["transitions"]] == ["timeout"]
+
+
+def test_live_closed_needs_scrim_and_rows_gone():
+    assert S._drawer_closed(LIVE["closed"])
+    assert not S._drawer_closed([e for e in LIVE["open_settled"] if e is not LIVE_SCRIM])
+    assert not S._drawer_closed([e for e in LIVE["open_settled"] if not str(e.get("AXUniqueId")).startswith("assistant-drawer-row-")])
+
+
+def test_live_close_target_fails_closed_unless_point_hits_scrim():
+    clock = _Clock()
+    ui = _ReplayUI(clock, [LIVE["opening"], LIVE["open_settled"], LIVE["open_settled_next"]], hit=LIVE_ROW)
+    cycle = S.probe_cycle(ui, mono=clock, wall=clock, sleep=clock.sleep)
+    assert [t["outcome"] for t in cycle["transitions"]] == ["observed", "target_missing"]
+    assert len(ui.taps) == 1
+    verdict, failures, _ = S.evaluate(_evidence(cycles=[_cycle(t0) for t0 in _spread()] + [cycle]))
+    assert verdict == "FAIL" and "responsiveness_invalid" in failures
+
+
+def test_live_frames_stall_fails_the_probe():
+    clock = _Clock()
+    ui = _ReplayUI(clock, [LIVE["opening"], LIVE["open_settled"], LIVE["open_settled_next"]], stall_s=S.STALL_MS / 1000)
+    cycle = S.probe_cycle(ui, mono=clock, wall=clock, sleep=clock.sleep)
+    opened = cycle["transitions"][0]
+    assert opened["outcome"] == "observed" and opened["latency_ms"] >= S.STALL_MS
+    verdict, failures, _ = S.evaluate(_evidence(cycles=[_cycle(t0) for t0 in _spread()] + [cycle]))
+    assert verdict == "FAIL" and "responsiveness_bound" in failures
+    assert (S.TRANSITION_BOUND_MS, S.MIN_BURST_CYCLES) == (2000, 6)
 
 
 # ---- oracle ------------------------------------------------------------------
@@ -476,13 +566,15 @@ def _live_app(stream, ui, stop):
 
 @pytest.mark.parametrize("run_mode,expected", [("normal", "PASS"), ("stall_control", "FAIL")])
 def test_run_drives_burst_probes_and_control_end_to_end(monkeypatch, run_mode, expected):
-    monkeypatch.setattr(S, "STALL_MS", 900)
-    monkeypatch.setattr(S, "TRANSITION_BOUND_MS", 400)
+    # Scaled bounds: a settled open needs three reads (slide, then two equal
+    # reads), and each read here costs up to ~150 ms beside the live socket.
+    monkeypatch.setattr(S, "STALL_MS", 2200)
+    monkeypatch.setattr(S, "TRANSITION_BOUND_MS", 1000)
     monkeypatch.setattr(S, "TRANSITION_TIMEOUT_MS", 3000)
     # The pacing schedule, not loopback ack latency (~50 ms on macOS, ~0 on
     # Linux), sets the burst window: sends are at least interval_s apart, so 80
-    # frames span >= 3.95 s on any host, which is room for many fake-UI cycles.
-    interval_s = 0.05
+    # frames span >= 5.9 s on any host, which is room for many fake-UI cycles.
+    interval_s = 0.075
     monkeypatch.setattr(S, "EVENTS_PER_STREAM", 10)
     monkeypatch.setattr(S, "BURST_EVENT_COUNT", 80)
     fast = S.run_injector
