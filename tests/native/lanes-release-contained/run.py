@@ -496,7 +496,7 @@ class Ui:
         element = self.find(identifier, timeout_s)
         if element.get("AXEnabled") is False:
             raise AssertFail("disabled tap target: " + identifier)
-        element = self.reveal(element)
+        element = self.ensure_hit(self.reveal(element))
         frame = self.frame(element)
         self.check_foreground()
         result = self._idb("ui", "tap", str(int(frame["x"] + frame["width"] / 2)), str(int(frame["y"] + frame["height"] / 2)))
@@ -510,7 +510,10 @@ class Ui:
                     alert: str | None = None) -> None:
         if not system_dialog:
             self.check_foreground()
-        frame = self.frame(self.reveal(element))
+        element = self.reveal(element)
+        if not system_dialog:
+            element = self.ensure_hit(element)
+        frame = self.frame(element)
         if not system_dialog:
             self.check_foreground()
         result = self._idb("ui", "tap", str(int(frame["x"] + frame["width"] / 2)), str(int(frame["y"] + frame["height"] / 2)))
@@ -557,6 +560,68 @@ class Ui:
                 raise SetupFail("off-screen tap target does not scroll into view: " + identifier)
             element = moved
         raise SetupFail("tap target not on screen after scrolling: " + identifier)
+
+    def hit(self, x: float, y: float) -> dict[str, Any] | None:
+        """The element iOS hit-tests at a screen point (`idb ui describe-point`); None when it cannot be read."""
+        result = self._idb("ui", "describe-point", "--json", str(int(x)), str(int(y)))
+        if result.returncode:
+            return None
+        try:
+            item = json.loads(result.stdout)
+        except ValueError:
+            return None
+        if isinstance(item, list):
+            item = item[0] if len(item) == 1 else None
+        return item if isinstance(item, dict) else None
+
+    def ensure_hit(self, element: dict[str, Any], max_drags: int = 6) -> dict[str, Any]:
+        """A tap goes to a screen point. reveal() keeps the frame on screen, but a nested scroll container (the map's
+        member sheet) can clip it while the tree still lists it there. Tap only when iOS hit-tests the target's own
+        id at its centre; otherwise drag its scroll content from a hit-testable sibling until it does, or fail."""
+        identifier = self.ident(element)
+        for attempt in range(max_drags + 1):
+            frame = self.frame(element)
+            x, y = frame["x"] + frame["width"] / 2, frame["y"] + frame["height"] / 2
+            hit = self.hit(x, y)
+            self.trace("hit_test", {"target": identifier, "x": int(x), "y": int(y),
+                                    "hit": self.ident(hit) if hit is not None else None})
+            if hit is not None and identifier and self.ident(hit) == identifier:
+                return element
+            if hit is None or not identifier or attempt == max_drags:
+                break
+            anchor = self.scroll_anchor(element)
+            if anchor is None:
+                break
+            box, view = self.frame(anchor), self.viewport or self.screen()
+            ay = box["y"] + box["height"] / 2
+            step = max(-0.4 * view["height"], min(0.4 * view["height"], ay - y))
+            ax = str(int(box["x"] + box["width"] / 2))
+            if self._idb("ui", "swipe", ax, str(int(ay)), ax, str(int(ay + step)), "--duration", "1.0").returncode:
+                raise SetupFail("native swipe failed")
+            time.sleep(0.6)
+            moved = next((e for e in self.elements() if self.ident(e) == identifier), None)
+            if moved is None:
+                raise SetupFail("tap target disappeared while scrolling: " + identifier)
+            if abs(self.frame(moved)["y"] - (y - frame["height"] / 2)) < 1:
+                break
+            element = moved
+        raise SetupFail("tap target is not hit-testable at its centre (clipped or covered): " + (identifier or "?"))
+
+    def scroll_anchor(self, element: dict[str, Any]) -> dict[str, Any] | None:
+        """The nearest hit-testable sibling of the same id family (same scroll content) to drag from."""
+        identifier = self.ident(element)
+        match = re.fullmatch(r"(.*-)(?:wl-[0-9a-f]{24}|[^-]+)", identifier)
+        if not match:
+            return None
+        y = self.frame(element)["y"]
+        siblings = sorted((e for e in self.elements() if self.ident(e).startswith(match.group(1))
+                           and self.ident(e) != identifier), key=lambda e: abs(self.frame(e)["y"] - y))
+        for sibling in siblings[:4]:
+            box = self.frame(sibling)
+            hit = self.hit(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+            if hit is not None and self.ident(hit) == self.ident(sibling):
+                return sibling
+        return None
 
     def dump(self, name: str, elements: list[dict[str, Any]] | None = None) -> Path:
         """Accessibility dump kept as evidence (screen labels only; no credential is ever on screen)."""

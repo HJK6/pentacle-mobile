@@ -14,6 +14,7 @@ def make_ui(tmp_path, monkeypatch, foregrounds):
     ui.read_foreground = lambda: next(values)
     ui.find = lambda *_args, **_kwargs: {"AXUniqueId": "target", "frame": {"x": 10, "y": 10, "width": 44, "height": 44}}
     ui.reveal = lambda element: element
+    ui.hit = lambda _x, _y: {"AXUniqueId": "target"}
     ui._idb = lambda *args: calls.append(args) or subprocess.CompletedProcess(args, 0, "", "")
     monkeypatch.setattr(run.time, "sleep", lambda _: None)
     return ui, calls
@@ -107,6 +108,7 @@ def test_ui_binds_bundle_and_traces_both_checks(tmp_path, monkeypatch):
     ui.read_foreground = lambda: "com.example.pentacle"
     ui.find = lambda *_args, **_kwargs: {"AXUniqueId": "target", "frame": {"x": 10, "y": 10, "width": 44, "height": 44}}
     ui.reveal = lambda item: item
+    ui.hit = lambda _x, _y: {"AXUniqueId": "target"}
     ui._idb = lambda *args: subprocess.CompletedProcess(args, 0, "", "")
     monkeypatch.setattr(run.time, "sleep", lambda _: None)
     ui.tap("target")
