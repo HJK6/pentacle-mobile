@@ -53,3 +53,18 @@ def test_malformed_selected_fixture_still_fails_closed(tmp_path, invalid, error)
     path.write_text(json.dumps(payload))
     with pytest.raises(ScriptValidationError, match=error.replace(".", r"\.")):
         load_script(path)
+
+
+def test_actions_pin_disable_pentacle_auth_for_mock_registration():
+    """Both cold-launch branches must request disable_pentacle_auth so the app
+    takes the __auth_disabled__ hello the mock daemon registers. Without it the
+    mock connection depends on ambient simulator credential state and can fail to
+    register (missing chat:ws_open; client_registered:false). Regression guard
+    for the M1 ws-registration RED (2026-10-28)."""
+    assert scenario.actions({"M1_BROAD": "1"}) == [
+        "autoaccept_biometric", "disable_pentacle_auth", "open_existing_chat",
+    ]
+    assert scenario.actions({}) == [
+        "autoaccept_biometric", "disable_pentacle_auth", "open_existing_chat",
+        "resolve_notification",
+    ]

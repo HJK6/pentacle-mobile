@@ -320,7 +320,7 @@ def test_outer_cli_error_does_not_dump_config_or_exception(tmp_path, supplied):
 
 def test_existing_mock_and_dashboard_mask_are_preserved(supplied):
     config, _, _ = supplied
-    assert mock.actions(config) == ["autoaccept_biometric", "open_existing_chat", "resolve_notification"]
+    assert mock.actions(config) == ["autoaccept_biometric", "disable_pentacle_auth", "open_existing_chat", "resolve_notification"]
     assert mock.params(config)["agentHistory"] == "mock-host:child-worker"
     mask = runner._SecretMask("synthetic-dashboard:/credential")
     result = runner._sanitize_command_result(subprocess.CompletedProcess(["launch", "synthetic-dashboard:/credential"], 1, quote("synthetic-dashboard:/credential", safe=""), "safe identity error"), mask)
