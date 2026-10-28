@@ -58,6 +58,10 @@ LARGE_TEXT = "accessibility-extra-extra-extra-large"
 MIN_TARGET_PT = 44
 URL_RE = re.compile(rb"(?:wss?|https?)://[A-Za-z0-9._~%\-\[\]:]+(?:/[^\s\"'<>\\]*)?")
 LOOPBACK_HOSTS = {"127.0.0.1", "::1", "[::1]"}
+COMPANION_PATH = "/opt/homebrew/Cellar/idb-companion-modern/2026.07.23.4917dcf/libexec/idb_companion"
+COMPANION_SHA256 = "6b3d0189d4f4bfc40934e655454a36fe5b57d2de4480178a4686f5c1884b60c8"
+CFU_DOMAIN = "com.apple.generativeexperiences.corefollowup"
+CFU_KEY = "DateOfLastAppleIntelligenceReadinessCFU"
 
 
 class _FlowDone(Exception):
@@ -66,6 +70,12 @@ class _FlowDone(Exception):
 
 class SetupFail(RuntimeError):
     """Precondition or owned-resource failure; never a product verdict."""
+
+
+class AccessibilityInspectionFail(SetupFail):
+    def __init__(self, stderr: str):
+        self.transient_translation = "No translation object returned for simulator" in stderr
+        super().__init__("native accessibility inspection failed")
 
 
 class SystemUIInterception(SetupFail):
@@ -97,6 +107,18 @@ def foreground_bundle(elements: list[dict[str, Any]], launchctl: str) -> str | N
 
 class AssertFail(AssertionError):
     """Product journey assertion failed."""
+
+
+def verified_companion(path: str) -> str:
+    if path != COMPANION_PATH:
+        raise SetupFail("companion path differs from the verified libexec pin")
+    try:
+        digest = sd.sha256_file(Path(path))
+    except OSError as exc:
+        raise SetupFail("companion executable unavailable") from exc
+    if digest != COMPANION_SHA256:
+        raise SetupFail("companion executable hash differs from the pin")
+    return path
 
 
 def now_iso() -> str:
@@ -371,7 +393,7 @@ class Ui:
     def elements(self) -> list[dict[str, Any]]:
         result = self._idb("ui", "describe-all", "--json")
         if result.returncode:
-            raise SetupFail("native accessibility inspection failed")
+            raise AccessibilityInspectionFail(result.stderr)
         try:
             decoded = json.loads(result.stdout)
             items = decoded if isinstance(decoded, list) else decoded.get("elements", [])
@@ -505,7 +527,15 @@ class Ui:
         """Press the allow-listed button of each known system alert on screen, dumping the screen first."""
         handled: list[str] = []
         for _ in range(limit):
-            elements = self.elements()
+            for attempt in range(3):
+                try:
+                    elements = self.elements()
+                    break
+                except AccessibilityInspectionFail as exc:
+                    if not exc.transient_translation or attempt == 2:
+                        raise
+                    self.trace("alert_ax_retry", {"at_utc": now_iso(), "attempt": attempt + 1})
+                    time.sleep(1)
             try:
                 found = known_system_alert(elements)
             except SetupFail:
@@ -872,7 +902,49 @@ class Run:
         self.attention_order = [lane["lane_id"] for lane in sorted(got["inventory"]["lanes"], key=rank)]
 
     # -- simulator side ----------------------------------------------------
+    def configure_cfu(self) -> None:
+        # Detection-only: absence of this preference proof does not certify suppression or stop the run.
+        value = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S +0000")
+        record: dict[str, Any] = {"at": now_iso(), "udid": self.udid, "value": value, "verified": False,
+                                  "operations": []}
+        self.result["cfu"] = record
+        def command(*argv: str, timeout: int = 120) -> subprocess.CompletedProcess:
+            result = self.simctl(*argv, timeout=timeout, check=False)
+            record["operations"].append({"action": list(argv), "rc": result.returncode})
+            return result
+        try:
+            written = command("spawn", self.udid, "defaults", "write", CFU_DOMAIN, CFU_KEY, "-date", value)
+            if written.returncode:
+                record["error"] = "write failed"
+                return
+            try:
+                stopped = command("shutdown", self.udid)
+                shutdown_failed = bool(stopped.returncode)
+            except (OSError, subprocess.TimeoutExpired, RuntimeError) as exc:
+                shutdown_failed = True
+                record["shutdown_error"] = f"{type(exc).__name__}: {exc}"
+            # Always attempt boot after shutdown, even if shutdown reported an error or timed out.
+            try:
+                booted = command("boot", self.udid)
+                boot_failed = bool(booted.returncode)
+            except (OSError, subprocess.TimeoutExpired, RuntimeError) as exc:
+                boot_failed = True
+                record["boot_error"] = f"{type(exc).__name__}: {exc}"
+            # A timed-out boot may still complete; attempt the normal readiness check.
+            ready = command("bootstatus", self.udid, "-b", timeout=300)
+            if shutdown_failed or boot_failed or ready.returncode:
+                record["error"] = "shutdown or reboot failed"
+                return
+            read = command("spawn", self.udid, "defaults", "read", CFU_DOMAIN, CFU_KEY)
+            record["readback"] = read.stdout.strip()
+            record["verified"] = read.returncode == 0 and read.stdout.strip() == value
+            if not record["verified"]:
+                record["error"] = "readback failed or differed"
+        except (OSError, subprocess.TimeoutExpired, RuntimeError) as exc:
+            record["error"] = f"{type(exc).__name__}: {exc}"
+
     def activate_simulator(self) -> None:
+        companion = verified_companion(self.args.idb_companion)
         name = f"{SCENARIO}-{self.run_id}"
         self.udid = self.simctl("create", name, self.args.device_type, self.args.runtime).stdout.strip()
         if not re.fullmatch(r"[0-9A-Fa-f-]{36}", self.udid or ""):
@@ -881,6 +953,7 @@ class Run:
                                     "runtime": self.args.runtime, "fresh_state": True}
         self.simctl("boot", self.udid)
         self.simctl("bootstatus", self.udid, "-b", timeout=300)
+        self.configure_cfu()
         self.content_size = self.simctl("ui", self.udid, "content_size", check=False).stdout.strip() or "large"
         self.simctl("install", self.udid, str(self.args.app.resolve()), timeout=300)
         installed = Path(self.simctl("get_app_container", self.udid, self.args.bundle_id, "app").stdout.strip())
@@ -890,7 +963,7 @@ class Run:
                 raise SetupFail("installed app differs from the admitted app: " + name)
         self.result["simulator"]["installed_app"] = str(installed)
         self.processes["ui-companion"] = sd.start_owned(
-            "ui-companion", [shutil.which(self.args.idb_companion) or self.args.idb_companion, "--udid", self.udid,
+            "ui-companion", [companion, "--udid", self.udid,
                              "--grpc-port", str(sd.COMPANION_PORT)],
             env={key: os.environ[key] for key in ("PATH", "HOME", "TMPDIR", "LANG") if key in os.environ},
             cwd=self.run_dir, log=self.evidence / "ui-companion.log", port=sd.COMPANION_PORT)
@@ -1878,7 +1951,7 @@ def parse(argv: list[str] | None) -> argparse.Namespace:
     common.add_argument("--device-type", required=True)
     common.add_argument("--runtime", required=True)
     common.add_argument("--idb", default="idb")
-    common.add_argument("--idb-companion", default="idb_companion")
+    common.add_argument("--idb-companion", default=COMPANION_PATH)
     for command, help_text in (("run", "the contained A/C/B proof"),
                                ("smoke", "enroll-only smoke: inc1 daemon, launch, enroll, snapshot, teardown"),
                                ("reduced", "reduced proof: smoke + list, one real show, member list, map page 1")):
