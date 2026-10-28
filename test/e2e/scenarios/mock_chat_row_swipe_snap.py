@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import re
 import subprocess
+import time
 from pathlib import Path
 
 from . import _mock_chat_streamd as M
@@ -23,7 +24,99 @@ def _candidate_stream_ids() -> list[str]:
 
 
 def actions(_config: dict) -> list[str]:
-    return ["autoaccept_biometric", "chat_list_load_probe"]
+    return ["autoaccept_biometric", "open_existing_chat"]
+
+
+def _ax(udid: str, *args: str):
+    result = subprocess.run(['idb', 'ui', *args, '--udid', udid], capture_output=True, text=True, timeout=20, check=False)
+    if result.returncode:
+        raise RuntimeError('native accessibility command failed')
+    try:
+        return json.loads(result.stdout)
+    except ValueError:
+        return [json.loads(line) for line in result.stdout.splitlines() if line.strip()]
+
+
+def _elements(udid: str) -> list:
+    data = _ax(udid, 'describe-all', '--json')
+    if isinstance(data, dict):
+        data = data.get('elements')
+    if not isinstance(data, list) or not all(isinstance(e, dict) for e in data):
+        raise RuntimeError('native accessibility output malformed')
+    return data
+
+
+def _visible_chat_rows(udid: str, identifiers: set) -> dict:
+    elements = _elements(udid)
+    roots = [e.get('frame') for e in elements if isinstance(e, dict) and e.get('role') == 'AXApplication']
+    if len(roots) != 1 or not isinstance(roots[0], dict):
+        raise RuntimeError('native screen bounds missing')
+    root = roots[0]
+    rows = {}
+    for element in elements:
+        if not isinstance(element, dict):
+            continue
+        ident = element.get('AXIdentifier') or element.get('AXUniqueId')
+        frame = element.get('frame')
+        if ident not in identifiers or not isinstance(frame, dict):
+            continue
+        try:
+            if (frame['width'] > 0 and frame['height'] > 0 and frame['y'] >= root['y']
+                    and frame['y'] + frame['height'] <= root['y'] + root['height']):
+                rows[ident] = frame
+        except (KeyError, TypeError):
+            continue
+    return rows
+
+
+def _census_scroll(udid: str, direction: str) -> bool:
+    roots = [e.get('frame') for e in _elements(udid) if e.get('role') == 'AXApplication']
+    if len(roots) != 1 or not isinstance(roots[0], dict):
+        return False
+    frame = roots[0]
+    x = frame['x'] + frame['width'] * .5
+    top, bottom = frame['y'] + frame['height'] * .25, frame['y'] + frame['height'] * .75
+    return _swipe(udid, (x, bottom if direction == 'down' else top),
+                  (x, top if direction == 'down' else bottom)) is None
+
+
+def wait_seeded_chat_rows(udid: str, max_scrolls: int = 12) -> dict:
+    identifiers = {_row_surface(stream_id)[0] for stream_id in _candidate_stream_ids()}
+    first = _row_surface(_candidate_stream_ids()[0])[0]
+    seen = set()
+    steps = 0
+    for _ in range(max_scrolls + 1):
+        rows = _visible_chat_rows(udid, identifiers)
+        seen.update(rows)
+        if seen == identifiers:
+            break
+        if steps == max_scrolls or not _census_scroll(udid, 'down'):
+            return {}
+        steps += 1
+        time.sleep(.3)
+    for _ in range(steps):
+        if not _census_scroll(udid, 'up'):
+            return {}
+        time.sleep(.3)
+    rows = _visible_chat_rows(udid, identifiers)
+    return rows if first in rows else {}
+
+
+def open_chats_from_session(udid: str, timeout: float = 20) -> None:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        buttons = [e for e in _elements(udid) if e.get('AXLabel') == 'Back to chats' and isinstance(e.get('frame'), dict)]
+        if len(buttons) == 1:
+            frame = buttons[0]['frame']
+            x, y = int(frame['x'] + frame['width'] / 2), int(frame['y'] + frame['height'] / 2)
+            first = _ax(udid, 'describe-point', str(x), str(y), '--json')
+            time.sleep(.6)
+            second = _ax(udid, 'describe-point', str(x), str(y), '--json')
+            if all(isinstance(hit, dict) and hit.get('AXLabel') == 'Back to chats' for hit in (first, second)):
+                _ax(udid, 'tap', str(x), str(y))
+                return
+        time.sleep(.2)
+    raise RuntimeError('open_existing_chat did not expose a stable Back to chats control')
 
 
 def _write_fixture(path: Path) -> None:
@@ -111,18 +204,15 @@ def _settled(stream, state: str, not_before: float, stream_id: str):
 
 
 def run(config: dict, stream, cap=None) -> Verdict:
-    ready = await_event(stream, EventSpec("harness:all_chats_ready", timeout_s=20))
-    if not ready:
-        return Verdict(name=name, verdict="SETUP_FAIL", error="all-chats fixture did not become ready").finish()
     udid = str(config["PENTACLE_TARGET_UDID"])
     surfaces = {stream_id: _row_surface(stream_id) for stream_id in _candidate_stream_ids()}
-    before = _poll_element_frames(
-        udid,
-        {row_id for row_id, _, _ in surfaces.values()},
-        require_all=False,
-    )
+    try:
+        open_chats_from_session(udid)
+        before = wait_seeded_chat_rows(udid)
+    except (RuntimeError, OSError, ValueError, TypeError, KeyError, subprocess.TimeoutExpired) as error:
+        return Verdict(name=name, verdict="SETUP_FAIL", error=str(error)).finish()
     if not before:
-        return Verdict(name=name, verdict="SETUP_FAIL", error="chat-row accessibility frame missing").finish()
+        return Verdict(name=name, verdict="SETUP_FAIL", error="seeded chat rows not ready in accessibility tree").finish()
     visible = []
     for stream_id, (row_id, rename_id, delete_id) in surfaces.items():
         frame = before.get(row_id)
@@ -146,7 +236,7 @@ def run(config: dict, stream, cap=None) -> Verdict:
         cap.screenshot("chat_row_swipe_closed")
 
     failures: list[str] = []
-    started = ready.received_at
+    started = time.monotonic()
     error = _swipe(udid, (x + width * 0.75, y + height / 2), (x + width * 0.67, y + height / 2))
     short = _settled(stream, "closed", started, selected_stream_id)
     short_frames = _poll_element_frames(udid, {row_id})
@@ -239,4 +329,3 @@ def run(config: dict, stream, cap=None) -> Verdict:
         },
     )
     return M.finish_with_negative_watch(stream, verdict, cap=cap, screenshot_name=name)
-

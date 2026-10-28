@@ -229,7 +229,7 @@ class _NativeTrace:
 
 
 def run_broad(config: dict, stream, cap=None) -> Verdict:
-    from ._m1_native_ui import NativeUI
+    from ._m1_native_ui import NativeUI, SystemUIInterception
     from ._m1_mock_control import MockControl
     early = M.await_mock_session_open(stream, name=name)
     if early:
@@ -253,6 +253,11 @@ def run_broad(config: dict, stream, cap=None) -> Verdict:
         if cap:
             cap.screenshot('m1_broad_questions')
         return Verdict(name=name, verdict='PASS', extras={'scope': 'synthetic broad M1'}).finish()
+    except SystemUIInterception as exc:
+        return Verdict(name=name, verdict='SETUP_FAIL', error=str(exc), extras={
+            'scope': 'synthetic broad M1', 'reason_code': 'system_ui_interception',
+            'frontmost_bundle_id': exc.foreground, 'video_timestamp_s': exc.video_timestamp_s,
+        }).finish()
     except Exception as exc:
         return Verdict(name=name, verdict='FAIL', error=str(exc), extras={'scope': 'synthetic broad M1'}).finish()
     finally:

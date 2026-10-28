@@ -373,6 +373,15 @@ controls with `python3 -m pytest -q test/e2e/tests/test_m1_*` alongside the
 existing M1, scripted and mock suites. Native acceptance requires a separately
 admitted execution window and a complete result and cleanup receipt.
 
+After M1 taps, the driver resolves the accessibility application PID against
+the bound simulator's launchctl jobs. A different or indeterminate foreground
+is a `SETUP_FAIL` with `system_ui_interception`, the observed bundle and the
+recording-relative timestamp; a missing expected state with the app confirmed
+foreground remains a `FAIL`. A system banner can cover the app while its AX
+root remains visible, so this post-tap check cannot prevent the first intercepted
+tap. No Apple Intelligence notification suppression is enabled without a
+verified simulator-specific setting.
+
 ## Answer fallback reconciliation
 
 `mock_answer_fallback_reconcile` holds the summary-only, resolved-notification
