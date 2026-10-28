@@ -13,8 +13,8 @@ HISTORY_TEXT = "Render the visible roster and history."
 
 def actions(config: dict) -> list[str]:
     if config.get('M1_BROAD') == '1':
-        return ['autoaccept_biometric', 'open_existing_chat']
-    return ["autoaccept_biometric", "open_existing_chat", "resolve_notification"]
+        return ['autoaccept_biometric', 'disable_pentacle_auth', 'open_existing_chat']
+    return ["autoaccept_biometric", "disable_pentacle_auth", "open_existing_chat", "resolve_notification"]
 
 
 def params(config: dict) -> dict[str, str]:
