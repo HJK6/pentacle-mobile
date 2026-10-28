@@ -192,6 +192,9 @@ def drive_non_nexus_control(ui) -> None:
     ui.wait('composer-mic-button', label='Stop and send')
     ui.wait('voice-recording-strip-discard')
     ui.tap('voice-recording-strip-discard')
+    if not ui.wait_absent('voice-recording-strip-discard'):
+        raise RuntimeError('M1 synthetic recording was not discarded')
+    ui.wait('composer-mic-button', label='Voice mode')
     ui.tap(label='Back to chats')
     ui.tap('chat-row-mock-host-mock-session')
 

@@ -7,6 +7,8 @@ class UI:
     def __init__(self, absent=True): self.calls, self.is_absent = [], absent
     def tap(self, identifier=None, label=None): self.calls.append(('tap', identifier, label))
     def wait(self, identifier=None, label=None, timeout=20): self.calls.append(('wait', identifier, label))
+    def wait_absent(self, identifier=None, label=None, timeout=15):
+        self.calls.append(('wait_absent', identifier, label)); return self.is_absent
     def absent(self, identifier=None, label=None, duration=2):
         self.calls.append(('absent', identifier, label)); return self.is_absent
 
@@ -19,6 +21,8 @@ def test_non_nexus_control_checks_absence_and_real_voice_surface():
     assert ('wait', 'composer-mic-button', 'Stop and send') in ui.calls
     assert ('wait', 'voice-recording-strip-discard', None) in ui.calls
     assert ('tap', 'voice-recording-strip-discard', None) in ui.calls
+    assert ('wait_absent', 'voice-recording-strip-discard', None) in ui.calls
+    assert ('wait', 'composer-mic-button', 'Voice mode') in ui.calls
     with pytest.raises(RuntimeError): m1.drive_non_nexus_control(UI(absent=False))
 
 
