@@ -1,3 +1,5 @@
+import pytest
+
 """Viewport proof rejects off-screen content even if AX exposes its node."""
 from e2e.scenarios._m1_native_ui import NativeUI
 
@@ -52,3 +54,12 @@ def test_modal_close_waits_for_two_hit_checks_before_tap(monkeypatch):
     ui.wait_hit = unavailable
     with pytest.raises(RuntimeError): ui.tap_stable('Close thread history')
     assert not any(call[0] == 'tap' for call in calls)
+
+
+def test_present_rejects_ambiguous_label(monkeypatch):
+    ui = NativeUI({'SIMULATOR_UDID': 'test', 'trace': lambda *args: None})
+    root = {'role': 'AXApplication', 'frame': {'x': 0, 'y': 0, 'width': 100, 'height': 100}}
+    row = {'AXLabel': 'M1 question', 'frame': {'x': 5, 'y': 5, 'width': 10, 'height': 10}}
+    monkeypatch.setattr(ui, 'elements', lambda: [root, row, dict(row)])
+    with pytest.raises(RuntimeError, match='ambiguous'):
+        ui.present(label='M1 question')

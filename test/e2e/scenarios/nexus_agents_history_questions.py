@@ -90,7 +90,7 @@ def run(config: dict, stream, cap=None) -> Verdict:
 
 
 def drive_question(ui, control, surface: str, mode: str) -> None:
-    if surface not in {'session', 'card'} or mode not in {'choice', 'free', 'combined'}:
+    if surface not in {'session', 'card'} or mode not in {'choice', 'free', 'combined', 'custom'}:
         raise ValueError('unsupported M1 question case')
     question_id = f'm1-{surface}-{mode}'
     body = f'M1 {surface} {mode} question'
@@ -105,26 +105,29 @@ def drive_question(ui, control, surface: str, mode: str) -> None:
                      'title': body, 'body': body, 'dedup_key': question_id,
                      'producer_stream_id': M.STREAM_ID, 'producer_provider': 'codex',
                      'response_mode': 'free_text' if is_free else 'single_choice',
-                     'options': options, 'ttl_seconds': 3600},
+                     'options': options, 'allow_custom': mode == 'custom', 'ttl_seconds': 3600},
     }
     control.rpc('debug_replay_notification', notification=notification)
     if surface == 'session':
         ui.tap('question-fab')
         prefix, submit = 'question', 'question-submit'
     else:
-        if not ui.present('smart-question-prompt'):
+        if not ui.present(label=body):
             ui.tap('chat-row-toggle-mock-host-mock-session')
         prefix, submit = 'smart-question', 'smart-question-submit'
-    ui.wait(identifier=f'{prefix}-prompt', label=body)
+    ui.wait(label=body)
     if is_free:
         ui.type_text('question-freetext-0' if surface == 'session' else 'smart-question-free-text', 'free answer')
+    elif mode == 'custom':
+        ui.tap(f'{prefix}-custom-toggle')
+        ui.type_text(f'{prefix}-custom-answer', 'custom answer')
     else:
         ui.tap(f'{prefix}-option-1')
         if mode == 'combined':
             ui.type_text('question-note-0' if surface == 'session' else 'smart-question-note', 'note answer')
     ui.tap(submit)
-    expected_text = 'free answer' if is_free else ('note answer' if mode == 'combined' else None)
-    if not control.answer(question_id, None if is_free else ['proceed'], expected_text):
+    expected_text = 'free answer' if is_free else ('note answer' if mode == 'combined' else ('custom answer' if mode == 'custom' else None))
+    if not control.answer(question_id, None if is_free or mode == 'custom' else ['proceed'], expected_text):
         raise RuntimeError('M1 question dispatch mismatch: ' + question_id)
     if not ui.wait_absent(label=body):
         raise RuntimeError('M1 answered question did not settle: ' + question_id)
@@ -178,7 +181,7 @@ def drive_non_nexus_control(ui) -> None:
     ui.tap(label='Back to chats')
     ui.tap('chat-row-mock-host-control-session')
     ui.tap('session-status-overlay-trigger')
-    if not ui.absent('status-overlay-close') or not ui.absent('nexus-status-agents'):
+    if not ui.absent('status-overlay-close') or not ui.absent(label='SUB-AGENTS'):
         raise RuntimeError('M1 non-Nexus no-card control displayed a status overlay')
     ui.tap('composer-mic-button')
     ui.wait('composer-mic-button', label='Stop and send')
@@ -196,8 +199,8 @@ def drive_childless_control(ui) -> None:
     ui.tap('chat-row-mock-host-childless')
     ui.tap('session-status-overlay-trigger')
     ui.wait(label='Close session status')
-    ui.wait('nexus-status-childless')
-    if not ui.absent('nexus-status-agents'):
+    ui.wait(label='No direct child agents are active.')
+    if not ui.absent(label='SUB-AGENTS'):
         raise RuntimeError('M1 childless Nexus unexpectedly displayed a roster')
     ui.tap(label='Close session status')
     ui.tap(label='Back to chats')
@@ -238,14 +241,14 @@ def run_broad(config: dict, stream, cap=None) -> Verdict:
         trace = _NativeTrace(stream)
         drive_history_navigation(ui, trace)
         ui.tap(label='Close session status')
-        for mode in ('choice', 'free', 'combined'):
+        for mode in ('choice', 'free', 'combined', 'custom'):
             drive_question(ui, control, 'session', mode)
         drive_two_turns(ui, control, trace)
         drive_childless_control(ui)
         drive_non_nexus_card_control(ui)
         drive_non_nexus_control(ui)
         ui.tap(label='Back to chats')
-        for mode in ('choice', 'free', 'combined'):
+        for mode in ('choice', 'free', 'combined', 'custom'):
             drive_question(ui, control, 'card', mode)
         if cap:
             cap.screenshot('m1_broad_questions')

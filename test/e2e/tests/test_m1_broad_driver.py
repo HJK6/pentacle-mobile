@@ -5,8 +5,8 @@ from e2e.scenarios import _m1_native_ui, _m1_mock_control
 from e2e.tests.test_agent_question_scenarios import _Stream
 
 
-@pytest.mark.parametrize('failure', [None, 'history', 'session:choice', 'session:free', 'session:combined',
-                                     'turns', 'childless', 'non-nexus-card', 'non-nexus', 'card:choice', 'card:free', 'card:combined'])
+@pytest.mark.parametrize('failure', [None, 'history', 'session:choice', 'session:free', 'session:combined', 'session:custom',
+                                     'turns', 'childless', 'non-nexus-card', 'non-nexus', 'card:choice', 'card:free', 'card:combined', 'card:custom'])
 def test_broad_scenario_requires_each_stage(monkeypatch, failure):
     seen = []
     class UI:
@@ -31,4 +31,4 @@ def test_broad_scenario_requires_each_stage(monkeypatch, failure):
     assert result.verdict == ('PASS' if failure is None else 'FAIL')
     assert seen[-1] == 'closed'
     if failure is None:
-        assert seen == ['history', 'session:choice', 'session:free', 'session:combined', 'turns', 'childless', 'non-nexus-card', 'non-nexus', 'card:choice', 'card:free', 'card:combined', 'closed']
+        assert seen == ['history', 'session:choice', 'session:free', 'session:combined', 'session:custom', 'turns', 'childless', 'non-nexus-card', 'non-nexus', 'card:choice', 'card:free', 'card:combined', 'card:custom', 'closed']

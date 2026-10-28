@@ -8,7 +8,7 @@ class UI:
     def wait(self, identifier=None, label=None, timeout=20): self.calls.append(('wait', identifier, label))
     def tap(self, identifier=None, label=None): self.calls.append(('tap', identifier, label))
     def type_text(self, identifier, text): self.calls.append(('text', identifier, text))
-    def present(self, identifier, timeout=1): return False
+    def present(self, identifier=None, label=None, timeout=1): return False
     def wait_absent(self, identifier=None, label=None, timeout=15): return True
 
 
@@ -19,7 +19,7 @@ class Control:
 
 
 @pytest.mark.parametrize('surface', ['session', 'card'])
-@pytest.mark.parametrize('mode, selections, text', [('choice', ['proceed'], None), ('free', None, 'free answer'), ('combined', ['proceed'], 'note answer')])
+@pytest.mark.parametrize('mode, selections, text', [('choice', ['proceed'], None), ('free', None, 'free answer'), ('combined', ['proceed'], 'note answer'), ('custom', None, 'custom answer')])
 def test_answer_surface_requires_exact_stub_frame(surface, mode, selections, text):
     ui, control = UI(), Control()
     m1.drive_question(ui, control, surface, mode)
@@ -27,8 +27,13 @@ def test_answer_surface_requires_exact_stub_frame(surface, mode, selections, tex
     prefix = 'question' if surface == 'session' else 'smart-question'
     assert ('tap', 'question-fab' if surface == 'session' else 'chat-row-toggle-mock-host-mock-session', None) in ui.calls
     assert ('tap', 'question-submit' if surface == 'session' else 'smart-question-submit', None) in ui.calls
-    if mode != 'free':
+    assert ('wait', None, f'M1 {surface} {mode} question') in ui.calls
+    if mode not in ('free', 'custom'):
         assert ('tap', f'{prefix}-option-1', None) in ui.calls
+    if mode == 'custom':
+        assert ('tap', f'{prefix}-custom-toggle', None) in ui.calls
+        assert ('text', f'{prefix}-custom-answer', 'custom answer') in ui.calls
+        assert control.calls[0][1]['notification']['question']['allow_custom'] is True
     if mode == 'combined':
         assert ('text', 'question-note-0' if surface == 'session' else 'smart-question-note', 'note answer') in ui.calls
     if mode == 'free':

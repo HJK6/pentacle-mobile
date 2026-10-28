@@ -31,7 +31,8 @@ def test_childless_no_card_nexus_still_opens_status():
     assert ('tap', 'chat-row-mock-host-childless', None) in ui.calls
     assert ('tap', 'session-status-overlay-trigger', None) in ui.calls
     assert ('wait', None, 'Close session status') in ui.calls
-    assert ('wait', 'nexus-status-childless', None) in ui.calls
+    assert ('wait', None, 'No direct child agents are active.') in ui.calls
+    assert ('absent', None, 'SUB-AGENTS') in ui.calls
     with pytest.raises(RuntimeError): m1.drive_childless_control(UI(absent=False))
 
 

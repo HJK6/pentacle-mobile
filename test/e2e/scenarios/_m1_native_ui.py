@@ -111,12 +111,16 @@ class NativeUI:
             time.sleep(.2)
         raise RuntimeError('M1 visible target missing or ambiguous: ' + str(identifier or label))
 
-    def present(self, identifier, timeout=1):
-        try:
-            self.wait(identifier, timeout=timeout)
-            return True
-        except RuntimeError:
-            return False
+    def present(self, identifier=None, label=None, timeout=1):
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            found = self.visible(self.elements(), identifier, label)
+            if len(found) > 1:
+                raise RuntimeError('M1 visible target ambiguous: ' + str(identifier or label))
+            if found:
+                return True
+            time.sleep(.2)
+        return False
 
     def wait_absent(self, identifier=None, label=None, timeout=15):
         deadline = time.monotonic() + timeout
