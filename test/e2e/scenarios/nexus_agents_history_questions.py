@@ -228,6 +228,52 @@ class _NativeTrace:
                                 not_before=self.cutoff))
 
 
+def run_diagnostic_cells(cells, reset):
+    from ._m1_native_ui import SystemUIInterception
+    results = []
+    safe = True
+    for label, action in cells:
+        if not safe:
+            results.append({'cell': label, 'status': 'UNMEASURED', 'reason': 'prior failure could not be reset and verified'})
+            continue
+        try:
+            action()
+            results.append({'cell': label, 'status': 'PASS'})
+        except SystemUIInterception:
+            raise
+        except Exception as exc:
+            results.append({'cell': label, 'status': 'FAIL', 'reason': str(exc)})
+            try:
+                safe = reset(label) is True
+            except Exception:
+                safe = False
+    return results
+
+
+def reset_diagnostic_question(ui, control):
+    # Only mock-owned notification state is changed; never submit an answer.
+    import copy
+    if ui.present('voice-recording-strip-discard'):
+        ui.tap('voice-recording-strip-discard')
+        if not ui.wait_absent('voice-recording-strip-discard'):
+            return False
+    if ui.present('question-overlay-cancel'):
+        ui.tap('question-overlay-cancel')
+        if not ui.wait_absent('question-overlay-cancel'):
+            return False
+    notification = copy.deepcopy(control.last_notification)
+    if notification:
+        notification['state'] = 'resolved'
+        if isinstance(notification.get('question'), dict):
+            notification['question']['state'] = 'resolved'
+        control.rpc('debug_replay_notification', notification=notification)
+        if not ui.wait_absent(label=notification['body']):
+            return False
+    ui.wait('composer-input')
+    ui.wait('composer-mic-button', label='Voice mode')
+    return True
+
+
 def run_broad(config: dict, stream, cap=None) -> Verdict:
     from ._m1_native_ui import NativeUI, SystemUIInterception
     from ._m1_mock_control import MockControl
@@ -241,6 +287,20 @@ def run_broad(config: dict, stream, cap=None) -> Verdict:
         trace = _NativeTrace(stream)
         drive_history_navigation(ui, trace)
         ui.tap(label='Close session status')
+        if config.get('M1_DIAGNOSTIC') == '1':
+            cells = [(f'session_{mode}', lambda mode=mode: drive_question(ui, control, 'session', mode))
+                     for mode in ('choice', 'free', 'combined', 'custom')]
+            cells += [('two_turn_reconnect', lambda: drive_two_turns(ui, control, trace)),
+                      ('childless', lambda: drive_childless_control(ui)),
+                      ('non_nexus_card', lambda: drive_non_nexus_card_control(ui)),
+                      ('non_nexus_voice_discard', lambda: drive_non_nexus_control(ui))]
+            def enter_cards(): ui.tap(label='Back to chats')
+            cells += [('enter_cards', enter_cards)]
+            cells += [(f'card_{mode}', lambda mode=mode: drive_question(ui, control, 'card', mode))
+                      for mode in ('choice', 'free', 'combined', 'custom')]
+            outcomes = run_diagnostic_cells(cells, lambda label: label.startswith('session_') and reset_diagnostic_question(ui, control))
+            return Verdict(name=name, verdict='PASS' if all(x['status'] == 'PASS' for x in outcomes) else 'FAIL',
+                           extras={'scope': 'synthetic broad M1', 'cells': outcomes}).finish()
         for mode in ('choice', 'free', 'combined', 'custom'):
             drive_question(ui, control, 'session', mode)
         drive_two_turns(ui, control, trace)

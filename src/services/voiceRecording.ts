@@ -169,6 +169,7 @@ export class VoiceRecorder {
         if (a.draft?.questionBinding) startVoiceQuestionSession(a.recordingId, a.draft.questionBinding);
         this.emit();
         await this.engine.start(() => this.current(epoch, a) && this.ready(a) && scopeMatches()); nativeStarted = true; this.guard(epoch, a); checkScope();
+        if (process.env.EXPO_PUBLIC_HARNESS === '1') require('../utils/m1Diagnostic').m1Diagnostic('recorder_started', { origin: 'engine_started', stream_id: streamId, operation_kind: capturedDraft?.operationKind ?? 'voice_chat' });
         a.status = 'recording';
         // Capture begins after native arming; permission/arming dwell has no visits.
         // Legacy segmented takes retain their existing binding-only behavior.

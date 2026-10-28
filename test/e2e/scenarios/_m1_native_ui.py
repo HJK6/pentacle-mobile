@@ -2,6 +2,10 @@
 from __future__ import annotations
 
 import json
+import os
+import sys
+import shutil
+from pathlib import Path
 import re
 import subprocess
 import time
@@ -63,8 +67,29 @@ class NativeUI:
         check_navigation(self.bundle, foreground, True, stamp)
 
     def _command(self, *args):
-        result = subprocess.run(['idb', 'ui', *args, '--udid', self.udid], capture_output=True,
-                                text=True, timeout=20, check=False)
+        capture_path = os.environ.get('M1_DIAGNOSTIC_HID_PATH')
+        is_hid = args[0] in ('tap', 'text', 'swipe', 'button', 'key', 'key-sequence')
+        command = ['idb']
+        env = dict(os.environ, M1_DIAGNOSTIC_COMMAND=str(args[0]))
+        if capture_path and is_hid:
+            cli = Path(shutil.which('idb') or '').resolve(strict=True)
+            first = cli.read_text(encoding='utf-8').splitlines()[0]
+            if not first.startswith('#!/') or ' ' in first:
+                raise RuntimeError('unsupported idb interpreter; cannot capture actual client')
+            interpreter = first[2:]
+            env['M1_DIAGNOSTIC_IDB_CLI'] = str(cli)
+            command = [interpreter, '-m', 'e2e.scenarios._m1_idb_capture']
+            env['PYTHONPATH'] = str(Path(__file__).resolve().parents[2]) + os.pathsep + env.get('PYTHONPATH', '')
+        start_ns = time.time_ns()
+        run_options = {'env': env} if capture_path and is_hid else {}
+        result = subprocess.run([*command, 'ui', *args, '--udid', self.udid], capture_output=True,
+                                text=True, timeout=20, check=False, **run_options)
+        command_path = os.environ.get('M1_DIAGNOSTIC_COMMAND_PATH')
+        if command_path and is_hid:
+            with open(command_path, 'a', encoding='utf-8') as output:
+                output.write(json.dumps({'command': list(args), 'wall_start_ns': start_ns,
+                    'wall_end_ns': time.time_ns(), 'status': result.returncode,
+                    'instrumented_client': bool(capture_path), 'provenance': 'client_command'}) + '\n')
         self.trace('m1 idb ' + str(args[0]), result)
         if result.returncode:
             raise RuntimeError('M1 native accessibility command failed: ' + str(args[0]))
@@ -230,8 +255,22 @@ class NativeUI:
             self.wait(**({'identifier': destination} if kind == 'id' else {'label': destination}))
 
     def type_text(self, identifier, text):
+        self._diagnostic_snapshot('before_focus', identifier)
         self.tap(identifier)
+        self._diagnostic_snapshot('after_focus', identifier)
         self._command('text', text)
+        self._diagnostic_snapshot('after_text', identifier)
+
+    def _diagnostic_snapshot(self, step, identifier):
+        path = os.environ.get('M1_DIAGNOSTIC_AX_PATH')
+        if not path:
+            return
+        elements = self.elements()
+        selected = [e for e in elements if identifier in (e.get('AXIdentifier'), e.get('AXUniqueId'))]
+        with open(path, 'a', encoding='utf-8') as output:
+            output.write(json.dumps({'step': step, 'target': identifier, 'wall_ns': time.time_ns(),
+                'monotonic_ns': time.monotonic_ns(), 'elements': selected,
+                'native_first_responder': 'unavailable', 'provenance': 'idb_accessibility_snapshot'}) + '\n')
 
     def swipe_up(self):
         root = next(e['frame'] for e in self.elements() if e.get('role') == 'AXApplication')
