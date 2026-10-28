@@ -123,5 +123,95 @@ def test_broad_diagnostic_continues_after_non_session_failure(monkeypatch):
     # Cells after the non-session failure are still measured, not blanket-UNMEASURED.
     assert cells['childless'] == 'PASS'
     assert cells['card_custom'] == 'PASS'
-    assert 'UNMEASURED' not in cells.values()
+    assert [label for label, status in cells.items() if status == 'UNMEASURED'] == ['non_nexus_voice_discard']
     assert ran[-1] == 'close'
+
+
+
+def test_fixed_voice_exclusion_never_invokes_action_or_reset():
+    calls = []
+    result = m1.run_diagnostic_cells([
+        ('non_nexus_card', lambda: calls.append('card')),
+        ('non_nexus_voice_discard', lambda: calls.append('forbidden voice sentinel')),
+        ('enter_cards', lambda: calls.append('enter_cards')),
+    ], lambda label: calls.append('reset') or True)
+    assert (calls, result) == (['card', 'enter_cards'], [
+        {'cell': 'non_nexus_card', 'status': 'PASS'},
+        {'cell': 'non_nexus_voice_discard', 'status': 'UNMEASURED',
+         'reason': 'No proven silent/null/synthetic input; microphone capture not authorized'},
+        {'cell': 'enter_cards', 'status': 'PASS'},
+    ])
+
+
+def test_unsafe_baseline_takes_precedence_over_voice_exclusion():
+    calls = []
+    def failing():
+        raise RuntimeError('failed')
+    result = m1.run_diagnostic_cells([
+        ('first', failing),
+        ('non_nexus_voice_discard', lambda: calls.append('forbidden voice sentinel')),
+        ('enter_cards', lambda: calls.append('enter_cards')),
+    ], lambda label: calls.append(label) or False)
+    assert calls == ['first']
+    assert result[0]['status'] == 'FAIL'
+    assert result[1:] == [
+        {'cell': label, 'status': 'UNMEASURED',
+         'reason': 'prior failure could not be reset and verified'}
+        for label in ('non_nexus_voice_discard', 'enter_cards')
+    ]
+
+
+def test_system_ui_interception_propagates_after_voice_exclusion():
+    import pytest
+    from e2e.scenarios._m1_native_ui import SystemUIInterception
+    calls = []
+    interception = SystemUIInterception('com.example.system-ui', 1.0)
+    def intercepted():
+        raise interception
+    with pytest.raises(SystemUIInterception) as caught:
+        m1.run_diagnostic_cells([
+            ('non_nexus_voice_discard', lambda: calls.append('forbidden voice sentinel')),
+            ('enter_cards', intercepted),
+            ('card_choice', lambda: calls.append('card_choice')),
+        ], lambda label: calls.append('reset') or True)
+    assert caught.value is interception
+    assert calls == []
+
+
+def test_broad_safe_diagnostic_keeps_canonical_cells_and_honest_aggregate(monkeypatch):
+    from e2e.scenarios import _m1_mock_control, _m1_native_ui
+    labels = [
+        'session_choice', 'session_free', 'session_combined', 'session_custom',
+        'two_turn_reconnect', 'childless', 'non_nexus_card', 'non_nexus_voice_discard',
+        'enter_cards', 'card_choice', 'card_free', 'card_combined', 'card_custom',
+    ]
+    calls = []
+    resets = []
+    closed = []
+    class UI:
+        def __init__(self, config): pass
+        def tap(self, identifier=None, label=None):
+            if label == 'Back to chats': calls.append('enter_cards')
+    class Control:
+        def __init__(self, url): pass
+        def close(self): closed.append(True)
+    monkeypatch.setattr(_m1_native_ui, 'NativeUI', UI)
+    monkeypatch.setattr(_m1_mock_control, 'MockControl', Control)
+    monkeypatch.setattr(m1.M, 'await_mock_session_open', lambda *a, **k: None)
+    monkeypatch.setattr(m1, 'drive_history_navigation', lambda *a: None)
+    monkeypatch.setattr(m1, 'drive_question', lambda ui, control, surface, mode: calls.append(f'{surface}_{mode}'))
+    for method, label in (
+        ('drive_two_turns', 'two_turn_reconnect'),
+        ('drive_childless_control', 'childless'),
+        ('drive_non_nexus_card_control', 'non_nexus_card'),
+        ('drive_non_nexus_control', 'non_nexus_voice_discard'),
+    ):
+        monkeypatch.setattr(m1, method, lambda *a, label=label: calls.append(label))
+    monkeypatch.setattr(m1, 'reset_diagnostic_cell', lambda *a: resets.append(a) or True)
+    verdict = m1.run_broad({'M1_DIAGNOSTIC': '1', 'M1_MOCK_WS_URL': 'ws://127.0.0.1:18791'}, None)
+    assert [cell['cell'] for cell in verdict.extras['cells']] == labels
+    assert calls == [label for label in labels if label != 'non_nexus_voice_discard']
+    assert [cell['status'] for cell in verdict.extras['cells']] == ['PASS'] * 7 + ['UNMEASURED'] + ['PASS'] * 5
+    assert verdict.extras['cells'][7]['reason'] == 'No proven silent/null/synthetic input; microphone capture not authorized'
+    assert verdict.verdict == 'FAIL'
+    assert resets == [] and closed == [True]
