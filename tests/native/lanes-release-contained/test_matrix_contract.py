@@ -43,3 +43,23 @@ def test_two_ring_order_detects_wrong_attention_order():
         elements.append({'AXUniqueId': f'lanes-map-lane-{index}', 'frame': {'x': 100 + rx*math.cos(angle)-5, 'y': 100 + ry*math.sin(angle)-5, 'width': 10, 'height': 10}})
     assert run.two_ring_order(elements, center) == [str(i) for i in range(9)]
     assert run.two_ring_order(elements[::-1], center) == [str(i) for i in range(9)]
+
+
+def test_v1_five_lane_map_uses_shipped_circular_geometry():
+    import math
+    hub = {'AXIdentifier': 'lanes-map-assistant', 'frame': {'x': 167, 'y': 204, 'width': 68, 'height': 68}}
+    ids = [f'wl-{i:024x}' for i in range(5)]
+    nodes = []
+    for i, lane in enumerate(ids):
+        angle = math.radians(-90 + i * 360 / 5)
+        size = 50 + i * 3
+        nodes.append({'AXIdentifier': 'lanes-map-lane-' + lane,
+                      'frame': {'x': 201 + 132 * math.cos(angle) - size/2,
+                                'y': 238 + 132 * math.sin(angle) - size/2,
+                                'width': size, 'height': size}})
+    class FakeUi:
+        def ids(self, prefix): return [e for e in reversed(nodes) if e['AXIdentifier'].startswith(prefix)]
+        def find(self, identifier): return hub
+    scenario = run.Run.__new__(run.Run)
+    scenario.ui = FakeUi()
+    assert scenario.visible_order('lanes-map-lane-') == ids

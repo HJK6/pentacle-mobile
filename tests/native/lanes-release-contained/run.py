@@ -553,20 +553,30 @@ def overlapping(elements: list[dict[str, Any]]) -> list[tuple[str, str]]:
 # The run
 # ---------------------------------------------------------------------------
 
-# LanesMap places a page's nodes on clockwise perimeter slots (column, row) of a 3x3 grid around the hub.
-ORBIT_SLOTS = [(1, 0), (2, 0), (2, 1), (2, 2), (1, 2), (0, 2), (0, 1), (0, 0)]
-
-
 def orbit_order(nodes: list[dict[str, Any]], hub: dict[str, float]) -> list[dict[str, Any]]:
-    """Map nodes in slot order; every grid cell is the hub's size, so the cell is the rounded offset from the hub."""
-    def slot(element: dict[str, Any]) -> int:
-        frame = Ui.frame(element)
-        cell = (round((frame["x"] - hub["x"]) / hub["width"]) + 1, round((frame["y"] - hub["y"]) / hub["height"]) + 1)
-        if cell not in ORBIT_SLOTS:
-            raise AssertFail(f"map node is not on an orbit slot: {Ui.ident(element)} at {cell}")
-        return ORBIT_SLOTS.index(cell)
+    """Order the unfocused rings by the shipped LanesMap geometry.
 
-    return sorted(nodes, key=slot)
+    LanesMap.tsx:585-610 places up to six nodes on the inner ellipse and the
+    remainder on an outer ellipse, each clockwise from the top.
+    """
+    import math
+    if len(nodes) > 16:
+        raise AssertFail("unfocused map exposes more than 16 lane nodes")
+    cx = hub["x"] + hub["width"] / 2
+    cy = hub["y"] + hub["height"] / 2
+    def offset(node):
+        frame = Ui.frame(node)
+        return (frame["x"] + frame["width"] / 2 - cx,
+                frame["y"] + frame["height"] / 2 - cy)
+    by_radius = sorted(nodes, key=lambda node: sum(x*x for x in offset(node)))
+    def clockwise(node, rx, ry):
+        dx, dy = offset(node)
+        return (math.atan2(dy / ry, dx / rx) + math.pi / 2 + 0.02) % (2 * math.pi)
+    if len(nodes) <= 6:
+        return sorted(nodes, key=lambda node: clockwise(node, 132, 132))
+    inner, outer = by_radius[:6], by_radius[6:]
+    return (sorted(inner, key=lambda node: clockwise(node, 100, 140)) +
+            sorted(outer, key=lambda node: clockwise(node, 182, 240)))
 
 
 class Run:

@@ -257,19 +257,25 @@ class _FakeMapUi:
         return next(e for e in self.elements if e["AXIdentifier"] == ident)
 
 
-@pytest.mark.parametrize("count", [8, 3])
-def test_map_order_follows_the_clockwise_orbit_slots(count):
-    # LanesMap geometry: 3x3 grid of slot-sized nodes, hub in the centre, lanes on clockwise perimeter slots.
-    slots = [(1, 0), (2, 0), (2, 1), (2, 2), (1, 2), (0, 2), (0, 1), (0, 0)]
-    width, height, gap = 109.0, 118.0, 8.0
-
-    def node(ident, column, row):
-        return {"AXIdentifier": ident, "frame": {"x": 12 + column * (width + gap), "y": 200 + row * (height + gap),
-                                                 "width": width, "height": height}}
-
+@pytest.mark.parametrize("count", [3, 8])
+def test_map_order_follows_the_clockwise_circular_rings(count):
+    # Source geometry: LanesMap.tsx:585-610, including differently sized nodes.
+    import math
+    cx, cy = 201.0, 330.0 if count > 6 else 238.0
     lanes = [f"wl-{index:024x}" for index in range(count)]
-    elements = [node("lanes-map-assistant", 1, 1)]
-    elements += [node(f"lanes-map-lane-{lane}", *slots[index * 8 // count]) for index, lane in enumerate(lanes)]
+    elements = [{"AXIdentifier": "lanes-map-assistant",
+                 "frame": {"x": cx-34, "y": cy-34, "width": 68, "height": 68}}]
+    for index, lane in enumerate(lanes):
+        inner = index < 6
+        ring_count = min(count, 6) if inner else count - 6
+        slot = index if inner else index - 6
+        rx, ry = ((100, 140) if count > 6 else (132, 132)) if inner else (182, 240)
+        angle = math.radians(-90 + slot * 360 / ring_count)
+        size = 50 + index * 2 if inner else 34
+        elements.append({"AXIdentifier": f"lanes-map-lane-{lane}",
+                         "frame": {"x": cx + rx * math.cos(angle) - size/2,
+                                   "y": cy + ry * math.sin(angle) - size/2,
+                                   "width": size, "height": size}})
     scenario = run.Run.__new__(run.Run)
     scenario.ui = _FakeMapUi(list(reversed(elements)))
     assert scenario.visible_order("lanes-map-lane-") == lanes
