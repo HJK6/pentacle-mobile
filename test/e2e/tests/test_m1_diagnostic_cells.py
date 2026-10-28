@@ -76,14 +76,18 @@ def test_cell_reset_isolates_non_session_failure_per_cell():
     assert ran == ['session_choice', 'card_choice']
 
 
-def test_reset_diagnostic_cell_routes_session_vs_baseline(monkeypatch):
+def test_reset_diagnostic_cell_routes_session_cards_and_in_session(monkeypatch):
     seen = []
     monkeypatch.setattr(m1, 'reset_diagnostic_question', lambda ui, control: seen.append('question') or True)
-    monkeypatch.setattr(m1, 'reset_to_session_baseline', lambda ui, control: seen.append('baseline') or True)
+    monkeypatch.setattr(m1, 'reset_to_session_baseline', lambda ui, control: seen.append('session') or True)
+    monkeypatch.setattr(m1, 'reset_to_cards_baseline', lambda ui, control: seen.append('cards') or True)
     assert m1.reset_diagnostic_cell(object(), object(), 'session_free') is True
     assert m1.reset_diagnostic_cell(object(), object(), 'two_turn_reconnect') is True
+    assert m1.reset_diagnostic_cell(object(), object(), 'enter_cards') is True
     assert m1.reset_diagnostic_cell(object(), object(), 'card_custom') is True
-    assert seen == ['question', 'baseline', 'baseline']
+    # session_ -> in-place question reset; card_/enter_cards -> chat-list
+    # baseline; other in-session cells -> session composer baseline.
+    assert seen == ['question', 'session', 'cards', 'cards']
 
 
 def test_reset_diagnostic_cell_fails_closed_on_reset_exception(monkeypatch):

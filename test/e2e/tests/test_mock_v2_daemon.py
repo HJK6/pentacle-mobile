@@ -559,3 +559,85 @@ def test_debug_replay_report_notification_is_not_persisted(registry):
             await server.wait_closed()
 
     assert asyncio.run(scenario()) == []
+
+
+def _open_question_notification(stream_id="mock-host:mock-session", qid="mock-ask-1"):
+    return {
+        "producer": "agent_question.v1", "severity": "info",
+        "title": "Mock durable question", "body": "Answer it.",
+        "actions": [{"kind": "ack", "action_id": "a1", "label": "Proceed", "value": {"answer": "proceed"}}],
+        "question": {"schema_version": 1, "question_id": qid, "response_mode": "free_text",
+                     "state": "open", "producer_stream_id": stream_id},
+    }
+
+
+def test_reconnect_snapshot_carries_open_question(registry):
+    """RED for the window-05 no_entries overlay-close: after an open agent
+    question exists, a fresh snapshot (what a reconnecting client receives) must
+    carry it. The old mock sent notifications:[], so the reducer's full-slice
+    replacement wiped the question on reconnect and the overlay auto-closed."""
+    _reg, cred_id, envelope, reg_path = registry
+
+    async def scenario():
+        _daemon, server, url = await _boot(reg_path)
+        try:
+            async with websockets.connect(url, max_size=None) as harness:
+                await _harness_hello(harness)
+                await harness.send(json.dumps({"type": "debug_replay_notification",
+                                               "request_id": "n1", "notification": _open_question_notification()}))
+                ack = json.loads(await asyncio.wait_for(harness.recv(), timeout=5))
+                assert ack["status"] == "ok"
+                nid = ack["notification"]["notification_id"]
+            # A reconnecting app subscribes for a snapshot (mode != rpc).
+            async with websockets.connect(url, max_size=None) as app:
+                await _app_hello(app, cred_id, envelope, subscribe={"events_mode": "full"})
+                snapshot = None
+                for _ in range(5):
+                    frame = json.loads(await asyncio.wait_for(app.recv(), timeout=5))
+                    if frame["type"] == "snapshot":
+                        snapshot = frame
+                        break
+                assert snapshot is not None, "expected a snapshot frame on reconnect"
+                return snapshot["notifications"], nid
+        finally:
+            server.close()
+            await server.wait_closed()
+
+    notifications, nid = asyncio.run(scenario())
+    ids = [n.get("notification_id") for n in notifications]
+    assert nid in ids, "reconnect snapshot must carry the open question so it is not wiped"
+    carried = next(n for n in notifications if n.get("notification_id") == nid)
+    assert carried.get("state") == "open" and carried["question"]["state"] == "open"
+
+
+def test_notification_list_answers_lookup_and_open(registry):
+    """The mock must answer notification.list (both the open-list form and the
+    notification_ids lookup the transcript backfill uses). An unanswered command
+    is what let a tracked RPC time out and force-close the socket (rpc_timeout)."""
+    _reg, cred_id, envelope, reg_path = registry
+
+    async def scenario():
+        _daemon, server, url = await _boot(reg_path)
+        try:
+            async with websockets.connect(url, max_size=None) as harness:
+                await _harness_hello(harness)
+                await harness.send(json.dumps({"type": "debug_replay_notification",
+                                               "request_id": "n1", "notification": _open_question_notification()}))
+                nid = json.loads(await asyncio.wait_for(harness.recv(), timeout=5))["notification"]["notification_id"]
+            async with websockets.connect(url, max_size=None) as app:
+                await _app_hello(app, cred_id, envelope, subscribe={"mode": "rpc", "snapshot": False})
+                assert json.loads(await asyncio.wait_for(app.recv(), timeout=5))["type"] == "ready"
+                await app.send(json.dumps({"type": "notification.list", "request_id": "L1", "notification_ids": [nid]}))
+                lookup = json.loads(await asyncio.wait_for(app.recv(), timeout=5))
+                await app.send(json.dumps({"type": "notification.list", "request_id": "L2", "states": ["open"]}))
+                listing = json.loads(await asyncio.wait_for(app.recv(), timeout=5))
+                return lookup, listing, nid
+        finally:
+            server.close()
+            await server.wait_closed()
+
+    lookup, listing, nid = asyncio.run(scenario())
+    assert lookup["type"] == "notification.list.ok" and lookup["request_id"] == "L1"
+    assert [n["notification_id"] for n in lookup["notifications"]] == [nid]
+    assert listing["type"] == "notification.list.ok" and listing["request_id"] == "L2"
+    assert nid in [n["notification_id"] for n in listing["notifications"]]

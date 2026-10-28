@@ -281,13 +281,10 @@ def reset_diagnostic_question(ui, control):
     return True
 
 
-def reset_to_session_baseline(ui, control):
-    # Reset a non-session diagnostic cell (reconnect, Nexus/non-Nexus controls,
-    # card questions) by returning to the mock-session composer, reusing the
-    # existing navigation oracles. Dismiss any lingering voice capture or
-    # question overlay first, and resolve the last mock-owned notification if it
-    # is still on screen. Only mock-owned notification state is changed; never
-    # submit an answer.
+def _dismiss_question_surface(ui, control):
+    # Shared teardown: dismiss any lingering voice capture or question overlay
+    # and resolve the last mock-owned notification if it is still on screen.
+    # Only mock-owned notification state is changed; never submit an answer.
     import copy
     if ui.present('voice-recording-strip-discard'):
         ui.tap('voice-recording-strip-discard')
@@ -306,6 +303,15 @@ def reset_to_session_baseline(ui, control):
         control.rpc('debug_replay_notification', notification=notification)
         if not ui.wait_absent(label=body):
             return False
+    return True
+
+
+def reset_to_session_baseline(ui, control):
+    # Reset a cell that ends inside the mock session (reconnect, Nexus/non-Nexus
+    # controls) by returning to the mock-session composer, reusing the existing
+    # navigation oracles.
+    if not _dismiss_question_surface(ui, control):
+        return False
     if ui.present(label='Back to chats'):
         ui.tap(label='Back to chats')
     # The navigation oracle for this row waits for `composer-input`, so a
@@ -314,15 +320,32 @@ def reset_to_session_baseline(ui, control):
     return True
 
 
+def reset_to_cards_baseline(ui, control):
+    # Reset a card-surface cell (`enter_cards`, `card_*`) to the CHAT LIST, where
+    # those cells operate (card questions open from `chat-row-toggle-…` in the
+    # list, not from a session). Landing on the session composer would make each
+    # later card cell FAIL for a harness reason instead of being measured.
+    if not _dismiss_question_surface(ui, control):
+        return False
+    if ui.present(label='Back to chats'):
+        ui.tap(label='Back to chats')
+    # Verify the chat list is shown (its rows are present), without entering a
+    # session.
+    ui.wait(identifier='chat-row-mock-host-mock-session')
+    return True
+
+
 def reset_diagnostic_cell(ui, control, label):
     # Isolate each diagnostic cell so one failure does not blanket the rest as
-    # UNMEASURED: session question cells reset in place; every other cell resets
-    # by returning to the mock-session baseline. A reset that cannot verify the
-    # baseline fails closed (returns False) and the remaining cells stay
-    # UNMEASURED, as before.
+    # UNMEASURED: session question cells reset in place; card-surface cells reset
+    # to the chat list; the remaining in-session cells reset to the session
+    # composer. A reset that cannot verify its baseline fails closed (returns
+    # False) and the remaining cells stay UNMEASURED, as before.
     try:
         if label.startswith('session_'):
             return reset_diagnostic_question(ui, control)
+        if label == 'enter_cards' or label.startswith('card_'):
+            return reset_to_cards_baseline(ui, control)
         return reset_to_session_baseline(ui, control)
     except Exception:
         return False
