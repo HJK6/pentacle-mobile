@@ -33,9 +33,10 @@ def test_transient_alert_ax_failure_retries_before_exact_match(tmp_path, monkeyp
     ui._idb = lambda *a: next(screens)
     ui.dump = lambda *a: tmp_path / 'ax'
     ui.tap_element = lambda element, what, **kw: taps.append((element, what, kw))
+    ui.read_foreground = lambda: 'com.example.pentacle'
     monkeypatch.setattr(run.time, 'sleep', lambda _: None)
     assert ui.clear_system_alerts() == ['Open in “Pentacle”?']
-    assert len(taps) == 1 and taps[0][2] == {'system_dialog': True}
+    assert len(taps) == 1 and taps[0][2] == {'system_dialog': True, 'alert': 'Open in “Pentacle”?'}
     assert any(event[0] == 'alert_ax_retry' for event in events)
 
 

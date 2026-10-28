@@ -471,7 +471,8 @@ class Ui:
         self.check_foreground()
         return element
 
-    def tap_element(self, element: dict[str, Any], what: str, *, system_dialog: bool = False) -> None:
+    def tap_element(self, element: dict[str, Any], what: str, *, system_dialog: bool = False,
+                    alert: str | None = None) -> None:
         if not system_dialog:
             self.check_foreground()
         frame = self.frame(self.reveal(element))
@@ -481,6 +482,13 @@ class Ui:
         if result.returncode:
             raise SetupFail("native tap failed: " + what)
         time.sleep(0.4)
+        if system_dialog:
+            # A different allow-listed alert may follow (Open, then notifications): the caller's loop presses it and
+            # checks the app's return when the chain ends. Anything else, including the same alert, is checked now.
+            chained = known_system_alert(self.elements())
+            if chained is not None and chained[0] != alert:
+                self.trace("system_alert_chained", {"pressed": alert, "next": chained[0]})
+                return
         self.check_foreground()
 
     def reveal(self, element: dict[str, Any], max_drags: int = 10) -> dict[str, Any]:
@@ -542,6 +550,8 @@ class Ui:
                 self.dump("system-alert-unmatched", elements)
                 raise
             if found is None:
+                if handled:
+                    self.check_foreground()  # every chain ends with the app back in front
                 return handled
             title, button = found
             self.dump("system-alert", elements)
@@ -549,12 +559,13 @@ class Ui:
             if button.get("AXEnabled") is False:
                 raise SetupFail(f"system alert {title!r}: {SYSTEM_ALERTS[title]!r} button is disabled")
             try:
-                self.tap_element(button, SYSTEM_ALERTS[title], system_dialog=True)
+                self.tap_element(button, SYSTEM_ALERTS[title], system_dialog=True, alert=title)
             except AssertFail as error:
                 raise SetupFail(f"system alert {title!r}: {error}") from error
             self.trace("system alert", {"title": title, "pressed": SYSTEM_ALERTS[title]})
             handled.append(title)
             time.sleep(1.0)
+        self.check_foreground()
         raise SetupFail("system alerts kept appearing: " + ", ".join(handled))
 
     def swipe_up(self, within: dict[str, float]) -> None:
