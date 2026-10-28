@@ -1,0 +1,1965 @@
+{
+ "source": {
+  "note": "Verbatim idb describe-all reads from the all_chats_load simulator window 2 (2026-10-28, public main 3d933706). Lines are 1-based in each ui.jsonl.",
+  "normal_ui_trace": {
+   "file": "runs-normal/allchats-normal-1793181468343.ui.jsonl",
+   "sha256": "813fba3f5519b0dc1c126988601cefc78423b27c4e5380bf619b44bfbc7352d6",
+   "lines": {
+    "closed": 5,
+    "opening": 7,
+    "open_settled": 8,
+    "open_settled_next": 9
+   }
+  },
+  "control_ui_trace": {
+   "file": "runs-stall_control/allchats-stall_control-1793181446619.ui.jsonl",
+   "sha256": "7826533a696dff3950c935260471012d93c01d894ee8a8e2defb0b0573e221cf",
+   "lines": {
+    "opening_control": 7
+   }
+  }
+ },
+ "closed": [
+  {
+   "AXFrame": "{{0, 0}, {402, 874}}",
+   "AXValue": null,
+   "frame": {
+    "x": 0,
+    "height": 874,
+    "y": 0,
+    "width": 402
+   },
+   "traits": [
+    "None"
+   ],
+   "AXUniqueId": null,
+   "type": "Application",
+   "title": null,
+   "enabled": true,
+   "help": null,
+   "subrole": null,
+   "pid": 31925,
+   "AXLabel": "Pentacle",
+   "content_required": false,
+   "role": "AXApplication",
+   "custom_actions": [],
+   "role_description": "application"
+  },
+  {
+   "frame": {
+    "width": 40,
+    "y": 64,
+    "height": 40,
+    "x": 12
+   },
+   "title": null,
+   "custom_actions": [],
+   "help": null,
+   "AXUniqueId": null,
+   "role": "AXButton",
+   "traits": [
+    "Scrollable",
+    "Button"
+   ],
+   "subrole": null,
+   "content_required": false,
+   "AXLabel": "Sessions, 0 need you",
+   "pid": 31925,
+   "type": "Button",
+   "AXValue": null,
+   "AXFrame": "{{12, 64}, {40, 40}}",
+   "role_description": "button",
+   "enabled": true
+  },
+  {
+   "help": null,
+   "frame": {
+    "y": 65,
+    "width": 38,
+    "x": 61,
+    "height": 38
+   },
+   "AXValue": null,
+   "type": "Button",
+   "role": "AXButton",
+   "enabled": true,
+   "subrole": null,
+   "traits": [
+    "Scrollable",
+    "Button"
+   ],
+   "title": null,
+   "AXLabel": "Assistant status, 0 open lanes",
+   "role_description": "button",
+   "custom_actions": [],
+   "content_required": false,
+   "AXFrame": "{{61, 65}, {38, 38}}",
+   "AXUniqueId": null,
+   "pid": 31925
+  },
+  {
+   "AXUniqueId": null,
+   "AXFrame": "{{108, 66.666666507720947}, {66, 19}}",
+   "pid": 31925,
+   "role": "AXButton",
+   "help": null,
+   "AXLabel": "Assistant status",
+   "content_required": false,
+   "subrole": null,
+   "traits": [
+    "Scrollable",
+    "Button"
+   ],
+   "enabled": true,
+   "title": null,
+   "AXValue": null,
+   "type": "Button",
+   "frame": {
+    "x": 108,
+    "width": 66,
+    "height": 19,
+    "y": 66.66666650772095
+   },
+   "custom_actions": [],
+   "role_description": "button"
+  },
+  {
+   "help": null,
+   "custom_actions": [],
+   "pid": 31925,
+   "role": "AXButton",
+   "role_description": "button",
+   "AXValue": null,
+   "enabled": true,
+   "AXFrame": "{{183, 62}, {44, 44}}",
+   "type": "Button",
+   "AXUniqueId": "header-voice-mic",
+   "subrole": null,
+   "title": null,
+   "frame": {
+    "y": 62,
+    "width": 44,
+    "x": 183,
+    "height": 44
+   },
+   "AXLabel": "Talk to Assistant",
+   "content_required": false,
+   "traits": [
+    "Scrollable",
+    "Button"
+   ]
+  },
+  {
+   "type": "Button",
+   "subrole": null,
+   "AXUniqueId": null,
+   "pid": 31925,
+   "frame": {
+    "x": 350,
+    "height": 40,
+    "width": 40,
+    "y": 64
+   },
+   "role": "AXButton",
+   "title": null,
+   "help": null,
+   "custom_actions": [],
+   "enabled": true,
+   "traits": [
+    "Scrollable",
+    "Button"
+   ],
+   "AXLabel": "Questions, 0 pending",
+   "AXFrame": "{{350, 64}, {40, 40}}",
+   "role_description": "button",
+   "AXValue": null,
+   "content_required": false
+  },
+  {
+   "help": null,
+   "title": null,
+   "frame": {
+    "y": 88.66666650772095,
+    "x": 108,
+    "height": 12.666671752929688,
+    "width": 66
+   },
+   "content_required": false,
+   "role": "AXButton",
+   "role_description": "button",
+   "pid": 31925,
+   "type": "Button",
+   "AXFrame": "{{108, 88.666666507720947}, {66, 12.666671752929688}}",
+   "AXUniqueId": null,
+   "subrole": null,
+   "traits": [
+    "Scrollable",
+    "Button"
+   ],
+   "enabled": true,
+   "custom_actions": [],
+   "AXValue": null,
+   "AXLabel": "0 open lanes"
+  },
+  {
+   "help": null,
+   "AXLabel": "LOADING CHAT…",
+   "AXFrame": "{{143.66667175292969, 416.33334350585938}, {114.66667175292969, 18}}",
+   "AXUniqueId": null,
+   "type": "StaticText",
+   "role_description": "text",
+   "AXValue": null,
+   "frame": {
+    "width": 114.66667175292969,
+    "x": 143.6666717529297,
+    "y": 416.3333435058594,
+    "height": 18
+   },
+   "pid": 31925,
+   "role": "AXStaticText",
+   "traits": [
+    "Scrollable",
+    "StaticText"
+   ],
+   "subrole": null,
+   "enabled": true,
+   "custom_actions": [],
+   "title": null,
+   "content_required": false
+  },
+  {
+   "custom_actions": [],
+   "AXFrame": "{{31, 704}, {310, 28}}",
+   "traits": [
+    "Scrollable",
+    "TextOperationsAvailable",
+    "TextEntry",
+    "TextArea"
+   ],
+   "frame": {
+    "height": 28,
+    "width": 310,
+    "y": 704,
+    "x": 31
+   },
+   "subrole": null,
+   "role_description": "Group",
+   "enabled": true,
+   "type": "TextArea",
+   "AXValue": null,
+   "title": null,
+   "pid": 31925,
+   "AXUniqueId": "composer-input",
+   "help": null,
+   "role": "AXTextArea",
+   "AXLabel": "Message input",
+   "content_required": false
+  },
+  {
+   "subrole": null,
+   "AXFrame": "{{351, 701}, {28, 28}}",
+   "AXUniqueId": "composer-plus-button",
+   "AXLabel": "More actions",
+   "role": "AXButton",
+   "frame": {
+    "y": 701,
+    "height": 28,
+    "x": 351,
+    "width": 28
+   },
+   "custom_actions": [],
+   "enabled": true,
+   "pid": 31925,
+   "role_description": "button",
+   "help": null,
+   "AXValue": null,
+   "traits": [
+    "Scrollable",
+    "Button"
+   ],
+   "type": "Button",
+   "title": null,
+   "content_required": false
+  },
+  {
+   "subrole": null,
+   "traits": [
+    "Scrollable",
+    "Button"
+   ],
+   "role": "AXButton",
+   "role_description": "button",
+   "help": null,
+   "pid": 31925,
+   "custom_actions": [],
+   "content_required": false,
+   "AXFrame": "{{351, 734}, {28, 28}}",
+   "AXUniqueId": "composer-mic-button",
+   "type": "Button",
+   "enabled": true,
+   "AXValue": null,
+   "title": null,
+   "AXLabel": "Voice mode",
+   "frame": {
+    "width": 28,
+    "x": 351,
+    "y": 734,
+    "height": 28
+   }
+  },
+  {
+   "subrole": null,
+   "AXUniqueId": "assistant-tab-button",
+   "custom_actions": [],
+   "title": null,
+   "frame": {
+    "x": 0,
+    "height": 37,
+    "width": 100.66666412353516,
+    "y": 803
+   },
+   "help": null,
+   "role": "AXButton",
+   "AXLabel": "ASSISTANT, tab, 1 of 7",
+   "AXValue": null,
+   "AXFrame": "{{0, 803}, {100.66666412353516, 37}}",
+   "traits": [
+    "Scrollable",
+    "Button",
+    "Selected"
+   ],
+   "type": "Button",
+   "role_description": "button",
+   "enabled": true,
+   "content_required": false,
+   "pid": 31925
+  },
+  {
+   "help": null,
+   "subrole": null,
+   "AXFrame": "{{100.66666412353516, 803}, {100.33333587646484, 37}}",
+   "role": "AXButton",
+   "traits": [
+    "Scrollable",
+    "Button"
+   ],
+   "enabled": true,
+   "type": "Button",
+   "role_description": "button",
+   "AXUniqueId": "personal-tab-button",
+   "custom_actions": [],
+   "content_required": false,
+   "pid": 31925,
+   "AXValue": null,
+   "AXLabel": "PERSONAL, tab, 2 of 7",
+   "frame": {
+    "y": 803,
+    "width": 100.33333587646484,
+    "x": 100.66666412353516,
+    "height": 37
+   },
+   "title": null
+  },
+  {
+   "type": "Button",
+   "custom_actions": [],
+   "role": "AXButton",
+   "traits": [
+    "Scrollable",
+    "Button"
+   ],
+   "AXLabel": "DASHBOARDS, tab, 3 of 7",
+   "AXValue": null,
+   "subrole": null,
+   "pid": 31925,
+   "content_required": false,
+   "AXUniqueId": "dashboards-tab-button",
+   "frame": {
+    "height": 37,
+    "x": 201,
+    "width": 100.66665649414062,
+    "y": 803
+   },
+   "help": null,
+   "AXFrame": "{{201, 803}, {100.66665649414062, 37}}",
+   "title": null,
+   "enabled": true,
+   "role_description": "button"
+  },
+  {
+   "role": "AXButton",
+   "frame": {
+    "width": 100.33334350585938,
+    "y": 803,
+    "x": 301.6666564941406,
+    "height": 37
+   },
+   "traits": [
+    "Scrollable",
+    "Button"
+   ],
+   "pid": 31925,
+   "AXValue": null,
+   "subrole": null,
+   "AXLabel": "SETTINGS, tab, 4 of 7",
+   "type": "Button",
+   "custom_actions": [],
+   "content_required": false,
+   "help": null,
+   "enabled": true,
+   "title": null,
+   "AXFrame": "{{301.66665649414062, 803}, {100.33334350585938, 37}}",
+   "AXUniqueId": "settings-tab-button",
+   "role_description": "button"
+  }
+ ],
+ "opening": [
+  {
+   "AXFrame": "{{0, 0}, {402, 874}}",
+   "AXValue": null,
+   "frame": {
+    "width": 402,
+    "x": 0,
+    "y": 0,
+    "height": 874
+   },
+   "traits": [
+    "None"
+   ],
+   "AXUniqueId": null,
+   "type": "Application",
+   "title": null,
+   "enabled": true,
+   "help": null,
+   "subrole": null,
+   "pid": 31925,
+   "AXLabel": "Pentacle",
+   "content_required": false,
+   "role": "AXApplication",
+   "custom_actions": [],
+   "role_description": "application"
+  },
+  {
+   "enabled": false,
+   "content_required": false,
+   "traits": [
+    "Scrollable",
+    "NotEnabled",
+    "Button"
+   ],
+   "role": "AXButton",
+   "pid": 31925,
+   "title": null,
+   "type": "Button",
+   "AXFrame": "{{-10.80401611328125, 66}, {44.000007629394531, 44}}",
+   "frame": {
+    "height": 44,
+    "width": 44.00000762939453,
+    "x": -10.80401611328125,
+    "y": 66
+   },
+   "AXLabel": "Talk to Assistant",
+   "role_description": "button",
+   "subrole": null,
+   "AXUniqueId": "header-voice-mic",
+   "custom_actions": [],
+   "AXValue": null,
+   "help": "Recording is unavailable until this chat is ready and the app is unlocked"
+  },
+  {
+   "frame": {
+    "height": 32,
+    "y": 72,
+    "x": 215.5218505859375,
+    "width": 32
+   },
+   "title": null,
+   "custom_actions": [],
+   "help": null,
+   "AXUniqueId": null,
+   "role": "AXButton",
+   "traits": [
+    "Scrollable",
+    "Button"
+   ],
+   "subrole": null,
+   "content_required": false,
+   "AXLabel": "New session",
+   "pid": 31925,
+   "type": "Button",
+   "AXValue": null,
+   "AXFrame": "{{215.5218505859375, 72}, {32, 32}}",
+   "role_description": "button",
+   "enabled": true
+  },
+  {
+   "help": null,
+   "frame": {
+    "height": 12.666671752929688,
+    "width": 309,
+    "x": -61.144805908203125,
+    "y": 126
+   },
+   "AXValue": null,
+   "type": "Heading",
+   "role": "AXHeading",
+   "enabled": true,
+   "subrole": null,
+   "traits": [
+    "Scrollable",
+    "StaticText",
+    "Header"
+   ],
+   "title": null,
+   "AXLabel": "IDLE · 9",
+   "role_description": "heading",
+   "custom_actions": [],
+   "content_required": false,
+   "AXFrame": "{{-61.144805908203125, 126}, {309, 12.666671752929688}}",
+   "AXUniqueId": null,
+   "pid": 31925
+  },
+  {
+   "AXUniqueId": "assistant-drawer-row-mock-host:sample-00",
+   "AXFrame": "{{-61.144805908203125, 140.66666603088379}, {308.66665649414062, 62}}",
+   "pid": 31925,
+   "role": "AXButton",
+   "help": null,
+   "AXLabel": "Open Chat sample 00, Idle, Mock Host",
+   "content_required": false,
+   "subrole": null,
+   "traits": [
+    "Scrollable",
+    "Button"
+   ],
+   "enabled": true,
+   "title": null,
+   "AXValue": null,
+   "type": "Button",
+   "frame": {
+    "x": -61.144805908203125,
+    "y": 140.6666660308838,
+    "height": 62,
+    "width": 308.6666564941406
+   },
+   "custom_actions": [],
+   "role_description": "button"
+  },
+  {
+   "help": null,
+   "custom_actions": [],
+   "pid": 31925,
+   "role": "AXButton",
+   "role_description": "button",
+   "AXValue": null,
+   "enabled": true,
+   "AXFrame": "{{-61.144805908203125, 202.66666412353516}, {308.66665649414062, 61.999984741210938}}",
+   "type": "Button",
+   "AXUniqueId": "assistant-drawer-row-mock-host:sample-01",
+   "subrole": null,
+   "title": null,
+   "frame": {
+    "x": -61.144805908203125,
+    "width": 308.6666564941406,
+    "height": 61.99998474121094,
+    "y": 202.66666412353516
+   },
+   "AXLabel": "Open Chat sample 01, Idle, Mock Host",
+   "content_required": false,
+   "traits": [
+    "Scrollable",
+    "Button"
+   ]
+  },
+  {
+   "type": "Button",
+   "subrole": null,
+   "AXUniqueId": "assistant-drawer-row-mock-host:sample-02",
+   "pid": 31925,
+   "frame": {
+    "y": 264.6666717529297,
+    "width": 308.6666564941406,
+    "x": -39.4329833984375,
+    "height": 62
+   },
+   "role": "AXButton",
+   "title": null,
+   "help": null,
+   "custom_actions": [],
+   "enabled": true,
+   "traits": [
+    "Scrollable",
+    "Button"
+   ],
+   "AXLabel": "Open Chat sample 02, Idle, Mock Host",
+   "AXFrame": "{{-39.4329833984375, 264.66667175292969}, {308.66665649414062, 62}}",
+   "role_description": "button",
+   "AXValue": null,
+   "content_required": false
+  },
+  {
+   "help": null,
+   "title": null,
+   "frame": {
+    "x": -39.4329833984375,
+    "y": 326.6666717529297,
+    "width": 308.6666564941406,
+    "height": 62
+   },
+   "content_required": false,
+   "role": "AXButton",
+   "role_description": "button",
+   "pid": 31925,
+   "type": "Button",
+   "AXFrame": "{{-39.4329833984375, 326.66667175292969}, {308.66665649414062, 62}}",
+   "AXUniqueId": "assistant-drawer-row-mock-host:sample-03",
+   "subrole": null,
+   "traits": [
+    "Scrollable",
+    "Button"
+   ],
+   "enabled": true,
+   "custom_actions": [],
+   "AXValue": null,
+   "AXLabel": "Open Chat sample 03, Idle, Mock Host"
+  },
+  {
+   "help": null,
+   "AXLabel": "Open Chat sample 04, Idle, Mock Host",
+   "AXFrame": "{{-39.4329833984375, 388.66665649414062}, {308.66665649414062, 62}}",
+   "AXUniqueId": "assistant-drawer-row-mock-host:sample-04",
+   "type": "Button",
+   "role_description": "button",
+   "AXValue": null,
+   "frame": {
+    "y": 388.6666564941406,
+    "height": 62,
+    "width": 308.6666564941406,
+    "x": -39.4329833984375
+   },
+   "pid": 31925,
+   "role": "AXButton",
+   "traits": [
+    "Scrollable",
+    "Button"
+   ],
+   "subrole": null,
+   "enabled": true,
+   "custom_actions": [],
+   "title": null,
+   "content_required": false
+  },
+  {
+   "custom_actions": [],
+   "AXFrame": "{{-22.741317749023438, 450.66665649414062}, {308.66665649414062, 62.000030517578125}}",
+   "traits": [
+    "Scrollable",
+    "Button"
+   ],
+   "frame": {
+    "width": 308.6666564941406,
+    "x": -22.741317749023438,
+    "y": 450.6666564941406,
+    "height": 62.000030517578125
+   },
+   "subrole": null,
+   "role_description": "button",
+   "enabled": true,
+   "type": "Button",
+   "AXValue": null,
+   "title": null,
+   "pid": 31925,
+   "AXUniqueId": "assistant-drawer-row-mock-host:sample-05",
+   "help": null,
+   "role": "AXButton",
+   "AXLabel": "Open Chat sample 05, Idle, Mock Host",
+   "content_required": false
+  },
+  {
+   "subrole": null,
+   "AXFrame": "{{-22.741317749023438, 512.66665649414062}, {308.66665649414062, 62}}",
+   "AXUniqueId": "assistant-drawer-row-mock-host:sample-06",
+   "AXLabel": "Open Chat sample 06, Idle, Mock Host",
+   "role": "AXButton",
+   "frame": {
+    "width": 308.6666564941406,
+    "height": 62,
+    "x": -22.741317749023438,
+    "y": 512.6666564941406
+   },
+   "custom_actions": [],
+   "enabled": true,
+   "pid": 31925,
+   "role_description": "button",
+   "help": null,
+   "AXValue": null,
+   "traits": [
+    "Scrollable",
+    "Button"
+   ],
+   "type": "Button",
+   "title": null,
+   "content_required": false
+  },
+  {
+   "subrole": null,
+   "traits": [
+    "Scrollable",
+    "Button"
+   ],
+   "role": "AXButton",
+   "role_description": "button",
+   "help": null,
+   "pid": 31925,
+   "custom_actions": [],
+   "content_required": false,
+   "AXFrame": "{{-22.741317749023438, 574.66665649414062}, {308.66665649414062, 62}}",
+   "AXUniqueId": "assistant-drawer-row-mock-host:sample-07",
+   "type": "Button",
+   "enabled": true,
+   "AXValue": null,
+   "title": null,
+   "AXLabel": "Open Chat sample 07, Idle, Mock Host",
+   "frame": {
+    "y": 574.6666564941406,
+    "height": 62,
+    "x": -22.741317749023438,
+    "width": 308.6666564941406
+   }
+  },
+  {
+   "subrole": null,
+   "AXUniqueId": "assistant-drawer-row-mock-host:stall-trigger",
+   "custom_actions": [],
+   "title": null,
+   "frame": {
+    "width": 308.6666564941406,
+    "height": 62,
+    "x": -9.937183380126953,
+    "y": 636.6666870117188
+   },
+   "help": null,
+   "role": "AXButton",
+   "AXLabel": "Open Stall trigger, Idle, Mock Host",
+   "AXValue": null,
+   "AXFrame": "{{-9.9371833801269531, 636.66668701171875}, {308.66665649414062, 62}}",
+   "traits": [
+    "Scrollable",
+    "Button"
+   ],
+   "type": "Button",
+   "role_description": "button",
+   "enabled": true,
+   "content_required": false,
+   "pid": 31925
+  },
+  {
+   "help": null,
+   "subrole": null,
+   "AXFrame": "{{0, 0}, {402, 874}}",
+   "role": "AXButton",
+   "traits": [
+    "Scrollable",
+    "Button"
+   ],
+   "enabled": true,
+   "type": "Button",
+   "role_description": "button",
+   "AXUniqueId": null,
+   "custom_actions": [],
+   "content_required": false,
+   "pid": 31925,
+   "AXValue": null,
+   "AXLabel": "Close sessions",
+   "frame": {
+    "y": 0,
+    "width": 402,
+    "x": 0,
+    "height": 874
+   },
+   "title": null
+  }
+ ],
+ "open_settled": [
+  {
+   "custom_actions": [],
+   "AXFrame": "{{0, 0}, {402, 874}}",
+   "traits": [
+    "None"
+   ],
+   "frame": {
+    "height": 874,
+    "y": 0,
+    "x": 0,
+    "width": 402
+   },
+   "subrole": null,
+   "role_description": "application",
+   "enabled": true,
+   "type": "Application",
+   "AXValue": null,
+   "title": null,
+   "pid": 31925,
+   "AXUniqueId": null,
+   "help": null,
+   "role": "AXApplication",
+   "AXLabel": "Pentacle",
+   "content_required": false
+  },
+  {
+   "subrole": null,
+   "traits": [
+    "Scrollable",
+    "NotEnabled",
+    "Button"
+   ],
+   "role": "AXButton",
+   "role_description": "button",
+   "help": "Recording is unavailable until this chat is ready and the app is unlocked",
+   "pid": 31925,
+   "custom_actions": [],
+   "content_required": false,
+   "AXFrame": "{{96.666664123535156, 66}, {44.000007629394531, 44}}",
+   "AXUniqueId": "header-voice-mic",
+   "type": "Button",
+   "enabled": false,
+   "AXValue": null,
+   "title": null,
+   "AXLabel": "Talk to Assistant",
+   "frame": {
+    "height": 44,
+    "y": 66,
+    "width": 44.00000762939453,
+    "x": 96.66666412353516
+   }
+  },
+  {
+   "subrole": null,
+   "AXUniqueId": null,
+   "custom_actions": [],
+   "title": null,
+   "frame": {
+    "height": 25.666664123535156,
+    "y": 75,
+    "x": 18,
+    "width": 72.66666412353516
+   },
+   "help": null,
+   "role": "AXHeading",
+   "AXLabel": "Sessions",
+   "AXValue": null,
+   "AXFrame": "{{18, 75}, {72.666664123535156, 25.666664123535156}}",
+   "traits": [
+    "Scrollable",
+    "StaticText",
+    "Header"
+   ],
+   "type": "Heading",
+   "role_description": "heading",
+   "enabled": true,
+   "content_required": false,
+   "pid": 31925
+  },
+  {
+   "help": null,
+   "subrole": null,
+   "AXFrame": "{{294.66665649414062, 72}, {32, 32}}",
+   "role": "AXButton",
+   "traits": [
+    "Scrollable",
+    "Button"
+   ],
+   "enabled": true,
+   "type": "Button",
+   "role_description": "button",
+   "AXUniqueId": null,
+   "custom_actions": [],
+   "content_required": false,
+   "pid": 31925,
+   "AXValue": null,
+   "AXLabel": "New session",
+   "frame": {
+    "height": 32,
+    "x": 294.6666564941406,
+    "y": 72,
+    "width": 32
+   },
+   "title": null
+  },
+  {
+   "type": "Heading",
+   "custom_actions": [],
+   "role": "AXHeading",
+   "traits": [
+    "Scrollable",
+    "StaticText",
+    "Header"
+   ],
+   "AXLabel": "IDLE · 9",
+   "AXValue": null,
+   "subrole": null,
+   "pid": 31925,
+   "content_required": false,
+   "AXUniqueId": null,
+   "frame": {
+    "width": 309,
+    "height": 12.666671752929688,
+    "x": 18,
+    "y": 126
+   },
+   "help": null,
+   "AXFrame": "{{18, 126}, {309, 12.666671752929688}}",
+   "title": null,
+   "enabled": true,
+   "role_description": "heading"
+  },
+  {
+   "role": "AXButton",
+   "frame": {
+    "y": 140.6666660308838,
+    "width": 308.6666564941406,
+    "x": 18,
+    "height": 62
+   },
+   "traits": [
+    "Scrollable",
+    "Button"
+   ],
+   "pid": 31925,
+   "AXValue": null,
+   "subrole": null,
+   "AXLabel": "Open Chat sample 00, Idle, Mock Host",
+   "type": "Button",
+   "custom_actions": [],
+   "content_required": false,
+   "help": null,
+   "enabled": true,
+   "title": null,
+   "AXFrame": "{{18, 140.66666603088379}, {308.66665649414062, 62}}",
+   "AXUniqueId": "assistant-drawer-row-mock-host:sample-00",
+   "role_description": "button"
+  },
+  {
+   "title": null,
+   "AXLabel": "Open Chat sample 01, Idle, Mock Host",
+   "role_description": "button",
+   "type": "Button",
+   "subrole": null,
+   "enabled": true,
+   "AXUniqueId": "assistant-drawer-row-mock-host:sample-01",
+   "help": null,
+   "role": "AXButton",
+   "AXValue": null,
+   "content_required": false,
+   "pid": 31925,
+   "frame": {
+    "x": 18,
+    "y": 202.66666412353516,
+    "height": 61.99998474121094,
+    "width": 308.6666564941406
+   },
+   "AXFrame": "{{18, 202.66666412353516}, {308.66665649414062, 61.999984741210938}}",
+   "traits": [
+    "Scrollable",
+    "Button"
+   ],
+   "custom_actions": []
+  },
+  {
+   "frame": {
+    "y": 264.6666717529297,
+    "x": 18,
+    "height": 62,
+    "width": 308.6666564941406
+   },
+   "AXLabel": "Open Chat sample 02, Idle, Mock Host",
+   "enabled": true,
+   "help": null,
+   "AXUniqueId": "assistant-drawer-row-mock-host:sample-02",
+   "content_required": false,
+   "traits": [
+    "Scrollable",
+    "Button"
+   ],
+   "type": "Button",
+   "title": null,
+   "role": "AXButton",
+   "role_description": "button",
+   "AXFrame": "{{18, 264.66667175292969}, {308.66665649414062, 62}}",
+   "subrole": null,
+   "pid": 31925,
+   "AXValue": null,
+   "custom_actions": []
+  },
+  {
+   "AXFrame": "{{18, 326.66667175292969}, {308.66665649414062, 62}}",
+   "AXValue": null,
+   "frame": {
+    "x": 18,
+    "y": 326.6666717529297,
+    "width": 308.6666564941406,
+    "height": 62
+   },
+   "traits": [
+    "Scrollable",
+    "Button"
+   ],
+   "AXUniqueId": "assistant-drawer-row-mock-host:sample-03",
+   "type": "Button",
+   "title": null,
+   "enabled": true,
+   "help": null,
+   "subrole": null,
+   "pid": 31925,
+   "AXLabel": "Open Chat sample 03, Idle, Mock Host",
+   "content_required": false,
+   "role": "AXButton",
+   "custom_actions": [],
+   "role_description": "button"
+  },
+  {
+   "enabled": true,
+   "content_required": false,
+   "traits": [
+    "Scrollable",
+    "Button"
+   ],
+   "role": "AXButton",
+   "pid": 31925,
+   "title": null,
+   "type": "Button",
+   "AXFrame": "{{18, 388.66665649414062}, {308.66665649414062, 62}}",
+   "frame": {
+    "y": 388.6666564941406,
+    "x": 18,
+    "width": 308.6666564941406,
+    "height": 62
+   },
+   "AXLabel": "Open Chat sample 04, Idle, Mock Host",
+   "role_description": "button",
+   "subrole": null,
+   "AXUniqueId": "assistant-drawer-row-mock-host:sample-04",
+   "custom_actions": [],
+   "AXValue": null,
+   "help": null
+  },
+  {
+   "frame": {
+    "y": 450.6666564941406,
+    "height": 62.000030517578125,
+    "width": 308.6666564941406,
+    "x": 18
+   },
+   "title": null,
+   "custom_actions": [],
+   "help": null,
+   "AXUniqueId": "assistant-drawer-row-mock-host:sample-05",
+   "role": "AXButton",
+   "traits": [
+    "Scrollable",
+    "Button"
+   ],
+   "subrole": null,
+   "content_required": false,
+   "AXLabel": "Open Chat sample 05, Idle, Mock Host",
+   "pid": 31925,
+   "type": "Button",
+   "AXValue": null,
+   "AXFrame": "{{18, 450.66665649414062}, {308.66665649414062, 62.000030517578125}}",
+   "role_description": "button",
+   "enabled": true
+  },
+  {
+   "help": null,
+   "frame": {
+    "height": 62,
+    "width": 308.6666564941406,
+    "x": 18,
+    "y": 512.6666564941406
+   },
+   "AXValue": null,
+   "type": "Button",
+   "role": "AXButton",
+   "enabled": true,
+   "subrole": null,
+   "traits": [
+    "Scrollable",
+    "Button"
+   ],
+   "title": null,
+   "AXLabel": "Open Chat sample 06, Idle, Mock Host",
+   "role_description": "button",
+   "custom_actions": [],
+   "content_required": false,
+   "AXFrame": "{{18, 512.66665649414062}, {308.66665649414062, 62}}",
+   "AXUniqueId": "assistant-drawer-row-mock-host:sample-06",
+   "pid": 31925
+  },
+  {
+   "AXUniqueId": "assistant-drawer-row-mock-host:sample-07",
+   "AXFrame": "{{18, 574.66665649414062}, {308.66665649414062, 62}}",
+   "pid": 31925,
+   "role": "AXButton",
+   "help": null,
+   "AXLabel": "Open Chat sample 07, Idle, Mock Host",
+   "content_required": false,
+   "subrole": null,
+   "traits": [
+    "Scrollable",
+    "Button"
+   ],
+   "enabled": true,
+   "title": null,
+   "AXValue": null,
+   "type": "Button",
+   "frame": {
+    "width": 308.6666564941406,
+    "y": 574.6666564941406,
+    "x": 18,
+    "height": 62
+   },
+   "custom_actions": [],
+   "role_description": "button"
+  },
+  {
+   "help": null,
+   "custom_actions": [],
+   "pid": 31925,
+   "role": "AXButton",
+   "role_description": "button",
+   "AXValue": null,
+   "enabled": true,
+   "AXFrame": "{{18, 636.66668701171875}, {308.66665649414062, 62}}",
+   "type": "Button",
+   "AXUniqueId": "assistant-drawer-row-mock-host:stall-trigger",
+   "subrole": null,
+   "title": null,
+   "frame": {
+    "y": 636.6666870117188,
+    "height": 62,
+    "x": 18,
+    "width": 308.6666564941406
+   },
+   "AXLabel": "Open Stall trigger, Idle, Mock Host",
+   "content_required": false,
+   "traits": [
+    "Scrollable",
+    "Button"
+   ]
+  },
+  {
+   "type": "Button",
+   "subrole": null,
+   "AXUniqueId": null,
+   "pid": 31925,
+   "frame": {
+    "width": 402,
+    "x": 0,
+    "height": 874,
+    "y": 0
+   },
+   "role": "AXButton",
+   "title": null,
+   "help": null,
+   "custom_actions": [],
+   "enabled": true,
+   "traits": [
+    "Scrollable",
+    "Button"
+   ],
+   "AXLabel": "Close sessions",
+   "AXFrame": "{{0, 0}, {402, 874}}",
+   "role_description": "button",
+   "AXValue": null,
+   "content_required": false
+  }
+ ],
+ "open_settled_next": [
+  {
+   "custom_actions": [],
+   "AXFrame": "{{0, 0}, {402, 874}}",
+   "traits": [
+    "None"
+   ],
+   "frame": {
+    "x": 0,
+    "height": 874,
+    "y": 0,
+    "width": 402
+   },
+   "subrole": null,
+   "role_description": "application",
+   "enabled": true,
+   "type": "Application",
+   "AXValue": null,
+   "title": null,
+   "pid": 31925,
+   "AXUniqueId": null,
+   "help": null,
+   "role": "AXApplication",
+   "AXLabel": "Pentacle",
+   "content_required": false
+  },
+  {
+   "subrole": null,
+   "traits": [
+    "Scrollable",
+    "NotEnabled",
+    "Button"
+   ],
+   "role": "AXButton",
+   "role_description": "button",
+   "help": "Recording is unavailable until this chat is ready and the app is unlocked",
+   "pid": 31925,
+   "custom_actions": [],
+   "content_required": false,
+   "AXFrame": "{{96.666664123535156, 66}, {44.000007629394531, 44}}",
+   "AXUniqueId": "header-voice-mic",
+   "type": "Button",
+   "enabled": false,
+   "AXValue": null,
+   "title": null,
+   "AXLabel": "Talk to Assistant",
+   "frame": {
+    "height": 44,
+    "x": 96.66666412353516,
+    "width": 44.00000762939453,
+    "y": 66
+   }
+  },
+  {
+   "subrole": null,
+   "AXUniqueId": null,
+   "custom_actions": [],
+   "title": null,
+   "frame": {
+    "y": 75,
+    "width": 72.66666412353516,
+    "height": 25.666664123535156,
+    "x": 18
+   },
+   "help": null,
+   "role": "AXHeading",
+   "AXLabel": "Sessions",
+   "AXValue": null,
+   "AXFrame": "{{18, 75}, {72.666664123535156, 25.666664123535156}}",
+   "traits": [
+    "Scrollable",
+    "StaticText",
+    "Header"
+   ],
+   "type": "Heading",
+   "role_description": "heading",
+   "enabled": true,
+   "content_required": false,
+   "pid": 31925
+  },
+  {
+   "help": null,
+   "subrole": null,
+   "AXFrame": "{{294.66665649414062, 72}, {32, 32}}",
+   "role": "AXButton",
+   "traits": [
+    "Scrollable",
+    "Button"
+   ],
+   "enabled": true,
+   "type": "Button",
+   "role_description": "button",
+   "AXUniqueId": null,
+   "custom_actions": [],
+   "content_required": false,
+   "pid": 31925,
+   "AXValue": null,
+   "AXLabel": "New session",
+   "frame": {
+    "width": 32,
+    "y": 72,
+    "height": 32,
+    "x": 294.6666564941406
+   },
+   "title": null
+  },
+  {
+   "type": "Heading",
+   "custom_actions": [],
+   "role": "AXHeading",
+   "traits": [
+    "Scrollable",
+    "StaticText",
+    "Header"
+   ],
+   "AXLabel": "IDLE · 9",
+   "AXValue": null,
+   "subrole": null,
+   "pid": 31925,
+   "content_required": false,
+   "AXUniqueId": null,
+   "frame": {
+    "x": 18,
+    "width": 309,
+    "height": 12.666671752929688,
+    "y": 126
+   },
+   "help": null,
+   "AXFrame": "{{18, 126}, {309, 12.666671752929688}}",
+   "title": null,
+   "enabled": true,
+   "role_description": "heading"
+  },
+  {
+   "role": "AXButton",
+   "frame": {
+    "x": 18,
+    "width": 308.6666564941406,
+    "height": 62,
+    "y": 140.6666660308838
+   },
+   "traits": [
+    "Scrollable",
+    "Button"
+   ],
+   "pid": 31925,
+   "AXValue": null,
+   "subrole": null,
+   "AXLabel": "Open Chat sample 00, Idle, Mock Host",
+   "type": "Button",
+   "custom_actions": [],
+   "content_required": false,
+   "help": null,
+   "enabled": true,
+   "title": null,
+   "AXFrame": "{{18, 140.66666603088379}, {308.66665649414062, 62}}",
+   "AXUniqueId": "assistant-drawer-row-mock-host:sample-00",
+   "role_description": "button"
+  },
+  {
+   "title": null,
+   "AXLabel": "Open Chat sample 01, Idle, Mock Host",
+   "role_description": "button",
+   "type": "Button",
+   "subrole": null,
+   "enabled": true,
+   "AXUniqueId": "assistant-drawer-row-mock-host:sample-01",
+   "help": null,
+   "role": "AXButton",
+   "AXValue": null,
+   "content_required": false,
+   "pid": 31925,
+   "frame": {
+    "y": 202.66666412353516,
+    "width": 308.6666564941406,
+    "x": 18,
+    "height": 61.99998474121094
+   },
+   "AXFrame": "{{18, 202.66666412353516}, {308.66665649414062, 61.999984741210938}}",
+   "traits": [
+    "Scrollable",
+    "Button"
+   ],
+   "custom_actions": []
+  },
+  {
+   "frame": {
+    "x": 18,
+    "y": 264.6666717529297,
+    "height": 62,
+    "width": 308.6666564941406
+   },
+   "AXLabel": "Open Chat sample 02, Idle, Mock Host",
+   "enabled": true,
+   "help": null,
+   "AXUniqueId": "assistant-drawer-row-mock-host:sample-02",
+   "content_required": false,
+   "traits": [
+    "Scrollable",
+    "Button"
+   ],
+   "type": "Button",
+   "title": null,
+   "role": "AXButton",
+   "role_description": "button",
+   "AXFrame": "{{18, 264.66667175292969}, {308.66665649414062, 62}}",
+   "subrole": null,
+   "pid": 31925,
+   "AXValue": null,
+   "custom_actions": []
+  },
+  {
+   "AXFrame": "{{18, 326.66667175292969}, {308.66665649414062, 62}}",
+   "AXValue": null,
+   "frame": {
+    "x": 18,
+    "width": 308.6666564941406,
+    "height": 62,
+    "y": 326.6666717529297
+   },
+   "traits": [
+    "Scrollable",
+    "Button"
+   ],
+   "AXUniqueId": "assistant-drawer-row-mock-host:sample-03",
+   "type": "Button",
+   "title": null,
+   "enabled": true,
+   "help": null,
+   "subrole": null,
+   "pid": 31925,
+   "AXLabel": "Open Chat sample 03, Idle, Mock Host",
+   "content_required": false,
+   "role": "AXButton",
+   "custom_actions": [],
+   "role_description": "button"
+  },
+  {
+   "enabled": true,
+   "content_required": false,
+   "traits": [
+    "Scrollable",
+    "Button"
+   ],
+   "role": "AXButton",
+   "pid": 31925,
+   "title": null,
+   "type": "Button",
+   "AXFrame": "{{18, 388.66665649414062}, {308.66665649414062, 62}}",
+   "frame": {
+    "width": 308.6666564941406,
+    "height": 62,
+    "x": 18,
+    "y": 388.6666564941406
+   },
+   "AXLabel": "Open Chat sample 04, Idle, Mock Host",
+   "role_description": "button",
+   "subrole": null,
+   "AXUniqueId": "assistant-drawer-row-mock-host:sample-04",
+   "custom_actions": [],
+   "AXValue": null,
+   "help": null
+  },
+  {
+   "frame": {
+    "y": 450.6666564941406,
+    "height": 62.000030517578125,
+    "x": 18,
+    "width": 308.6666564941406
+   },
+   "title": null,
+   "custom_actions": [],
+   "help": null,
+   "AXUniqueId": "assistant-drawer-row-mock-host:sample-05",
+   "role": "AXButton",
+   "traits": [
+    "Scrollable",
+    "Button"
+   ],
+   "subrole": null,
+   "content_required": false,
+   "AXLabel": "Open Chat sample 05, Idle, Mock Host",
+   "pid": 31925,
+   "type": "Button",
+   "AXValue": null,
+   "AXFrame": "{{18, 450.66665649414062}, {308.66665649414062, 62.000030517578125}}",
+   "role_description": "button",
+   "enabled": true
+  },
+  {
+   "help": null,
+   "frame": {
+    "width": 308.6666564941406,
+    "x": 18,
+    "y": 512.6666564941406,
+    "height": 62
+   },
+   "AXValue": null,
+   "type": "Button",
+   "role": "AXButton",
+   "enabled": true,
+   "subrole": null,
+   "traits": [
+    "Scrollable",
+    "Button"
+   ],
+   "title": null,
+   "AXLabel": "Open Chat sample 06, Idle, Mock Host",
+   "role_description": "button",
+   "custom_actions": [],
+   "content_required": false,
+   "AXFrame": "{{18, 512.66665649414062}, {308.66665649414062, 62}}",
+   "AXUniqueId": "assistant-drawer-row-mock-host:sample-06",
+   "pid": 31925
+  },
+  {
+   "AXUniqueId": "assistant-drawer-row-mock-host:sample-07",
+   "AXFrame": "{{18, 574.66665649414062}, {308.66665649414062, 62}}",
+   "pid": 31925,
+   "role": "AXButton",
+   "help": null,
+   "AXLabel": "Open Chat sample 07, Idle, Mock Host",
+   "content_required": false,
+   "subrole": null,
+   "traits": [
+    "Scrollable",
+    "Button"
+   ],
+   "enabled": true,
+   "title": null,
+   "AXValue": null,
+   "type": "Button",
+   "frame": {
+    "x": 18,
+    "height": 62,
+    "width": 308.6666564941406,
+    "y": 574.6666564941406
+   },
+   "custom_actions": [],
+   "role_description": "button"
+  },
+  {
+   "help": null,
+   "custom_actions": [],
+   "pid": 31925,
+   "role": "AXButton",
+   "role_description": "button",
+   "AXValue": null,
+   "enabled": true,
+   "AXFrame": "{{18, 636.66668701171875}, {308.66665649414062, 62}}",
+   "type": "Button",
+   "AXUniqueId": "assistant-drawer-row-mock-host:stall-trigger",
+   "subrole": null,
+   "title": null,
+   "frame": {
+    "y": 636.6666870117188,
+    "width": 308.6666564941406,
+    "x": 18,
+    "height": 62
+   },
+   "AXLabel": "Open Stall trigger, Idle, Mock Host",
+   "content_required": false,
+   "traits": [
+    "Scrollable",
+    "Button"
+   ]
+  },
+  {
+   "type": "Button",
+   "subrole": null,
+   "AXUniqueId": null,
+   "pid": 31925,
+   "frame": {
+    "height": 874,
+    "x": 0,
+    "width": 402,
+    "y": 0
+   },
+   "role": "AXButton",
+   "title": null,
+   "help": null,
+   "custom_actions": [],
+   "enabled": true,
+   "traits": [
+    "Scrollable",
+    "Button"
+   ],
+   "AXLabel": "Close sessions",
+   "AXFrame": "{{0, 0}, {402, 874}}",
+   "role_description": "button",
+   "AXValue": null,
+   "content_required": false
+  }
+ ],
+ "opening_control": [
+  {
+   "AXFrame": "{{0, 0}, {402, 874}}",
+   "AXValue": null,
+   "frame": {
+    "height": 874,
+    "x": 0,
+    "width": 402,
+    "y": 0
+   },
+   "traits": [
+    "None"
+   ],
+   "AXUniqueId": null,
+   "type": "Application",
+   "title": null,
+   "enabled": true,
+   "help": null,
+   "subrole": null,
+   "pid": 31470,
+   "AXLabel": "Pentacle",
+   "content_required": false,
+   "role": "AXApplication",
+   "custom_actions": [],
+   "role_description": "application"
+  },
+  {
+   "frame": {
+    "height": 44,
+    "y": 66,
+    "width": 44.00000762939453,
+    "x": 17.52185821533203
+   },
+   "title": null,
+   "custom_actions": [],
+   "help": "Recording is unavailable until this chat is ready and the app is unlocked",
+   "AXUniqueId": "header-voice-mic",
+   "role": "AXButton",
+   "traits": [
+    "NotEnabled",
+    "Button",
+    "Scrollable"
+   ],
+   "subrole": null,
+   "content_required": false,
+   "AXLabel": "Talk to Assistant",
+   "pid": 31470,
+   "type": "Button",
+   "AXValue": null,
+   "AXFrame": "{{17.521858215332031, 66}, {44.000007629394531, 44}}",
+   "role_description": "button",
+   "enabled": false
+  },
+  {
+   "help": null,
+   "frame": {
+    "x": -61.144805908203125,
+    "height": 25.666664123535156,
+    "y": 75,
+    "width": 72.66666412353516
+   },
+   "AXValue": null,
+   "type": "Heading",
+   "role": "AXHeading",
+   "enabled": true,
+   "subrole": null,
+   "traits": [
+    "Header",
+    "StaticText",
+    "Scrollable"
+   ],
+   "title": null,
+   "AXLabel": "Sessions",
+   "role_description": "heading",
+   "custom_actions": [],
+   "content_required": false,
+   "AXFrame": "{{-61.144805908203125, 75}, {72.666664123535156, 25.666664123535156}}",
+   "AXUniqueId": null,
+   "pid": 31470
+  },
+  {
+   "AXUniqueId": null,
+   "AXFrame": "{{237.23367309570312, 72}, {32, 32}}",
+   "pid": 31470,
+   "role": "AXButton",
+   "help": null,
+   "AXLabel": "New session",
+   "content_required": false,
+   "subrole": null,
+   "traits": [
+    "Button",
+    "Scrollable"
+   ],
+   "enabled": true,
+   "title": null,
+   "AXValue": null,
+   "type": "Button",
+   "frame": {
+    "height": 32,
+    "y": 72,
+    "x": 237.23367309570312,
+    "width": 32
+   },
+   "custom_actions": [],
+   "role_description": "button"
+  },
+  {
+   "help": null,
+   "custom_actions": [],
+   "pid": 31470,
+   "role": "AXHeading",
+   "role_description": "heading",
+   "AXValue": null,
+   "enabled": true,
+   "AXFrame": "{{-39.4329833984375, 126}, {309, 12.666671752929688}}",
+   "type": "Heading",
+   "AXUniqueId": null,
+   "subrole": null,
+   "title": null,
+   "frame": {
+    "x": -39.4329833984375,
+    "height": 12.666671752929688,
+    "width": 309,
+    "y": 126
+   },
+   "AXLabel": "IDLE · 9",
+   "content_required": false,
+   "traits": [
+    "Header",
+    "StaticText",
+    "Scrollable"
+   ]
+  },
+  {
+   "type": "Button",
+   "subrole": null,
+   "AXUniqueId": "assistant-drawer-row-mock-host:sample-00",
+   "pid": 31470,
+   "frame": {
+    "y": 140.6666660308838,
+    "x": -39.4329833984375,
+    "width": 308.6666564941406,
+    "height": 62
+   },
+   "role": "AXButton",
+   "title": null,
+   "help": null,
+   "custom_actions": [],
+   "enabled": true,
+   "traits": [
+    "Button",
+    "Scrollable"
+   ],
+   "AXLabel": "Open Chat sample 00, Idle, Mock Host",
+   "AXFrame": "{{-39.4329833984375, 140.66666603088379}, {308.66665649414062, 62}}",
+   "role_description": "button",
+   "AXValue": null,
+   "content_required": false
+  },
+  {
+   "help": null,
+   "title": null,
+   "frame": {
+    "y": 202.66666412353516,
+    "x": -39.4329833984375,
+    "width": 308.6666564941406,
+    "height": 61.99998474121094
+   },
+   "content_required": false,
+   "role": "AXButton",
+   "role_description": "button",
+   "pid": 31470,
+   "type": "Button",
+   "AXFrame": "{{-39.4329833984375, 202.66666412353516}, {308.66665649414062, 61.999984741210938}}",
+   "AXUniqueId": "assistant-drawer-row-mock-host:sample-01",
+   "subrole": null,
+   "traits": [
+    "Button",
+    "Scrollable"
+   ],
+   "enabled": true,
+   "custom_actions": [],
+   "AXValue": null,
+   "AXLabel": "Open Chat sample 01, Idle, Mock Host"
+  },
+  {
+   "help": null,
+   "AXLabel": "Open Chat sample 02, Idle, Mock Host",
+   "AXFrame": "{{-39.4329833984375, 264.66667175292969}, {308.66665649414062, 62}}",
+   "AXUniqueId": "assistant-drawer-row-mock-host:sample-02",
+   "type": "Button",
+   "role_description": "button",
+   "AXValue": null,
+   "frame": {
+    "x": -39.4329833984375,
+    "y": 264.6666717529297,
+    "height": 62,
+    "width": 308.6666564941406
+   },
+   "pid": 31470,
+   "role": "AXButton",
+   "traits": [
+    "Button",
+    "Scrollable"
+   ],
+   "subrole": null,
+   "enabled": true,
+   "custom_actions": [],
+   "title": null,
+   "content_required": false
+  },
+  {
+   "custom_actions": [],
+   "AXFrame": "{{-22.741321563720703, 326.66667175292969}, {308.66665649414062, 62}}",
+   "traits": [
+    "Button",
+    "Scrollable"
+   ],
+   "frame": {
+    "y": 326.6666717529297,
+    "height": 62,
+    "x": -22.741321563720703,
+    "width": 308.6666564941406
+   },
+   "subrole": null,
+   "role_description": "button",
+   "enabled": true,
+   "type": "Button",
+   "AXValue": null,
+   "title": null,
+   "pid": 31470,
+   "AXUniqueId": "assistant-drawer-row-mock-host:sample-03",
+   "help": null,
+   "role": "AXButton",
+   "AXLabel": "Open Chat sample 03, Idle, Mock Host",
+   "content_required": false
+  },
+  {
+   "subrole": null,
+   "AXFrame": "{{-22.741321563720703, 388.66665649414062}, {308.66665649414062, 62}}",
+   "AXUniqueId": "assistant-drawer-row-mock-host:sample-04",
+   "AXLabel": "Open Chat sample 04, Idle, Mock Host",
+   "role": "AXButton",
+   "frame": {
+    "y": 388.6666564941406,
+    "width": 308.6666564941406,
+    "height": 62,
+    "x": -22.741321563720703
+   },
+   "custom_actions": [],
+   "enabled": true,
+   "pid": 31470,
+   "role_description": "button",
+   "help": null,
+   "AXValue": null,
+   "traits": [
+    "Button",
+    "Scrollable"
+   ],
+   "type": "Button",
+   "title": null,
+   "content_required": false
+  },
+  {
+   "subrole": null,
+   "traits": [
+    "Button",
+    "Scrollable"
+   ],
+   "role": "AXButton",
+   "role_description": "button",
+   "help": null,
+   "pid": 31470,
+   "custom_actions": [],
+   "content_required": false,
+   "AXFrame": "{{-22.741321563720703, 450.66665649414062}, {308.66665649414062, 62.000030517578125}}",
+   "AXUniqueId": "assistant-drawer-row-mock-host:sample-05",
+   "type": "Button",
+   "enabled": true,
+   "AXValue": null,
+   "title": null,
+   "AXLabel": "Open Chat sample 05, Idle, Mock Host",
+   "frame": {
+    "x": -22.741321563720703,
+    "width": 308.6666564941406,
+    "y": 450.6666564941406,
+    "height": 62.000030517578125
+   }
+  },
+  {
+   "subrole": null,
+   "AXUniqueId": "assistant-drawer-row-mock-host:sample-06",
+   "custom_actions": [],
+   "title": null,
+   "frame": {
+    "x": -22.741321563720703,
+    "y": 512.6666564941406,
+    "height": 62,
+    "width": 308.6666564941406
+   },
+   "help": null,
+   "role": "AXButton",
+   "AXLabel": "Open Chat sample 06, Idle, Mock Host",
+   "AXValue": null,
+   "AXFrame": "{{-22.741321563720703, 512.66665649414062}, {308.66665649414062, 62}}",
+   "traits": [
+    "Button",
+    "Scrollable"
+   ],
+   "type": "Button",
+   "role_description": "button",
+   "enabled": true,
+   "content_required": false,
+   "pid": 31470
+  },
+  {
+   "help": null,
+   "subrole": null,
+   "AXFrame": "{{-9.9371833801269531, 574.66665649414062}, {308.66665649414062, 62}}",
+   "role": "AXButton",
+   "traits": [
+    "Button",
+    "Scrollable"
+   ],
+   "enabled": true,
+   "type": "Button",
+   "role_description": "button",
+   "AXUniqueId": "assistant-drawer-row-mock-host:sample-07",
+   "custom_actions": [],
+   "content_required": false,
+   "pid": 31470,
+   "AXValue": null,
+   "AXLabel": "Open Chat sample 07, Idle, Mock Host",
+   "frame": {
+    "x": -9.937183380126953,
+    "width": 308.6666564941406,
+    "y": 574.6666564941406,
+    "height": 62
+   },
+   "title": null
+  },
+  {
+   "type": "Button",
+   "custom_actions": [],
+   "role": "AXButton",
+   "traits": [
+    "Button",
+    "Scrollable"
+   ],
+   "AXLabel": "Open Stall trigger, Idle, Mock Host",
+   "AXValue": null,
+   "subrole": null,
+   "pid": 31470,
+   "content_required": false,
+   "AXUniqueId": "assistant-drawer-row-mock-host:stall-trigger",
+   "frame": {
+    "height": 62,
+    "y": 636.6666870117188,
+    "width": 308.6666564941406,
+    "x": -9.937183380126953
+   },
+   "help": null,
+   "AXFrame": "{{-9.9371833801269531, 636.66668701171875}, {308.66665649414062, 62}}",
+   "title": null,
+   "enabled": true,
+   "role_description": "button"
+  },
+  {
+   "role": "AXButton",
+   "frame": {
+    "x": 0,
+    "width": 402,
+    "height": 874,
+    "y": 0
+   },
+   "traits": [
+    "Button",
+    "Scrollable"
+   ],
+   "pid": 31470,
+   "AXValue": null,
+   "subrole": null,
+   "AXLabel": "Close sessions",
+   "type": "Button",
+   "custom_actions": [],
+   "content_required": false,
+   "help": null,
+   "enabled": true,
+   "title": null,
+   "AXFrame": "{{0, 0}, {402, 874}}",
+   "AXUniqueId": null,
+   "role_description": "button"
+  }
+ ]
+}
