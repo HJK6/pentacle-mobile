@@ -75,8 +75,9 @@ production endpoint or a physical installation.
 - One owned Python ≥ 3.11 virtualenv satisfying
   `services/chat-stream-v2/requirements.txt` of the increment-1 checkout (also
   imports the v1 checkout; admission checks both and records `pip freeze`).
-- The retained loopback proxy script (SHA256 `813136ac…`); the runner copies
-  it byte-identically into the run directory and runs the copy.
+- The retained loopback proxy script (SHA256 `a702817e…`, which never logs enrollment codes); the runner
+  copies it byte-identically into the run directory and runs the copy, and redacts any `code` value it still
+  finds in the wire log before keeping it as evidence.
 - The production build's resolved public config
   (`npx expo config --type public --json` with the production config) — only
   its `extra` URLs are used, as strings that must be absent from the proof app.
@@ -118,8 +119,11 @@ Reduced modes (the production path only; same admission, daemon, proxy and teard
   - open the lanes view: the assistant header status button (`<name> status, N open lanes`) when rendered,
     otherwise the `pentacle://pentacle/lanes` deep link through the exact-match `Open` confirmation. No lanes
     view within 30 s stops the run with SETUP_FAIL and a dump;
-  - the list in daemon order (big lane expanded). Cards are found by their `lane-card-log-<lane>` button: on iOS
-    only accessible pressables expose a testID, so Text ids such as `lane-card-progress-` are not in the tree;
+  - the list in daemon order (big lane expanded). Cards are found by their `lane-card-chat-<lane>` button, which
+    every list variant renders (the compact default has no `lane-card-log-` row): on iOS only accessible pressables
+    expose a testID, so Text ids such as `lane-card-progress-` are not in the tree. Each order check in the run
+    (lists, map attention order, overflow) reads the inventory just before and just after the screen and needs
+    both reads to agree and the screen to match exactly; up to 3 attempts, then FAIL;
   - one real `work_lanes.show` round-trip: "show all" opens the 32-member list, paired by `request_id` on
     the proxy;
   - map orbit page 1 in daemon order.

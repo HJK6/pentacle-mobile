@@ -1,0 +1,578 @@
+[
+ {
+  "type": "Application",
+  "role": "AXApplication",
+  "help": null,
+  "AXLabel": "Pentacle",
+  "AXValue": null,
+  "AXUniqueId": null,
+  "title": null,
+  "role_description": "application",
+  "custom_actions": [],
+  "frame": {
+   "height": 852,
+   "y": 0,
+   "width": 393,
+   "x": 0
+  },
+  "subrole": null,
+  "traits": [
+   "None"
+  ],
+  "enabled": true,
+  "content_required": false,
+  "AXFrame": "{{0, 0}, {393, 852}}"
+ },
+ {
+  "custom_actions": [],
+  "AXFrame": "{{59, 63.666666507720947}, {65.666664123535156, 19.000003814697266}}",
+  "help": null,
+  "role": "AXStaticText",
+  "content_required": false,
+  "AXValue": null,
+  "frame": {
+   "width": 65.66666412353516,
+   "height": 19.000003814697266,
+   "y": 63.66666650772095,
+   "x": 59
+  },
+  "role_description": "text",
+  "traits": [
+   "Scrollable",
+   "StaticText"
+  ],
+  "type": "StaticText",
+  "title": null,
+  "AXUniqueId": null,
+  "enabled": true,
+  "AXLabel": "Zephyr",
+  "subrole": null
+ },
+ {
+  "AXLabel": "Talk to Zephyr",
+  "enabled": false,
+  "subrole": null,
+  "traits": [
+   "Button",
+   "NotEnabled",
+   "Scrollable"
+  ],
+  "role": "AXButton",
+  "type": "Button",
+  "frame": {
+   "x": 133.66666412353516,
+   "y": 59,
+   "width": 44,
+   "height": 44
+  },
+  "custom_actions": [],
+  "AXFrame": "{{133.66666412353516, 59}, {44, 44}}",
+  "content_required": false,
+  "AXValue": null,
+  "role_description": "button",
+  "title": null,
+  "AXUniqueId": "header-voice-mic",
+  "help": "Recording is unavailable until this chat is ready and the app is unlocked"
+ },
+ {
+  "custom_actions": [],
+  "role_description": "button",
+  "role": "AXButton",
+  "traits": [
+   "Button",
+   "Scrollable",
+   "Selected"
+  ],
+  "AXValue": null,
+  "AXFrame": "{{265, 66}, {34, 30}}",
+  "title": null,
+  "subrole": null,
+  "enabled": true,
+  "AXLabel": "List view",
+  "AXUniqueId": "lanes-view-list",
+  "help": null,
+  "frame": {
+   "y": 66,
+   "width": 34,
+   "height": 30,
+   "x": 265
+  },
+  "type": "Button",
+  "content_required": false
+ },
+ {
+  "AXLabel": "Map view",
+  "AXFrame": "{{301, 66}, {34, 30}}",
+  "title": null,
+  "role": "AXButton",
+  "AXUniqueId": "lanes-view-map",
+  "help": null,
+  "role_description": "button",
+  "custom_actions": [],
+  "subrole": null,
+  "AXValue": null,
+  "content_required": false,
+  "traits": [
+   "Button",
+   "Scrollable"
+  ],
+  "frame": {
+   "y": 66,
+   "width": 34,
+   "height": 30,
+   "x": 301
+  },
+  "type": "Button",
+  "enabled": true
+ },
+ {
+  "enabled": true,
+  "frame": {
+   "y": 64,
+   "x": 347,
+   "width": 34,
+   "height": 34
+  },
+  "AXLabel": "Close lanes",
+  "content_required": false,
+  "AXValue": null,
+  "subrole": null,
+  "help": null,
+  "type": "Button",
+  "AXUniqueId": null,
+  "title": null,
+  "custom_actions": [],
+  "AXFrame": "{{347, 64}, {34, 34}}",
+  "traits": [
+   "Button",
+   "Scrollable"
+  ],
+  "role": "AXButton",
+  "role_description": "button"
+ },
+ {
+  "type": "Image",
+  "enabled": true,
+  "AXUniqueId": "status-tag-working",
+  "title": null,
+  "custom_actions": [],
+  "content_required": false,
+  "role_description": "image",
+  "help": null,
+  "traits": [
+   "Image",
+   "Scrollable"
+  ],
+  "AXFrame": "{{59, 85.666666507720947}, {13, 13}}",
+  "frame": {
+   "height": 13,
+   "x": 59,
+   "y": 85.66666650772095,
+   "width": 13
+  },
+  "AXLabel": "Working",
+  "role": "AXImage",
+  "AXValue": null,
+  "subrole": null
+ },
+ {
+  "AXValue": null,
+  "custom_actions": [],
+  "type": "StaticText",
+  "title": null,
+  "AXFrame": "{{81, 85.666666507720947}, {43.666664123535156, 12.666671752929688}}",
+  "content_required": false,
+  "role_description": "text",
+  "subrole": null,
+  "traits": [
+   "Scrollable",
+   "StaticText"
+  ],
+  "enabled": true,
+  "help": null,
+  "AXUniqueId": null,
+  "AXLabel": "5 LANES",
+  "frame": {
+   "height": 12.666671752929688,
+   "y": 85.66666650772095,
+   "width": 43.666664123535156,
+   "x": 81
+  },
+  "role": "AXStaticText"
+ },
+ {
+  "subrole": null,
+  "title": null,
+  "traits": [
+   "Scrollable",
+   "StaticText"
+  ],
+  "content_required": false,
+  "help": null,
+  "frame": {
+   "width": 266,
+   "x": 14,
+   "height": 14,
+   "y": 135.66666674613953
+  },
+  "role_description": "text",
+  "AXLabel": "LATEST UPDATE",
+  "custom_actions": [],
+  "role": "AXStaticText",
+  "enabled": true,
+  "AXValue": null,
+  "AXUniqueId": null,
+  "AXFrame": "{{14, 135.66666674613953}, {266, 14}}",
+  "type": "StaticText"
+ },
+ {
+  "custom_actions": [],
+  "AXLabel": "All updates",
+  "AXUniqueId": "lanes-all-updates",
+  "traits": [
+   "Button",
+   "Scrollable"
+  ],
+  "AXValue": null,
+  "type": "Button",
+  "content_required": false,
+  "subrole": null,
+  "enabled": true,
+  "title": null,
+  "role": "AXButton",
+  "AXFrame": "{{280, 132}, {99, 21.333328247070312}}",
+  "help": null,
+  "role_description": "button",
+  "frame": {
+   "width": 99,
+   "height": 21.333328247070312,
+   "y": 132,
+   "x": 280
+  }
+ },
+ {
+  "AXFrame": "{{14, 161.33333396911621}, {365, 61.333343505859375}}",
+  "title": null,
+  "frame": {
+   "height": 61.333343505859375,
+   "width": 365,
+   "x": 14,
+   "y": 161.3333339691162
+  },
+  "AXValue": null,
+  "enabled": true,
+  "content_required": false,
+  "subrole": null,
+  "AXLabel": "Open update log",
+  "help": null,
+  "type": "Button",
+  "role_description": "button",
+  "traits": [
+   "Button",
+   "Scrollable"
+  ],
+  "AXUniqueId": "lanes-latest-update",
+  "role": "AXButton",
+  "custom_actions": []
+ },
+ {
+  "frame": {
+   "x": 14,
+   "y": 242.66666412353516,
+   "width": 365,
+   "height": 13.999984741210938
+  },
+  "enabled": true,
+  "AXUniqueId": null,
+  "content_required": false,
+  "role_description": "text",
+  "AXValue": null,
+  "title": null,
+  "subrole": null,
+  "help": null,
+  "traits": [
+   "Scrollable",
+   "StaticText"
+  ],
+  "custom_actions": [],
+  "AXLabel": "OPEN LANES \u00b7 5",
+  "AXFrame": "{{14, 242.66666412353516}, {365, 13.999984741210938}}",
+  "role": "AXStaticText",
+  "type": "StaticText"
+ },
+ {
+  "subrole": null,
+  "traits": [
+   "Button",
+   "Scrollable"
+  ],
+  "AXValue": null,
+  "role_description": "button",
+  "title": null,
+  "type": "Button",
+  "AXFrame": "{{27, 278.66666412353516}, {339, 35.66668701171875}}",
+  "content_required": false,
+  "help": null,
+  "enabled": true,
+  "role": "AXButton",
+  "AXLabel": "See chat for Clay tile batch",
+  "AXUniqueId": "lane-card-chat-wl-4abf858209848e516dccde25",
+  "frame": {
+   "y": 278.66666412353516,
+   "height": 35.66668701171875,
+   "x": 27,
+   "width": 339
+  },
+  "custom_actions": []
+ },
+ {
+  "AXValue": null,
+  "AXUniqueId": null,
+  "custom_actions": [],
+  "content_required": false,
+  "help": null,
+  "traits": [
+   "Scrollable",
+   "StaticText"
+  ],
+  "type": "StaticText",
+  "frame": {
+   "y": 323.3333320617676,
+   "width": 320,
+   "x": 46,
+   "height": 19
+  },
+  "enabled": true,
+  "role": "AXStaticText",
+  "AXFrame": "{{46, 323.33333206176758}, {320, 19}}",
+  "role_description": "text",
+  "subrole": null,
+  "AXLabel": "Waiting for a kiln window",
+  "title": null
+ },
+ {
+  "AXUniqueId": "lane-card-members-pending-wl-4abf858209848e516dccde25",
+  "content_required": false,
+  "frame": {
+   "x": 27,
+   "width": 339,
+   "y": 356.3333282470703,
+   "height": 16.666656494140625
+  },
+  "traits": [
+   "Scrollable",
+   "StaticText"
+  ],
+  "AXLabel": "Specs arrive when the daemon updates",
+  "type": "StaticText",
+  "AXValue": null,
+  "custom_actions": [],
+  "enabled": true,
+  "subrole": null,
+  "AXFrame": "{{27, 356.33332824707031}, {339, 16.666656494140625}}",
+  "help": null,
+  "title": null,
+  "role_description": "text",
+  "role": "AXStaticText"
+ },
+ {
+  "help": null,
+  "AXValue": null,
+  "frame": {
+   "height": 35.666656494140625,
+   "x": 27,
+   "y": 404.99999237060547,
+   "width": 339
+  },
+  "AXLabel": "See chat for Paper bridge spans",
+  "role_description": "button",
+  "type": "Button",
+  "traits": [
+   "Button",
+   "Scrollable"
+  ],
+  "custom_actions": [],
+  "enabled": true,
+  "title": null,
+  "role": "AXButton",
+  "AXUniqueId": "lane-card-chat-wl-298430ea76b6dc262400bbec",
+  "AXFrame": "{{27, 404.99999237060547}, {339, 35.666656494140625}}",
+  "subrole": null,
+  "content_required": false
+ },
+ {
+  "AXLabel": "Specs arrive when the daemon updates",
+  "custom_actions": [],
+  "AXFrame": "{{27, 454.66666030883789}, {339, 16.66668701171875}}",
+  "subrole": null,
+  "traits": [
+   "Scrollable",
+   "StaticText"
+  ],
+  "AXValue": null,
+  "enabled": true,
+  "role": "AXStaticText",
+  "content_required": false,
+  "frame": {
+   "x": 27,
+   "height": 16.66668701171875,
+   "y": 454.6666603088379,
+   "width": 339
+  },
+  "AXUniqueId": "lane-card-members-pending-wl-298430ea76b6dc262400bbec",
+  "role_description": "text",
+  "type": "StaticText",
+  "title": null,
+  "help": null
+ },
+ {
+  "custom_actions": [],
+  "subrole": null,
+  "role_description": "button",
+  "enabled": true,
+  "title": null,
+  "AXValue": null,
+  "traits": [
+   "Button",
+   "Scrollable"
+  ],
+  "help": null,
+  "AXLabel": "See chat for Rope ladder rung",
+  "AXUniqueId": "lane-card-chat-wl-511eb3bab0824f4a8f2babe9",
+  "content_required": false,
+  "AXFrame": "{{27, 503.33333587646484}, {339, 35.666656494140625}}",
+  "type": "Button",
+  "role": "AXButton",
+  "frame": {
+   "x": 27,
+   "width": 339,
+   "height": 35.666656494140625,
+   "y": 503.33333587646484
+  }
+ },
+ {
+  "title": null,
+  "role_description": "text",
+  "role": "AXStaticText",
+  "subrole": null,
+  "help": null,
+  "AXFrame": "{{27, 553.00000381469727}, {339, 16.66668701171875}}",
+  "traits": [
+   "Scrollable",
+   "StaticText"
+  ],
+  "frame": {
+   "height": 16.66668701171875,
+   "width": 339,
+   "x": 27,
+   "y": 553.0000038146973
+  },
+  "AXValue": null,
+  "AXUniqueId": "lane-card-members-pending-wl-511eb3bab0824f4a8f2babe9",
+  "custom_actions": [],
+  "type": "StaticText",
+  "enabled": true,
+  "AXLabel": "Specs arrive when the daemon updates",
+  "content_required": false
+ },
+ {
+  "AXLabel": "See chat for Planning conversation",
+  "role": "AXButton",
+  "AXFrame": "{{27, 601.66666412353516}, {339, 35.6666259765625}}",
+  "help": null,
+  "AXUniqueId": "lane-card-chat-wl-52686f01256982fe40b17600",
+  "enabled": true,
+  "custom_actions": [],
+  "type": "Button",
+  "content_required": false,
+  "AXValue": null,
+  "traits": [
+   "Button",
+   "Scrollable"
+  ],
+  "subrole": null,
+  "frame": {
+   "height": 35.6666259765625,
+   "width": 339,
+   "x": 27,
+   "y": 601.6666641235352
+  },
+  "role_description": "button",
+  "title": null
+ },
+ {
+  "frame": {
+   "y": 651.3333320617676,
+   "x": 27,
+   "height": 16.66668701171875,
+   "width": 339
+  },
+  "help": null,
+  "AXUniqueId": "lane-card-members-pending-wl-52686f01256982fe40b17600",
+  "traits": [
+   "Scrollable",
+   "StaticText"
+  ],
+  "subrole": null,
+  "content_required": false,
+  "AXValue": null,
+  "role": "AXStaticText",
+  "role_description": "text",
+  "AXLabel": "Specs arrive when the daemon updates",
+  "custom_actions": [],
+  "type": "StaticText",
+  "title": null,
+  "enabled": true,
+  "AXFrame": "{{27, 651.33333206176758}, {339, 16.66668701171875}}"
+ },
+ {
+  "role_description": "button",
+  "AXLabel": "See chat for Kite frame study",
+  "traits": [
+   "Button",
+   "Scrollable"
+  ],
+  "subrole": null,
+  "title": null,
+  "help": null,
+  "AXFrame": "{{27, 700.00000762939453}, {339, 35.66668701171875}}",
+  "AXUniqueId": "lane-card-chat-wl-8169db2a19a3137b68cebda9",
+  "custom_actions": [],
+  "enabled": true,
+  "frame": {
+   "y": 700.0000076293945,
+   "height": 35.66668701171875,
+   "x": 27,
+   "width": 339
+  },
+  "AXValue": null,
+  "content_required": false,
+  "role": "AXButton",
+  "type": "Button"
+ },
+ {
+  "subrole": null,
+  "frame": {
+   "y": 749.666675567627,
+   "height": 16.6666259765625,
+   "width": 339,
+   "x": 27
+  },
+  "AXLabel": "Specs arrive when the daemon updates",
+  "type": "StaticText",
+  "traits": [
+   "Scrollable",
+   "StaticText"
+  ],
+  "help": null,
+  "role_description": "text",
+  "AXUniqueId": "lane-card-members-pending-wl-8169db2a19a3137b68cebda9",
+  "custom_actions": [],
+  "content_required": false,
+  "title": null,
+  "role": "AXStaticText",
+  "enabled": true,
+  "AXValue": null,
+  "AXFrame": "{{27, 749.66667556762695}, {339, 16.6666259765625}}"
+ }
+]
