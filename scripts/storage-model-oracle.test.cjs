@@ -10,7 +10,7 @@ const test = require('node:test');
 
 const EXPECTED_PINS = {
   // Independently derived from public caller edges and file bytes; never import the authority table.
-  'pentacle.config.example.ts': 'b74d67c0c2b9333282c77e499caf758c89081f10dbfb82f4468eeeb60c6740f4',
+  'pentacle.config.example.ts': '88c61347e2a3373af18410b3fb55bcc99c89492d28035451fdf007624239c1f2',
   'plugins/withHarnessLaunchUrl.js': '17e0d96c38e95555815f1fad8ef3ab311564b02f6a7d6a833fe31851fca75a08',
   'scripts/full-gate.cjs': '1530f7959652a4cf7f8391eb989a406620b3050f3ab723eb3fe4b48f81168a49',
   'scripts/full-gate.test.cjs': '8c9c5a1ec785851986784808929c954f5a4466beb360d9da78f99e57352e6367',
@@ -39,7 +39,13 @@ const EXPECTED_PINS = {
   'test/e2e/harness/render_evidence.py': '0c1f97e20f26a604234366d04abdb59abb6da92e78f0886c7e6a55b73be5bc76',
   'test/e2e/harness/telemetry_events.py': '6fb135b164b0261cafcf4563ff282efce20999d33131c5f5c0388024d386f365',
   'test/e2e/recorder_preflight.py': '9d8a3434b3dc1777ae74e6e191b0759326bfb08bad9a7156a38f4ba1ea80b04e',
-  'test/e2e/run_scenario.py': 'c1de21e1f58df8e42a67af92f2dc75ec3606808cf4571903c6c92e655c496692',
+  'test/e2e/run_scenario.py': '009a757ec4922b57478311ff9897333b52d822c505fad053d4e1acf21479608f',
+  'test/e2e/scenarios/_m1_mock_control.py': '495b0814fbd3928283b59eba6f2268e8b11091e9cabdf44bfe73e5e990b3e558',
+  'test/e2e/scenarios/_m1_native_ui.py': '46957cb0f833d1d1ef210776175087f3ed409c7abcd80ae874489aa9b42dd010',
+  'test/e2e/scenarios/all_chats_freeze_sim_regression.py': '39e25e8c232686aa9c50db7bfc71ca3851cfadd0879aeef2d37fef12d7d2cf3c',
+  'test/e2e/scenarios/m1_reset_navigation.py': '9865a59cf71b2952111054c64ba214d328a5dbd22ecf8bea35505e71a2d2b24a',
+  'test/e2e/scenarios/mock_answer_fallback_reconcile.py': 'd98ba262f12ff1c72e12798a984d7cea7b5cce7b978fc58087bd5d1b84141dcb',
+  'test/e2e/scenarios/nexus_agents_history_questions.py': '4e1b3546344b3472b175f820b75da2481026781fe1c1ee887c2d60c7cdaf7a98',
   'test/e2e/scenarios/__init__.py': '72d44eae31d83b58bc62ec58e034a87d01ab246532e5138dbd6c41053906c75d',
   'test/e2e/scenarios/_question_evidence.py': '1669c21d3d1dff5a15db07fa628bbf82ad5947bf3567721da458366febeaa2fd',
   'test/e2e/scenarios/report_viewer_comments_keyboard.py': '2ed2ca4b861b6d056647aa2163245dd6af3c5698fd273bfc15d3fadcf17d68af',

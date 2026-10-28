@@ -201,17 +201,17 @@ def drive_non_nexus_control(ui) -> None:
     ui.tap('chat-row-mock-host-mock-session')
 
 
-def drive_childless_control(ui) -> None:
-    ui.tap(label='Back to chats')
-    ui.tap('chat-row-mock-host-childless')
+def drive_childless_control(ui, control=None, trace=None) -> None:
+    return_to_assistant(ui, control, trace)
+    open_session_from_assistant(ui, control, trace, 'mock-host:childless')
     ui.tap('session-status-overlay-trigger')
     ui.wait(label='Close session status')
     ui.wait(label='No direct child agents are active.')
     if not ui.absent(label='SUB-AGENTS'):
         raise RuntimeError('M1 childless Nexus unexpectedly displayed a roster')
     ui.tap(label='Close session status')
-    ui.tap(label='Back to chats')
-    ui.tap('chat-row-mock-host-mock-session')
+    return_to_assistant(ui, control, trace)
+    open_session_from_assistant(ui, control, trace)
 
 
 class _NativeTrace:
@@ -233,6 +233,71 @@ class _NativeTrace:
     def wait_reconnect(self):
         return bool(await_event(self.stream, EventSpec('chat:ws_reconnect_succeeded', timeout_s=45),
                                 not_before=self.cutoff))
+
+    def verify_session(self, stream_id):
+        mounted = await_event(self.stream, EventSpec('harness:ui_trace', where={
+            'kind': 'session_screen_mount', 'stream_id': stream_id, 'route_focused': True,
+        }, timeout_s=20), not_before=self.cutoff)
+        eligible = await_event(self.stream, EventSpec('harness:ui_trace', where={
+            'kind': 'session_send_eligibility', 'stream_id': stream_id,
+            'focused': True, 'session_present': True, 'eligible': True,
+        }, timeout_s=20), not_before=self.cutoff)
+        mounts = [e for e in self.stream.all_events() if e.received_at >= self.cutoff
+                  and e.message == 'harness:ui_trace' and e.data.get('kind') == 'session_screen_mount'
+                  and e.data.get('route_focused') is True]
+        if not mounted or not eligible or not mounts or mounts[-1].data.get('stream_id') != stream_id:
+            raise RuntimeError('M1 fresh focused session identity/eligibility missing')
+        return True
+
+
+def _navigation_context(control, trace):
+    if control is None or trace is None:
+        raise RuntimeError('M1 session navigation requires authoritative observation and fresh trace')
+    return control.verify_baseline()
+
+
+def return_to_assistant(ui, control, trace):
+    _navigation_context(control, trace)
+    trace.mark()
+    ui.tap_navigation(label='Back to chats', destination={'identifier': 'assistant-header'})
+    trace.verify_session('home:assistant')
+    ui.wait(label='Synthetic assistant home ready.')
+    ui.wait(label='Sessions, 0 need you')
+
+
+def open_session_from_assistant(ui, control, trace, stream_id='mock-host:mock-session'):
+    inventory = _navigation_context(control, trace)
+    if stream_id not in {'mock-host:mock-session', 'mock-host:childless', 'mock-host:card-control'}:
+        raise RuntimeError('M1 session target is outside accepted reset scope')
+    ui.wait(identifier='assistant-header')
+    ui.wait(label='Synthetic assistant home ready.')
+    row = 'assistant-drawer-row-' + stream_id
+    if not ui.wait_drawer(row, closed=True):
+        raise RuntimeError('M1 drawer was already open')
+    ui.tap_navigation(label='Sessions, 0 need you')
+    ui.wait_drawer(row)
+    title = inventory[stream_id]['title']
+    trace.mark()
+    ui.tap_navigation(identifier=row, label=f'Open {title}, Idle, Mock Host')
+    ui.wait_drawer(row, closed=True)
+    trace.verify_session(stream_id)
+    # Read generation again after navigation; no stale inventory can establish
+    # the target merely because a different session has a usable composer.
+    after = _navigation_context(control, trace)
+    if after[stream_id]['session_generation'] != inventory[stream_id]['session_generation']:
+        raise RuntimeError('M1 session generation changed during navigation')
+    ui.wait(identifier='combined-session-header')
+    status = ui.wait(identifier='session-status-overlay-trigger', label='Open session status')
+    if status.get('AXValue') != f'{title}, codex, idle':
+        raise RuntimeError('M1 session status identity/value mismatch')
+    ui.wait(label=title)
+    ui.wait(identifier='composer-input')
+    ui.wait(identifier='composer-mic-button', label='Voice mode')
+    for identifier in ('status-overlay-close', 'question-overlay-cancel', 'voice-recording-strip-discard'):
+        if not ui.absent(identifier=identifier):
+            raise RuntimeError('M1 session overlay prevents verified baseline')
+    ui.check_foreground()
+    return True
 
 
 def run_diagnostic_cells(cells, reset):
@@ -313,17 +378,23 @@ def reset_to_session_baseline(ui, control):
     # Reset a cell that ends inside the mock session (reconnect, Nexus/non-Nexus
     # controls) by returning to the mock-session composer, reusing the existing
     # navigation oracles.
-    if not _dismiss_question_surface(ui, control):
+    try:
+        if not _dismiss_question_surface(ui, control):
+            return False
+        trace = getattr(control, 'trace', None)
+        if ui.present(label='Back to chats'):
+            return_to_assistant(ui, control, trace)
+        else:
+            _navigation_context(control, trace)
+            trace.verify_session('home:assistant')
+        return open_session_from_assistant(ui, control, trace)
+    except Exception:
         return False
-    if ui.present(label='Back to chats'):
-        ui.tap(label='Back to chats')
-    # The navigation oracle for this row waits for `composer-input`, so a
-    # successful return re-establishes the measured baseline.
-    ui.tap('chat-row-mock-host-mock-session')
-    return True
 
 
 def reset_to_cards_baseline(ui, control):
+    # HOLD: the ordinary original ChatRow/card route is not established by the
+    # session drawer. Retain the mandatory legacy destination and fail closed.
     # Reset a card-surface cell (`enter_cards`, `card_*`) to the CHAT LIST, where
     # those cells operate (card questions open from `chat-row-toggle-…` in the
     # list, not from a session). Landing on the session composer would make each
@@ -365,14 +436,15 @@ def run_broad(config: dict, stream, cap=None) -> Verdict:
         ui = NativeUI(config)
         control = MockControl(str(config.get('M1_MOCK_WS_URL') or ''))
         trace = _NativeTrace(stream)
+        control.trace = trace
         drive_history_navigation(ui, trace)
         ui.tap(label='Close session status')
         if config.get('M1_DIAGNOSTIC') == '1':
             cells = [(f'session_{mode}', lambda mode=mode: drive_question(ui, control, 'session', mode))
                      for mode in ('choice', 'free', 'combined', 'custom')]
             cells += [('two_turn_reconnect', lambda: drive_two_turns(ui, control, trace)),
-                      ('childless', lambda: drive_childless_control(ui)),
-                      ('non_nexus_card', lambda: drive_non_nexus_card_control(ui)),
+                      ('childless', lambda: drive_childless_control(ui, control, trace)),
+                      ('non_nexus_card', lambda: drive_non_nexus_card_control(ui, control, trace)),
                       ('non_nexus_voice_discard', lambda: drive_non_nexus_control(ui))]
             def enter_cards(): ui.tap(label='Back to chats')
             cells += [('enter_cards', enter_cards)]
@@ -384,8 +456,8 @@ def run_broad(config: dict, stream, cap=None) -> Verdict:
         for mode in ('choice', 'free', 'combined', 'custom'):
             drive_question(ui, control, 'session', mode)
         drive_two_turns(ui, control, trace)
-        drive_childless_control(ui)
-        drive_non_nexus_card_control(ui)
+        drive_childless_control(ui, control, trace)
+        drive_non_nexus_card_control(ui, control, trace)
         drive_non_nexus_control(ui)
         ui.tap(label='Back to chats')
         for mode in ('choice', 'free', 'combined', 'custom'):
@@ -405,13 +477,13 @@ def run_broad(config: dict, stream, cap=None) -> Verdict:
             control.close()
 
 
-def drive_non_nexus_card_control(ui) -> None:
-    ui.tap(label='Back to chats')
-    ui.tap('chat-row-mock-host-card-control')
+def drive_non_nexus_card_control(ui, control=None, trace=None) -> None:
+    return_to_assistant(ui, control, trace)
+    open_session_from_assistant(ui, control, trace, 'mock-host:card-control')
     ui.tap('session-status-overlay-trigger')
     ui.wait(label='Close session status')
     if not ui.absent(label='SUB-AGENTS') or not ui.absent(label='Forbidden child'):
         raise RuntimeError('M1 non-Nexus status showed child roster')
     ui.tap(label='Close session status')
-    ui.tap(label='Back to chats')
-    ui.tap('chat-row-mock-host-mock-session')
+    return_to_assistant(ui, control, trace)
+    open_session_from_assistant(ui, control, trace)

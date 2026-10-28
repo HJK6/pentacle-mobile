@@ -366,3 +366,20 @@ test('the assistant header omits Scheduled while retaining its active controls',
   expect(screen.getByLabelText('Questions, 0 pending')).toBeTruthy();
   expect(screen.getByTestId('header-voice-mic')).toBeTruthy();
 });
+
+test('configured M1 inventory hydrates the real assistant and opens the exact ordinary drawer target once', async () => {
+  const fixture = require('../../../test/e2e/fixtures/scripted_daemon/m1_broad_questions.json');
+  expect(STREAM_ID).toBe('home:assistant');
+  mockState = { ...mockState, sessions: fixture.snapshot.sessions, notifications: [],
+    events: fixture.frames.filter((frame: any) => frame.event.stream_id === STREAM_ID).map((frame: any) => frame.event) };
+  render(<AssistantScreen />);
+  await act(async () => {});
+  expect(screen.getByText('Synthetic assistant home ready.')).toBeTruthy();
+  expect(screen.getByLabelText('Sessions, 0 need you')).toBeTruthy();
+  fireEvent.press(screen.getByLabelText('Sessions, 0 need you'));
+  const row = screen.getByTestId('assistant-drawer-row-mock-host:mock-session');
+  fireEvent.press(row);
+  fireEvent.press(row);
+  expect(expoRouter.useRouter().push).toHaveBeenCalledTimes(1);
+  expect(expoRouter.useRouter().push).toHaveBeenCalledWith('/pentacle/session/mock-host%3Amock-session');
+});

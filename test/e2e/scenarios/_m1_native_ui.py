@@ -318,6 +318,77 @@ class NativeUI:
         self._command('text', text)
         self._diagnostic_snapshot('after_text', identifier)
 
+    def tap_navigation(self, identifier=None, label=None, *, destination=None):
+        """Exact navigation control, including native point proof before submission.
+
+        Kept explicit: legacy card/voice callers retain their unresolved destinations.
+        """
+        self.check_foreground()
+        elements = self.elements()
+        matches = [e for e in elements if
+                   (identifier is None or identifier in (e.get('AXIdentifier'), e.get('AXUniqueId')))
+                   and (label is None or e.get('AXLabel') == label)]
+        visible = self.visible(elements, identifier, label)
+        if len(matches) != 1 or len(visible) != 1 or matches[0].get('enabled') is False:
+            raise RuntimeError('M1 navigation target missing, ambiguous, disabled or clipped')
+        item = visible[0]
+        frame = item['frame']
+        x, y = int(frame['x'] + frame['width'] / 2), int(frame['y'] + frame['height'] / 2)
+        hit = json.loads(self._command('describe-point', str(x), str(y), '--json'))
+        if not isinstance(hit, dict) or hit.get('enabled') is False:
+            raise RuntimeError('M1 navigation native point unavailable')
+        if identifier is not None and identifier not in (hit.get('AXIdentifier'), hit.get('AXUniqueId')):
+            raise RuntimeError('M1 navigation native point identity mismatch')
+        if label is not None and hit.get('AXLabel') != label:
+            raise RuntimeError('M1 navigation native point label mismatch')
+        if item.get('AXLabel') != hit.get('AXLabel'):
+            raise RuntimeError('M1 navigation native point target mismatch')
+        self.check_foreground()
+        self._command('tap', str(x), str(y))
+        self.check_foreground()
+        if destination:
+            self.wait(**destination)
+
+    @staticmethod
+    def drawer_rows(elements):
+        # Census only: never use this prefix to choose a navigation target.
+        return [e for e in elements if any(isinstance(e.get(k), str) and
+                e[k].startswith('assistant-drawer-row-') for k in ('AXIdentifier', 'AXUniqueId'))]
+
+    def wait_drawer(self, identifier, *, closed=False, timeout=15):
+        deadline, previous = time.monotonic() + timeout, None
+        while time.monotonic() < deadline:
+            self.check_foreground()
+            elements = self.elements()
+            rows = self.drawer_rows(elements)
+            scrims = [e for e in elements if e.get('AXLabel') == 'Close sessions']
+            if closed:
+                if not rows and not scrims:
+                    return True
+            else:
+                target = self.visible(elements, identifier=identifier)
+                visible_scrims = self.visible(elements, label='Close sessions')
+                if len(scrims) == len(visible_scrims) == 1 and scrims[0].get('enabled') is not False and len(target) == 1:
+                    ids = [r.get('AXIdentifier') or r.get('AXUniqueId') for r in rows]
+                    settled = rows and len(ids) == len(set(ids))
+                    geometry = []
+                    for row in rows:
+                        f = row.get('frame') or {}
+                        if not all(isinstance(f.get(k), (int, float)) for k in ('x', 'y', 'width', 'height')):
+                            settled = False
+                            break
+                        if f['x'] < 0 or f['width'] <= 0 or f['height'] <= 0 or row.get('enabled') is False:
+                            settled = False
+                        geometry.append((row.get('AXIdentifier') or row.get('AXUniqueId'), f['x'], f['width']))
+                    signature = tuple(sorted(geometry)) if settled else None
+                    if signature is not None and signature == previous:
+                        return True
+                    previous = signature
+                else:
+                    previous = None
+            time.sleep(.2)
+        raise RuntimeError('M1 drawer did not reach verified ' + ('closed' if closed else 'open') + ' state')
+
     def _diagnostic_snapshot(self, step, identifier):
         path = os.environ.get('M1_DIAGNOSTIC_AX_PATH')
         if not path:

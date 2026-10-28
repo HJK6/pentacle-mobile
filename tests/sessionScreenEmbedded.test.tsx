@@ -216,3 +216,20 @@ test('route query params still reach the inner screen', () => {
   render(<RouteSessionScreen />);
   expect(setParams).toHaveBeenCalledWith({ openStatus: undefined });
 });
+
+test('the configured M1 assistant summary hydrates the real embedded session before its header exists', () => {
+  const fixture = require('../test/e2e/fixtures/scripted_daemon/m1_broad_questions.json');
+  const assistant = fixture.snapshot.sessions.find((row: PentacleSessionSummary) => row.stream_id === 'home:assistant');
+  expect(assistant).toBeDefined();
+  mockState = { ...mockState, sessions: [] };
+  const header = <Text testID="assistant-header">Synthetic assistant</Text>;
+  const view = render(<SessionScreen streamId="home:assistant" header={header} />);
+  expect(screen.getByText('Returning to chats...')).toBeTruthy();
+  expect(screen.queryByTestId('assistant-header')).toBeNull();
+  expect(screen.queryByTestId('composer-input')).toBeNull();
+  mockState = { ...mockState, sessions: fixture.snapshot.sessions };
+  view.rerender(<SessionScreen streamId="home:assistant" header={header} />);
+  expect(screen.getByTestId('assistant-header')).toBeTruthy();
+  expect(screen.getByTestId('composer-input')).toBeTruthy();
+  expect(screen.queryByText('Returning to chats...')).toBeNull();
+});

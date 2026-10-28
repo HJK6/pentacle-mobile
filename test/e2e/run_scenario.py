@@ -31,6 +31,7 @@ CONFIGURED_M1 = "m1_configured_roster_history"
 CONFIGURED_M1_MODULE = "e2e.scenarios.m1_configured_roster_history"
 
 REPORT_MODULES = {
+    "m1_reset_navigation": "e2e.scenarios.m1_reset_navigation",
     "all_chats_load": "e2e.scenarios.all_chats_freeze_sim_regression",
     "nexus_agents_history_questions": "e2e.scenarios.nexus_agents_history_questions",
     "mock_answer_fallback_reconcile": "e2e.scenarios.mock_answer_fallback_reconcile",
@@ -638,6 +639,8 @@ def execute_native(name, config, runs_dir, stem, *, _catalog_phase=None):
 
 
 def _execute_native(name, config, runs_dir, stem, *, _catalog_phase=None, _configured=None):
+    if name == "m1_reset_navigation":
+        importlib.import_module(REPORT_MODULES[name]).params(config)
     if name == "nexus_agents_history_questions" and config.get("M1_BROAD") == "1":
         importlib.import_module(REPORT_MODULES[name]).params(config)
     if name == "dashboard_catalog":
@@ -656,7 +659,7 @@ def _execute_native(name, config, runs_dir, stem, *, _catalog_phase=None, _confi
     if not re.fullmatch(r"[0-9A-Fa-f]{8}(?:-[0-9A-Fa-f]{4}){3}-[0-9A-Fa-f]{12}", udid or "") or not bundle:
         raise ValueError("exact bound simulator and bundle are required")
     simctl = scenario_simctl_command(config=config)
-    if name == "dashboard_catalog" or (name == "nexus_agents_history_questions" and config.get("M1_BROAD") == "1"):
+    if name in {"dashboard_catalog", "m1_reset_navigation"} or (name == "nexus_agents_history_questions" and config.get("M1_BROAD") == "1"):
         require_idb_visible_device_set(config)
     config["SIMULATOR_UDID"] = udid
     run_id, sentinel = config["scenario_run_id"], config.get("runtime_sentinel", "clean")
@@ -728,7 +731,7 @@ def _execute_native(name, config, runs_dir, stem, *, _catalog_phase=None, _confi
         stream.start()
         if not recorder.start():
             raise RuntimeError("case recorder did not become ready")
-        if name == 'nexus_agents_history_questions' and config.get('M1_BROAD') == '1':
+        if name == 'm1_reset_navigation' or (name == 'nexus_agents_history_questions' and config.get('M1_BROAD') == '1'):
             config['_video_started_at'] = recorder.ready_at
         if name == "report_viewer_runtime_sentinel" and sentinel == "fatal":
             token = uuid.uuid4().hex

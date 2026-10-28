@@ -162,6 +162,32 @@
           }
         ],
         "online": true
+      },
+      {
+        "stream_id": "home:assistant",
+        "host": "mock-host",
+        "session_name": "assistant",
+        "provider": "composite",
+        "session_kind": "assistant_composite",
+        "role": "assistant_composite",
+        "session_generation": "assistant-composite-v1",
+        "visibility": "visible",
+        "capabilities": {
+          "pane": false,
+          "terminal": false,
+          "assistant_composite_v1": true,
+          "reply_metadata_v1": true
+        },
+        "title": "Synthetic assistant",
+        "display_name": "Synthetic assistant",
+        "last_event_at": "2026-01-01T12:00:00.000Z",
+        "last_kind": "ASSIST_TEXT",
+        "last_text": "Synthetic assistant home ready.",
+        "online": true,
+        "working": false,
+        "pending": false,
+        "draft": "",
+        "bootstrap_state": "ready"
       }
     ],
     "events": [],
@@ -205,6 +231,29 @@
     }
   },
   "frames": [
+    {
+      "id": "assistant-home-anchor",
+      "at_ms": 0,
+      "type": "chat.event",
+      "wait_for_client": true,
+      "event": {
+        "daemon_seq": 39,
+        "stream_id": "home:assistant",
+        "session_id": "home:assistant",
+        "host": "mock-host",
+        "provider": "composite",
+        "session_name": "assistant",
+        "timestamp": "2026-01-01T12:00:00.000Z",
+        "kind": "ASSIST_TEXT",
+        "text": "Synthetic assistant home ready.",
+        "raw": {
+          "session_name": "assistant",
+          "assistant_composite": true,
+          "publish_kind": "prose",
+          "response_state": "final"
+        }
+      }
+    },
     {
       "id": "anchor",
       "at_ms": 0,
