@@ -243,6 +243,9 @@ def run_diagnostic_cells(cells, reset):
         if not safe:
             results.append({'cell': label, 'status': 'UNMEASURED', 'reason': 'prior failure could not be reset and verified'})
             continue
+        if label == 'non_nexus_voice_discard':
+            results.append({'cell': label, 'status': 'UNMEASURED', 'reason': 'No proven silent/null/synthetic input; microphone capture not authorized'})
+            continue
         try:
             action()
             results.append({'cell': label, 'status': 'PASS'})
