@@ -55,7 +55,10 @@ def mode(config: dict) -> str:
 
 
 def actions(config: dict) -> list[str]:
-    return ["autoaccept_biometric"] + (["chat_list_js_stall"] if mode(config) == "stall_control" else [])
+    # The standard cold-launch unblockers: the mock daemon issues no operator
+    # credential, so the app connects only with disable_pentacle_auth.
+    base = ["autoaccept_biometric", "disable_pentacle_auth"]
+    return base + (["chat_list_js_stall"] if mode(config) == "stall_control" else [])
 
 
 def fixture_url(config: dict) -> str:
