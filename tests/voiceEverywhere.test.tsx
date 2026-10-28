@@ -418,3 +418,16 @@ test('a new modal host starts above an already visible keyboard and restores the
   expect(voicePresentationSnapshot().dy).toBe(75);
   view.unmount(); keyboard.restore();
 });
+
+test.each(['0', '1'])('assistant header recorder origin is gated (harness=%s)', async flag => {
+  const previous = process.env.EXPO_PUBLIC_HARNESS;
+  process.env.EXPO_PUBLIC_HARNESS = flag;
+  const spy = jest.spyOn(require('../src/utils/m1Diagnostic'), 'm1Diagnostic').mockImplementation(() => undefined);
+  const view = render(<Page />);
+  await act(async () => fireEvent.press(view.getByTestId('header-voice-mic')));
+  const origins = spy.mock.calls.map(([, data]) => (data as { origin?: string }).origin);
+  for (const origin of ['header', 'header_assistant']) {
+    if (flag === '1') expect(origins).toContain(origin); else expect(origins).not.toContain(origin);
+  }
+  spy.mockRestore(); process.env.EXPO_PUBLIC_HARNESS = previous;
+});

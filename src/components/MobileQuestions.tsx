@@ -401,7 +401,11 @@ export function MobileQuestionOne({ entry, draft, accent, disabled, onChange, on
             placeholderTextColor={Tokens.palette.muted}
             editable={!disabled}
             multiline
-            onFocus={(event) => onInputFocus?.(event.nativeEvent.target, true)}
+            onFocus={(event) => {
+              if (process.env.EXPO_PUBLIC_HARNESS === '1') require('../utils/m1Diagnostic').m1Diagnostic('focus', { origin: 'question_free_text', target: event.nativeEvent.target, state: 'focused' });
+              onInputFocus?.(event.nativeEvent.target, true);
+            }}
+            onBlur={(event) => { if (process.env.EXPO_PUBLIC_HARNESS === '1') require('../utils/m1Diagnostic').m1Diagnostic('focus', { origin: 'question_free_text', target: event.nativeEvent.target, state: 'blurred' }); }}
             style={[styles.textarea, { borderColor: `${accent}66` }]}
           />
           <View style={styles.optionNoteRow}>

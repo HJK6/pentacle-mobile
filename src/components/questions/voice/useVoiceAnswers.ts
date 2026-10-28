@@ -100,6 +100,7 @@ export function useVoiceAnswers({ deck, currentKey, onFinished, onDiscarded, not
     setPhase('starting');
     try {
       const origin = getPentacleStreamState().sessions.find(row => row.stream_id === ASSISTANT_STREAM_ID);
+      if (process.env.EXPO_PUBLIC_HARNESS === '1') require('../../../utils/m1Diagnostic').m1Diagnostic('recorder_start', { origin: 'question_voice_answer', operation_kind: 'voice_answer', stream_id: ASSISTANT_STREAM_ID });
       const id = await recorder.start(ASSISTANT_STREAM_ID, { originGeneration: origin?.session_generation ?? null, originLabel: origin?.title || 'Assistant', textPrefix: '', images: [], operationKind: 'voice_answer', questionBinding });
       observedId.current = id;
       if (mounted.current) setPhase('recording');

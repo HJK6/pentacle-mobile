@@ -24,7 +24,9 @@ export default function HeaderVoiceMic({ onPress, disabled = false, label, testI
   const recording = value.recording?.status === 'recording';
   const busy = value.headerBusy || value.recording?.status === 'starting' || value.recording?.status === 'stopping';
   const unavailable = !value.lifecycle.foreground || !value.lifecycle.unlocked || busy || (!active && (disabled || (!onPress && !voiceHeaderStartReady())));
-  const press = () => { void pressVoiceHeader(onPress).catch(error => {
+  const press = () => {
+    if (process.env.EXPO_PUBLIC_HARNESS === '1') require('../../utils/m1Diagnostic').m1Diagnostic('voice_press', { origin: 'header', test_id: testID });
+    void pressVoiceHeader(onPress).catch(error => {
     if (error instanceof PermissionDeniedError) Alert.alert('Microphone permission is denied', 'Enable microphone access in Settings to record.', [
       { text: 'Cancel', style: 'cancel' }, { text: 'Open Settings', onPress: () => { void Linking.openSettings(); } },
     ]);

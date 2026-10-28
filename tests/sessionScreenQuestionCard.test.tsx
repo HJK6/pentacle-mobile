@@ -1550,3 +1550,86 @@ test('Skip of first durable child retains its sibling draft and resolves each ch
   expect(mockActions.answerPrompt).toHaveBeenLastCalledWith({ questionId: 'q-second', selections: ['b'] });
   expect(screen.queryByTestId('question-skip')).toBeNull();
 });
+
+describe('M1 diagnostic callbacks on the actual question surface', () => {
+  const originalHarness = process.env.EXPO_PUBLIC_HARNESS;
+  afterEach(() => { process.env.EXPO_PUBLIC_HARNESS = originalHarness; jest.restoreAllMocks(); });
+  function diagnosticSpy(flag: string) {
+    process.env.EXPO_PUBLIC_HARNESS = flag;
+    return jest.spyOn(require('../src/utils/m1Diagnostic'), 'm1Diagnostic').mockImplementation(() => undefined);
+  }
+  function expectOrigins(spy: jest.SpyInstance, flag: string, origins: string[]) {
+    const calls = spy.mock.calls.map(([, data]) => data.origin);
+    for (const origin of origins) {
+      if (flag === '1') expect(calls).toContain(origin);
+      else expect(calls).not.toContain(origin);
+    }
+  }
+  test.each(['0', '1'])('empty, open and cancel callbacks are gated (harness=%s)', flag => {
+    const spy = diagnosticSpy(flag);
+    resetState();
+    const view = render(<SessionScreen />);
+    mockState.sessions = [session(CLAUDE_STREAM_ID, { question: QUESTION })];
+    view.rerender(<SessionScreen />);
+    fireEvent.press(screen.getByTestId('question-fab'));
+    fireEvent.press(screen.getByTestId('question-overlay-cancel'));
+    expectOrigins(spy, flag, ['no_entries', 'render', 'cancel']);
+    if (flag === '1') {
+      expect(spy).toHaveBeenCalledWith('overlay_state', expect.objectContaining({ open: true }));
+      expect(spy).toHaveBeenCalledWith('overlay_state', expect.objectContaining({ open: false }));
+    }
+  });
+  test.each(['0', '1'])('pane answer and submit-all callbacks are gated (harness=%s)', async flag => {
+    const spy = diagnosticSpy(flag);
+    resetState(CLAUDE_STREAM_ID, { question: QUESTION });
+    renderQuestionScreen();
+    fireEvent.press(screen.getByTestId('question-option-2'));
+    await act(async () => { fireEvent.press(screen.getByTestId('question-submit')); });
+    expectOrigins(spy, flag, ['pane_answer', 'submit_all']);
+  });
+  test.each(['0', '1'])('durable answer and submit-all callbacks are gated (harness=%s)', async flag => {
+    const spy = diagnosticSpy(flag);
+    resetState(); mockState.notifications = [durableQuestionNotification('m1-answer')];
+    renderQuestionScreen();
+    fireEvent.press(screen.getByTestId('question-option-1'));
+    await act(async () => { fireEvent.press(screen.getByTestId('question-submit')); });
+    expectOrigins(spy, flag, ['durable_answer', 'submit_all']);
+  });
+  test.each(['0', '1'])('last durable skip requests close only in harness telemetry (harness=%s)', async flag => {
+    const spy = diagnosticSpy(flag);
+    resetState(); mockState.notifications = [durableQuestionNotification('m1-skip')];
+    renderQuestionScreen();
+    await act(async () => { fireEvent.press(screen.getByTestId('question-skip')); });
+    expectOrigins(spy, flag, ['durable_answer', 'durable_skip']);
+    if (flag === '1') expect(spy).toHaveBeenCalledWith('close_request', expect.objectContaining({ origin: 'durable_skip', requested_open: false }));
+  });
+  test.each(['0', '1'])('multi-item skip records an open request (harness=%s)', async flag => {
+    const spy = diagnosticSpy(flag);
+    resetState();
+    const notification = durableQuestionNotification('m1-multi-skip');
+    mockState.notifications = [{ ...notification, question: { ...notification.question!, questions: [
+      { question_id: 'm1-first', response_mode: 'single_choice', prompt: 'First?', options: [{ label: 'A', value: 'a' }] },
+      { question_id: 'm1-second', response_mode: 'single_choice', prompt: 'Second?', options: [{ label: 'B', value: 'b' }] },
+    ] } } as PentacleNotification];
+    renderQuestionScreen();
+    await act(async () => { fireEvent.press(screen.getByTestId('question-skip')); });
+    expect(screen.getByText('Second?')).toBeTruthy();
+    if (flag === '1') expect(spy).toHaveBeenCalledWith('close_request', expect.objectContaining({ origin: 'durable_skip', requested_open: true }));
+    else expect(spy).not.toHaveBeenCalled();
+  });
+  test.each(['0', '1'])('free-text focus and blur callbacks are gated (harness=%s)', flag => {
+    const spy = diagnosticSpy(flag);
+    resetState();
+    const notification = durableQuestionNotification('m1-free');
+    mockState.notifications = [{ ...notification, question: { ...notification.question!, response_mode: 'free_text' } } as PentacleNotification];
+    renderQuestionScreen();
+    const input = screen.getByTestId('question-freetext-0');
+    fireEvent(input, 'focus', { nativeEvent: { target: 42 } });
+    fireEvent(input, 'blur', { nativeEvent: { target: 42 } });
+    expectOrigins(spy, flag, ['question_free_text']);
+    if (flag === '1') {
+      expect(spy).toHaveBeenCalledWith('focus', expect.objectContaining({ state: 'focused', target: 42 }));
+      expect(spy).toHaveBeenCalledWith('focus', expect.objectContaining({ state: 'blurred', target: 42 }));
+    }
+  });
+});

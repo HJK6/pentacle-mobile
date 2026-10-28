@@ -15,6 +15,7 @@ class MockControl:
             raise ValueError('M1 control requires an explicit loopback mock URL')
         self.ws = connect(url, open_timeout=5, max_size=None)
         self.events = []
+        self.last_notification = None
         try:
             if json.loads(self.ws.recv(timeout=5)).get('type') != 'welcome':
                 raise RuntimeError('M1 mock welcome missing')
@@ -31,6 +32,8 @@ class MockControl:
 
     def rpc(self, kind, **payload):
         request_id = uuid.uuid4().hex
+        if kind == 'debug_replay_notification':
+            self.last_notification = payload.get('notification')
         self.ws.send(json.dumps({'type': kind, 'request_id': request_id, **payload}))
         deadline = time.monotonic() + 10
         while time.monotonic() < deadline:

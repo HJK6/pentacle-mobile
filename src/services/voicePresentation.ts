@@ -208,6 +208,7 @@ export async function pressVoiceHeader(onPress?: () => void | Promise<void>) {
     if (state.surface?.chat) {
       const owner = chatStarts.get(state.surface.id);
       if (!owner || owner.disabled) return;
+      if (process.env.EXPO_PUBLIC_HARNESS === '1') require('../utils/m1Diagnostic').m1Diagnostic('voice_delegate', { origin: 'header_chat' });
       await owner.action(); return;
     }
     // Resolve immutable destination and generation before the OS permission await.
@@ -215,6 +216,7 @@ export async function pressVoiceHeader(onPress?: () => void | Promise<void>) {
     const origin = transport.origins.find(item => item.stream_id === ASSISTANT_STREAM_ID);
     if (!voiceHeaderStartReady() || !origin?.session_generation) throw new Error('The assistant chat is not ready for recording. Check your connection and sign-in.');
     const identity = selectAssistantIdentity(getPentacleStreamState());
+    if (process.env.EXPO_PUBLIC_HARNESS === '1') require('../utils/m1Diagnostic').m1Diagnostic('recorder_start', { origin: 'header_assistant', operation_kind: 'voice_chat', stream_id: ASSISTANT_STREAM_ID });
     await voiceRecorder.start(ASSISTANT_STREAM_ID, { originGeneration: origin.session_generation, originLabel: identity.name, textPrefix: '', images: [], operationKind: 'voice_chat' });
   } finally { emit({ headerBusy: false }); }
 }

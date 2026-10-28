@@ -1696,13 +1696,20 @@ export function SessionScreen(props: SessionScreenProps) {
   ]);
 
   useEffect(() => {
+    if (process.env.EXPO_PUBLIC_HARNESS === '1') require('../../../src/utils/m1Diagnostic').m1Diagnostic('overlay_state', { origin: 'render', stream_id: streamId, open: questionOverlayOpen });
+  }, [questionOverlayOpen, streamId]);
+
+  useEffect(() => {
     setQuestionPageIndex(0);
   }, [questionPagerIdentity]);
 
   useEffect(() => {
     const nextIndex = Math.min(questionPageIndex, Math.max(0, canonicalQuestionEntries.length - 1));
     if (nextIndex !== questionPageIndex) setQuestionPageIndex(nextIndex);
-    if (canonicalQuestionEntries.length === 0) setQuestionOverlayOpen(false);
+    if (canonicalQuestionEntries.length === 0) {
+      if (process.env.EXPO_PUBLIC_HARNESS === '1') require('../../../src/utils/m1Diagnostic').m1Diagnostic('close_request', { origin: 'no_entries', stream_id: streamId });
+      setQuestionOverlayOpen(false);
+    }
   }, [canonicalQuestionEntries.length, questionPageIndex]);
 
   // Harness-only: scenarios armed with `auto_open_question_overlay` get the
@@ -1826,6 +1833,7 @@ export function SessionScreen(props: SessionScreenProps) {
       setQuestionSubmitError('Question answer could not be queued. Try again.');
       return false;
     }
+    if (process.env.EXPO_PUBLIC_HARNESS === '1') require('../../../src/utils/m1Diagnostic').m1Diagnostic('close_request', { origin: 'pane_answer', stream_id: streamId });
     setQuestionOverlayOpen(false);
     logTelemetry(QUESTION_ANSWER_SUBMIT_ATTEMPT, baseTelemetry);
     try {
@@ -1929,6 +1937,7 @@ export function SessionScreen(props: SessionScreenProps) {
     }
     setQuestionSubmitError(null);
     setQuestionSubmitting(true);
+    if (process.env.EXPO_PUBLIC_HARNESS === '1') require('../../../src/utils/m1Diagnostic').m1Diagnostic('close_request', { origin: 'durable_answer', stream_id: streamId });
     setQuestionOverlayOpen(false);
     try {
       if (!questionId) throw new Error('Question is missing its durable prompt identity.');
@@ -1963,6 +1972,7 @@ export function SessionScreen(props: SessionScreenProps) {
         setLocallyResolvedQuestionKeys(current => new Set(current).add(
           durableAnswerProjectionKey(model.notification.notification_id, model.items[itemIndex], itemIndex),
         ));
+        if (process.env.EXPO_PUBLIC_HARNESS === '1') require('../../../src/utils/m1Diagnostic').m1Diagnostic('close_request', { origin: 'durable_skip', stream_id: streamId, requested_open: canonicalQuestionEntries.length > 1 });
         setQuestionOverlayOpen(canonicalQuestionEntries.length > 1);
         logTelemetry(QUESTION_ANSWER_SUBMIT_SENT, { subsystem: 'questions', skipped: true, bug_ref: 'spec_pentacle_mobile__question_card_formatting_and_skip_2026_10' });
       }
@@ -2000,6 +2010,7 @@ export function SessionScreen(props: SessionScreenProps) {
         }
         setLocallyResolvedNotificationIds((current) => new Set(current).add(model.notification.notification_id));
       }
+      if (process.env.EXPO_PUBLIC_HARNESS === '1') require('../../../src/utils/m1Diagnostic').m1Diagnostic('close_request', { origin: 'submit_all', stream_id: streamId });
       setQuestionOverlayOpen(false);
     } finally {
       questionSubmissionInFlightRef.current = false;
@@ -3780,6 +3791,7 @@ export function SessionScreen(props: SessionScreenProps) {
             onCancel={() => {
               questionFlow.resetDrafts();
               setQuestionPageIndex(0);
+              if (process.env.EXPO_PUBLIC_HARNESS === '1') require('../../../src/utils/m1Diagnostic').m1Diagnostic('close_request', { origin: 'cancel', stream_id: streamId });
               setQuestionOverlayOpen(false);
             }}
             onSend={() => { void submitAllQuestionAnswers(); }}
@@ -5006,6 +5018,7 @@ export function ComposerBar({
         }
         const revision = draftRevision(streamId);
         const capturedImages = stagedAttachments;
+        if (process.env.EXPO_PUBLIC_HARNESS === '1') require('../../../src/utils/m1Diagnostic').m1Diagnostic('recorder_start', { origin: 'composer_or_chat_delegation', stream_id: streamId, operation_kind: 'voice_chat' });
         await voiceRecorder.start(streamId, {
           originGeneration: capturedOrigin.session_generation,
           originLabel: streamId === ASSISTANT_STREAM_ID ? selectAssistantIdentity(getPentacleStreamState()).name : voiceOriginLabel || (origin?.title || origin?.display_name ? displayTitleForShell(origin) : 'Chat'),
@@ -5452,7 +5465,7 @@ export function ComposerBar({
           </Pressable>
         ) : null}
         {(!composer.trim() || stagedAttachments.length > 0) ? (
-          <Pressable testID="composer-mic-button" accessibilityRole="button" accessibilityLabel="Voice mode" accessibilityState={{ disabled: voiceBusy || voiceHidesComposer || disabled || submissionDisabled || !streamId }} disabled={voiceBusy || voiceHidesComposer || disabled || submissionDisabled || !streamId} onPress={() => { void handleVoicePress(); }} style={[styles.sendButton, stagedAttachments.length > 0 && { right: 50 }]} hitSlop={8}>
+          <Pressable testID="composer-mic-button" accessibilityRole="button" accessibilityLabel="Voice mode" accessibilityState={{ disabled: voiceBusy || voiceHidesComposer || disabled || submissionDisabled || !streamId }} disabled={voiceBusy || voiceHidesComposer || disabled || submissionDisabled || !streamId} onPress={() => { if (process.env.EXPO_PUBLIC_HARNESS === '1') require('../../../src/utils/m1Diagnostic').m1Diagnostic('voice_press', { origin: 'composer', stream_id: streamId }); void handleVoicePress(); }} style={[styles.sendButton, stagedAttachments.length > 0 && { right: 50 }]} hitSlop={8}>
             <VoiceRecordFace recording={false} />
           </Pressable>
         ) : null}
