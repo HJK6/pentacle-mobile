@@ -32,9 +32,9 @@ import v1_daemon as v1  # noqa: E402
 def test_plan_runs_a_then_c_then_b_with_owned_teardown_last():
     plan = run.plan()
     steps = plan["steps"]
-    order = [steps.index(name) for name in ("admission", "probe_a", "app_launch", "enroll", "run_a_list", "run_a_log",
+    order = [steps.index(name) for name in ("admission", "probe_a", "app_launch", "enroll", "run_a_list", "run_a_map",
                                             "daemon_a_stop", "seed_inc1_upgrade", "daemon_b_start", "run_c_reconnect",
-                                            "run_b_all_members", "run_b_log", "run_b_final")]
+                                            "run_b_all_members", "run_b_final", "overflow_assert")]
     assert order == sorted(order)
     assert steps.count("app_launch") == 1  # one cold launch; C reconnects the same process
     assert plan["teardown"][-2:] == ["evidence_hash", "scratch_remove"]
@@ -363,8 +363,10 @@ def test_supplemental_scenes_exist_in_the_screenshot_harness():
     assert set(run.SHOW_FAILURE_SCENES) == {"lanes:show_error", "lanes:show_timeout"}
     for scene in run.SHOW_FAILURE_SCENES.values():
         assert f"'{scene['expect_text']}'" in settlement, scene
-    for test_id in ("lane-log-retry", "lane-log-loading"):
-        assert f'testID="{test_id}"' in log, test_id
+    assert 'testID="lane-log-retry"' in log
+    assert '<LeafLoading id="lane-log-loading"' in log
+    atoms = (REPO / "src/components/lanes/LaneAtoms.tsx").read_text(encoding="utf-8")
+    assert "export function LeafLoading" in atoms and "testID={id}" in atoms
 
 
 def test_stub_serves_on_loopback_and_stops():
@@ -416,7 +418,7 @@ def test_orchestration_runs_every_step_then_teardown(tmp_path, capsys):
 
 
 @pytest.mark.parametrize("fail_at, error, code, verdict", [
-    ("run_b_log", run.AssertFail("x"), 1, "FAIL"),
+    ("overflow_assert", run.AssertFail("x"), 1, "FAIL"),
     ("admission", run.SetupFail("y"), 4, "SETUP_FAIL"),
 ])
 def test_orchestration_verdicts(tmp_path, capsys, fail_at, error, code, verdict):

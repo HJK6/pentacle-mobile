@@ -1,5 +1,7 @@
 # `lanes-release-contained` — contained native proof of the work lanes overlay
 
+**2026-10-28 matrix candidate:** the full `run` path uses the current two-ring map and Pending/Done stacks, not the paged-orbit and show-all map descriptions below. After A → C → B completes, a final scratch-daemon phase expands to 17 lanes and verifies the source-derived `Show all 17 lanes` AX control and list reachability. The first captured AX tree must expose exactly one matching control or the run stops as SETUP_FAIL. Native lane-card progress/precedence is excluded by Nexus ruling `aa5f39ac`; the historical update logs, per-lane logs, index-unavailable and show error/timeout are also excluded from this matrix run. Existing supplemental descriptions remain historical and are not part of the matrix verdict.
+
 One cold launch of the **normal Release simulator build** against **real**
 chat-stream-v2 daemons on an owned scratch store, behind an owned numeric
 loopback proxy. Nothing reaches a production daemon, endpoint, store, memory
@@ -9,7 +11,7 @@ tree or credential.
 |---|---|---|
 | A | public `HJK6/pentacle` `3dc10e240a163ca4a36a0886326af0b2da09f595` (last main commit before the increment-1 merge; v1 lanes wire) | graceful list and map without members (pending note), real `work_lanes.show` lane log |
 | C | A stopped → same store upgraded offline by the increment-1 code (the daemon's own forward migration) → B on the same port | the running app (same app process PID) reconnects through the unchanged `ws://127.0.0.1:17896` proxy, no reinstall; the daemon is a new process on the same owned store and port; members appear |
-| B | `56ca05bc27fac2faf7cf369974cad785ca4129be` (increment 1) | list → expand → map (paged orbit, 9 lanes) → focus (≤ 8 member nodes + `+N`) → all 32 members via a real `work_lanes.show` → member detail → lane log Updates / Spec changes (real `item_change` after a scratch spec edit) / Events → back; missing, ambiguous, no-spec and index-unavailable on real data; accessibility extra-extra-extra-large text recheck |
+| B | `56ca05bc27fac2faf7cf369974cad785ca4129be` (increment 1) | list → expand → map (two rings, 9 lanes) → focus (live nodes and Pending/Done stacks) → all 32 members via a real `work_lanes.show` → member detail → lane log Updates / Spec changes (real `item_change` after a scratch spec edit) / Events → back; missing, ambiguous, no-spec and index-unavailable on real data; accessibility extra-extra-extra-large text recheck |
 
 Assertions use the native accessibility tree (`idb ui describe-all`, testIDs
 from the lanes client contract), the loopback proxy's frame log

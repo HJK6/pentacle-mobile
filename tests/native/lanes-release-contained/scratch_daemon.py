@@ -114,6 +114,13 @@ LANES: list[dict[str, Any]] = [
 ]
 
 
+OVERFLOW_LANES = [{"key": f"request:lanes-contained-overflow-{i}", "title": f"Overflow lane {i}",
+                   "state": "paused", "lead": None, "v1": False, "members": [],
+                   "no_spec_reason": "Synthetic overflow lane"} for i in range(1, 9)]
+
+def overflow_lane_ids() -> list[str]:
+    return [lane_id_for(lane["key"]) for lane in OVERFLOW_LANES]
+
 def lane_id_for(key: str, composite: str = COMPOSITE_STREAM) -> str:
     return "wl-" + hashlib.sha256((composite + "\x00" + key).encode()).hexdigest()[:24]
 
@@ -302,11 +309,11 @@ def _item(root: Path, bucket: str, folder: str, spec_id: str, title: str, checke
 
 def write_memory(root: Path) -> dict[str, Any]:
     """Synthetic specs only. MISSING has no file; AMBIGUOUS is declared twice."""
-    buckets = ["in_progress"] * 24 + ["completed"] * 6 + ["deprecated"] * 2
+    buckets = ["in_progress"] * 18 + ["backlog"] * 6 + ["completed"] * 6 + ["deprecated"] * 2
     written = []
     for index, spec_id in enumerate(BIG):
         bucket = buckets[index]
-        done = bucket != "in_progress"
+        done = bucket in ("completed", "deprecated")
         _item(root, bucket, spec_id.removeprefix("spec_"), spec_id, f"Span {index + 1:02d}", 2 if done else 0, 2)
         written.append(spec_id)
     for spec_id in ("spec_example__kite_frame", "spec_example__tile_glaze", "spec_example__rung_knots",
@@ -642,7 +649,7 @@ async def _seed(pin: str, scratch: Path) -> dict[str, Any]:
                                            session_generation="gen-" + name)
             return {"stream_id": "local:" + name, "generation": row["session_generation"]}
 
-        for lane in LANES:
+        for lane in (OVERFLOW_LANES if pin == "overflow" else LANES):
             lane_id = lane_id_for(lane["key"])
             existing = await store.get_work_lane(lane_id)
             if pin == "v1" and not lane["v1"]:
@@ -656,13 +663,13 @@ async def _seed(pin: str, scratch: Path) -> dict[str, Any]:
                     payload["blocker"] = lane["blocker"]
                 if lane["lead"]:
                     payload["lead"] = await lead_seat(lane["lead"])
-                if pin == "inc1":
+                if pin in ("inc1", "overflow"):
                     if lane["members"]:
                         payload["members"] = lane["members"]
                     else:
                         payload["no_spec_reason"] = lane["no_spec_reason"]
                 await op("adopt", payload, request_id="adopt:" + lane["key"])
-            elif pin == "inc1":
+            elif pin in ("inc1", "overflow"):
                 payload = {"members": lane["members"]}
                 if not lane["members"]:
                     payload["no_spec_reason"] = lane["no_spec_reason"]
@@ -691,7 +698,7 @@ def main(argv: list[str] | None = None) -> int:
     seed = sub.add_parser("seed")
     seed.add_argument("--checkout", type=Path, required=True)
     seed.add_argument("--scratch", type=Path, required=True)
-    seed.add_argument("--pin", choices=("v1", "inc1"), required=True)
+    seed.add_argument("--pin", choices=("v1", "inc1", "overflow"), required=True)
     link = sub.add_parser("enroll-link")
     link.add_argument("--checkout", type=Path, required=True)
     link.add_argument("--scratch", type=Path, required=True)
