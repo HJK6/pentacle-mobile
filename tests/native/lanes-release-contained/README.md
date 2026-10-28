@@ -138,6 +138,11 @@ accessibility dump (`ax/*-failure-<step>.json`).
 Taps go to screen points, and the accessibility tree also lists off-screen scroll content. Every tap target whose
 centre is outside the screen (less the status bar and home-indicator margins) is first dragged into view and
 re-found by its id; a target that does not move, or has no id, stops the run with SETUP_FAIL instead of a blind tap.
+An on-screen frame is not enough either: a nested scroll container (the map's member sheet) clips rows that the
+tree still lists over the map. Before every app tap, `idb ui describe-point` must hit-test the target's own id at
+its centre; otherwise its scroll content is dragged from the nearest hit-testable sibling of the same id family
+until it does. No sibling, an unreadable hit test or content that does not move stops the run with SETUP_FAIL.
+Each hit test is traced (`hit_test`).
 
 Exit codes: `0` PASS, `1` FAIL (product assertion), `4` SETUP_FAIL
 (precondition, tool or owned-resource failure, including incomplete teardown).

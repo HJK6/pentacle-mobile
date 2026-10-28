@@ -1041,6 +1041,8 @@ def _world_ui(tmp_path, monkeypatch):
     world = _ScrollWorld()
     ui = run.Ui("U-1", "idb", lambda *a: None, tmp_path / "screenshots")
     ui.elements, ui._idb = world.elements, world.idb
+    # iOS hit-testing in this world: the first listed element (after the root) under the point.
+    ui.hit = lambda x, y: next((e for e in world.elements()[1:] if run.Ui.ident(e) in world.at((x, y))), None)
     ui.bundle = "synthetic.app"
     ui.read_foreground = lambda: "synthetic.app"
     monkeypatch.setattr(run.time, "sleep", lambda s: None)

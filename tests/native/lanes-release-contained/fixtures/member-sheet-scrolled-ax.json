@@ -1,0 +1,1780 @@
+[
+ {
+  "AXValue": null,
+  "AXLabel": "Pentacle",
+  "title": null,
+  "frame": {
+   "y": 0,
+   "width": 393,
+   "height": 852,
+   "x": 0
+  },
+  "enabled": true,
+  "role_description": "application",
+  "help": null,
+  "AXFrame": "{{0, 0}, {393, 852}}",
+  "custom_actions": [],
+  "subrole": null,
+  "type": "Application",
+  "content_required": false,
+  "AXUniqueId": null,
+  "traits": [
+   "None"
+  ],
+  "role": "AXApplication"
+ },
+ {
+  "AXFrame": "{{12, 64}, {34, 34}}",
+  "enabled": true,
+  "help": null,
+  "role_description": "text",
+  "title": null,
+  "content_required": false,
+  "traits": [
+   "Button",
+   "Scrollable"
+  ],
+  "subrole": null,
+  "AXLabel": "Back",
+  "type": "StaticText",
+  "custom_actions": [],
+  "AXUniqueId": "",
+  "role": "AXStaticText",
+  "frame": {
+   "y": 64,
+   "width": 34,
+   "height": 34,
+   "x": 12
+  },
+  "AXValue": null
+ },
+ {
+  "custom_actions": [],
+  "role": "AXStaticText",
+  "traits": [
+   "StaticText",
+   "Scrollable"
+  ],
+  "AXValue": null,
+  "enabled": true,
+  "role_description": "text",
+  "AXFrame": "{{102, 63.666666507720947}, {98, 18.999996185302734}}",
+  "AXLabel": "Paper bridge spans",
+  "title": null,
+  "AXUniqueId": null,
+  "type": "StaticText",
+  "help": null,
+  "content_required": false,
+  "frame": {
+   "x": 102,
+   "y": 63.66666650772095,
+   "height": 18.999996185302734,
+   "width": 98
+  },
+  "subrole": null
+ },
+ {
+  "custom_actions": [],
+  "help": "Recording is unavailable until this chat is ready and the app is unlocked",
+  "AXLabel": "Talk to Zephyr",
+  "frame": {
+   "x": 209,
+   "y": 59,
+   "width": 44,
+   "height": 44
+  },
+  "role": "AXButton",
+  "traits": [
+   "Button",
+   "NotEnabled",
+   "Scrollable"
+  ],
+  "AXUniqueId": "header-voice-mic",
+  "type": "Button",
+  "subrole": null,
+  "AXValue": null,
+  "enabled": false,
+  "title": null,
+  "role_description": "button",
+  "AXFrame": "{{209, 59}, {44, 44}}",
+  "content_required": false
+ },
+ {
+  "AXUniqueId": "lanes-view-list",
+  "enabled": true,
+  "content_required": false,
+  "AXValue": null,
+  "custom_actions": [],
+  "role_description": "button",
+  "AXLabel": "List view",
+  "frame": {
+   "y": 66,
+   "height": 30,
+   "x": 265,
+   "width": 34
+  },
+  "traits": [
+   "Button",
+   "Scrollable"
+  ],
+  "help": null,
+  "AXFrame": "{{265, 66}, {34, 30}}",
+  "role": "AXButton",
+  "type": "Button",
+  "title": null,
+  "subrole": null
+ },
+ {
+  "role_description": "button",
+  "title": null,
+  "AXFrame": "{{301, 66}, {34, 30}}",
+  "type": "Button",
+  "traits": [
+   "Scrollable",
+   "Selected",
+   "Button"
+  ],
+  "custom_actions": [],
+  "subrole": null,
+  "AXValue": null,
+  "AXLabel": "Map view",
+  "frame": {
+   "height": 30,
+   "y": 66,
+   "x": 301,
+   "width": 34
+  },
+  "role": "AXButton",
+  "help": null,
+  "enabled": true,
+  "AXUniqueId": "lanes-view-map",
+  "content_required": false
+ },
+ {
+  "AXUniqueId": null,
+  "help": null,
+  "role": "AXButton",
+  "AXLabel": "Close lanes",
+  "AXFrame": "{{347, 64}, {34, 34}}",
+  "AXValue": null,
+  "content_required": false,
+  "traits": [
+   "Button",
+   "Scrollable"
+  ],
+  "type": "Button",
+  "role_description": "button",
+  "frame": {
+   "width": 34,
+   "x": 347,
+   "y": 64,
+   "height": 34
+  },
+  "subrole": null,
+  "enabled": true,
+  "title": null,
+  "custom_actions": []
+ },
+ {
+  "role_description": "text",
+  "AXValue": null,
+  "custom_actions": [],
+  "content_required": false,
+  "AXLabel": "ACTIVE \u00b7 IDLE",
+  "enabled": true,
+  "AXFrame": "{{120, 85.666666507720947}, {87.333328247070312, 12.666671752929688}}",
+  "subrole": null,
+  "AXUniqueId": null,
+  "type": "StaticText",
+  "help": null,
+  "role": "AXStaticText",
+  "traits": [
+   "StaticText",
+   "Scrollable"
+  ],
+  "frame": {
+   "x": 120,
+   "height": 12.666671752929688,
+   "y": 85.66666650772095,
+   "width": 87.33332824707031
+  },
+  "title": null
+ },
+ {
+  "custom_actions": [],
+  "subrole": null,
+  "type": "Button",
+  "help": null,
+  "title": null,
+  "content_required": false,
+  "role": "AXButton",
+  "AXValue": null,
+  "frame": {
+   "y": 130.6641793847084,
+   "x": 98.73880785703659,
+   "width": 21.507463097572327,
+   "height": 21.507463097572327
+  },
+  "role_description": "button",
+  "enabled": true,
+  "AXLabel": "Clay tile batch, BLOCKED, 0/2",
+  "AXUniqueId": "lanes-map-lane-wl-4abf858209848e516dccde25",
+  "AXFrame": "{{98.738807857036591, 130.6641793847084}, {21.507463097572327, 21.507463097572327}}",
+  "traits": [
+   "Button",
+   "Scrollable"
+  ]
+ },
+ {
+  "help": null,
+  "subrole": null,
+  "role": "AXButton",
+  "AXUniqueId": "lanes-map-lane-wl-29130385f0ef26863b99a771",
+  "AXFrame": "{{131.97761446237564, 130.6641793847084}, {21.507463097572327, 21.507463097572327}}",
+  "frame": {
+   "height": 21.507463097572327,
+   "y": 130.6641793847084,
+   "x": 131.97761446237564,
+   "width": 21.507463097572327
+  },
+  "custom_actions": [],
+  "AXValue": null,
+  "title": null,
+  "enabled": true,
+  "content_required": false,
+  "role_description": "button",
+  "type": "Button",
+  "AXLabel": "Bell tuning, PAUSED, 0/1",
+  "traits": [
+   "Button",
+   "Scrollable"
+  ]
+ },
+ {
+  "AXValue": null,
+  "AXFrame": "{{165.21642106771469, 130.6641793847084}, {21.507463097572327, 21.507463097572327}}",
+  "title": null,
+  "AXUniqueId": "lanes-map-lane-wl-3e746f9cee14198bc9427d1f",
+  "enabled": true,
+  "subrole": null,
+  "content_required": false,
+  "role_description": "button",
+  "traits": [
+   "Button",
+   "Scrollable"
+  ],
+  "help": null,
+  "role": "AXButton",
+  "AXLabel": "Drum skins, PAUSED, 0/1",
+  "custom_actions": [],
+  "frame": {
+   "height": 21.507463097572327,
+   "x": 165.2164210677147,
+   "width": 21.507463097572327,
+   "y": 130.6641793847084
+  },
+  "type": "Button"
+ },
+ {
+  "enabled": true,
+  "AXFrame": "{{198.45522767305374, 130.6641793847084}, {21.507463097572327, 21.507463097572327}}",
+  "role_description": "text",
+  "frame": {
+   "y": 130.6641793847084,
+   "width": 21.507463097572327,
+   "height": 21.507463097572327,
+   "x": 198.45522767305374
+  },
+  "help": null,
+  "type": "StaticText",
+  "AXValue": null,
+  "AXLabel": "Lantern frames, PAUSED, 0/1",
+  "role": "AXStaticText",
+  "custom_actions": [],
+  "title": null,
+  "subrole": null,
+  "AXUniqueId": "lanes-map-lane-wl-8490812ee77b21815f1b1a92",
+  "traits": [
+   "Button",
+   "Scrollable"
+  ],
+  "content_required": false
+ },
+ {
+  "traits": [
+   "Button",
+   "Scrollable"
+  ],
+  "title": null,
+  "subrole": null,
+  "frame": {
+   "y": 130.6641793847084,
+   "width": 21.507463097572327,
+   "x": 231.6940342783928,
+   "height": 21.507463097572327
+  },
+  "enabled": true,
+  "AXLabel": "Rope ladder rung, PAUSED, 0/1",
+  "AXFrame": "{{231.69403427839279, 130.6641793847084}, {21.507463097572327, 21.507463097572327}}",
+  "role_description": "button",
+  "AXValue": null,
+  "role": "AXButton",
+  "AXUniqueId": "lanes-map-lane-wl-511eb3bab0824f4a8f2babe9",
+  "help": null,
+  "type": "Button",
+  "content_required": false,
+  "custom_actions": []
+ },
+ {
+  "traits": [
+   "Button",
+   "Scrollable"
+  ],
+  "subrole": null,
+  "role": "AXButton",
+  "AXValue": null,
+  "AXLabel": "Planning conversation, PAUSED, 0/0",
+  "type": "Button",
+  "frame": {
+   "x": 264.93284088373184,
+   "y": 130.6641793847084,
+   "width": 21.507463097572327,
+   "height": 21.507463097572327
+  },
+  "custom_actions": [],
+  "enabled": true,
+  "AXUniqueId": "lanes-map-lane-wl-52686f01256982fe40b17600",
+  "AXFrame": "{{264.93284088373184, 130.6641793847084}, {21.507463097572327, 21.507463097572327}}",
+  "title": null,
+  "content_required": false,
+  "help": null,
+  "role_description": "button"
+ },
+ {
+  "AXLabel": "Sail stitching, PAUSED, 0/1",
+  "content_required": false,
+  "enabled": true,
+  "role": "AXStaticText",
+  "help": null,
+  "frame": {
+   "height": 21.507463097572327,
+   "x": 298.1716474890709,
+   "y": 130.6641793847084,
+   "width": 21.507463097572327
+  },
+  "AXValue": null,
+  "custom_actions": [],
+  "role_description": "text",
+  "subrole": null,
+  "AXFrame": "{{298.17164748907089, 130.6641793847084}, {21.507463097572327, 21.507463097572327}}",
+  "traits": [
+   "Button",
+   "Scrollable"
+  ],
+  "type": "StaticText",
+  "AXUniqueId": "lanes-map-lane-wl-55666a89e5d598e9e388e032",
+  "title": null
+ },
+ {
+  "AXLabel": "Kite frame study, PAUSED, 0/2",
+  "content_required": false,
+  "traits": [
+   "Button",
+   "Scrollable"
+  ],
+  "type": "Button",
+  "subrole": null,
+  "custom_actions": [],
+  "AXUniqueId": "lanes-map-lane-wl-8169db2a19a3137b68cebda9",
+  "role_description": "button",
+  "title": null,
+  "frame": {
+   "width": 21.507463097572327,
+   "x": 331.41045409440994,
+   "height": 21.507463097572327,
+   "y": 130.6641793847084
+  },
+  "role": "AXButton",
+  "AXValue": null,
+  "AXFrame": "{{331.41045409440994, 130.6641793847084}, {21.507463097572327, 21.507463097572327}}",
+  "help": null,
+  "enabled": true
+ },
+ {
+  "help": null,
+  "type": "Button",
+  "custom_actions": [],
+  "AXValue": null,
+  "frame": {
+   "height": 27.37313485145569,
+   "y": 166.83582186698914,
+   "width": 80.81591945619721,
+   "x": 11.731343507766724
+  },
+  "AXUniqueId": "lanes-map-back",
+  "content_required": false,
+  "traits": [
+   "Button",
+   "Scrollable"
+  ],
+  "AXFrame": "{{11.731343507766724, 166.83582186698914}, {80.815919456197207, 27.373134851455688}}",
+  "title": null,
+  "AXLabel": "Back to all lanes",
+  "enabled": true,
+  "subrole": null,
+  "role_description": "button",
+  "role": "AXButton"
+ },
+ {
+  "role": "AXButton",
+  "enabled": true,
+  "traits": [
+   "Button",
+   "Scrollable"
+  ],
+  "AXFrame": "{{144.03482365074433, 194.20895671844482}, {31.28358268737793, 31.28358268737793}}",
+  "help": null,
+  "subrole": null,
+  "content_required": false,
+  "type": "Button",
+  "AXLabel": "Done, 8 specs",
+  "AXUniqueId": "lanes-map-done-stack-wl-298430ea76b6dc262400bbec",
+  "custom_actions": [],
+  "title": null,
+  "AXValue": null,
+  "frame": {
+   "y": 194.20895671844482,
+   "height": 31.28358268737793,
+   "width": 31.28358268737793,
+   "x": 144.03482365074433
+  },
+  "role_description": "button"
+ },
+ {
+  "AXValue": null,
+  "title": null,
+  "help": null,
+  "role": "AXButton",
+  "AXLabel": "Span 01, in progress",
+  "custom_actions": [],
+  "role_description": "button",
+  "frame": {
+   "x": 180.85821241140366,
+   "width": 31.28358268737793,
+   "y": 188.34328496456146,
+   "height": 31.28358268737793
+  },
+  "subrole": null,
+  "content_required": false,
+  "traits": [
+   "Button",
+   "Scrollable"
+  ],
+  "type": "Button",
+  "AXUniqueId": "lanes-map-member-spec_example__span_01",
+  "AXFrame": "{{180.85821241140366, 188.34328496456146}, {31.28358268737793, 31.28358268737793}}",
+  "enabled": true
+ },
+ {
+  "role": "AXButton",
+  "custom_actions": [],
+  "title": null,
+  "traits": [
+   "Button",
+   "Scrollable"
+  ],
+  "content_required": false,
+  "type": "Button",
+  "help": null,
+  "enabled": true,
+  "subrole": null,
+  "role_description": "button",
+  "AXFrame": "{{217.68160117206298, 194.20895671844482}, {31.28358268737793, 31.28358268737793}}",
+  "frame": {
+   "y": 194.20895671844482,
+   "width": 31.28358268737793,
+   "x": 217.68160117206298,
+   "height": 31.28358268737793
+  },
+  "AXValue": null,
+  "AXLabel": "Span 02, in progress",
+  "AXUniqueId": "lanes-map-member-spec_example__span_02"
+ },
+ {
+  "role_description": "button",
+  "traits": [
+   "Button",
+   "Scrollable"
+  ],
+  "content_required": false,
+  "help": null,
+  "subrole": null,
+  "type": "Button",
+  "AXLabel": "Pending, 6 specs",
+  "AXFrame": "{{110.79602450399261, 211.15423316030365}, {31.283575228790596, 31.28358268737793}}",
+  "title": null,
+  "frame": {
+   "y": 211.15423316030365,
+   "x": 110.79602450399261,
+   "height": 31.28358268737793,
+   "width": 31.283575228790596
+  },
+  "enabled": true,
+  "AXValue": null,
+  "role": "AXButton",
+  "custom_actions": [],
+  "AXUniqueId": "lanes-map-more-wl-298430ea76b6dc262400bbec"
+ },
+ {
+  "help": null,
+  "content_required": false,
+  "subrole": null,
+  "frame": {
+   "width": 31.28358268737793,
+   "x": 250.92039286022737,
+   "height": 31.28358268737793,
+   "y": 211.15423316030365
+  },
+  "custom_actions": [],
+  "AXUniqueId": "lanes-map-member-spec_example__span_03",
+  "role_description": "button",
+  "traits": [
+   "Button",
+   "Scrollable"
+  ],
+  "AXFrame": "{{250.92039286022737, 211.15423316030365}, {31.28358268737793, 31.28358268737793}}",
+  "enabled": true,
+  "role": "AXButton",
+  "type": "Button",
+  "title": null,
+  "AXLabel": "Span 03, in progress",
+  "AXValue": null
+ },
+ {
+  "enabled": true,
+  "AXFrame": "{{84.400501611517484, 237.54975605277878}, {31.28358268737793, 31.283597604552597}}",
+  "role": "AXButton",
+  "AXLabel": "Span 18, in progress",
+  "AXUniqueId": "lanes-map-member-spec_example__span_18",
+  "subrole": null,
+  "help": null,
+  "content_required": false,
+  "traits": [
+   "Button",
+   "Scrollable"
+  ],
+  "AXValue": null,
+  "title": null,
+  "type": "Button",
+  "role_description": "button",
+  "custom_actions": [],
+  "frame": {
+   "y": 237.54975605277878,
+   "x": 84.40050161151748,
+   "height": 31.283597604552597,
+   "width": 31.28358268737793
+  }
+ },
+ {
+  "role_description": "button",
+  "subrole": null,
+  "traits": [
+   "Button",
+   "Scrollable"
+  ],
+  "type": "Button",
+  "AXLabel": "Span 04, in progress",
+  "frame": {
+   "x": 277.3159157527025,
+   "width": 31.28358268737793,
+   "height": 31.283597604552597,
+   "y": 237.54975605277878
+  },
+  "enabled": true,
+  "AXUniqueId": "lanes-map-member-spec_example__span_04",
+  "title": null,
+  "AXValue": null,
+  "content_required": false,
+  "role": "AXButton",
+  "AXFrame": "{{277.31591575270249, 237.54975605277878}, {31.28358268737793, 31.283597604552597}}",
+  "help": null,
+  "custom_actions": []
+ },
+ {
+  "content_required": false,
+  "help": null,
+  "role": "AXButton",
+  "role_description": "button",
+  "AXUniqueId": "lanes-map-member-spec_example__span_17",
+  "custom_actions": [],
+  "type": "Button",
+  "traits": [
+   "Button",
+   "Scrollable"
+  ],
+  "frame": {
+   "width": 31.28358268737793,
+   "height": 31.28358268737793,
+   "y": 270.7885551995305,
+   "x": 67.45522516965866
+  },
+  "enabled": true,
+  "title": null,
+  "subrole": null,
+  "AXLabel": "Span 17, in progress",
+  "AXFrame": "{{67.455225169658661, 270.78855519953049}, {31.28358268737793, 31.28358268737793}}",
+  "AXValue": null
+ },
+ {
+  "AXValue": null,
+  "title": null,
+  "subrole": null,
+  "AXLabel": "Span 05, in progress",
+  "frame": {
+   "width": 31.28358268737793,
+   "x": 294.26119965314865,
+   "y": 270.7885551995305,
+   "height": 31.28358268737793
+  },
+  "role": "AXButton",
+  "AXUniqueId": "lanes-map-member-spec_example__span_05",
+  "help": null,
+  "role_description": "button",
+  "AXFrame": "{{294.26119965314865, 270.78855519953049}, {31.28358268737793, 31.28358268737793}}",
+  "traits": [
+   "Button",
+   "Scrollable"
+  ],
+  "custom_actions": [],
+  "enabled": true,
+  "type": "Button",
+  "content_required": false
+ },
+ {
+  "role_description": "button",
+  "enabled": true,
+  "traits": [
+   "Scrollable",
+   "Selected",
+   "Button"
+  ],
+  "frame": {
+   "x": 160.3283612728119,
+   "y": 287.08209282159805,
+   "width": 72.34328496456146,
+   "height": 72.34328496456146
+  },
+  "AXFrame": "{{160.32836127281189, 287.08209282159805}, {72.343284964561462, 72.343284964561462}}",
+  "custom_actions": [],
+  "AXValue": null,
+  "title": null,
+  "content_required": false,
+  "AXUniqueId": "lanes-map-lane-wl-298430ea76b6dc262400bbec",
+  "help": null,
+  "AXLabel": "Paper bridge spans, ACTIVE \u00b7 IDLE, 6/32",
+  "type": "Button",
+  "subrole": null,
+  "role": "AXButton"
+ },
+ {
+  "title": null,
+  "traits": [
+   "Button",
+   "Scrollable"
+  ],
+  "frame": {
+   "y": 307.6119439601898,
+   "height": 31.28358268737793,
+   "width": 31.28358268737793,
+   "x": 61.5895534157753
+  },
+  "role": "AXButton",
+  "AXFrame": "{{61.589553415775299, 307.61194396018982}, {31.28358268737793, 31.28358268737793}}",
+  "enabled": true,
+  "role_description": "button",
+  "AXValue": null,
+  "custom_actions": [],
+  "AXLabel": "Span 16, in progress",
+  "AXUniqueId": "lanes-map-member-spec_example__span_16",
+  "type": "Button",
+  "subrole": null,
+  "help": null,
+  "content_required": false
+ },
+ {
+  "type": "Button",
+  "title": null,
+  "AXValue": null,
+  "AXUniqueId": "lanes-map-member-spec_example__span_06",
+  "custom_actions": [],
+  "role_description": "button",
+  "enabled": true,
+  "subrole": null,
+  "content_required": false,
+  "traits": [
+   "Button",
+   "Scrollable"
+  ],
+  "frame": {
+   "width": 31.28358268737793,
+   "x": 300.126871407032,
+   "height": 31.28358268737793,
+   "y": 307.6119439601898
+  },
+  "AXLabel": "Span 06, in progress",
+  "help": null,
+  "AXFrame": "{{300.12687140703201, 307.61194396018982}, {31.28358268737793, 31.28358268737793}}",
+  "role": "AXButton"
+ },
+ {
+  "traits": [
+   "Button",
+   "Scrollable"
+  ],
+  "AXLabel": "Span 15, in progress",
+  "AXUniqueId": "lanes-map-member-spec_example__span_15",
+  "role_description": "button",
+  "type": "Button",
+  "role": "AXButton",
+  "AXFrame": "{{67.455225169658661, 344.43533272084915}, {31.28358268737793, 31.28358268737793}}",
+  "title": null,
+  "AXValue": null,
+  "enabled": true,
+  "custom_actions": [],
+  "subrole": null,
+  "content_required": false,
+  "frame": {
+   "height": 31.28358268737793,
+   "y": 344.43533272084915,
+   "x": 67.45522516965866,
+   "width": 31.28358268737793
+  },
+  "help": null
+ },
+ {
+  "AXLabel": "Span 07, in progress",
+  "title": null,
+  "content_required": false,
+  "AXValue": null,
+  "traits": [
+   "Button",
+   "Scrollable"
+  ],
+  "enabled": true,
+  "type": "Button",
+  "subrole": null,
+  "custom_actions": [],
+  "frame": {
+   "y": 344.43533272084915,
+   "height": 31.28358268737793,
+   "width": 31.28358268737793,
+   "x": 294.26119965314865
+  },
+  "AXFrame": "{{294.26119965314865, 344.43533272084915}, {31.28358268737793, 31.28358268737793}}",
+  "AXUniqueId": "lanes-map-member-spec_example__span_07",
+  "role": "AXButton",
+  "help": null,
+  "role_description": "button"
+ },
+ {
+  "role": "AXButton",
+  "traits": [
+   "Button",
+   "Scrollable"
+  ],
+  "type": "Button",
+  "AXUniqueId": "lanes-map-member-spec_example__span_14",
+  "role_description": "button",
+  "enabled": true,
+  "frame": {
+   "width": 31.28358268737793,
+   "x": 84.40050161151748,
+   "y": 377.67412440901353,
+   "height": 31.28358268737793
+  },
+  "AXLabel": "Span 14, in progress",
+  "title": null,
+  "AXValue": null,
+  "subrole": null,
+  "AXFrame": "{{84.400501611517484, 377.67412440901353}, {31.28358268737793, 31.28358268737793}}",
+  "content_required": false,
+  "help": null,
+  "custom_actions": []
+ },
+ {
+  "AXLabel": "Span 08, in progress",
+  "role": "AXButton",
+  "role_description": "button",
+  "custom_actions": [],
+  "frame": {
+   "width": 31.28358268737793,
+   "height": 31.28358268737793,
+   "y": 377.67412440901353,
+   "x": 277.3159157527025
+  },
+  "type": "Button",
+  "AXUniqueId": "lanes-map-member-spec_example__span_08",
+  "enabled": true,
+  "traits": [
+   "Button",
+   "Scrollable"
+  ],
+  "AXValue": null,
+  "help": null,
+  "subrole": null,
+  "AXFrame": "{{277.31591575270249, 377.67412440901353}, {31.28358268737793, 31.28358268737793}}",
+  "title": null,
+  "content_required": false
+ },
+ {
+  "type": "Image",
+  "AXLabel": "Span 13, in progress",
+  "frame": {
+   "x": 110.79602450399261,
+   "y": 404.06964730148866,
+   "height": 31.28358268737793,
+   "width": 31.283575228790596
+  },
+  "custom_actions": [],
+  "content_required": false,
+  "role_description": "image",
+  "subrole": null,
+  "AXValue": null,
+  "enabled": true,
+  "role": "AXImage",
+  "title": null,
+  "AXFrame": "{{110.79602450399261, 404.06964730148866}, {31.283575228790596, 31.28358268737793}}",
+  "AXUniqueId": "lanes-map-member-spec_example__span_13",
+  "help": null,
+  "traits": [
+   "Button",
+   "Scrollable"
+  ]
+ },
+ {
+  "AXLabel": "Span 09, in progress",
+  "AXFrame": "{{250.92039286022737, 404.06964730148866}, {31.28358268737793, 31.28358268737793}}",
+  "AXValue": null,
+  "frame": {
+   "y": 404.06964730148866,
+   "x": 250.92039286022737,
+   "height": 31.28358268737793,
+   "width": 31.28358268737793
+  },
+  "enabled": true,
+  "custom_actions": [],
+  "role": "AXButton",
+  "AXUniqueId": "lanes-map-member-spec_example__span_09",
+  "type": "Button",
+  "subrole": null,
+  "traits": [
+   "Button",
+   "Scrollable"
+  ],
+  "content_required": false,
+  "help": null,
+  "title": null,
+  "role_description": "button"
+ },
+ {
+  "help": null,
+  "content_required": false,
+  "type": "Button",
+  "AXValue": null,
+  "frame": {
+   "width": 31.28358268737793,
+   "height": 31.28358268737793,
+   "y": 421.0149312019348,
+   "x": 144.03482365074433
+  },
+  "AXUniqueId": "lanes-map-member-spec_example__span_12",
+  "AXFrame": "{{144.03482365074433, 421.01493120193481}, {31.28358268737793, 31.28358268737793}}",
+  "subrole": null,
+  "custom_actions": [],
+  "traits": [
+   "Button",
+   "Scrollable"
+  ],
+  "AXLabel": "Span 12, in progress",
+  "role_description": "button",
+  "enabled": true,
+  "role": "AXButton",
+  "title": null
+ },
+ {
+  "enabled": true,
+  "custom_actions": [],
+  "frame": {
+   "width": 31.28358268737793,
+   "x": 180.85821241140366,
+   "y": 426.8806029558182,
+   "height": 31.28358268737793
+  },
+  "traits": [
+   "Button",
+   "Scrollable"
+  ],
+  "help": null,
+  "AXValue": null,
+  "AXFrame": "{{180.85821241140366, 426.88060295581818}, {31.28358268737793, 31.28358268737793}}",
+  "type": "Button",
+  "role": "AXButton",
+  "AXUniqueId": "lanes-map-member-spec_example__span_11",
+  "subrole": null,
+  "title": null,
+  "content_required": false,
+  "AXLabel": "Span 11, in progress",
+  "role_description": "button"
+ },
+ {
+  "AXLabel": "Span 10, in progress",
+  "subrole": null,
+  "type": "Button",
+  "AXValue": null,
+  "custom_actions": [],
+  "AXFrame": "{{217.68160117206298, 421.01493120193481}, {31.28358268737793, 31.28358268737793}}",
+  "AXUniqueId": "lanes-map-member-spec_example__span_10",
+  "frame": {
+   "height": 31.28358268737793,
+   "x": 217.68160117206298,
+   "y": 421.0149312019348,
+   "width": 31.28358268737793
+  },
+  "enabled": true,
+  "role": "AXButton",
+  "role_description": "button",
+  "content_required": false,
+  "title": null,
+  "traits": [
+   "Button",
+   "Scrollable"
+  ],
+  "help": null
+ },
+ {
+  "AXUniqueId": null,
+  "role_description": "text",
+  "title": null,
+  "subrole": null,
+  "enabled": true,
+  "AXLabel": "ACTIVE \u00b7 IDLE",
+  "type": "StaticText",
+  "custom_actions": [],
+  "AXFrame": "{{32, 72.333323160807311}, {87.333335876464844, 12.6666259765625}}",
+  "role": "AXStaticText",
+  "content_required": false,
+  "AXValue": null,
+  "traits": [
+   "StaticText",
+   "Scrollable"
+  ],
+  "frame": {
+   "height": 12.6666259765625,
+   "x": 32,
+   "width": 87.33333587646484,
+   "y": 72.33332316080731
+  },
+  "help": null
+ },
+ {
+  "content_required": false,
+  "frame": {
+   "height": 12.6666259765625,
+   "y": 72.33332316080731,
+   "width": 45.666664123535156,
+   "x": 125.33333587646484
+  },
+  "AXUniqueId": null,
+  "traits": [
+   "StaticText",
+   "Scrollable"
+  ],
+  "help": null,
+  "type": "StaticText",
+  "title": null,
+  "subrole": null,
+  "AXValue": null,
+  "AXLabel": "\u00b7 1m ago",
+  "enabled": true,
+  "AXFrame": "{{125.33333587646484, 72.333323160807311}, {45.666664123535156, 12.6666259765625}}",
+  "role_description": "text",
+  "role": "AXStaticText",
+  "custom_actions": []
+ },
+ {
+  "AXFrame": "{{175.33332824707031, 95.999991099039732}, {44, 44}}",
+  "subrole": null,
+  "AXValue": null,
+  "content_required": false,
+  "role": "AXButton",
+  "AXLabel": "Talk to Zephyr",
+  "custom_actions": [],
+  "traits": [
+   "Button",
+   "NotEnabled",
+   "Scrollable"
+  ],
+  "frame": {
+   "width": 44,
+   "x": 175.3333282470703,
+   "y": 95.99999109903973,
+   "height": 44
+  },
+  "enabled": false,
+  "role_description": "button",
+  "type": "Button",
+  "AXUniqueId": "header-voice-mic",
+  "title": null,
+  "help": "Recording is unavailable until this chat is ready and the app is unlocked"
+ },
+ {
+  "AXFrame": "{{16, 105.66665808359784}, {151.33332824707031, 24.33331298828125}}",
+  "role": "AXStaticText",
+  "custom_actions": [],
+  "AXLabel": "Paper bridge spans",
+  "role_description": "text",
+  "help": null,
+  "title": null,
+  "enabled": true,
+  "content_required": false,
+  "subrole": null,
+  "frame": {
+   "height": 24.33331298828125,
+   "width": 151.3333282470703,
+   "y": 105.66665808359784,
+   "x": 16
+  },
+  "type": "StaticText",
+  "AXValue": null,
+  "traits": [
+   "StaticText",
+   "Scrollable"
+  ],
+  "AXUniqueId": null
+ },
+ {
+  "role": "AXStaticText",
+  "help": null,
+  "AXFrame": "{{16, 142.99999109903973}, {361, 19}}",
+  "custom_actions": [],
+  "AXLabel": "Synthetic fixture lane",
+  "AXValue": null,
+  "enabled": true,
+  "traits": [
+   "StaticText",
+   "Scrollable"
+  ],
+  "AXUniqueId": null,
+  "title": null,
+  "type": "StaticText",
+  "subrole": null,
+  "content_required": false,
+  "frame": {
+   "x": 16,
+   "width": 361,
+   "height": 19,
+   "y": 142.99999109903973
+  },
+  "role_description": "text"
+ },
+ {
+  "frame": {
+   "y": 172.99998728434247,
+   "width": 113.66667175292969,
+   "height": 12.66668701171875,
+   "x": 16
+  },
+  "traits": [
+   "StaticText",
+   "Scrollable"
+  ],
+  "role": "AXStaticText",
+  "help": null,
+  "AXFrame": "{{16, 172.99998728434247}, {113.66667175292969, 12.66668701171875}}",
+  "enabled": true,
+  "custom_actions": [],
+  "subrole": null,
+  "AXLabel": "SPECS",
+  "type": "StaticText",
+  "title": null,
+  "AXUniqueId": null,
+  "AXValue": null,
+  "content_required": false,
+  "role_description": "text"
+ },
+ {
+  "custom_actions": [],
+  "type": "StaticText",
+  "AXValue": null,
+  "frame": {
+   "height": 12.66668701171875,
+   "x": 139.66666412353516,
+   "y": 172.99998728434247,
+   "width": 113.66665649414062
+  },
+  "enabled": true,
+  "title": null,
+  "traits": [
+   "StaticText",
+   "Scrollable"
+  ],
+  "AXUniqueId": null,
+  "AXLabel": "ACCEPTANCE",
+  "AXFrame": "{{139.66666412353516, 172.99998728434247}, {113.66665649414062, 12.66668701171875}}",
+  "role_description": "text",
+  "content_required": false,
+  "subrole": null,
+  "role": "AXStaticText",
+  "help": null
+ },
+ {
+  "help": null,
+  "role_description": "text",
+  "traits": [
+   "StaticText",
+   "Scrollable"
+  ],
+  "title": null,
+  "type": "StaticText",
+  "AXFrame": "{{263.33332824707031, 172.99998728434247}, {113.66665649414062, 12.66668701171875}}",
+  "AXLabel": "EST WORK",
+  "AXValue": null,
+  "custom_actions": [],
+  "AXUniqueId": null,
+  "role": "AXStaticText",
+  "content_required": false,
+  "subrole": null,
+  "frame": {
+   "x": 263.3333282470703,
+   "y": 172.99998728434247,
+   "height": 12.66668701171875,
+   "width": 113.66665649414062
+  },
+  "enabled": true
+ },
+ {
+  "enabled": true,
+  "custom_actions": [],
+  "AXUniqueId": null,
+  "help": null,
+  "role": "AXStaticText",
+  "role_description": "text",
+  "type": "StaticText",
+  "subrole": null,
+  "traits": [
+   "StaticText",
+   "Scrollable"
+  ],
+  "content_required": false,
+  "AXFrame": "{{16, 188.66665426890057}, {113.66667175292969, 20}}",
+  "title": null,
+  "frame": {
+   "x": 16,
+   "y": 188.66665426890057,
+   "width": 113.66667175292969,
+   "height": 20
+  },
+  "AXValue": null,
+  "AXLabel": "6/32"
+ },
+ {
+  "help": null,
+  "custom_actions": [],
+  "traits": [
+   "StaticText",
+   "Scrollable"
+  ],
+  "AXLabel": "16/64",
+  "AXValue": null,
+  "AXUniqueId": null,
+  "role": "AXStaticText",
+  "role_description": "text",
+  "type": "StaticText",
+  "subrole": null,
+  "content_required": false,
+  "enabled": true,
+  "frame": {
+   "x": 139.66666412353516,
+   "y": 188.66665426890057,
+   "height": 20,
+   "width": 113.66665649414062
+  },
+  "title": null,
+  "AXFrame": "{{139.66666412353516, 188.66665426890057}, {113.66665649414062, 20}}"
+ },
+ {
+  "subrole": null,
+  "AXUniqueId": "lanes-map-progress-wl-298430ea76b6dc262400bbec",
+  "AXValue": null,
+  "AXLabel": "48\u201396h",
+  "content_required": false,
+  "frame": {
+   "width": 113.66665649414062,
+   "y": 185.66665426890057,
+   "x": 263.3333282470703,
+   "height": 23
+  },
+  "role": "AXButton",
+  "enabled": true,
+  "type": "Button",
+  "title": null,
+  "traits": [
+   "StaticText",
+   "Scrollable"
+  ],
+  "role_description": "button",
+  "custom_actions": [],
+  "help": null,
+  "AXFrame": "{{263.33332824707031, 185.66665426890057}, {113.66665649414062, 23}}"
+ },
+ {
+  "type": "StaticText",
+  "AXFrame": "{{263.33332824707031, 210.66665522257489}, {113.66665649414062, 11}}",
+  "title": null,
+  "enabled": true,
+  "AXValue": null,
+  "subrole": null,
+  "frame": {
+   "width": 113.66665649414062,
+   "x": 263.3333282470703,
+   "height": 11,
+   "y": 210.6666552225749
+  },
+  "AXUniqueId": null,
+  "role": "AXStaticText",
+  "content_required": false,
+  "traits": [
+   "StaticText",
+   "Scrollable"
+  ],
+  "role_description": "text",
+  "custom_actions": [],
+  "help": null,
+  "AXLabel": "median 72h"
+ },
+ {
+  "subrole": null,
+  "custom_actions": [],
+  "frame": {
+   "height": 57,
+   "y": 248.66665140787762,
+   "x": 16,
+   "width": 361
+  },
+  "content_required": false,
+  "type": "Button",
+  "AXFrame": "{{16, 248.66665140787762}, {361, 57}}",
+  "AXUniqueId": "lanes-map-log-wl-298430ea76b6dc262400bbec",
+  "role_description": "button",
+  "AXValue": null,
+  "enabled": true,
+  "role": "AXButton",
+  "AXLabel": "View log for Paper bridge spans",
+  "traits": [
+   "Button",
+   "Scrollable"
+  ],
+  "help": null,
+  "title": null
+ },
+ {
+  "custom_actions": [],
+  "enabled": true,
+  "AXUniqueId": "lanes-map-chat-wl-298430ea76b6dc262400bbec",
+  "help": null,
+  "type": "Button",
+  "subrole": null,
+  "traits": [
+   "Button",
+   "Scrollable"
+  ],
+  "role": "AXButton",
+  "AXValue": null,
+  "content_required": false,
+  "title": null,
+  "AXLabel": "Open local chat",
+  "AXFrame": "{{16, 316.66665140787762}, {361, 43.33331298828125}}",
+  "frame": {
+   "width": 361,
+   "x": 16,
+   "y": 316.6666514078776,
+   "height": 43.33331298828125
+  },
+  "role_description": "button"
+ },
+ {
+  "traits": [
+   "StaticText",
+   "Scrollable"
+  ],
+  "role": "AXStaticText",
+  "subrole": null,
+  "AXValue": null,
+  "enabled": true,
+  "frame": {
+   "height": 14,
+   "x": 16,
+   "y": 370.99997965494794,
+   "width": 361
+  },
+  "help": null,
+  "role_description": "text",
+  "content_required": false,
+  "AXLabel": "LIVE SPECS \u00b7 18",
+  "title": null,
+  "AXUniqueId": null,
+  "AXFrame": "{{16, 370.99997965494794}, {361, 14}}",
+  "type": "StaticText",
+  "custom_actions": []
+ },
+ {
+  "AXValue": null,
+  "AXUniqueId": "lane-members-row-spec_example__span_01",
+  "frame": {
+   "width": 361,
+   "height": 37,
+   "x": 16,
+   "y": 384.99997965494794
+  },
+  "subrole": null,
+  "AXFrame": "{{16, 384.99997965494794}, {361, 37}}",
+  "content_required": false,
+  "traits": [
+   "Button",
+   "Scrollable"
+  ],
+  "AXLabel": "Span 01, in_progress",
+  "role": "AXButton",
+  "custom_actions": [],
+  "title": null,
+  "enabled": true,
+  "role_description": "button",
+  "help": null,
+  "type": "Button"
+ },
+ {
+  "frame": {
+   "height": 37,
+   "width": 361,
+   "x": 16,
+   "y": 421.99997965494794
+  },
+  "AXValue": null,
+  "AXUniqueId": "lane-members-row-spec_example__span_02",
+  "role_description": "button",
+  "title": null,
+  "subrole": null,
+  "role": "AXButton",
+  "custom_actions": [],
+  "AXFrame": "{{16, 421.99997965494794}, {361, 37}}",
+  "enabled": true,
+  "traits": [
+   "Button",
+   "Scrollable"
+  ],
+  "content_required": false,
+  "help": null,
+  "type": "Button",
+  "AXLabel": "Span 02, in_progress"
+ },
+ {
+  "AXLabel": "Span 03, in_progress",
+  "frame": {
+   "y": 458.99997965494794,
+   "x": 16,
+   "width": 361,
+   "height": 37
+  },
+  "title": null,
+  "AXUniqueId": "lane-members-row-spec_example__span_03",
+  "type": "Button",
+  "content_required": false,
+  "enabled": true,
+  "role_description": "button",
+  "role": "AXButton",
+  "AXFrame": "{{16, 458.99997965494794}, {361, 37}}",
+  "AXValue": null,
+  "help": null,
+  "subrole": null,
+  "traits": [
+   "Button",
+   "Scrollable"
+  ],
+  "custom_actions": []
+ },
+ {
+  "AXUniqueId": "lane-members-row-spec_example__span_04",
+  "enabled": true,
+  "AXFrame": "{{16, 495.99997965494794}, {361, 37.000000000000057}}",
+  "help": null,
+  "role_description": "button",
+  "traits": [
+   "Button",
+   "Scrollable"
+  ],
+  "custom_actions": [],
+  "AXValue": null,
+  "content_required": false,
+  "subrole": null,
+  "type": "Button",
+  "role": "AXButton",
+  "frame": {
+   "x": 16,
+   "y": 495.99997965494794,
+   "width": 361,
+   "height": 37.00000000000006
+  },
+  "title": null,
+  "AXLabel": "Span 04, in_progress"
+ },
+ {
+  "role": "AXButton",
+  "AXValue": null,
+  "traits": [
+   "Button",
+   "Scrollable"
+  ],
+  "AXFrame": "{{16, 532.99997965494799}, {361, 37.00006103515625}}",
+  "AXUniqueId": "lane-members-row-spec_example__span_05",
+  "role_description": "button",
+  "frame": {
+   "height": 37.00006103515625,
+   "x": 16,
+   "y": 532.999979654948,
+   "width": 361
+  },
+  "type": "Button",
+  "title": null,
+  "subrole": null,
+  "AXLabel": "Span 05, in_progress",
+  "custom_actions": [],
+  "help": null,
+  "enabled": true,
+  "content_required": false
+ },
+ {
+  "help": null,
+  "role_description": "button",
+  "AXLabel": "Span 06, in_progress",
+  "AXValue": null,
+  "custom_actions": [],
+  "title": null,
+  "type": "Button",
+  "frame": {
+   "height": 37,
+   "x": 16,
+   "y": 569.999979654948,
+   "width": 361
+  },
+  "traits": [
+   "Button",
+   "Scrollable"
+  ],
+  "role": "AXButton",
+  "content_required": false,
+  "enabled": true,
+  "subrole": null,
+  "AXFrame": "{{16, 569.99997965494799}, {361, 37}}",
+  "AXUniqueId": "lane-members-row-spec_example__span_06"
+ },
+ {
+  "subrole": null,
+  "traits": [
+   "Button",
+   "Scrollable"
+  ],
+  "help": null,
+  "role": "AXButton",
+  "AXValue": null,
+  "frame": {
+   "width": 361,
+   "height": 37,
+   "x": 16,
+   "y": 606.999979654948
+  },
+  "AXLabel": "Span 07, in_progress",
+  "AXUniqueId": "lane-members-row-spec_example__span_07",
+  "type": "Button",
+  "AXFrame": "{{16, 606.99997965494799}, {361, 37}}",
+  "role_description": "button",
+  "title": null,
+  "custom_actions": [],
+  "content_required": false,
+  "enabled": true
+ },
+ {
+  "role": "AXButton",
+  "subrole": null,
+  "enabled": true,
+  "content_required": false,
+  "AXFrame": "{{16, 643.99997965494799}, {361, 37}}",
+  "type": "Button",
+  "traits": [
+   "Button",
+   "Scrollable"
+  ],
+  "frame": {
+   "y": 643.999979654948,
+   "x": 16,
+   "width": 361,
+   "height": 37
+  },
+  "role_description": "button",
+  "AXLabel": "Span 08, in_progress",
+  "AXValue": null,
+  "AXUniqueId": "lane-members-row-spec_example__span_08",
+  "help": null,
+  "custom_actions": [],
+  "title": null
+ },
+ {
+  "frame": {
+   "x": 16,
+   "height": 37,
+   "width": 361,
+   "y": 680.999979654948
+  },
+  "AXUniqueId": "lane-members-row-spec_example__span_09",
+  "enabled": true,
+  "subrole": null,
+  "AXValue": null,
+  "role_description": "button",
+  "type": "Button",
+  "role": "AXButton",
+  "AXFrame": "{{16, 680.99997965494799}, {361, 37}}",
+  "help": null,
+  "AXLabel": "Span 09, in_progress",
+  "traits": [
+   "Button",
+   "Scrollable"
+  ],
+  "custom_actions": [],
+  "content_required": false,
+  "title": null
+ },
+ {
+  "AXLabel": "Span 10, in_progress",
+  "AXFrame": "{{16, 717.99997965494799}, {361, 37}}",
+  "title": null,
+  "subrole": null,
+  "AXValue": null,
+  "AXUniqueId": "lane-members-row-spec_example__span_10",
+  "frame": {
+   "height": 37,
+   "width": 361,
+   "x": 16,
+   "y": 717.999979654948
+  },
+  "help": null,
+  "enabled": true,
+  "custom_actions": [],
+  "role_description": "button",
+  "role": "AXButton",
+  "content_required": false,
+  "traits": [
+   "Button",
+   "Scrollable"
+  ],
+  "type": "Button"
+ },
+ {
+  "traits": [
+   "Button",
+   "Scrollable"
+  ],
+  "AXValue": null,
+  "subrole": null,
+  "custom_actions": [],
+  "AXLabel": "Span 11, in_progress",
+  "frame": {
+   "width": 361,
+   "height": 37,
+   "y": 754.999979654948,
+   "x": 16
+  },
+  "help": null,
+  "enabled": true,
+  "role_description": "button",
+  "AXFrame": "{{16, 754.99997965494799}, {361, 37}}",
+  "role": "AXButton",
+  "AXUniqueId": "lane-members-row-spec_example__span_11",
+  "type": "Button",
+  "title": null,
+  "content_required": false
+ },
+ {
+  "AXValue": null,
+  "role_description": "button",
+  "frame": {
+   "x": 16,
+   "height": 37,
+   "width": 361,
+   "y": 791.999979654948
+  },
+  "content_required": false,
+  "title": null,
+  "traits": [
+   "Button",
+   "Scrollable"
+  ],
+  "custom_actions": [],
+  "AXLabel": "Span 12, in_progress",
+  "role": "AXButton",
+  "type": "Button",
+  "subrole": null,
+  "help": null,
+  "enabled": true,
+  "AXUniqueId": "lane-members-row-spec_example__span_12",
+  "AXFrame": "{{16, 791.99997965494799}, {361, 37}}"
+ },
+ {
+  "traits": [
+   "Button",
+   "Scrollable"
+  ],
+  "enabled": true,
+  "AXUniqueId": "lane-members-row-spec_example__span_13",
+  "role": "AXButton",
+  "help": null,
+  "custom_actions": [],
+  "AXValue": null,
+  "title": null,
+  "role_description": "button",
+  "AXLabel": "Span 13, in_progress",
+  "AXFrame": "{{16, 828.99997965494799}, {361, 37}}",
+  "content_required": false,
+  "type": "Button",
+  "frame": {
+   "height": 37,
+   "y": 828.999979654948,
+   "x": 16,
+   "width": 361
+  },
+  "subrole": null
+ },
+ {
+  "enabled": true,
+  "custom_actions": [],
+  "help": null,
+  "role_description": "button",
+  "subrole": null,
+  "AXUniqueId": "lane-members-row-spec_example__span_14",
+  "title": null,
+  "traits": [
+   "Button",
+   "Scrollable"
+  ],
+  "content_required": false,
+  "AXFrame": "{{16, 865.99997965494799}, {361, 37}}",
+  "AXValue": null,
+  "AXLabel": "Span 14, in_progress",
+  "type": "Button",
+  "role": "AXButton",
+  "frame": {
+   "y": 865.999979654948,
+   "height": 37,
+   "x": 16,
+   "width": 361
+  }
+ },
+ {
+  "custom_actions": [],
+  "title": null,
+  "AXValue": null,
+  "subrole": null,
+  "AXUniqueId": "lane-members-row-spec_example__span_15",
+  "type": "Button",
+  "help": null,
+  "frame": {
+   "x": 16,
+   "width": 361,
+   "y": 902.999979654948,
+   "height": 37
+  },
+  "role": "AXButton",
+  "AXFrame": "{{16, 902.99997965494799}, {361, 37}}",
+  "AXLabel": "Span 15, in_progress",
+  "role_description": "button",
+  "content_required": false,
+  "traits": [
+   "Button",
+   "Scrollable"
+  ],
+  "enabled": true
+ },
+ {
+  "AXFrame": "{{16, 939.99997965494799}, {361, 37}}",
+  "AXLabel": "Span 16, in_progress",
+  "title": null,
+  "custom_actions": [],
+  "AXValue": null,
+  "help": null,
+  "role": "AXButton",
+  "enabled": true,
+  "subrole": null,
+  "frame": {
+   "y": 939.999979654948,
+   "x": 16,
+   "width": 361,
+   "height": 37
+  },
+  "AXUniqueId": "lane-members-row-spec_example__span_16",
+  "traits": [
+   "Button",
+   "Scrollable"
+  ],
+  "type": "Button",
+  "role_description": "button",
+  "content_required": false
+ },
+ {
+  "AXFrame": "{{16, 976.99997965494799}, {361, 37}}",
+  "enabled": true,
+  "subrole": null,
+  "frame": {
+   "y": 976.999979654948,
+   "height": 37,
+   "x": 16,
+   "width": 361
+  },
+  "role_description": "button",
+  "traits": [
+   "Button",
+   "Scrollable"
+  ],
+  "AXValue": null,
+  "AXLabel": "Span 17, in_progress",
+  "AXUniqueId": "lane-members-row-spec_example__span_17",
+  "role": "AXButton",
+  "content_required": false,
+  "custom_actions": [],
+  "type": "Button",
+  "title": null,
+  "help": null
+ },
+ {
+  "title": null,
+  "type": "Button",
+  "content_required": false,
+  "AXUniqueId": "lane-members-row-spec_example__span_18",
+  "traits": [
+   "Button",
+   "Scrollable"
+  ],
+  "help": null,
+  "role_description": "button",
+  "AXValue": null,
+  "frame": {
+   "height": 37,
+   "y": 1013.999979654948,
+   "width": 361,
+   "x": 16
+  },
+  "role": "AXButton",
+  "custom_actions": [],
+  "AXLabel": "Span 18, in_progress",
+  "enabled": true,
+  "AXFrame": "{{16, 1013.999979654948}, {361, 37}}",
+  "subrole": null
+ }
+]
