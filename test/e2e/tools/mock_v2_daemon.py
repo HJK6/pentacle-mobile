@@ -131,6 +131,7 @@ class MockDaemon:
             "request_stream_events": self._on_request_stream_events,
             "thread.read": self._on_thread_read,
             "prompt.answer": self._on_prompt_answer,
+            "send": self._on_send,
             "debug_replay_snapshot_config": self._on_snapshot_config,
             "debug_replay_stream_events_config": self._on_stream_events_config,
             "debug_replay_send_echo_config": self._on_send_echo_config,
@@ -300,6 +301,8 @@ class MockDaemon:
         # its text; a choice takes the selected action's kind (else `resolved`) and carries
         # any text as custom_text. Questions the mock did not inject keep the old ack.
         request_id = msg.get("request_id")
+        await self._notify_observers({"type": "debug_replay_observed", "event": "prompt.answer.received",
+                                      **{key: msg[key] for key in ("request_id", "question_id", "selections", "text") if key in msg}})
         question_id = str(msg.get("question_id") or "")
         if not question_id:
             await self._send(ws, {"type": "prompt.answer.error", "request_id": request_id, "error_code": "question_id_required", "error": "question_id is required"})
@@ -457,12 +460,55 @@ class MockDaemon:
             self.send_echo = None
             await self._ack(ws, msg.get("request_id"), "ok", ack_type="debug_replay_send_echo_config.ack", extra={"enabled": False})
             return
-        # Send-echo (the daemon fabricating a chat.event / upload_blob echo when the
-        # app sends) is not implemented by this mock — the three target scenarios all
-        # carry send_echo={} so the injector never enables it. Fail loudly instead of
-        # acking ok, so a future send/attachment scenario driven onto this mock raises
-        # at config time rather than hanging on the debug_replay_observed it awaits.
-        await self._ack(ws, msg.get("request_id"), "error", ack_type="debug_replay_send_echo_config.ack", reason="send_echo_unsupported_by_mock")
+        replies = msg.get("assistant_replies")
+        stream_id = str(msg.get("stream_id") or msg.get("expected_stream_id") or "")
+        if (":" not in stream_id or not all(stream_id.split(":", 1)) or not isinstance(replies, list) or len(replies) != 2
+                or not all(isinstance(reply, str) and reply for reply in replies)
+                or msg.get("match", "stream_id") != "stream_id" or msg.get("fail_first_send")
+                or msg.get("echo_delay_ms") or msg.get("session_name_pattern")
+                or not isinstance(msg.get("daemon_seq", 9001), int) or msg.get("daemon_seq", 9001) <= 0):
+            await self._ack(ws, msg.get("request_id"), "error", ack_type="debug_replay_send_echo_config.ack", reason="send_echo_unsupported_by_mock")
+            return
+        self.send_echo = {"stream_id": stream_id, "replies": list(replies), "seq": int(msg.get("daemon_seq") or 9001), "seen": {}}
+        self.observer_clients.add(ws)
+        await self._ack(ws, msg.get("request_id"), "ok", ack_type="debug_replay_send_echo_config.ack", extra={"enabled": True})
+
+    async def _on_send(self, ws: Any, msg: dict[str, Any]) -> None:
+        config = self.send_echo
+        stream_id = str(msg.get("stream_id") or f"{msg.get('host') or ''}:{msg.get('session_name') or ''}")
+        optimistic_id = str(msg.get("optimistic_id") or msg.get("msg_id") or "")
+        text = msg.get("text") if "text" in msg else msg.get("message")
+        if (not config or stream_id != config["stream_id"] or not optimistic_id or not msg.get("request_id")
+                or not isinstance(text, str) or not text or msg.get("attachments")):
+            await self._send(ws, {"type": "send.error", "request_id": msg.get("request_id"), "error": "mock_send_unsupported"})
+            return
+        seen = config["seen"]
+        await self._notify_observers({"type": "debug_replay_observed", "event": "send.received",
+                                      "request_id": msg.get("request_id"), "stream_id": stream_id,
+                                      "optimistic_id": optimistic_id, "text": text})
+        if optimistic_id not in seen:
+            if len(seen) >= len(config["replies"]):
+                await self._send(ws, {"type": "send.error", "request_id": msg.get("request_id"), "error": "mock_turn_limit"})
+                return
+            seq = config["seq"] + len(seen) * 2
+            host, session_name = stream_id.split(":", 1)
+            common = {"host": host, "session_name": session_name, "stream_id": stream_id,
+                      "provider": "codex", "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
+            events = [{**common, "daemon_seq": seq, "kind": "USER", "text": text, "optimistic_id": optimistic_id},
+                      {**common, "daemon_seq": seq + 1, "kind": "ASSIST", "text": config["replies"][len(seen)]}]
+            seen[optimistic_id] = text
+            for event in events:
+                self._append_recent(event)
+                self._index_session(event)
+                await self._broadcast_app({"type": "chat.event", "event": event})
+        elif seen[optimistic_id] != text:
+            await self._send(ws, {"type": "send.error", "request_id": msg.get("request_id"), "error": "optimistic_id_conflict"})
+            return
+        await self._notify_observers({"type": "debug_replay_observed", "event": "send.echoed",
+                                      "request_id": msg.get("request_id"), "stream_id": stream_id,
+                                      "optimistic_id": optimistic_id})
+        await self._send(ws, {"type": "send.result", "request_id": msg.get("request_id"), "to_stream_id": stream_id,
+                              "state": "landed", "delivery": "landed", "submission_confirmed": True})
 
     async def _on_debug_event(self, ws: Any, msg: dict[str, Any]) -> None:
         event = msg.get("event")
@@ -736,6 +782,13 @@ class MockDaemon:
                 await ws.send(payload)
             except Exception:  # noqa: BLE001
                 pass
+
+    async def _notify_observers(self, frame: dict[str, Any]) -> None:
+        for observer in list(self.observer_clients):
+            try:
+                await self._send(observer, frame)
+            except Exception:  # noqa: BLE001 — stale observers cannot break the app path
+                self.observer_clients.discard(observer)
 
     async def _send(self, ws: Any, frame: dict[str, Any]) -> None:
         await ws.send(json.dumps(frame, separators=(",", ":")))

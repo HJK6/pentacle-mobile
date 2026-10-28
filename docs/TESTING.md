@@ -351,6 +351,28 @@ modal first reports empty rows while fetching. Free-text answer dispatch and
 roster rendering are independent harness actions; the answer may dispatch
 before the roster opens. Both must be observed in the same bound native run.
 
+### Broad synthetic M1 driver
+
+The existing `nexus_agents_history_questions` native entry has an opt-in broad
+mock journey. Prepare an owned scripted mock and injector with
+`test/e2e/fixtures/scripted_daemon/m1_broad_questions.json`, then run the
+canonical script-path entry with `M1_BROAD=1` and `M1_MOCK_WS_URL` set to that
+owned numeric-loopback `ws://` endpoint in the scenario env file. Bind the
+simulator and harness bundle using the existing gate producer and resource
+guard; the IDB companion must resolve that same device set. Grant the simulator
+microphone permission before the journey, which starts and discards an owned
+synthetic recording. The mock endpoint, injector and native resources remain
+the caller's responsibility and must be cleaned up by the owner.
+
+The driver uses actual accessibility frames and gestures for the ninth roster
+row, history paging, both exits and question surfaces; the mock observer checks
+exact question dispatches. It checks no-card and non-Nexus controls and two
+turns around a mock-initiated reconnect. It does not prove real delivery,
+configured targets, a physical phone or release readiness. Run its offline
+controls with `python3 -m pytest -q test/e2e/tests/test_m1_*` alongside the
+existing M1, scripted and mock suites. Native acceptance requires a separately
+admitted execution window and a complete result and cleanup receipt.
+
 ## Answer fallback reconciliation
 
 `mock_answer_fallback_reconcile` holds the summary-only, resolved-notification

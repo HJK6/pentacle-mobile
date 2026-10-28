@@ -1,0 +1,233 @@
+{
+  "schema_version": 1,
+  "name": "m1_broad_questions",
+  "stream": {
+    "stream_id": "mock-host:mock-session",
+    "host": "mock-host",
+    "provider": "codex",
+    "session_name": "mock-session",
+    "title": "Assistant history fixture"
+  },
+  "snapshot": {
+    "sessions": [
+      {
+        "stream_id": "mock-host:mock-session",
+        "host": "mock-host",
+        "provider": "codex",
+        "session_name": "mock-session",
+        "title": "Assistant history fixture",
+        "role": "nexus",
+        "session_generation": "parent-generation",
+        "last_event_at": "2026-01-01T12:00:00.000Z",
+        "last_text": "History fixture ready.",
+        "last_kind": "ASSIST",
+        "online": true,
+        "agents": [
+          {
+            "stream_id": "mock-host:child-worker",
+            "session_generation": "child-generation",
+            "display_name": "History worker",
+            "role": "worker",
+            "objective": "Render synthetic thread history.",
+            "state": "blocked",
+            "model": "gpt-5.6-luna",
+            "since": "2026-01-01T11:59:00.000Z"
+          },
+          {
+            "stream_id": "mock-host:child-2",
+            "session_generation": "child-2-generation",
+            "display_name": "Worker 2",
+            "role": "worker",
+            "objective": "Inspect worker 2 history.",
+            "state": "blocked",
+            "model": "gpt-5.6-luna",
+            "since": "2026-01-01T11:59:00.000Z"
+          },
+          {
+            "stream_id": "mock-host:child-3",
+            "session_generation": "child-3-generation",
+            "display_name": "Worker 3",
+            "role": "worker",
+            "objective": "Inspect worker 3 history.",
+            "state": "blocked",
+            "model": "gpt-5.6-luna",
+            "since": "2026-01-01T11:59:00.000Z"
+          },
+          {
+            "stream_id": "mock-host:child-4",
+            "session_generation": "child-4-generation",
+            "display_name": "Worker 4",
+            "role": "worker",
+            "objective": "Inspect worker 4 history.",
+            "state": "blocked",
+            "model": "gpt-5.6-luna",
+            "since": "2026-01-01T11:59:00.000Z"
+          },
+          {
+            "stream_id": "mock-host:child-5",
+            "session_generation": "child-5-generation",
+            "display_name": "Worker 5",
+            "role": "worker",
+            "objective": "Inspect worker 5 history.",
+            "state": "blocked",
+            "model": "gpt-5.6-luna",
+            "since": "2026-01-01T11:59:00.000Z"
+          },
+          {
+            "stream_id": "mock-host:child-6",
+            "session_generation": "child-6-generation",
+            "display_name": "Worker 6",
+            "role": "worker",
+            "objective": "Inspect worker 6 history.",
+            "state": "blocked",
+            "model": "gpt-5.6-luna",
+            "since": "2026-01-01T11:59:00.000Z"
+          },
+          {
+            "stream_id": "mock-host:child-7",
+            "session_generation": "child-7-generation",
+            "display_name": "Worker 7",
+            "role": "worker",
+            "objective": "Inspect worker 7 history.",
+            "state": "blocked",
+            "model": "gpt-5.6-luna",
+            "since": "2026-01-01T11:59:00.000Z"
+          },
+          {
+            "stream_id": "mock-host:child-8",
+            "session_generation": "child-8-generation",
+            "display_name": "Worker 8",
+            "role": "worker",
+            "objective": "Inspect worker 8 history.",
+            "state": "blocked",
+            "model": "gpt-5.6-luna",
+            "since": "2026-01-01T11:59:00.000Z"
+          },
+          {
+            "stream_id": "mock-host:child-9",
+            "session_generation": "child-9-generation",
+            "display_name": "Worker 9",
+            "role": "worker",
+            "objective": "Inspect worker 9 history.",
+            "state": "blocked",
+            "model": "gpt-5.6-luna",
+            "since": "2026-01-01T11:59:00.000Z"
+          }
+        ]
+      },
+      {
+        "stream_id": "mock-host:control-session",
+        "host": "mock-host",
+        "provider": "codex",
+        "session_name": "control-session",
+        "title": "Non-Nexus control",
+        "role": "worker",
+        "session_generation": "control-generation",
+        "online": true
+      },
+      {
+        "stream_id": "mock-host:childless",
+        "host": "mock-host",
+        "provider": "codex",
+        "session_name": "childless",
+        "title": "Childless Nexus",
+        "role": "nexus",
+        "session_generation": "childless-generation",
+        "agents": [],
+        "online": true
+      },
+      {
+        "stream_id": "mock-host:card-control",
+        "host": "mock-host",
+        "provider": "codex",
+        "session_name": "card-control",
+        "title": "Non-Nexus card control",
+        "role": "worker",
+        "session_generation": "card-control-generation",
+        "status_card": {
+          "goal": "Non-Nexus control",
+          "plan": [],
+          "updates": []
+        },
+        "agents": [
+          {
+            "stream_id": "mock-host:child-worker",
+            "session_generation": "child-generation",
+            "display_name": "Forbidden child",
+            "role": "worker",
+            "objective": "Render synthetic thread history.",
+            "state": "blocked",
+            "model": "gpt-5.6-luna",
+            "since": "2026-01-01T11:59:00.000Z"
+          }
+        ],
+        "online": true
+      }
+    ],
+    "events": [],
+    "thread_history": {
+      "mock-host:mock-session|mock-host:child-worker": {
+        "parent_generation": "parent-generation",
+        "child_generation": "child-generation",
+        "pages": [
+          {
+            "cursor": null,
+            "next_cursor": "older",
+            "rows": [
+              {
+                "row_id": "tell:current",
+                "ref_id": "current",
+                "ts": "2026-01-01T12:01:00.000Z",
+                "direction": "parent_to_child",
+                "kind": "tell",
+                "text": "Render the visible roster and history.",
+                "truncated": false
+              }
+            ]
+          },
+          {
+            "cursor": "older",
+            "next_cursor": null,
+            "rows": [
+              {
+                "row_id": "brief:older",
+                "ref_id": "older",
+                "ts": "2026-01-01T12:00:00.000Z",
+                "direction": "parent_to_child",
+                "kind": "brief",
+                "text": "Older direct-child brief.",
+                "truncated": false
+              }
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "frames": [
+    {
+      "id": "anchor",
+      "at_ms": 0,
+      "type": "chat.event",
+      "wait_for_client": true,
+      "event": {
+        "daemon_seq": 40,
+        "stream_id": "mock-host:mock-session",
+        "host": "mock-host",
+        "provider": "codex",
+        "session_name": "mock-session",
+        "timestamp": "2026-01-01T12:00:00.000Z",
+        "kind": "ASSIST",
+        "text": "Assistant fixture ready for history and a durable free-text question."
+      }
+    }
+  ],
+  "send_echo": {
+    "assistant_replies": [
+      "First synthetic reply.",
+      "Second synthetic reply."
+    ],
+    "wait_for_send_s": 480,
+    "daemon_seq": 100
+  }
+}
