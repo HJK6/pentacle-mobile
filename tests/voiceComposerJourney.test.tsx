@@ -484,3 +484,30 @@ test('a docked bar beside the live composer never duplicates composer test IDs o
   expect(view.getAllByTestId('composer-capsule')).toHaveLength(1);
   expect(view.getByTestId('global-voice-field')).toBeTruthy();
 });
+
+describe('M1 voice diagnostic callbacks in the real composer', () => {
+  const previous = process.env.EXPO_PUBLIC_HARNESS;
+  afterEach(() => { process.env.EXPO_PUBLIC_HARNESS = previous; });
+  test.each(['0', '1'])('composer press and recorder engine callbacks are gated (harness=%s)', async flag => {
+    process.env.EXPO_PUBLIC_HARNESS = flag;
+    const spy = jest.spyOn(require('../src/utils/m1Diagnostic'), 'm1Diagnostic').mockImplementation(() => undefined);
+    const view = render(<ComposerBar {...props} streamId="hosta:origin" />);
+    await act(async () => fireEvent.press(view.getByTestId('composer-mic-button')));
+    const origins = spy.mock.calls.map(([, data]) => (data as { origin?: string }).origin);
+    for (const origin of ['composer', 'composer_or_chat_delegation', 'engine_started']) {
+      if (flag === '1') expect(origins).toContain(origin); else expect(origins).not.toContain(origin);
+    }
+    spy.mockRestore();
+  });
+  test.each(['0', '1'])('header press and chat delegation callbacks are gated (harness=%s)', async flag => {
+    process.env.EXPO_PUBLIC_HARNESS = flag;
+    const spy = jest.spyOn(require('../src/utils/m1Diagnostic'), 'm1Diagnostic').mockImplementation(() => undefined);
+    const view = render(<><HeaderVoiceMic testID="m1-header" /><ComposerBar {...props} streamId="hosta:origin" /></>);
+    await act(async () => fireEvent.press(view.getByTestId('m1-header')));
+    const origins = spy.mock.calls.map(([, data]) => (data as { origin?: string }).origin);
+    for (const origin of ['header', 'header_chat', 'composer_or_chat_delegation', 'engine_started']) {
+      if (flag === '1') expect(origins).toContain(origin); else expect(origins).not.toContain(origin);
+    }
+    spy.mockRestore();
+  });
+});

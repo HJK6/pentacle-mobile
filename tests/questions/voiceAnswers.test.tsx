@@ -730,3 +730,19 @@ test('CAP-03 unavailable question inventory cannot erase previously covered capt
   await act(async () => { await mockHarness.recorder.send(); });
   expect(buildVoiceAnswersMeta(id, { blobSha: 'synthetic', durationS: 3 })?.items.length).toBeGreaterThan(0);
 });
+
+test.each(['0', '1'])('question voice-answer start callback is harness gated (%s)', async flag => {
+  const previous = process.env.EXPO_PUBLIC_HARNESS;
+  process.env.EXPO_PUBLIC_HARNESS = flag;
+  const spy = jest.spyOn(require('../../src/utils/m1Diagnostic'), 'm1Diagnostic').mockImplementation(() => undefined);
+  const deck = selectQuestionDeck(mockState);
+  const { renderHook } = require('@testing-library/react-native');
+  const { useVoiceAnswers } = require('../../src/components/questions/voice/useVoiceAnswers');
+  const hook = renderHook(() => useVoiceAnswers({ deck, currentKey: deck[0].key,
+    onFinished: jest.fn(), onDiscarded: jest.fn(), notify: jest.fn() }));
+  await act(async () => { await hook.result.current.start(); });
+  const origins = spy.mock.calls.map(([, data]) => (data as { origin?: string }).origin);
+  if (flag === '1') expect(origins).toContain('question_voice_answer');
+  else expect(origins).not.toContain('question_voice_answer');
+  spy.mockRestore(); process.env.EXPO_PUBLIC_HARNESS = previous;
+});
