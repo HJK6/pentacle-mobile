@@ -471,3 +471,91 @@ def test_overlay_fixture_choices_resolve_like_v2(registry, index, selection):
     assert broadcast["state"] == "acked" and broadcast["question"]["state"] == "answered"
     assert broadcast["resolution"]["action_id"] == f"overlay-action-{index}-{selection}"
     assert woke["answer"]["selections"] == [selection]
+
+
+def test_debug_replay_question_is_persisted_as_mount_fetch_ask_event(registry):
+    """Fidelity with the real daemon (M1 session free-text `no_entries` gap):
+    replaying an OPEN agent question whose surface stream is declared must also
+    persist a `prompt.ask.ok` TOOL_RESULT stream event, so a bounded
+    request_stream_events('mount-fetch') returns it and the app can re-hydrate
+    the question through its transcript backfill. A live-only broadcast (no
+    persisted ask row) was what let the bounded re-fetch drop the question and
+    auto-close the overlay in window-05."""
+    _reg, cred_id, envelope, reg_path = registry
+    stream_id = "mock-host:mock-session"
+    notification = {
+        "producer": "agent_question.v1", "severity": "info",
+        "title": "Mock durable question", "body": "Answer it.",
+        "actions": [{"kind": "ack", "action_id": "a1", "label": "Proceed", "value": {"answer": "proceed"}}],
+        "question": {"schema_version": 1, "question_id": "mock-ask-1", "response_mode": "free_text",
+                     "state": "open", "producer_stream_id": stream_id},
+    }
+
+    async def scenario():
+        _daemon, server, url = await _boot(reg_path)
+        try:
+            async with websockets.connect(url, max_size=None) as harness:
+                await _harness_hello(harness)
+                await harness.send(json.dumps({"type": "debug_replay_notification",
+                                               "request_id": "n1", "notification": notification}))
+                ack = json.loads(await asyncio.wait_for(harness.recv(), timeout=5))
+                assert ack["type"] == "debug_replay_notification.ack" and ack["status"] == "ok"
+                nid = ack["notification"]["notification_id"]
+            async with websockets.connect(url, max_size=None) as app:
+                await _app_hello(app, cred_id, envelope, subscribe={"mode": "rpc", "snapshot": False})
+                ready = json.loads(await asyncio.wait_for(app.recv(), timeout=5))
+                assert ready["type"] == "ready"
+                # Bounded cold-open mount-fetch window, exactly as the app issues it.
+                await app.send(json.dumps({"type": "request_stream_events", "request_id": "q1",
+                                           "stream_id": stream_id, "limit": 25}))
+                resp = json.loads(await asyncio.wait_for(app.recv(), timeout=5))
+                assert resp["type"] == "request_stream_events.ok" and resp["complete"] is True
+                return resp["events"], nid
+        finally:
+            server.close()
+            await server.wait_closed()
+
+    events, nid = asyncio.run(scenario())
+    asks = []
+    for e in events:
+        if e.get("kind") != "TOOL_RESULT" or not isinstance(e.get("text"), str):
+            continue
+        try:
+            payload = json.loads(e["text"])
+        except ValueError:
+            continue
+        if isinstance(payload, dict) and payload.get("type") == "prompt.ask.ok":
+            asks.append(payload)
+    assert asks, "mount-fetch must return a persisted prompt.ask.ok event for the replayed question"
+    assert asks[-1]["question"]["question_id"] == "mock-ask-1"
+    assert asks[-1]["notification"]["notification_id"] == nid
+
+
+def test_debug_replay_report_notification_is_not_persisted(registry):
+    """A notification without an open agent question (or without a surface
+    stream) stays broadcast-only: no stream event is persisted, so unrelated
+    replay paths are unchanged."""
+    _reg, cred_id, envelope, reg_path = registry
+
+    async def scenario():
+        _daemon, server, url = await _boot(reg_path)
+        try:
+            async with websockets.connect(url, max_size=None) as harness:
+                await _harness_hello(harness)
+                await harness.send(json.dumps({"type": "debug_replay_notification", "request_id": "r1",
+                    "notification": {"producer": "agent_report.v1", "stream_id": "mock-host:report",
+                                     "title": "Report", "body": "done"}}))
+                ack = json.loads(await asyncio.wait_for(harness.recv(), timeout=5))
+                assert ack["status"] == "ok"
+            async with websockets.connect(url, max_size=None) as app:
+                await _app_hello(app, cred_id, envelope, subscribe={"mode": "rpc", "snapshot": False})
+                assert json.loads(await asyncio.wait_for(app.recv(), timeout=5))["type"] == "ready"
+                await app.send(json.dumps({"type": "request_stream_events", "request_id": "q1",
+                                           "stream_id": "mock-host:report", "limit": 25}))
+                resp = json.loads(await asyncio.wait_for(app.recv(), timeout=5))
+                return resp["events"]
+        finally:
+            server.close()
+            await server.wait_closed()
+
+    assert asyncio.run(scenario()) == []

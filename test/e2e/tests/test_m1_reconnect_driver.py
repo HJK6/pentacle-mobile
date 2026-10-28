@@ -8,7 +8,7 @@ class UI:
     def type_text(self, ident, value): self.calls.append(('type', ident, value))
     def tap(self, identifier=None, label=None): self.calls.append(('tap', identifier, label))
     def wait(self, identifier=None, label=None, timeout=20): self.calls.append(('wait', identifier, label))
-    def wait_hit(self, label, timeout=20): self.calls.append(('hit', label))
+    def wait_hit(self, label, timeout=20, *, roster=False, corrective=False): self.calls.append(('hit', label))
     def count(self, label): return 2 if self.duplicate and label == 'Second synthetic reply.' else 1
 
 

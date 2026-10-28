@@ -12,6 +12,11 @@ import time
 
 from ..harness import scenario_simctl_command
 
+# Bounded number of corrective drags applied when a row exists in the
+# accessibility tree but is clipped by its enclosing ScrollView (the PR #97
+# hit-test class). After this budget the caller's deadline fails closed.
+CORRECTIVE_DRAG_BUDGET = 4
+
 
 class SystemUIInterception(Exception):
     def __init__(self, foreground, video_timestamp_s):
@@ -163,12 +168,23 @@ class NativeUI:
     def row_visible(self, label):
         return self.hit_visible(label, roster=True)
 
-    def wait_hit(self, label, timeout=20, *, roster=False):
+    def wait_hit(self, label, timeout=20, *, roster=False, corrective=False):
         deadline = time.monotonic() + timeout
+        corrections = 0
         while time.monotonic() < deadline:
             self.check_foreground()
             if self.hit_visible(label, roster=roster):
                 return
+            # PR #97 hit-test gate: when the row is present in the accessibility
+            # tree (including off-screen nodes) but describe-point in
+            # `hit_visible` rejects it, it is clipped by the enclosing
+            # ScrollView. Apply a bounded corrective drag to bring it into the
+            # unclipped region, re-gating with describe-point. Beyond the budget
+            # the deadline below fails closed.
+            if corrective and corrections < CORRECTIVE_DRAG_BUDGET and self.count(label) >= 1:
+                self.swipe_up()
+                corrections += 1
+                continue
             time.sleep(.2)
         raise RuntimeError('M1 visible row did not pass hit testing: ' + label)
 
