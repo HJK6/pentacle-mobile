@@ -68,6 +68,33 @@ class SetupFail(RuntimeError):
     """Precondition or owned-resource failure; never a product verdict."""
 
 
+class SystemUIInterception(SetupFail):
+    """A foreground mismatch is a harness failure, never a product verdict."""
+    def __init__(self, foreground: str | None):
+        self.classification = "HARNESS_ERROR"
+        self.foreground = foreground or "unavailable"
+        self.timestamp_utc = datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z")
+        self.video_timestamp = "unavailable"
+        super().__init__("system UI interception: " + self.foreground)
+
+
+# Ported from test/e2e/scenarios/_m1_native_ui.py at public merge 05c194d0.
+def foreground_bundle(elements: list[dict[str, Any]], launchctl: str) -> str | None:
+    roots = [e for e in elements if e.get("role") == "AXApplication"]
+    if len(roots) != 1 or not isinstance(roots[0].get("pid"), int):
+        return None
+    pid = str(roots[0]["pid"])
+    matches = []
+    for line in launchctl.splitlines():
+        fields = line.split()
+        if len(fields) < 3 or fields[0] != pid:
+            continue
+        match = re.fullmatch(r"UIKitApplication:([^\[]+)\[.+", fields[-1])
+        if match:
+            matches.append(match.group(1))
+    return matches[0] if len(matches) == 1 else None
+
+
 class AssertFail(AssertionError):
     """Product journey assertion failed."""
 
@@ -328,8 +355,9 @@ def lanes_status_button(elements: list[dict[str, Any]]) -> dict[str, Any] | None
 
 
 class Ui:
-    def __init__(self, udid: str, idb: str, trace: Callable[[str, Any], None], shots: Path):
-        self.udid, self.idb, self.trace, self.shots = udid, idb, trace, shots
+    def __init__(self, udid: str, idb: str, trace: Callable[[str, Any], None], shots: Path,
+                 bundle: str | None = None):
+        self.udid, self.idb, self.trace, self.shots, self.bundle = udid, idb, trace, shots, bundle
         self.env = {**os.environ, "IDB_COMPANION": f"{sd.HOST}:{sd.COMPANION_PORT}"}
         self.screenshots: list[dict[str, str]] = []
         self.viewport: dict[str, float] | None = None
@@ -384,24 +412,54 @@ class Ui:
         if present:
             raise AssertFail(f"unexpected elements {present[:4]} for prefix {prefix}")
 
+    def read_foreground(self) -> str | None:
+        try:
+            elements = self.elements()
+            result = subprocess.run(["xcrun", "simctl", "spawn", self.udid, "launchctl", "list"],
+                                    capture_output=True, text=True, timeout=20, check=False)
+            foreground = foreground_bundle(elements, result.stdout) if result.returncode == 0 else None
+            roots = [e.get("pid") for e in elements if e.get("role") == "AXApplication"]
+            self.trace("foreground_readback", {"at_utc": now_iso(), "ax_root_pids": roots,
+                                                 "launchctl_rc": result.returncode,
+                                                 "bundle": foreground or "unavailable"})
+            return foreground
+        except (OSError, ValueError, TypeError, AttributeError, RuntimeError, subprocess.TimeoutExpired):
+            return None
+
+    def check_foreground(self) -> None:
+        foreground = self.read_foreground()
+        self.trace("foreground_check", {"at_utc": now_iso(), "expected_bundle": self.bundle,
+                                         "foreground": foreground or "unavailable",
+                                         "matched": bool(self.bundle and foreground == self.bundle)})
+        if not self.bundle or foreground != self.bundle:
+            raise SystemUIInterception(foreground)
+
     def tap(self, identifier: str, timeout_s: float = 20) -> dict[str, Any]:
+        self.check_foreground()
         element = self.find(identifier, timeout_s)
         if element.get("AXEnabled") is False:
             raise AssertFail("disabled tap target: " + identifier)
         element = self.reveal(element)
         frame = self.frame(element)
+        self.check_foreground()
         result = self._idb("ui", "tap", str(int(frame["x"] + frame["width"] / 2)), str(int(frame["y"] + frame["height"] / 2)))
         if result.returncode:
             raise SetupFail("native tap failed: " + identifier)
         time.sleep(0.4)
+        self.check_foreground()
         return element
 
-    def tap_element(self, element: dict[str, Any], what: str) -> None:
+    def tap_element(self, element: dict[str, Any], what: str, *, system_dialog: bool = False) -> None:
+        if not system_dialog:
+            self.check_foreground()
         frame = self.frame(self.reveal(element))
+        if not system_dialog:
+            self.check_foreground()
         result = self._idb("ui", "tap", str(int(frame["x"] + frame["width"] / 2)), str(int(frame["y"] + frame["height"] / 2)))
         if result.returncode:
             raise SetupFail("native tap failed: " + what)
         time.sleep(0.4)
+        self.check_foreground()
 
     def reveal(self, element: dict[str, Any], max_drags: int = 10) -> dict[str, Any]:
         """Scroll an off-screen tap target into view: drag within the screen, re-find it by its id, repeat. idb taps
@@ -461,7 +519,7 @@ class Ui:
             if button.get("AXEnabled") is False:
                 raise SetupFail(f"system alert {title!r}: {SYSTEM_ALERTS[title]!r} button is disabled")
             try:
-                self.tap_element(button, SYSTEM_ALERTS[title])
+                self.tap_element(button, SYSTEM_ALERTS[title], system_dialog=True)
             except AssertFail as error:
                 raise SetupFail(f"system alert {title!r}: {error}") from error
             self.trace("system alert", {"title": title, "pressed": SYSTEM_ALERTS[title]})
@@ -836,7 +894,7 @@ class Run:
                              "--grpc-port", str(sd.COMPANION_PORT)],
             env={key: os.environ[key] for key in ("PATH", "HOME", "TMPDIR", "LANG") if key in os.environ},
             cwd=self.run_dir, log=self.evidence / "ui-companion.log", port=sd.COMPANION_PORT)
-        self.ui = Ui(self.udid, self.args.idb, self.trace, self.shots)
+        self.ui = Ui(self.udid, self.args.idb, self.trace, self.shots, self.args.bundle_id)
 
     def app_pids(self) -> list[str]:
         listed = self.simctl("spawn", self.udid, "launchctl", "list", check=False)
@@ -1415,6 +1473,13 @@ class Run:
             verdict = "PASS"
         except AssertFail as exc:
             verdict, error = "FAIL", str(exc)
+        except SystemUIInterception as exc:
+            verdict, error = "SETUP_FAIL", str(exc)
+            self.result["interception"] = {"classification": exc.classification,
+                                            "reason_code": "system_ui_interception",
+                                            "foreground": exc.foreground,
+                                            "timestamp_utc": exc.timestamp_utc,
+                                            "video_timestamp": exc.video_timestamp}
         except Exception as exc:  # SetupFail, timeouts, tool failures
             verdict, error = "SETUP_FAIL", f"{type(exc).__name__}: {exc}"
         finally:
@@ -1781,7 +1846,7 @@ def supplemental(args: argparse.Namespace) -> int:
                                    env={k: os.environ[k] for k in ("PATH", "HOME", "TMPDIR", "LANG") if k in os.environ},
                                    cwd=out, log=out / "ui-companion.log", port=sd.COMPANION_PORT)
         try:
-            ui = Ui(udid, args.idb, lambda *_: None, out)
+            ui = Ui(udid, args.idb, lambda *_: None, out, identity["bundle_id"])
             subprocess.run(["xcrun", "simctl", "openurl", udid, "pentacle://pentacle/lanes"], check=True, timeout=60)
             scene["check"](scene, ui, stub, record, lane_id)
             record.update(scene_verdict="PASS", screenshots=ui.screenshots)
