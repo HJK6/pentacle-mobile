@@ -47,7 +47,7 @@ FIXTURE_PATH = "pentacle-chat-core/tests/fixtures/work-lanes-inventory.json"
 FIXTURE_SHA256 = "2be3dd8d99046c3c8dc293ae4d90a187ab72cb082ef36153d957037a39ddcce1"
 WRAPPER_PATH = "test/e2e/lib/web_gate_daemon.py"
 WRAPPER_SHA256 = "0a50ad7134bf9b07d64c4a5aff2d3b979696fa1acda57f969cc26c5ca5ab36aa"
-PROXY_SHA256 = "813136ac6da883a20e83bdfa5b2cbc29fee076574ff25526167d5bef421937e9"
+PROXY_SHA256 = "a702817e0cfe2210221f9da1f2c931853f7fb8bb0cd5ecf2460933f88d84b89c"
 
 HOST = "127.0.0.1"
 DAEMON_PORT = 17893
@@ -286,6 +286,7 @@ PROXY_DELTAS = {
     "client_to_daemon_rate_bytes_per_s": 32768,
     "owner_label_in_process_record": "stale label from the retained script; not this run's owner",
     "transcribe_fault_path": "inert: no transcribe frames, no proxy-control.json created",
+    "enrollment_codes": "never logged: enrollment codes are credentials (code_present only)",
 }
 
 # ---------------------------------------------------------------------------

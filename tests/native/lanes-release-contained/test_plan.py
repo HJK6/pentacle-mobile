@@ -1114,4 +1114,4 @@ def test_enroll_presses_known_alerts_until_the_snapshot_arrives(tmp_path, monkey
     monkeypatch.setattr(run.time, "sleep", lambda s: None)
     owned.enroll()
     assert owned.result["system_alerts"] == ["Open in “Pentacle”?"]
-    assert owned.result["enrollment"]["code_retained"] is False
+    assert "code_retained" not in owned.result["enrollment"]  # set only by the wire-evidence scan at teardown

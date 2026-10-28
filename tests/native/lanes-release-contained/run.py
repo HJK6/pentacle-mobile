@@ -287,6 +287,26 @@ def read_wire(path: Path) -> list[dict[str, Any]]:
     return rows
 
 
+def scrub_wire_codes(path: Path) -> dict[str, int]:
+    """Enrollment codes are credentials: replace any logged `code` value in the wire log, in place."""
+    if not path.is_file():
+        return {"rows_redacted": 0, "remaining": 0}
+    lines, redacted = [], 0
+    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        try:
+            row = json.loads(line)
+        except ValueError:
+            row = None
+        if isinstance(row, dict) and row.get("code") not in (None, "<redacted>"):
+            row["code"] = "<redacted>"
+            line, redacted = json.dumps(row), redacted + 1
+        lines.append(line)
+    if redacted:
+        path.write_text("".join(item + "\n" for item in lines), encoding="utf-8")
+    remaining = sum(1 for row in read_wire(path) if row.get("code") not in (None, "<redacted>"))
+    return {"rows_redacted": redacted, "remaining": remaining}
+
+
 def show_pairs(rows: list[dict[str, Any]], since: float) -> list[dict[str, Any]]:
     """Native `work_lanes.show` requests after `since`, each with its matching reply row."""
     requests = [r for r in rows if r.get("at", 0) >= since and r.get("direction") == "client_to_daemon"
@@ -363,9 +383,24 @@ def home_state(elements: list[dict[str, Any]]) -> dict[str, Any] | None:
     return None
 
 
-# A list card is found by its "Lane log" button: one per card, carrying the lane id. On iOS only accessible
-# elements (pressables with a role) expose their testID; the card's Text ids (e.g. `lane-card-progress-`) are not.
-LIST_CARD = "lane-card-log-"
+# A list card is found by its "See chat for <title>" button: one per card in every list variant, carrying the lane
+# id. The compact default renders no "Lane log" row. On iOS only accessible elements (pressables with a role) expose
+# their testID; the card's Text ids (e.g. `lane-card-progress-`) are not.
+LIST_CARD = "lane-card-chat-"
+# Daemon order can move between reads (state, then updated_at desc, then id), so each order check reads the
+# inventory immediately before and after the screen; a disagreement or a lagging screen uses one attempt.
+ORDER_ATTEMPTS = 3
+
+
+def attention_rank(lane: dict[str, Any]) -> int:
+    """The map's attention rank (`laneAttentionRank`, LanesMap.tsx), applied as a stable sort to daemon order."""
+    state = lane.get("state")
+    working = ((lane.get("lead") or {}).get("presence") or {}).get("working")
+    return 0 if state == "blocked" else 1 if state == "active" and working else 2 if state == "active" else 3
+
+
+def lane_ids(lanes: list[dict[str, Any]]) -> list[str]:
+    return [lane["lane_id"] for lane in lanes]
 
 
 def lanes_status_button(elements: list[dict[str, Any]]) -> dict[str, Any] | None:
@@ -906,11 +941,7 @@ class Run:
         self.result["checks"]["probe_b"] = {"inventory": sd.summarize_frame(got["inventory"]),
                                             "show": sd.summarize_frame(got["show"])}
         self.inventory_order = [lane["lane_id"] for lane in got["inventory"]["lanes"]]
-        def rank(lane):
-            state = lane.get("state")
-            working = ((lane.get("lead") or {}).get("presence") or {}).get("working")
-            return 0 if state == "blocked" else 1 if state == "active" and working else 2 if state == "active" else 3
-        self.attention_order = [lane["lane_id"] for lane in sorted(got["inventory"]["lanes"], key=rank)]
+        self.attention_order = lane_ids(sorted(got["inventory"]["lanes"], key=attention_rank))
 
     # -- simulator side ----------------------------------------------------
     def configure_cfu(self) -> None:
@@ -1030,7 +1061,7 @@ class Run:
                 raise SetupFail("enrolled app did not receive a daemon snapshot through the loopback proxy")
             time.sleep(1)
         self.result["enrollment"] = {"mechanism": "normal enrollment deep link, fresh simulator, owned scratch registry",
-                                     "endpoint": sd.APP_WS_URL, "code_retained": False}
+                                     "endpoint": sd.APP_WS_URL}  # code_retained is set by the evidence scan
 
     def home_enrolled(self) -> None:
         """After enrollment: the assistant tab is unlocked and hydrated; the header is recorded when rendered."""
@@ -1114,10 +1145,26 @@ class Run:
             cards.sort(key=lambda e: Ui.frame(e)["y"])
         return [Ui.ident(e)[len(prefix):] for e in cards]
 
-    def assert_prefix_order(self, visible: list[str], label: str) -> None:
-        expected = [lane for lane in self.inventory_order if lane in visible]
-        if visible != expected or not visible or visible[0] != self.inventory_order[0]:
-            raise AssertFail(f"{label}: rendered order {visible} is not the daemon order")
+    def bracket_order(self, label: str, read_screen: Any, matches: Any) -> list[str]:
+        """Read the screen between two fresh inventory probes; pass only when both probes give the same lane order
+        and the screen matches it exactly. At most ORDER_ATTEMPTS attempts, then fail closed."""
+        attempts = self.result["checks"].setdefault("order_brackets", {}).setdefault(label, [])
+        for _ in range(ORDER_ATTEMPTS):
+            before = list((self.probe()["inventory"] or {}).get("lanes", []))
+            screen = read_screen()
+            after = list((self.probe()["inventory"] or {}).get("lanes", []))
+            ok = lane_ids(before) == lane_ids(after) and matches(screen, before)
+            attempts.append({"before": lane_ids(before), "after": lane_ids(after), "screen": screen, "ok": ok})
+            if ok:
+                self.inventory_order = lane_ids(before)
+                return screen
+        raise AssertFail(f"{label}: rendered order never matched an agreed daemon order in {ORDER_ATTEMPTS} attempts")
+
+    def bracket_list(self, label: str) -> list[str]:
+        def matches(visible: list[str], lanes: list[dict[str, Any]]) -> bool:
+            order = lane_ids(lanes)
+            return bool(visible) and visible == [lane for lane in order if lane in visible] and visible[0] == order[0]
+        return self.bracket_order(label, lambda: self.visible_order(LIST_CARD), matches)
 
     def show_after(self, since: float, timeout_s: float = 35) -> dict[str, Any]:
         holder: dict[str, Any] = {}
@@ -1159,8 +1206,7 @@ class Run:
 
     def run_a_list(self) -> None:
         ui = self.ui
-        visible = self.visible_order(LIST_CARD)
-        self.assert_prefix_order(visible, "run A list")
+        visible = self.bracket_list("run A list")
         for lane in visible:
             ui.find(f"lane-card-members-pending-{lane}", 5)
         ui.absent(f"lane-card-member-{sd.big_lane_id()}-")
@@ -1250,8 +1296,7 @@ class Run:
 
     def run_b_list(self) -> None:
         ui, big = self.ui, sd.big_lane_id()
-        visible = self.visible_order(LIST_CARD)
-        self.assert_prefix_order(visible, "run B list")
+        visible = self.bracket_list("run B list")
         since = time.time()
         ui.tap(f"lane-card-show-all-{big}")
         pair = self.show_after(since)
@@ -1343,14 +1388,19 @@ class Run:
 
     def run_b_map_pages(self) -> None:
         self.show_view("map")
-        elements = self.ui.ids("lanes-map-lane-")
-        ids = [Ui.ident(e).removeprefix("lanes-map-lane-") for e in elements]
-        if len(ids) != 9 or set(ids) != set(sd.all_lane_ids()):
-            raise AssertFail("nine-lane map does not expose all nine lane nodes")
-        center = Ui.frame(self.ui.find("lanes-map-assistant"))
-        order = two_ring_order(elements, center)
-        if order != self.attention_order:
-            raise AssertFail(f"map attention order {order} differs from {self.attention_order}")
+
+        def read_rings() -> list[str]:
+            elements = self.ui.ids("lanes-map-lane-")
+            ids = [Ui.ident(e).removeprefix("lanes-map-lane-") for e in elements]
+            if len(ids) != 9 or set(ids) != set(sd.all_lane_ids()):
+                raise AssertFail("nine-lane map does not expose all nine lane nodes")
+            return two_ring_order(elements, Ui.frame(self.ui.find("lanes-map-assistant")))
+
+        def matches(order: list[str], lanes: list[dict[str, Any]]) -> bool:
+            return order == lane_ids(sorted(lanes, key=attention_rank))
+
+        order = self.bracket_order("run B map attention", read_rings, matches)
+        self.attention_order = order
         for lane in (order[0], order[6]):
             self.focus_lane(lane)
             self.unfocus_to_page_one()
@@ -1432,9 +1482,19 @@ class Run:
         if len(nodes) != 16 or len({Ui.ident(e) for e in nodes}) != 16:
             raise AssertFail("overflow map does not expose exactly 16 unique lane nodes")
         ui.screenshot("overflow-map")
-        ui.tap_element(control, "overflow")
-        ui.find("lanes-view-list")
-        observed = [x.removeprefix(LIST_CARD) for x in ui.collect_scrolling(LIST_CARD, len(expected), max_swipes=30)]
+        reads = {"count": 0}
+
+        def read_list() -> list[str]:
+            if reads["count"]:  # re-enter the destination from the map's overflow control
+                self.show_view("map")
+                ui.tap_element(overflow_control(ui.elements(), len(expected)), "overflow")
+            else:
+                ui.tap_element(control, "overflow")
+            reads["count"] += 1
+            ui.find("lanes-view-list")
+            return [x.removeprefix(LIST_CARD) for x in ui.collect_scrolling(LIST_CARD, len(expected), max_swipes=30)]
+
+        observed = self.bracket_order("overflow list", read_list, lambda seen, lanes: seen == lane_ids(lanes))
         validate_overflow_list(observed, expected)
         ui.screenshot("overflow-list")
         self.result["overflow_phase"].update(map_nodes=16, observed_ids=observed, completed_at=now_iso())
@@ -1630,9 +1690,14 @@ class Run:
 
     def hash_evidence(self) -> dict[str, Any]:
         proxy_dir = self.run_dir / "proxy"
+        self.result["wire_code_scan"] = scrub_wire_codes(proxy_dir / "throttle-wire.jsonl")
         for name in ("throttle-wire.jsonl", "throttle-process.json"):
             if (proxy_dir / name).is_file():
                 shutil.copyfile(proxy_dir / name, self.evidence / name)
+        if self.result["wire_code_scan"]["remaining"]:
+            raise RuntimeError("wire evidence still holds an enrollment code")
+        if "enrollment" in self.result:
+            self.result["enrollment"]["code_retained"] = False
         scratch_hashes = {}
         if self.scratch.is_dir():
             sd.assert_scratch_paths(self.scratch)
