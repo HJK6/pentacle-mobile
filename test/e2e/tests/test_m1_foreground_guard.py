@@ -1,4 +1,4 @@
-"""Offline controls: Settings PID/root from Merlin run 91dc3689; other states synthetic."""
+"""Offline controls: Settings PID/root from retained run 91dc3689; other states synthetic."""
 import json
 import subprocess
 import pytest
