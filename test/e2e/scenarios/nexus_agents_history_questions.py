@@ -89,22 +89,14 @@ def run(config: dict, stream, cap=None) -> Verdict:
     ).finish()
 
 
-def visible_ax_text(elements: list[dict], expected: str) -> bool:
-    from ._m1_native_ui import NativeUI
-    try:
-        return len(NativeUI.visible(elements, label=expected)) == 1
-    except RuntimeError:
-        return False
-
-
-
 def drive_question(ui, control, surface: str, mode: str) -> None:
     if surface not in {'session', 'card'} or mode not in {'choice', 'free', 'combined'}:
         raise ValueError('unsupported M1 question case')
     question_id = f'm1-{surface}-{mode}'
     body = f'M1 {surface} {mode} question'
     is_free = mode == 'free'
-    options = [] if is_free else [{'label': 'Proceed', 'value': 'proceed', 'description': 'M1 option detail.'}]
+    options = ([{'id': 'acknowledge', 'label': 'Acknowledge'}] if is_free else
+               [{'label': 'Proceed', 'value': 'proceed', 'description': 'M1 option detail.'}])
     notification = {
         'notification_id': f'notification-{question_id}', 'producer': 'agent_question.v1',
         'state': 'open', 'severity': 'info', 'title': body, 'body': body,
@@ -139,13 +131,13 @@ def drive_question(ui, control, surface: str, mode: str) -> None:
 
 
 def drive_history_navigation(ui, trace) -> None:
-    ui.wait(label=HISTORY_TEXT)
+    ui.wait_hit(HISTORY_TEXT)
     trace.mark()
     ui.tap('agent-thread-load-more')
     if trace.history_rows() != ['brief:older', 'tell:current']:
         raise RuntimeError('M1 older history missing, reordered or duplicated')
-    ui.wait(label='Older direct-child brief.')
-    ui.wait(label=HISTORY_TEXT)
+    ui.wait_hit('Older direct-child brief.')
+    ui.wait_hit(HISTORY_TEXT)
     ui.tap('agent-thread-back-status')
     ui.wait(label='Close session status')
     ui.tap('nexus-status-history-mock-host-child-worker')
@@ -154,8 +146,8 @@ def drive_history_navigation(ui, trace) -> None:
     for _ in range(8):
         ui.swipe_up()
         try:
-            ui.wait(label='Worker 9', timeout=1)
-            ui.wait(label='Inspect worker 9 history.', timeout=1)
+            ui.wait_row('Worker 9', timeout=1)
+            ui.wait_row('Inspect worker 9 history.', timeout=1)
             return
         except RuntimeError:
             continue
@@ -165,18 +157,18 @@ def drive_history_navigation(ui, trace) -> None:
 def drive_two_turns(ui, control, trace) -> None:
     ui.type_text('composer-input', 'M1 first turn')
     ui.tap('composer-send-button')
-    ui.wait(label='M1 first turn')
-    ui.wait(label='First synthetic reply.')
+    ui.wait_hit('M1 first turn')
+    ui.wait_hit('First synthetic reply.')
     trace.mark()
     closed = control.rpc('debug_replay_close', client='pentacle-mobile', close_reason='M1 reconnect')
     if closed.get('closed') != 1 or not trace.wait_reconnect():
         raise RuntimeError('M1 mock reconnect not observed')
-    ui.wait(label='M1 first turn')
-    ui.wait(label='First synthetic reply.')
+    ui.wait_hit('M1 first turn')
+    ui.wait_hit('First synthetic reply.')
     ui.type_text('composer-input', 'M1 second turn')
     ui.tap('composer-send-button')
-    ui.wait(label='M1 second turn')
-    ui.wait(label='Second synthetic reply.')
+    ui.wait_hit('M1 second turn')
+    ui.wait_hit('Second synthetic reply.')
     for text in ('M1 first turn', 'First synthetic reply.', 'M1 second turn', 'Second synthetic reply.'):
         if ui.count(text) != 1:
             raise RuntimeError('M1 turn missing or duplicated: ' + text)

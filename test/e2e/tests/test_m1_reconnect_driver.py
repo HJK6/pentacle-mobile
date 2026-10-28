@@ -8,6 +8,7 @@ class UI:
     def type_text(self, ident, value): self.calls.append(('type', ident, value))
     def tap(self, identifier=None, label=None): self.calls.append(('tap', identifier, label))
     def wait(self, identifier=None, label=None, timeout=20): self.calls.append(('wait', identifier, label))
+    def wait_hit(self, label, timeout=20): self.calls.append(('hit', label))
     def count(self, label): return 2 if self.duplicate and label == 'Second synthetic reply.' else 1
 
 
@@ -27,6 +28,7 @@ def test_two_turn_driver_requires_reconnect_and_unique_visible_history():
     m1.drive_two_turns(ui, Control(), Trace())
     assert ('type', 'composer-input', 'M1 first turn') in ui.calls
     assert ('type', 'composer-input', 'M1 second turn') in ui.calls
+    assert ('hit', 'Second synthetic reply.') in ui.calls
     with pytest.raises(RuntimeError): m1.drive_two_turns(UI(), Control(0), Trace())
     with pytest.raises(RuntimeError): m1.drive_two_turns(UI(), Control(), Trace(False))
     with pytest.raises(RuntimeError): m1.drive_two_turns(UI(True), Control(), Trace())

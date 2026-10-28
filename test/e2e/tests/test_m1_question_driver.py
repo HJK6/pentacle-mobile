@@ -35,3 +35,22 @@ def test_answer_surface_requires_exact_stub_frame(surface, mode, selections, tex
         assert ('text', 'question-freetext-0' if surface == 'session' else 'smart-question-free-text', 'free answer') in ui.calls
     with pytest.raises(RuntimeError):
         m1.drive_question(UI(), Control(matches=False), surface, mode)
+
+
+def test_free_text_question_matches_real_loader_contract(tmp_path):
+    import json
+    from pathlib import Path
+    from e2e.tools.scripted_replay import ScriptValidationError, load_script
+    control = Control()
+    m1.drive_question(UI(), control, 'session', 'free')
+    notification = control.calls[0][1]['notification']
+    source = Path(__file__).resolve().parents[1] / 'fixtures/scripted_daemon/m1_broad_questions.json'
+    payload = json.loads(source.read_text())
+    payload['notifications'] = [{'id': 'free', 'at_ms': 1, 'notification': notification}]
+    fixture = tmp_path / 'question.json'
+    fixture.write_text(json.dumps(payload))
+    assert load_script(fixture).notifications
+    payload['notifications'][0]['notification']['question']['options'] = []
+    fixture.write_text(json.dumps(payload))
+    with pytest.raises(ScriptValidationError, match='non-empty array'):
+        load_script(fixture)

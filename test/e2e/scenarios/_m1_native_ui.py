@@ -55,6 +55,49 @@ class NativeUI:
                 found.append(element)
         return found
 
+    def hit_visible(self, label, *, roster=False):
+        try:
+            elements = self.elements()
+            rows = self.visible(elements, label=label)
+            if len(rows) != 1:
+                return False
+            row = rows[0]
+            frame = row['frame']
+            x = int(frame['x'] + frame['width'] / 2)
+            points = [(x, int(frame['y'] + frame['height'] / 2))]
+            if roster:
+                headers = self.visible(elements, identifier='status-overlay-close')
+                if len(headers) != 1:
+                    return False
+                header_frame = headers[0]['frame']
+                points.append((x, int(frame['y'] + frame['height'] * .75)))
+                if any(y <= header_frame['y'] + header_frame['height'] for _, y in points):
+                    return False
+            identifier = row.get('AXIdentifier') or row.get('AXUniqueId')
+            for px, py in points:
+                hit = json.loads(self._command('describe-point', str(px), str(py), '--json'))
+                if not isinstance(hit, dict) or hit.get('AXLabel') != label:
+                    return False
+                if identifier and identifier not in (hit.get('AXIdentifier'), hit.get('AXUniqueId')):
+                    return False
+            return True
+        except (RuntimeError, ValueError, TypeError, KeyError):
+            return False
+
+    def row_visible(self, label):
+        return self.hit_visible(label, roster=True)
+
+    def wait_hit(self, label, timeout=20, *, roster=False):
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if self.hit_visible(label, roster=roster):
+                return
+            time.sleep(.2)
+        raise RuntimeError('M1 visible row did not pass hit testing: ' + label)
+
+    def wait_row(self, label, timeout=1):
+        self.wait_hit(label, timeout=timeout, roster=True)
+
     def count(self, label):
         # Include off-screen accessibility nodes when checking duplicate rows.
         return sum(1 for element in self.elements() if element.get('AXLabel') == label)

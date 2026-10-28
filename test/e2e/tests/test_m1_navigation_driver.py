@@ -9,6 +9,12 @@ class UI:
     def wait(self, identifier=None, label=None, timeout=20):
         self.calls.append(('wait', identifier, label))
         if self.broken is not None and (identifier == self.broken or label == self.broken): raise RuntimeError('missing')
+    def wait_hit(self, label, timeout=20):
+        self.calls.append(('hit', label))
+        if self.broken == label: raise RuntimeError('missing')
+    def wait_row(self, label, timeout=1):
+        self.calls.append(('row', label))
+        if self.broken == label: raise RuntimeError('missing')
     def swipe_up(self): self.calls.append(('swipe',))
 
 
@@ -22,9 +28,12 @@ def test_navigation_exercises_paging_and_both_exits():
     ui = UI()
     m1.drive_history_navigation(ui, Trace(['brief:older', 'tell:current']))
     assert ('tap', 'agent-thread-load-more', None) in ui.calls
+    assert ('hit', 'Older direct-child brief.') in ui.calls
+    assert ('hit', m1.HISTORY_TEXT) in ui.calls
     assert ('tap', 'agent-thread-back-status', None) in ui.calls
     assert ('tap', None, 'Close thread history') in ui.calls
-    assert ('wait', None, 'Worker 9') in ui.calls
+    assert ('row', 'Worker 9') in ui.calls
+    assert ('row', 'Inspect worker 9 history.') in ui.calls
     assert ('swipe',) in ui.calls
 
 
