@@ -727,6 +727,8 @@ def _execute_native(name, config, runs_dir, stem, *, _catalog_phase=None, _confi
         stream.start()
         if not recorder.start():
             raise RuntimeError("case recorder did not become ready")
+        if name == 'nexus_agents_history_questions' and config.get('M1_BROAD') == '1':
+            config['_video_started_at'] = recorder.ready_at
         if name == "report_viewer_runtime_sentinel" and sentinel == "fatal":
             token = uuid.uuid4().hex
             class ReleaseHandler(http.server.BaseHTTPRequestHandler):

@@ -2,14 +2,65 @@
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import time
+
+from ..harness import scenario_simctl_command
+
+
+class SystemUIInterception(Exception):
+    def __init__(self, foreground, video_timestamp_s):
+        self.foreground = foreground or 'unavailable'
+        self.video_timestamp_s = video_timestamp_s
+        super().__init__('system UI interception: ' + self.foreground)
+
+
+def foreground_bundle(elements, launchctl):
+    roots = [e for e in elements if e.get('role') == 'AXApplication']
+    if len(roots) != 1 or not isinstance(roots[0].get('pid'), int):
+        return None
+    pid = str(roots[0]['pid'])
+    matches = []
+    for line in launchctl.splitlines():
+        fields = line.split()
+        if len(fields) < 3 or fields[0] != pid:
+            continue
+        match = re.fullmatch(r'UIKitApplication:([^\[]+)\[.+', fields[-1])
+        if match:
+            matches.append(match.group(1))
+    return matches[0] if len(matches) == 1 else None
+
+
+def check_navigation(expected_bundle, foreground, changed, timestamp):
+    if not foreground or foreground != expected_bundle:
+        raise SystemUIInterception(foreground, timestamp)
+    if not changed:
+        raise AssertionError('M1 expected navigation state did not change')
 
 
 class NativeUI:
     def __init__(self, config):
         self.udid = config['SIMULATOR_UDID']
         self.trace = config['trace']
+        self.config = config
+        self.bundle = config.get('PENTACLE_GATE_BOUND_BUNDLE_ID') or config.get('PENTACLE_BUNDLE_ID')
+        self.video_started_at = config.get('_video_started_at')
+
+    def read_foreground(self):
+        try:
+            elements = self.elements()
+            result = subprocess.run(scenario_simctl_command('spawn', self.udid, 'launchctl', 'list', config=self.config),
+                                    capture_output=True, text=True, timeout=20, check=False)
+            self.trace('m1 foreground launchctl', result)
+            return foreground_bundle(elements, result.stdout) if result.returncode == 0 else None
+        except (OSError, ValueError, RuntimeError, subprocess.TimeoutExpired):
+            return None
+
+    def check_foreground(self):
+        foreground = self.read_foreground()
+        stamp = max(0.0, time.time() - self.video_started_at) if isinstance(self.video_started_at, (int, float)) else None
+        check_navigation(self.bundle, foreground, True, stamp)
 
     def _command(self, *args):
         result = subprocess.run(['idb', 'ui', *args, '--udid', self.udid], capture_output=True,
@@ -90,6 +141,7 @@ class NativeUI:
     def wait_hit(self, label, timeout=20, *, roster=False):
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
+            self.check_foreground()
             if self.hit_visible(label, roster=roster):
                 return
             time.sleep(.2)
@@ -100,11 +152,13 @@ class NativeUI:
 
     def count(self, label):
         # Include off-screen accessibility nodes when checking duplicate rows.
+        self.check_foreground()
         return sum(1 for element in self.elements() if element.get('AXLabel') == label)
 
     def wait(self, identifier=None, label=None, timeout=20):
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
+            self.check_foreground()
             found = self.visible(self.elements(), identifier, label)
             if len(found) == 1:
                 return found[0]
@@ -114,6 +168,7 @@ class NativeUI:
     def present(self, identifier=None, label=None, timeout=1):
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
+            self.check_foreground()
             found = self.visible(self.elements(), identifier, label)
             if len(found) > 1:
                 raise RuntimeError('M1 visible target ambiguous: ' + str(identifier or label))
@@ -125,6 +180,7 @@ class NativeUI:
     def wait_absent(self, identifier=None, label=None, timeout=15):
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
+            self.check_foreground()
             if not self.visible(self.elements(), identifier, label):
                 if self.absent(identifier, label):
                     return True
@@ -134,6 +190,7 @@ class NativeUI:
     def absent(self, identifier=None, label=None, duration=2):
         deadline = time.monotonic() + duration
         while time.monotonic() < deadline:
+            self.check_foreground()
             if self.visible(self.elements(), identifier, label):
                 return False
             time.sleep(.2)
@@ -151,6 +208,26 @@ class NativeUI:
             raise RuntimeError('M1 target disabled: ' + str(identifier or label))
         frame = item['frame']
         self._command('tap', str(int(frame['x'] + frame['width'] / 2)), str(int(frame['y'] + frame['height'] / 2)))
+        self.check_foreground()
+        # Navigation targets have an explicit destination; selecting or editing a
+        # control is verified by its caller's corresponding interaction oracle.
+        target = identifier or label
+        destinations = {
+            'agent-thread-back-status': ('label', 'Close session status'),
+            'nexus-status-history-mock-host-child-worker': ('label', 'Close thread history'),
+            'Back to chats': ('id', 'chat-row-mock-host-mock-session'),
+            'chat-row-mock-host-control-session': ('id', 'composer-input'),
+            'chat-row-mock-host-card-control': ('id', 'composer-input'),
+            'chat-row-mock-host-childless': ('id', 'composer-input'),
+            'chat-row-mock-host-mock-session': ('id', 'composer-input'),
+            'Close thread history': ('label', 'Close session status'),
+        }
+        if target == 'Close session status':
+            if not self.wait_absent(identifier='status-overlay-close'):
+                raise AssertionError('M1 status overlay did not close')
+        elif target in destinations:
+            kind, destination = destinations[target]
+            self.wait(**({'identifier': destination} if kind == 'id' else {'label': destination}))
 
     def type_text(self, identifier, text):
         self.tap(identifier)

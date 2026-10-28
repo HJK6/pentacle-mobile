@@ -61,5 +61,6 @@ def test_present_rejects_ambiguous_label(monkeypatch):
     root = {'role': 'AXApplication', 'frame': {'x': 0, 'y': 0, 'width': 100, 'height': 100}}
     row = {'AXLabel': 'M1 question', 'frame': {'x': 5, 'y': 5, 'width': 10, 'height': 10}}
     monkeypatch.setattr(ui, 'elements', lambda: [root, row, dict(row)])
+    monkeypatch.setattr(ui, 'check_foreground', lambda: None)
     with pytest.raises(RuntimeError, match='ambiguous'):
         ui.present(label='M1 question')
