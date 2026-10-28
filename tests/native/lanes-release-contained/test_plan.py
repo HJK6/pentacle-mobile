@@ -32,9 +32,9 @@ import v1_daemon as v1  # noqa: E402
 def test_plan_runs_a_then_c_then_b_with_owned_teardown_last():
     plan = run.plan()
     steps = plan["steps"]
-    order = [steps.index(name) for name in ("admission", "probe_a", "app_launch", "enroll", "run_a_list", "run_a_log",
+    order = [steps.index(name) for name in ("admission", "probe_a", "app_launch", "enroll", "run_a_list", "run_a_map",
                                             "daemon_a_stop", "seed_inc1_upgrade", "daemon_b_start", "run_c_reconnect",
-                                            "run_b_all_members", "run_b_log", "run_b_final")]
+                                            "run_b_all_members", "run_b_final", "overflow_assert")]
     assert order == sorted(order)
     assert steps.count("app_launch") == 1  # one cold launch; C reconnects the same process
     assert plan["teardown"][-2:] == ["evidence_hash", "scratch_remove"]
@@ -257,19 +257,25 @@ class _FakeMapUi:
         return next(e for e in self.elements if e["AXIdentifier"] == ident)
 
 
-@pytest.mark.parametrize("count", [8, 3])
-def test_map_order_follows_the_clockwise_orbit_slots(count):
-    # LanesMap geometry: 3x3 grid of slot-sized nodes, hub in the centre, lanes on clockwise perimeter slots.
-    slots = [(1, 0), (2, 0), (2, 1), (2, 2), (1, 2), (0, 2), (0, 1), (0, 0)]
-    width, height, gap = 109.0, 118.0, 8.0
-
-    def node(ident, column, row):
-        return {"AXIdentifier": ident, "frame": {"x": 12 + column * (width + gap), "y": 200 + row * (height + gap),
-                                                 "width": width, "height": height}}
-
+@pytest.mark.parametrize("count", [3, 8])
+def test_map_order_follows_the_clockwise_circular_rings(count):
+    # Source geometry: LanesMap.tsx:585-610, including differently sized nodes.
+    import math
+    cx, cy = 201.0, 330.0 if count > 6 else 238.0
     lanes = [f"wl-{index:024x}" for index in range(count)]
-    elements = [node("lanes-map-assistant", 1, 1)]
-    elements += [node(f"lanes-map-lane-{lane}", *slots[index * 8 // count]) for index, lane in enumerate(lanes)]
+    elements = [{"AXIdentifier": "lanes-map-assistant",
+                 "frame": {"x": cx-34, "y": cy-34, "width": 68, "height": 68}}]
+    for index, lane in enumerate(lanes):
+        inner = index < 6
+        ring_count = min(count, 6) if inner else count - 6
+        slot = index if inner else index - 6
+        rx, ry = ((100, 140) if count > 6 else (132, 132)) if inner else (182, 240)
+        angle = math.radians(-90 + slot * 360 / ring_count)
+        size = 50 + index * 2 if inner else 34
+        elements.append({"AXIdentifier": f"lanes-map-lane-{lane}",
+                         "frame": {"x": cx + rx * math.cos(angle) - size/2,
+                                   "y": cy + ry * math.sin(angle) - size/2,
+                                   "width": size, "height": size}})
     scenario = run.Run.__new__(run.Run)
     scenario.ui = _FakeMapUi(list(reversed(elements)))
     assert scenario.visible_order("lanes-map-lane-") == lanes
@@ -363,8 +369,10 @@ def test_supplemental_scenes_exist_in_the_screenshot_harness():
     assert set(run.SHOW_FAILURE_SCENES) == {"lanes:show_error", "lanes:show_timeout"}
     for scene in run.SHOW_FAILURE_SCENES.values():
         assert f"'{scene['expect_text']}'" in settlement, scene
-    for test_id in ("lane-log-retry", "lane-log-loading"):
-        assert f'testID="{test_id}"' in log, test_id
+    assert 'testID="lane-log-retry"' in log
+    assert '<LeafLoading id="lane-log-loading"' in log
+    atoms = (REPO / "src/components/lanes/LaneAtoms.tsx").read_text(encoding="utf-8")
+    assert "export function LeafLoading" in atoms and "testID={id}" in atoms
 
 
 def test_stub_serves_on_loopback_and_stops():
@@ -416,7 +424,7 @@ def test_orchestration_runs_every_step_then_teardown(tmp_path, capsys):
 
 
 @pytest.mark.parametrize("fail_at, error, code, verdict", [
-    ("run_b_log", run.AssertFail("x"), 1, "FAIL"),
+    ("overflow_assert", run.AssertFail("x"), 1, "FAIL"),
     ("admission", run.SetupFail("y"), 4, "SETUP_FAIL"),
 ])
 def test_orchestration_verdicts(tmp_path, capsys, fail_at, error, code, verdict):

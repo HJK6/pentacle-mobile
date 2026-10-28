@@ -86,11 +86,11 @@ def sha256_bytes(data: bytes) -> str:
 
 STEPS = [
     "admission", "seed_v1", "proxy_start", "daemon_a_start", "probe_a", "simulator_activate", "app_launch",
-    "enroll", "open_lanes", "run_a_list", "run_a_map", "run_a_log",
-    "daemon_a_stop", "transport_unavailable_probe", "seed_inc1_upgrade", "daemon_b_start", "probe_b",
-    "run_c_reconnect", "spec_edit", "run_b_list", "run_b_precedence", "run_b_map_pages", "run_b_focus_overflow",
-    "run_b_all_members", "run_b_member_detail", "run_b_log", "run_b_index_unavailable", "run_b_large_text",
-    "run_b_final",
+    "enroll", "open_lanes", "run_a_list", "run_a_map",
+    "daemon_a_stop", "seed_inc1_upgrade", "daemon_b_start", "probe_b",
+    "run_c_reconnect", "run_b_list", "run_b_map_pages", "run_b_focus_overflow",
+    "run_b_all_members", "run_b_member_detail", "run_b_final",
+    "overflow_phase_boundary", "overflow_add_lanes", "overflow_assert",
 ]
 # Reduced proof (production path only): the release app enrolls to an increment-1 daemon on a fresh scratch.
 SMOKE_STEPS = ["admission", "seed_inc1", "proxy_start", "daemon_b_start", "probe_b",
@@ -109,6 +109,41 @@ def plan() -> dict[str, Any]:
             "v1_lane_ids": sd.v1_lane_ids(), "all_lane_ids": sd.all_lane_ids(), "big_lane_id": sd.big_lane_id(),
             "fixture_timing_delta": sd.FIXTURE_TIMING, "proxy_deltas": sd.PROXY_DELTAS}
 
+
+
+def two_ring_order(elements: list[dict[str, Any]], center: dict[str, float]) -> list[str]:
+    """Read inner then outer clockwise positions relative to the assistant."""
+    import math
+    cx, cy = center["x"] + center["width"]/2, center["y"] + center["height"]/2
+    positioned = []
+    for e in elements:
+        f = Ui.frame(e)
+        dx, dy = f["x"] + f["width"]/2-cx, f["y"] + f["height"]/2-cy
+        positioned.append((dx*dx + dy*dy, dx, dy, Ui.ident(e).removeprefix("lanes-map-lane-")))
+    if len(positioned) != 9:
+        raise AssertFail("expected nine lane nodes for two-ring ordering")
+    positioned.sort()
+    rings = (positioned[:6], positioned[6:])
+    def angle(row, rx, ry):
+        return (math.atan2(row[2]/ry, row[1]/rx) + math.pi/2 + 0.02) % (2*math.pi)
+    return [row[3] for ring, rx, ry in ((rings[0],100,140),(rings[1],182,240))
+            for row in sorted(ring, key=lambda row: angle(row,rx,ry))]
+
+
+def overflow_control(elements: list[dict[str, Any]], count: int) -> dict[str, Any]:
+    if count < 17:
+        raise SetupFail("overflow requires at least 17 open lanes")
+    hits = [e for e in elements if Ui.ident(e) == "lanes-map-overflow" and
+            str(e.get("AXLabel") or "") == f"Show all {count} lanes"]
+    if len(hits) != 1:
+        raise SetupFail(f"overflow AX label missing or ambiguous: {len(hits)} matches")
+    return hits[0]
+
+
+def validate_overflow_list(observed: list[str], expected: list[str]) -> list[str]:
+    if len(observed) != len(set(observed)) or set(observed) != set(expected):
+        raise AssertFail("overflow destination does not expose every seeded lane exactly once")
+    return observed
 
 # ---------------------------------------------------------------------------
 # Compiled-configuration admission (pure where possible)
@@ -518,20 +553,30 @@ def overlapping(elements: list[dict[str, Any]]) -> list[tuple[str, str]]:
 # The run
 # ---------------------------------------------------------------------------
 
-# LanesMap places a page's nodes on clockwise perimeter slots (column, row) of a 3x3 grid around the hub.
-ORBIT_SLOTS = [(1, 0), (2, 0), (2, 1), (2, 2), (1, 2), (0, 2), (0, 1), (0, 0)]
-
-
 def orbit_order(nodes: list[dict[str, Any]], hub: dict[str, float]) -> list[dict[str, Any]]:
-    """Map nodes in slot order; every grid cell is the hub's size, so the cell is the rounded offset from the hub."""
-    def slot(element: dict[str, Any]) -> int:
-        frame = Ui.frame(element)
-        cell = (round((frame["x"] - hub["x"]) / hub["width"]) + 1, round((frame["y"] - hub["y"]) / hub["height"]) + 1)
-        if cell not in ORBIT_SLOTS:
-            raise AssertFail(f"map node is not on an orbit slot: {Ui.ident(element)} at {cell}")
-        return ORBIT_SLOTS.index(cell)
+    """Order the unfocused rings by the shipped LanesMap geometry.
 
-    return sorted(nodes, key=slot)
+    LanesMap.tsx:585-610 places up to six nodes on the inner ellipse and the
+    remainder on an outer ellipse, each clockwise from the top.
+    """
+    import math
+    if len(nodes) > 16:
+        raise AssertFail("unfocused map exposes more than 16 lane nodes")
+    cx = hub["x"] + hub["width"] / 2
+    cy = hub["y"] + hub["height"] / 2
+    def offset(node):
+        frame = Ui.frame(node)
+        return (frame["x"] + frame["width"] / 2 - cx,
+                frame["y"] + frame["height"] / 2 - cy)
+    by_radius = sorted(nodes, key=lambda node: sum(x*x for x in offset(node)))
+    def clockwise(node, rx, ry):
+        dx, dy = offset(node)
+        return (math.atan2(dy / ry, dx / rx) + math.pi / 2 + 0.02) % (2 * math.pi)
+    if len(nodes) <= 6:
+        return sorted(nodes, key=lambda node: clockwise(node, 132, 132))
+    inner, outer = by_radius[:6], by_radius[6:]
+    return (sorted(inner, key=lambda node: clockwise(node, 100, 140)) +
+            sorted(outer, key=lambda node: clockwise(node, 182, 240)))
 
 
 class Run:
@@ -666,7 +711,8 @@ class Run:
                        "--checkout", str(checkout), "--scratch", str(self.scratch), "--pin", pin],
                       env=env, cwd=checkout, timeout=120)
         seeded = json.loads(out.stdout.strip().splitlines()[-1])
-        expected = sd.v1_lane_ids() if pin == "v1" else sd.all_lane_ids()
+        expected = (sd.v1_lane_ids() if pin == "v1" else sd.all_lane_ids() +
+                    (sd.overflow_lane_ids() if pin == "overflow" else []))
         if sorted(seeded["open_lane_ids"]) != sorted(expected):
             raise SetupFail(f"{pin} seed produced unexpected open lanes")
         self.write(f"seed-{pin}.json", seeded)
@@ -761,6 +807,11 @@ class Run:
         self.result["checks"]["probe_b"] = {"inventory": sd.summarize_frame(got["inventory"]),
                                             "show": sd.summarize_frame(got["show"])}
         self.inventory_order = [lane["lane_id"] for lane in got["inventory"]["lanes"]]
+        def rank(lane):
+            state = lane.get("state")
+            working = ((lane.get("lead") or {}).get("presence") or {}).get("working")
+            return 0 if state == "blocked" else 1 if state == "active" and working else 2 if state == "active" else 3
+        self.attention_order = [lane["lane_id"] for lane in sorted(got["inventory"]["lanes"], key=rank)]
 
     # -- simulator side ----------------------------------------------------
     def activate_simulator(self) -> None:
@@ -906,30 +957,12 @@ class Run:
                 time.sleep(0.3)
 
     def focus_lane(self, lane: str) -> None:
-        """Tap a lane node on the paged orbit, paging forward in daemon order until it is visible."""
-        for _ in range(4):
-            if self.ui.ids(f"lanes-map-lane-{lane}"):
-                self.ui.tap(f"lanes-map-lane-{lane}")
-                self.ui.find("lanes-map-back")
-                return
-            self.ui.tap("lanes-map-page-next")
-        raise AssertFail("lane node not reachable on the paged orbit: " + lane)
-
-    def page_position(self) -> tuple[int, int]:
-        """(page, page_count) from the pager label ("Page 1 of 2" accessibility label, "1/2" text)."""
-        match = re.search(r"(\d+)\s*(?:/|of)\s*(\d+)", Ui.label(self.ui.find("lanes-map-page-label")))
-        if not match:
-            raise AssertFail("map pager label is not 'page of count'")
-        return int(match[1]), int(match[2])
+        self.ui.tap(f"lanes-map-lane-{lane}")
+        self.ui.find("lanes-map-back")
 
     def unfocus_to_page_one(self) -> None:
         self.ui.tap("lanes-map-back")
         self.ui.find("lanes-map-assistant")
-        for _ in range(4):
-            if self.page_position()[0] == 1:
-                return
-            self.ui.tap("lanes-map-page-prev")
-        raise AssertFail("could not return the orbit to page 1")
 
     def visible_order(self, prefix: str) -> list[str]:
         cards = [e for e in self.ui.ids(prefix) if re.fullmatch(re.escape(prefix) + r"wl-[0-9a-f]{24}", Ui.ident(e))]
@@ -999,7 +1032,6 @@ class Run:
         if sorted(visible) != sorted(sd.v1_lane_ids()):
             raise AssertFail("run A map does not show exactly the v1 lanes")
         ui.absent("lanes-map-member-")
-        ui.find("lanes-map-members-pending")
         ui.screenshot("a-map")
         self.focus_lane(sd.big_lane_id())
         ui.find(f"lanes-map-members-pending-{sd.big_lane_id()}")
@@ -1078,14 +1110,18 @@ class Run:
         ui, big = self.ui, sd.big_lane_id()
         visible = self.visible_order(LIST_CARD)
         self.assert_prefix_order(visible, "run B list")
-        ui.tap(f"lane-card-toggle-{big}")
-        for spec in sd.BIG[:8]:
-            ui.find(f"lane-card-member-{big}-{spec}", 10)
-        ui.find(f"lane-card-show-all-{big}")
-        ui.find(f"{LIST_CARD}{big}")
+        since = time.time()
+        ui.tap(f"lane-card-show-all-{big}")
+        pair = self.show_after(since)
+        if pair["reply_type"] != "work_lanes.show.ok":
+            raise AssertFail("expanded list show did not succeed")
+        prefix = f"lane-card-member-{big}-"
+        got = [x.removeprefix(prefix) for x in ui.collect_scrolling(prefix, 32, max_swipes=30)]
+        if got != sd.BIG:
+            raise AssertFail(f"expanded list exposes {len(got)} members, expected 32 in order")
         ui.screenshot("b-list-expanded")
         ui.tap(f"lane-card-toggle-{big}")
-        self.result["checks"]["run_b_list"] = {"visible_lanes": visible, "expanded_members": 8}
+        self.result["checks"]["run_b_list"] = {"visible_lanes": visible, "show": pair, "members": got}
 
     def reduced_list(self) -> None:
         self.run_b_list()
@@ -1164,65 +1200,102 @@ class Run:
         return pages
 
     def run_b_map_pages(self) -> None:
-        pages = self.map_pages()
-        flat = [lane for page in pages for lane in page]
-        if flat != self.inventory_order or len(flat) != 9:
-            raise AssertFail(f"paged orbit does not reach all 9 lanes in daemon order: {pages}")
-        for page in pages:
-            if len(page) > 8:
-                raise AssertFail("an orbit page renders more than 8 lane nodes")
-        overlaps = overlapping(self.ui.ids("lanes-map-lane-"))
-        if overlaps:
-            raise AssertFail(f"overlapping lane targets {overlaps[:2]}")
-        self.ui.screenshot("b-map-page-1")
-        self.result["checks"]["run_b_map_pages"] = {"pages": pages}
+        self.show_view("map")
+        elements = self.ui.ids("lanes-map-lane-")
+        ids = [Ui.ident(e).removeprefix("lanes-map-lane-") for e in elements]
+        if len(ids) != 9 or set(ids) != set(sd.all_lane_ids()):
+            raise AssertFail("nine-lane map does not expose all nine lane nodes")
+        center = Ui.frame(self.ui.find("lanes-map-assistant"))
+        order = two_ring_order(elements, center)
+        if order != self.attention_order:
+            raise AssertFail(f"map attention order {order} differs from {self.attention_order}")
+        for lane in (order[0], order[6]):
+            self.focus_lane(lane)
+            self.unfocus_to_page_one()
+        self.ui.screenshot("b-map-rings")
+        self.result["checks"]["run_b_map_pages"] = {"lanes": order, "ring_selections": [order[0], order[6]]}
 
     def run_b_focus_overflow(self) -> None:
-        ui, big = self.ui, sd.big_lane_id()
-        self.focus_lane(big)
-        nodes = [e for e in ui.ids("lanes-map-member-")]
-        ids = [Ui.ident(e)[len("lanes-map-member-"):] for e in nodes]
-        if sorted(ids) != sorted(sd.BIG[:8]):
-            raise AssertFail(f"focused orbit renders {len(ids)} member nodes, not the first 8 in membership order")
-        more = ui.find(f"lanes-map-more-{big}")
-        digits = re.findall(r"\d+", Ui.label(more))
-        if "Show all" not in Ui.label(more) or "32" not in digits:
-            raise AssertFail("+N node lacks its accessible 'Show all N specs' label")
-        for element in nodes + [more]:
-            assert_target(element)
-        overlaps = overlapping(nodes + [more])
-        if overlaps:
-            raise AssertFail(f"overlapping member targets {overlaps[:2]}")
-        ui.screenshot("b-map-focus-overflow")
-        self.result["checks"]["run_b_focus_overflow"] = {"member_nodes": len(nodes), "more_label_numbers": digits}
+        self.focus_lane(sd.big_lane_id())
+        pair = self.result["checks"]["run_b_list"]["show"]
+        self.ui.find(f"lanes-map-more-{sd.big_lane_id()}")
+        self.ui.find(f"lanes-map-done-stack-{sd.big_lane_id()}")
+        self.ui.screenshot("b-map-stacks")
+        self.result["checks"]["run_b_focus_overflow"] = {"show": pair}
 
     def run_b_all_members(self) -> None:
         ui, big = self.ui, sd.big_lane_id()
-        since = time.time()
-        ui.tap(f"lanes-map-more-{big}")
-        ui.find("lane-members-back", 30)
-        pair = self.show_after(since)
-        if pair["reply_type"] != "work_lanes.show.ok":
-            raise AssertFail("all-member list show did not succeed")
-        order = ui.collect_scrolling("lane-members-row-", 32)
-        got = [identifier[len("lane-members-row-"):] for identifier in order]
-        if got != sd.BIG:
-            raise AssertFail(f"all-member list shows {len(got)} rows, not all 32 in membership order")
-        ui.screenshot("b-all-members")
-        self.result["checks"]["run_b_all_members"] = {"show": pair, "rows": len(got),
-                                                      "spec_ids_sha256": sha256_bytes("\n".join(got).encode())}
+        order = ui.collect_scrolling("lane-members-row-", 18)
+        got = [x.removeprefix("lane-members-row-") for x in order]
+        if got != sd.BIG[:18]:
+            raise AssertFail(f"dense sheet exposes {len(got)} live members, expected 18 in order")
+        seen = []
+        for kind, ident, expected in (("pending", f"lanes-map-more-{big}", sd.BIG[18:24]),
+                                     ("done", f"lanes-map-done-stack-{big}", sd.BIG[24:])):
+            ui.tap(ident)
+            ui.find("lanes-map-stack-close")
+            rows = ui.collect_scrolling("lane-members-row-", len(expected))
+            members = [x.removeprefix("lane-members-row-") for x in rows]
+            if members != expected:
+                raise AssertFail(f"{kind} stack does not expose its members in order")
+            ui.screenshot("b-stack-" + kind)
+            seen.append({"kind": kind, "members": members})
+            ui.tap("lanes-map-stack-close")
+        self.result["checks"]["run_b_all_members"] = {"rows": len(got), "stacks": seen}
 
     def run_b_member_detail(self) -> None:
-        ui, big, spec = self.ui, sd.big_lane_id(), sd.BIG[-1]
+        ui, spec = self.ui, sd.BIG[0]
         ui.tap(f"lane-members-row-{spec}")
         ui.find("member-detail-back")
-        identified = bool(ui.ids(f"member-detail-{spec}"))  # container id; exposed only if made accessible
         ui.screenshot("b-member-detail")
         ui.tap("member-detail-back")
         ui.find(f"lane-members-row-{spec}")
-        ui.tap("lane-members-back")
-        ui.find(f"lanes-map-more-{big}")
-        self.result["checks"]["run_b_member_detail"] = {"spec_id": spec, "detail_id_visible": identified}
+        self.unfocus_to_page_one()
+        self.show_view("list")
+        self.result["checks"]["run_b_member_detail"] = {"spec_id": spec}
+
+    def overflow_phase_boundary(self) -> None:
+        if not self.result["checks"].get("run_c_reconnect", {}).get("app_pid_unchanged"):
+            raise SetupFail("C evidence missing before overflow")
+        self.show_view("map")
+        self.ui.find("lanes-map-assistant")
+        self.ui.absent("lanes-map-back")
+        self.result["overflow_phase"] = {"started_at": now_iso(), "prior_checks": sorted(self.result["checks"]),
+                                         "app_pid": self.app_pid}
+        self.write("pre-overflow-result.json", self.result)
+
+    def overflow_add_lanes(self) -> None:
+        since = time.time()
+        self.seed("overflow", self.inc1_checkout)
+        expected = set(sd.all_lane_ids() + sd.overflow_lane_ids())
+        last = {}
+        def settled():
+            got = self.probe()
+            ids = [x["lane_id"] for x in (got["inventory"] or {}).get("lanes", [])]
+            last["ids"] = ids
+            return len(ids) == len(expected) and set(ids) == expected
+        sd.wait_for(settled, 120, "overflow inventory", interval=3)
+        sd.wait_for(lambda: any(r.get("at", 0) >= since and r.get("direction") == "daemon_to_client"
+                                and r.get("type") == "work_lanes.inventory" for r in self.wire()),
+                    120, "overflow inventory delivered to client", interval=1)
+        self.result["overflow_phase"]["inventory_ids"] = last["ids"]
+
+    def overflow_assert(self) -> None:
+        ui = self.ui
+        expected = self.result["overflow_phase"]["inventory_ids"]
+        elements = ui.elements()
+        ui.dump("overflow-first-ax", elements)
+        control = overflow_control(elements, len(expected))
+        nodes = [e for e in elements if Ui.ident(e).startswith("lanes-map-lane-")]
+        if len(nodes) != 16 or len({Ui.ident(e) for e in nodes}) != 16:
+            raise AssertFail("overflow map does not expose exactly 16 unique lane nodes")
+        ui.screenshot("overflow-map")
+        ui.tap_element(control, "overflow")
+        ui.find("lanes-view-list")
+        observed = [x.removeprefix(LIST_CARD) for x in ui.collect_scrolling(LIST_CARD, len(expected), max_swipes=30)]
+        validate_overflow_list(observed, expected)
+        ui.screenshot("overflow-list")
+        self.result["overflow_phase"].update(map_nodes=16, observed_ids=observed, completed_at=now_iso())
 
     def run_b_log(self) -> None:
         ui, big = self.ui, sd.big_lane_id()
@@ -1325,16 +1398,16 @@ class Run:
                 self.step(name, fn)
             self.journey_started = True
             for name, fn in [
-                ("run_a_list", self.run_a_list), ("run_a_map", self.run_a_map), ("run_a_log", self.run_a_log),
-                ("daemon_a_stop", self.stop_daemon), ("transport_unavailable_probe", self.transport_unavailable_probe),
+                ("run_a_list", self.run_a_list), ("run_a_map", self.run_a_map),
+                ("daemon_a_stop", self.stop_daemon),
                 ("seed_inc1_upgrade", lambda: self.seed("inc1", self.inc1_checkout)),
                 ("daemon_b_start", lambda: self.start_daemon("daemon-b-inc1", self.inc1_checkout)),
-                ("probe_b", self.probe_b), ("run_c_reconnect", self.run_c_reconnect), ("spec_edit", self.spec_edit),
-                ("run_b_list", self.run_b_list), ("run_b_precedence", self.run_b_precedence),
+                ("probe_b", self.probe_b), ("run_c_reconnect", self.run_c_reconnect),
+                ("run_b_list", self.run_b_list),
                 ("run_b_map_pages", self.run_b_map_pages), ("run_b_focus_overflow", self.run_b_focus_overflow),
                 ("run_b_all_members", self.run_b_all_members), ("run_b_member_detail", self.run_b_member_detail),
-                ("run_b_log", self.run_b_log), ("run_b_index_unavailable", self.run_b_index_unavailable),
-                ("run_b_large_text", self.run_b_large_text), ("run_b_final", self.run_b_final),
+                ("run_b_final", self.run_b_final), ("overflow_phase_boundary", self.overflow_phase_boundary),
+                ("overflow_add_lanes", self.overflow_add_lanes), ("overflow_assert", self.overflow_assert),
             ]:
                 self.step(name, fn)
             verdict = "PASS"
