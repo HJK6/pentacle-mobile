@@ -242,11 +242,20 @@ class _NativeTrace:
             'kind': 'session_send_eligibility', 'stream_id': stream_id,
             'focused': True, 'session_present': True, 'eligible': True,
         }, timeout_s=20), not_before=self.cutoff)
-        mounts = [e for e in self.stream.all_events() if e.received_at >= self.cutoff
-                  and e.message == 'harness:ui_trace' and e.data.get('kind') == 'session_screen_mount'
+        events = [e for e in self.stream.all_events() if e.received_at >= self.cutoff
+                  and e.message == 'harness:ui_trace']
+        mounts = [(i, e) for i, e in enumerate(events) if e.data.get('kind') == 'session_screen_mount'
                   and e.data.get('route_focused') is True]
-        if not mounted or not eligible or not mounts or mounts[-1].data.get('stream_id') != stream_id:
+        if not mounted or not eligible or not mounts or mounts[-1][1].data.get('stream_id') != stream_id:
             raise RuntimeError('M1 fresh focused session identity/eligibility missing')
+        mount_index = mounts[-1][0]
+        current = [e for e in events[mount_index + 1:] if e.data.get('stream_id') == stream_id]
+        if any(e.data.get('kind') == 'session_screen_unmount' for e in current):
+            raise RuntimeError('M1 target session unmounted after focus')
+        eligibility = [e for e in current if e.data.get('kind') == 'session_send_eligibility']
+        if not eligibility or any(eligibility[-1].data.get(k) is not True
+                                  for k in ('focused', 'session_present', 'eligible')):
+            raise RuntimeError('M1 latest eligibility does not belong to current focused mount')
         return True
 
 

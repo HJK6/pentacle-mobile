@@ -331,3 +331,85 @@ def test_target_runner_uses_exact_device_set_and_recorder_binding(tmp_path, monk
     with pytest.raises(ValueError, match='IDB_COMPANION'):
         runner.execute_native('m1_reset_navigation', config, tmp_path, 'wrong-set')
     assert len(calls) == count
+
+
+@pytest.mark.parametrize('transition', ['true_to_false', 'new_mount', 'unmount'])
+def test_latest_eligibility_must_belong_to_current_focused_mount(counterpart, transition):
+    def event(kind, at, **fields):
+        return SimpleNamespace(message='harness:ui_trace', received_at=at,
+            data={'kind': kind, 'stream_id': 'mock-host:mock-session', **fields})
+    events = [event('session_screen_mount', 10, route_focused=True),
+              event('session_send_eligibility', 11, focused=True, session_present=True, eligible=True)]
+    if transition == 'true_to_false':
+        events.append(event('session_send_eligibility', 12, focused=True, session_present=True, eligible=False))
+    elif transition == 'new_mount': events.append(event('session_screen_mount', 12, route_focused=True))
+    else: events.append(event('session_screen_unmount', 12))
+    trace = m1._NativeTrace(SimpleNamespace(all_events=lambda: events, next_event=lambda **_: None));trace.cutoff = 1
+    with pytest.raises(RuntimeError): trace.verify_session('mock-host:mock-session')
+
+
+def test_real_drawer_requires_two_consecutive_settled_reads(counterpart, monkeypatch):
+    ui, _, state = counterpart
+    root = {'role': 'AXApplication', 'frame': {'x': 0, 'y': 0, 'width': 402, 'height': 874}}
+    positions = iter([-20, 18, 19, 19]); seen = []
+    def elements():
+        x = next(positions); seen.append(x)
+        row = element('assistant-drawer-row-mock-host:mock-session', 'Exact row', y=200)
+        row['frame']['x'] = x
+        return [root, element(label='Close sessions'), row]
+    monkeypatch.setattr(ui, 'elements', elements)
+    assert ui.wait_drawer('assistant-drawer-row-mock-host:mock-session') is True
+    assert seen == [-20, 18, 19, 19]
+    assert not any(c[0] == 'tap' for c in state['commands'])
+
+
+def test_real_drawer_never_accepts_continuously_moving_rows(counterpart, monkeypatch):
+    ui, _, state = counterpart
+    root = {'role': 'AXApplication', 'frame': {'x': 0, 'y': 0, 'width': 402, 'height': 874}}
+    moving = [0]
+    def elements():
+        moving[0] += 1
+        row = element('assistant-drawer-row-mock-host:mock-session', 'Exact row', y=200)
+        row['frame']['x'] = 18 + moving[0] % 2
+        return [root, element(label='Close sessions'), row]
+    monkeypatch.setattr(ui, 'elements', elements)
+    with pytest.raises(RuntimeError): ui.wait_drawer('assistant-drawer-row-mock-host:mock-session')
+    assert not any(c[0] == 'tap' for c in state['commands'])
+
+
+def test_real_drawer_dismissal_rejects_residual_row_without_scrim(counterpart, monkeypatch):
+    ui, _, _ = counterpart
+    root = {'role': 'AXApplication', 'frame': {'x': 0, 'y': 0, 'width': 402, 'height': 874}}
+    monkeypatch.setattr(ui, 'elements', lambda: [root, element('assistant-drawer-row-mock-host:mock-session')])
+    with pytest.raises(RuntimeError): ui.wait_drawer('assistant-drawer-row-mock-host:mock-session', closed=True)
+
+
+@pytest.mark.parametrize('fault', ['wrong_session_valid_composer', 'foreign_foreground'])
+def test_integrated_reset_failure_never_runs_followup(counterpart, monkeypatch, fault):
+    ui, control, state = counterpart
+    ui.bundle = 'com.example.synthetic.harness'
+    ui.config['PENTACLE_SCENARIO_DEVICE_SET_ROOT'] = '/synthetic/reset-device-set'
+    monkeypatch.setattr(ui, 'check_foreground', native.NativeUI.check_foreground.__get__(ui))
+    def subprocess_boundary(argv, **kwargs):
+        assert argv[:4] == ['xcrun', 'simctl', '--set', '/synthetic/reset-device-set']
+        assert argv[4:] == ['spawn', 'synthetic', 'launchctl', 'list']
+        bundle = 'com.example.foreign' if fault == 'foreign_foreground' else ui.bundle
+        return SimpleNamespace(returncode=0, stdout=f'123 0 UIKitApplication:{bundle}[counterpart]\n', stderr='')
+    monkeypatch.setattr(native.subprocess, 'run', subprocess_boundary)
+    def events():
+        stream_id = 'home:assistant' if state['page'] == 'home' else 'mock-host:childless'
+        return [SimpleNamespace(message='harness:ui_trace', received_at=trace.cutoff+1, data={
+            'kind': 'session_screen_mount', 'stream_id': stream_id, 'route_focused': True}),
+            SimpleNamespace(message='harness:ui_trace', received_at=trace.cutoff+2, data={
+            'kind': 'session_send_eligibility', 'stream_id': stream_id, 'focused': True,
+            'session_present': True, 'eligible': True})]
+    trace = m1._NativeTrace(SimpleNamespace(all_events=events, next_event=lambda **_: None))
+    control.trace = trace
+    ran = []
+    def fail(): raise RuntimeError('original cell failed')
+    outcomes = m1.run_diagnostic_cells([('two_turn_reconnect', fail), ('later', lambda: ran.append('unsafe'))],
+        lambda label: m1.reset_diagnostic_cell(ui, control, label))
+    assert not ran and [o['status'] for o in outcomes] == ['FAIL', 'UNMEASURED']
+    if fault == 'wrong_session_valid_composer':
+        assert state['page'] == 'session'  # A visible valid composer still did not establish stream identity.
+        assert any(e.get('AXUniqueId') == 'composer-input' for e in state['elements']())

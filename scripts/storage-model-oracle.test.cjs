@@ -45,7 +45,7 @@ const EXPECTED_PINS = {
   'test/e2e/scenarios/all_chats_freeze_sim_regression.py': '39e25e8c232686aa9c50db7bfc71ca3851cfadd0879aeef2d37fef12d7d2cf3c',
   'test/e2e/scenarios/m1_reset_navigation.py': '9865a59cf71b2952111054c64ba214d328a5dbd22ecf8bea35505e71a2d2b24a',
   'test/e2e/scenarios/mock_answer_fallback_reconcile.py': 'd98ba262f12ff1c72e12798a984d7cea7b5cce7b978fc58087bd5d1b84141dcb',
-  'test/e2e/scenarios/nexus_agents_history_questions.py': '4e1b3546344b3472b175f820b75da2481026781fe1c1ee887c2d60c7cdaf7a98',
+  'test/e2e/scenarios/nexus_agents_history_questions.py': '301a371b18dd8c411317ba8b124d6234253d175ed8f6c609c264f6db76f53829',
   'test/e2e/scenarios/__init__.py': '72d44eae31d83b58bc62ec58e034a87d01ab246532e5138dbd6c41053906c75d',
   'test/e2e/scenarios/_question_evidence.py': '1669c21d3d1dff5a15db07fa628bbf82ad5947bf3567721da458366febeaa2fd',
   'test/e2e/scenarios/report_viewer_comments_keyboard.py': '2ed2ca4b861b6d056647aa2163245dd6af3c5698fd273bfc15d3fadcf17d68af',
