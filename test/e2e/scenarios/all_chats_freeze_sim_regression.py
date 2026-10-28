@@ -1,299 +1,483 @@
+"""Bounded load-responsiveness check for the operator's session list.
+
+During a paced multi-stream chat burst from the public mock daemon, real taps
+open and close the assistant sessions drawer (the product successor of All
+Chats) and every injected event must reach JS ingestion. The claim is sampled
+responsiveness at the probe instants only, never continuous absence of freezes.
+A control mode arms a harness-only JS stall to prove the probe detects one.
+"""
 from __future__ import annotations
 
-import json
 import math
-import tempfile
-from datetime import datetime, timedelta, timezone
-from pathlib import Path
+import re
+import threading
+import time
+from urllib.parse import urlsplit
 
-from ..harness.asserts import Verdict
+from ..harness.asserts import EventSpec, Verdict, await_event
 
-SCENARIO_META = {"target_compat": {"device", "simulator"}, "requires": []}
+SCENARIO_META = {"target_compat": {"simulator"}, "requires": []}
 
 name = "all_chats_load"
-EVENT_COUNT = 120
-SETUP_EVENT_COUNT = 100
+HOST = "mock-host"
+PROVIDER = "codex"
 SESSION_COUNT = 8
-BURST_COUNT = 4
-BURST_SIZE = 5
-REPORT_COUNT = 4
-QUESTION_COUNT = 4
-STATUS_STREAM_ID = "mock-host:sample-04"
-STATUS_TOGGLE_ID = "chat-row-toggle-mock-host-sample-04"
-STATUS_WITNESS_ID = f"card-status-mini-{STATUS_STREAM_ID}"
-NEW_CHAT_BUTTON_ID = "new-chat-button"
+BURST_STREAM_IDS = tuple(f"{HOST}:sample-{index:02d}" for index in range(SESSION_COUNT))
+WITNESS_STREAM_ID = f"{HOST}:sample-04"
+TRIGGER_STREAM_ID = f"{HOST}:stall-trigger"
+TRIGGER_SEQ = 1
+DEFAULT_ASSISTANT_STREAM_ID = "home:assistant"
+EVENTS_PER_STREAM = 40
+BURST_EVENT_COUNT = SESSION_COUNT * EVENTS_PER_STREAM
+# Aggregate 10 Hz: the sustained cadence mock_composite_chat_load validated;
+# this measures UI responsiveness under live delivery, not a transport backlog.
+FRAME_INTERVAL_MS = 100
+TEXT_SEGMENT = "synthetic live burst segment "
+TRANSITION_BOUND_MS = 2000
+TRANSITION_TIMEOUT_MS = 8000
+MIN_BURST_CYCLES = 6
+DELIVERY_GRACE_S = 10
+STALL_MS = 5000
+STALL_BEGIN_WAIT_S = 3.0
+POLL_INTERVAL_S = 0.05
+CLAIM = "sampled responsiveness at probe instants; not continuous"
+MODES = {"normal", "stall_control"}
+SESSIONS_LABEL = re.compile(r"Sessions, \d+ need you")
+PANEL_ID = "assistant-drawer-panel"
+SCRIM_LABEL = "Close sessions"
 
 
-class HarnessEvidenceError(RuntimeError):
-    """Raised when a synthetic evidence payload is malformed."""
+def mode(config: dict) -> str:
+    value = str(config.get("PENTACLE_ALL_CHATS_MODE") or "normal").strip()
+    if value not in MODES:
+        raise ValueError(f"PENTACLE_ALL_CHATS_MODE must be normal or stall_control, got {value!r}")
+    return value
 
 
-def _profile(config: dict) -> dict[str, int | str]:
-    mode = str(config.get("chat_list_mode") or "control").strip().lower()
-    if mode not in {"control", "stress"}:
-        raise ValueError(f"chat_list_mode must be control or stress, got {mode!r}")
-    if mode == "stress":
-        return {"mode": mode, "setup_event_count": 200, "event_count": 240}
-    return {"mode": mode, "setup_event_count": SETUP_EVENT_COUNT, "event_count": EVENT_COUNT}
+def actions(config: dict) -> list[str]:
+    return ["autoaccept_biometric"] + (["chat_list_js_stall"] if mode(config) == "stall_control" else [])
 
 
-def _setup_ingestion_timeout_s(mode: str, event_timeout_s: float) -> float:
-    return max(event_timeout_s, 30.0) if mode == "stress" else event_timeout_s
-
-
-def _fixture_path(config: dict) -> Path:
-    profile = _profile(config)
-    base = Path(str(config.get("fixture_dir") or (Path(tempfile.gettempdir()) / "example-mobile-fixtures")))
-    base.mkdir(parents=True, exist_ok=True)
-    path = base / "all_chats_load.fixture.json"
-    origin = datetime(2026, 1, 1, tzinfo=timezone.utc)
-    sessions = [
-        {
-            "stream_id": f"mock-host:sample-{index:02d}",
-            "host": "mock-host",
-            "provider": "codex",
-            "session_name": f"sample-{index:02d}",
-            "title": f"Chat sample {index:02d}",
-            "online": True,
-        }
-        for index in range(SESSION_COUNT)
-    ]
-    frames = []
-    for sequence in range(int(profile["setup_event_count"])):
-        stream_id = sessions[sequence % SESSION_COUNT]["stream_id"]
-        timestamp = (origin + timedelta(seconds=sequence)).isoformat().replace("+00:00", "Z")
-        frames.append({
-            "id": f"sample-{sequence:04d}",
-            "at_ms": 0,
-            "type": "chat.event",
-            "event": {
-                "stream_id": stream_id,
-                "kind": "ASSIST",
-                "daemon_seq": sequence + 1,
-                "timestamp": timestamp,
-                "text": f"synthetic chat event {sequence + 1}",
-            },
-        })
-    payload = {
-        "schema_version": 1,
-        "name": name,
-        "stream": sessions[0],
-        "snapshot": {"sessions": sessions, "events": []},
-        "frames": frames,
-        "harness_control": {
-            "unread_items": [
-                {"item_id": f"sample-item-{index}", "read": False}
-                for index in range(REPORT_COUNT)
-            ],
-            "open_questions": [
-                {"question_id": f"sample-question-{index}", "state": "open"}
-                for index in range(QUESTION_COUNT)
-            ],
-        },
-    }
-    path.write_text(json.dumps(payload, separators=(",", ":")) + "\n", encoding="utf-8")
-    return path
-
-
-def actions(_config: dict) -> list[str]:
-    return ["autoaccept_biometric", "chat_list_load_probe"]
+def fixture_url(config: dict) -> str:
+    url = str(config.get("ws_url") or "")
+    parsed = urlsplit(url)
+    if (parsed.scheme != "ws" or parsed.hostname != "127.0.0.1" or not parsed.port or parsed.username
+            or parsed.password or parsed.query or parsed.fragment or parsed.path not in ("", "/")):
+        raise ValueError("all_chats_load requires an explicit loopback mock URL")
+    return url
 
 
 def params(config: dict) -> dict[str, str]:
-    profile = _profile(config)
-    fixture = _fixture_path(config)
-    return {
-        "host": "mock-host",
-        "provider": "codex",
-        "stream_id": "mock-host:sample-00",
-        "mock_fixture_path": str(fixture),
-        "scripted_daemon_fixture_path": str(fixture),
-        "chat_list_event_count": str(profile["event_count"]),
-        "chat_list_setup_event_count": str(profile["setup_event_count"]),
-        "chat_list_session_count": str(SESSION_COUNT),
-        "chat_list_burst_size": str(BURST_SIZE),
-        "chat_list_item_count": str(REPORT_COUNT),
-        "chat_list_question_count": str(QUESTION_COUNT),
-        "chat_list_mode": str(profile["mode"]),
+    values = {
+        "host": HOST,
+        "provider": PROVIDER,
+        "stream_id": BURST_STREAM_IDS[0],
+        "active_stream_ids": ",".join(BURST_STREAM_IDS),
+        "ws_url": fixture_url(config),
+        "scenario_run_id": str(config.get("scenario_run_id") or ""),
     }
+    if mode(config) == "stall_control":
+        values.update({
+            "chat_list_js_stall_stream_id": TRIGGER_STREAM_ID,
+            "chat_list_js_stall_seq": str(TRIGGER_SEQ),
+            "chat_list_js_stall_ms": str(STALL_MS),
+        })
+    return values
 
 
 def preflight(config: dict, repo_root=None) -> str | None:
     del repo_root
-    fixture = str(config.get("scripted_daemon_fixture_path") or config.get("mock_fixture_path") or "").strip()
-    if fixture and not Path(fixture).expanduser().exists():
-        return f"synthetic fixture missing: {fixture}"
+    try:
+        mode(config)
+        fixture_url(config)
+    except ValueError as exc:
+        return str(exc)
     return None
 
 
-def _p95(values: list[float]) -> float:
-    if not values:
-        return float("inf")
-    ordered = sorted(float(value) for value in values)
-    return ordered[min(len(ordered) - 1, max(0, math.ceil(len(ordered) * 0.95) - 1))]
+def _session(stream_id: str, title: str) -> dict:
+    host, session_name = stream_id.split(":", 1)
+    return {"stream_id": stream_id, "host": host, "provider": PROVIDER, "session_name": session_name,
+            "title": title, "online": True}
 
 
-def status_probe_freeze_reason(probes: list[dict]) -> str | None:
-    if not probes:
-        return "no status probes"
-    if any(not isinstance(probe, dict) for probe in probes):
-        return "status probe is not an object"
-    if any(probe.get("stable") is False for probe in probes):
-        return "status geometry was not stable"
-    return None
+def build_snapshot(config: dict) -> dict:
+    assistant = str(config.get("PENTACLE_ASSISTANT_STREAM_ID") or DEFAULT_ASSISTANT_STREAM_ID)
+    sessions = [_session(stream_id, f"Chat sample {index:02d}") for index, stream_id in enumerate(BURST_STREAM_IDS)]
+    sessions.append(_session(TRIGGER_STREAM_ID, "Stall trigger"))
+    sessions.append(_session(assistant, "Assistant"))
+    return {"sessions": sessions, "events": []}
 
 
-def evaluate_paired_evidence(control: dict, stress: dict) -> dict:
-    """Compare two synthetic profiles without consulting external state."""
-    control_events = int(control.get("event_count") or 0)
-    stress_events = int(stress.get("event_count") or 0)
-    failures = []
-    if control_events <= 0:
-        failures.append("control profile has no events")
-    if stress_events < control_events:
-        failures.append("stress profile has fewer events than control")
-    return {
-        "passed": not failures,
-        "failures": failures,
-        "control_event_count": control_events,
-        "stress_event_count": stress_events,
-    }
+def _event(stream_id: str, seq: int, ordinal: int) -> dict:
+    host, session_name = stream_id.split(":", 1)
+    return {"stream_id": stream_id, "host": host, "provider": PROVIDER, "session_name": session_name,
+            "kind": "ASSIST", "daemon_seq": seq,
+            "timestamp": f"2026-01-01T00:{ordinal // 60:02d}:{ordinal % 60:02d}Z",
+            "text": f"burst {stream_id} #{seq:03d} " + TEXT_SEGMENT * 13 + f"end-{ordinal:04d}"}
 
 
-def evaluate_paired_profiles(control: dict, stress: dict) -> dict:
-    return evaluate_paired_evidence(control, stress)
+def build_burst() -> list[dict]:
+    frames = []
+    for ordinal in range(BURST_EVENT_COUNT):
+        stream_id = BURST_STREAM_IDS[ordinal % SESSION_COUNT]
+        frames.append({**_event(stream_id, ordinal // SESSION_COUNT + 1, ordinal), "at_ms": ordinal * FRAME_INTERVAL_MS})
+    return frames
 
 
-def _metric(value: object, field: str, *, numeric: bool = True) -> float | int | bool:
-    if isinstance(value, bool):
-        return value
-    if numeric:
+def trigger_event() -> dict:
+    return _event(TRIGGER_STREAM_ID, TRIGGER_SEQ, BURST_EVENT_COUNT)
+
+
+def run_injector(control, frames, *, interval_s=FRAME_INTERVAL_MS / 1000, clock=time.monotonic, sleep=time.sleep,
+                 progress=None) -> dict:
+    """Send each frame at its schedule, keeping at least `interval_s` between
+    sends: a late acknowledgement accrues lateness, never a catch-up burst."""
+    record = {"frames": [], "first_send_mono": None, "last_ack_mono": None, "error": None}
+    started = clock()
+    last_send = None
+    for index, frame in enumerate(frames):
+        scheduled = started + index * interval_s
+        due = scheduled if last_send is None else max(scheduled, last_send + interval_s)
+        wait = due - clock()
+        if wait > 0:
+            sleep(wait)
+        sent = last_send = clock()
+        if record["first_send_mono"] is None:
+            record["first_send_mono"] = sent
+        event = {key: value for key, value in frame.items() if key != "at_ms"}
+        row = {"stream_id": event["stream_id"], "seq": event["daemon_seq"], "sent_mono": sent,
+               "lateness_ms": round((sent - scheduled) * 1000, 3), "acked": False}
+        record["frames"].append(row)
         try:
-            return float(value)
-        except (TypeError, ValueError) as exc:
-            raise HarnessEvidenceError(f"{field} is not numeric") from exc
-    return value  # type: ignore[return-value]
+            control.rpc("debug_replay_event", expected_stream_id=event["stream_id"], event=event)
+        except Exception as exc:  # noqa: BLE001 - recorded as setup evidence
+            record["error"] = str(exc)
+            break
+        row["acked"] = True
+        record["last_ack_mono"] = clock()
+        if progress:
+            progress(index + 1)
+    return record
 
 
-def _product_apply_coverage(events: list, burst: int, setup_event_count: int = SETUP_EVENT_COUNT) -> tuple[list[float], list[dict]]:
-    expected = setup_event_count + burst * BURST_SIZE
-    samples = []
+# ---- native probe ------------------------------------------------------------
+
+def _frame(element) -> dict | None:
+    frame = element.get("frame") if isinstance(element, dict) else None
+    if isinstance(frame, dict) and all(isinstance(frame.get(k), (int, float)) for k in ("x", "y", "width", "height")):
+        return frame
+    return None
+
+
+def _ident(element) -> str:
+    return str(element.get("AXIdentifier") or element.get("AXUniqueId") or "")
+
+
+def _find(elements, *, identifier=None, label=None) -> list[dict]:
+    found = []
+    for element in elements:
+        if identifier is not None and _ident(element) != identifier:
+            continue
+        if label is not None:
+            text = str(element.get("AXLabel") or "")
+            if not (label.fullmatch(text) if isinstance(label, re.Pattern) else text == label):
+                continue
+        if _frame(element) and _frame(element)["width"] > 0 and _frame(element)["height"] > 0:
+            found.append(element)
+    return found
+
+
+def _panel_open(elements) -> bool:
+    return bool(_find(elements, identifier=PANEL_ID))
+
+
+def _centre(frame) -> tuple[int, int]:
+    return int(frame["x"] + frame["width"] / 2), int(frame["y"] + frame["height"] / 2)
+
+
+def _open_target(elements) -> tuple[int, int] | None:
+    buttons = _find(elements, label=SESSIONS_LABEL)
+    return _centre(_frame(buttons[0])) if len(buttons) == 1 else None
+
+
+def _close_target(ui, elements) -> tuple[int, int] | None:
+    roots = [_frame(e) for e in elements if e.get("role") == "AXApplication" and _frame(e)]
+    panels = _find(elements, identifier=PANEL_ID)
+    if len(roots) != 1 or len(panels) != 1:
+        return None
+    root, panel = roots[0], _frame(panels[0])
+    left_x, right_x = panel["x"] + panel["width"], root["x"] + root["width"]
+    if right_x - left_x < 20:
+        return None
+    point = int((left_x + right_x) / 2), int(root["y"] + root["height"] / 2)
+    hit = ui.describe_point(*point)
+    return point if isinstance(hit, dict) and hit.get("AXLabel") == SCRIM_LABEL else None
+
+
+def _transition(ui, kind, *, mono, wall, sleep, require_rows=()) -> tuple[dict, list]:
+    want_open = kind == "open"
+    elements = ui.elements()
+    record = {"kind": kind, "tap_started_mono": None, "tap_started_wall": None, "observed_mono": None,
+              "latency_ms": None, "outcome": "pre_state", "pre_state_ok": _panel_open(elements) != want_open,
+              "polls": 0, "describe_ms": []}
+    if not record["pre_state_ok"]:
+        return record, elements
+    target = _open_target(elements) if want_open else _close_target(ui, elements)
+    if target is None:
+        record["outcome"] = "target_missing"
+        return record, elements
+    record["tap_started_mono"], record["tap_started_wall"] = mono(), wall()
+    ui.tap_point(*target)
+    deadline = record["tap_started_mono"] + TRANSITION_TIMEOUT_MS / 1000
+    record["outcome"] = "timeout"
+    while mono() < deadline:
+        before = mono()
+        elements = ui.elements()
+        after = mono()
+        record["polls"] += 1
+        record["describe_ms"].append(round((after - before) * 1000, 1))
+        rows_ready = all(_find(elements, identifier=f"assistant-drawer-row-{row}") for row in require_rows)
+        if _panel_open(elements) == want_open and (not want_open or rows_ready):
+            # Conservative upper bound: the observing describe-all has returned.
+            record["observed_mono"], record["outcome"] = after, "observed"
+            record["latency_ms"] = round((after - record["tap_started_mono"]) * 1000, 1)
+            break
+        sleep(POLL_INTERVAL_S)
+    return record, elements
+
+
+def probe_cycle(ui, *, mono=time.monotonic, wall=time.time, sleep=time.sleep, require_rows=(WITNESS_STREAM_ID,)) -> dict:
+    """Open then close the real drawer. Both responses need JS to commit."""
+    cycle = {"started_mono": mono(), "transitions": [], "rows_present": []}
+    opened, elements = _transition(ui, "open", mono=mono, wall=wall, sleep=sleep, require_rows=require_rows)
+    cycle["transitions"].append(opened)
+    if opened["outcome"] != "observed":
+        return cycle
+    cycle["rows_present"] = [s for s in BURST_STREAM_IDS if _find(elements, identifier=f"assistant-drawer-row-{s}")]
+    closed, _ = _transition(ui, "close", mono=mono, wall=wall, sleep=sleep)
+    cycle["transitions"].append(closed)
+    ui.check_foreground()
+    return cycle
+
+
+# ---- evidence ----------------------------------------------------------------
+
+def received_identities(events) -> list[tuple[str, int]]:
+    found = []
+    for event in events:
+        if getattr(event, "message", "") != "chat:event_received":
+            continue
+        data = getattr(event, "data", {}) or {}
+        try:
+            seq = int(data.get("seq"))
+        except (TypeError, ValueError):
+            continue
+        if data.get("stream_id"):
+            found.append((str(data["stream_id"]), seq))
+    return found
+
+
+def stall_window(events, *, mono_to_wall) -> dict | None:
+    """Stall traces carry the device wall clock (`Date.now()`); a simulator
+    shares the host clock, so taps (host `time.time()`) compare directly.
+    `skew_s` records host receipt minus device emit for the begin trace."""
+    marks = {}
     for event in events:
         data = getattr(event, "data", {}) or {}
-        if data.get("kind") != "chat_list_state_applied":
-            continue
-        if int(data.get("max_sequence") or 0) == expected:
-            samples.append(float(getattr(event, "received_at", 0.0)))
-    return samples, [{"burst": burst, "expected_sequence": expected, "matched": bool(samples)}]
+        if getattr(event, "message", "") == "harness:ui_trace" and data.get("kind") in {
+                "chat_list_js_stall_begin", "chat_list_js_stall_end"} and data["kind"] not in marks:
+            marks[data["kind"]] = (event, data)
+    if set(marks) != {"chat_list_js_stall_begin", "chat_list_js_stall_end"}:
+        return None
+    begin_event, begin = marks["chat_list_js_stall_begin"]
+    _end_event, end = marks["chat_list_js_stall_end"]
+    begin_wall = float(begin["timestamp_emitter_wall"]) / 1000
+    return {"begin_wall": begin_wall, "end_wall": float(end["timestamp_emitter_wall"]) / 1000,
+            "stall_ms": int(begin.get("stall_ms") or 0),
+            "skew_s": round(mono_to_wall(begin_event.received_at) - begin_wall, 3)}
 
 
-def _open_return_metrics(events: list, *, started, committed) -> tuple[float, float]:
-    start_at = float(getattr(started, "received_at", started or 0.0))
-    commit_at = float(getattr(committed, "received_at", committed or start_at))
-    return max(0.0, (commit_at - start_at) * 1000.0), max(0.0, commit_at - start_at)
+def _p(values, fraction):
+    ordered = sorted(values)
+    return ordered[max(0, math.ceil(fraction * len(ordered)) - 1)] if ordered else None
 
 
-def _release_burst(config: dict, burst: int) -> dict:
-    del config
-    first = SETUP_EVENT_COUNT + (burst - 1) * BURST_SIZE + 1
-    last = first + BURST_SIZE - 1
-    return {
-        "burst": burst,
-        "first_sequence": first,
-        "last_sequence": last,
-        "expected_unread_count": max(0, REPORT_COUNT - burst),
-        "expected_open_question_count": max(0, QUESTION_COUNT - burst),
+def evaluate(evidence: dict) -> tuple[str, list[str], dict]:
+    setup, failures = list(evidence.get("setup_errors") or []), []
+    frames = evidence.get("frames") or []
+    if not (evidence.get("baseline") or {}).get("ok"):
+        setup.append("baseline_failed")
+    if len(frames) < int(evidence.get("expected_count") or BURST_EVENT_COUNT) or not all(f.get("acked") for f in frames):
+        setup.append("burst_not_acked")
+    start, end = evidence.get("first_send_mono"), evidence.get("last_ack_mono")
+    transitions = [t for c in evidence.get("cycles") or [] for t in c["transitions"]]
+    in_window = [c for c in evidence.get("cycles") or []
+                 if start is not None and end is not None and start <= c["started_mono"] <= end]
+    if any(not t.get("pre_state_ok") or t.get("outcome") == "target_missing" for t in transitions):
+        failures.append("responsiveness_invalid")
+    if any(t.get("outcome") == "observed" and t["latency_ms"] > TRANSITION_BOUND_MS for t in transitions):
+        failures.append("responsiveness_bound")
+    if any(t.get("outcome") == "timeout" for t in transitions):
+        failures.append("responsiveness_timeout")
+    complete = [c for c in in_window if len(c["transitions"]) == 2 and all(t["outcome"] == "observed" for t in c["transitions"])]
+    thirds = set()
+    if start is not None and end is not None and end > start:
+        thirds = {min(2, int(3 * (c["started_mono"] - start) / (end - start))) for c in in_window}
+    if len(complete) < MIN_BURST_CYCLES or thirds != {0, 1, 2}:
+        failures.append("probe_coverage")
+    expected = {(f["stream_id"], int(f["seq"])) for f in frames}
+    delivered = set(evidence.get("received") or []) & expected
+    if delivered != expected:
+        failures.append("delivery_missing")
+    latencies = [t["latency_ms"] for t in transitions if t.get("outcome") == "observed"]
+    describes = [d for t in transitions for d in t.get("describe_ms", [])]
+    metrics = {
+        "claim": CLAIM, "mode": evidence.get("mode"),
+        "delivered_count": len(delivered), "expected_count": len(expected),
+        "burst_cycle_count": len(complete), "transition_count": len(transitions),
+        "latency_ms": {"p50": _p(latencies, .5), "p95": _p(latencies, .95), "max": max(latencies) if latencies else None},
+        "describe_ms": {"p50": _p(describes, .5), "p95": _p(describes, .95), "max": max(describes) if describes else None},
+        "frame_lateness_ms_max": max((f.get("lateness_ms") or 0 for f in frames), default=None),
+        "bounds": {"transition_ms": TRANSITION_BOUND_MS, "timeout_ms": TRANSITION_TIMEOUT_MS, "min_cycles": MIN_BURST_CYCLES},
     }
+    if evidence.get("mode") == "stall_control":
+        stall = evidence.get("stall")
+        qualifying = []
+        if stall:
+            latest = stall["begin_wall"] + (STALL_MS - TRANSITION_BOUND_MS) / 1000
+            # A tap that starts inside the stall and early enough that its
+            # response cannot commit before stall end must exceed the bound.
+            qualifying = [t for t in transitions if t.get("tap_started_wall") is not None
+                          and stall["begin_wall"] <= t["tap_started_wall"] <= latest]
+        metrics["stall_control"] = {"stall": stall, "qualifying_transitions": len(qualifying),
+                                    "exercised": bool(qualifying), "expected_verdict": "FAIL"}
+        if not qualifying:
+            setup.append("stall_control_not_exercised")
+    if setup:
+        return "SETUP_FAIL", setup, metrics
+    return ("FAIL" if failures else "PASS"), failures, metrics
 
 
-def _seed_status_probe(config: dict) -> dict:
-    return {
-        "stream_id": STATUS_STREAM_ID,
-        "toggle_id": STATUS_TOGGLE_ID,
-        "witness_id": STATUS_WITNESS_ID,
-        "source": str(config.get("status_source") or "synthetic"),
-    }
+# ---- live run ----------------------------------------------------------------
+
+class _DrawerUI:
+    """The probe's view of the bound simulator through the existing idb wrapper."""
+
+    def __init__(self, config):
+        from ._m1_native_ui import NativeUI
+        self.native = NativeUI(config)
+
+    def elements(self):
+        return self.native.elements()
+
+    def tap_point(self, x, y):
+        self.native._command("tap", str(x), str(y))
+
+    def describe_point(self, x, y):
+        import json
+        return json.loads(self.native._command("describe-point", str(x), str(y), "--json"))
+
+    def check_foreground(self):
+        self.native.check_foreground()
 
 
-def _app_rss_kb(config: dict) -> dict[str, int | str]:
-    try:
-        value = max(0, int(config.get("rss_kb") or 0))
-    except (TypeError, ValueError):
-        value = 0
-    return {"rss_kb": value, "source": "synthetic-config"}
+def _await_sessions_button(ui, timeout_s=30.0) -> bool:
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        if _open_target(ui.elements()):
+            return True
+        time.sleep(0.25)
+    return False
 
 
-def _idb_scroll_to_top(udid: str) -> None:
-    del udid
-
-
-def _status_toggle_frame_is_safe(frames: dict[str, dict]) -> bool:
-    frame = frames.get(STATUS_TOGGLE_ID)
-    return bool(frame and float(frame.get("width", 0)) > 0 and float(frame.get("height", 0)) > 0)
-
-
-def _status_toggle_is_clipped_above(frames: dict[str, dict] | None) -> bool:
-    if not frames or STATUS_TOGGLE_ID not in frames:
-        return False
-    return float(frames[STATUS_TOGGLE_ID].get("y", 0)) < 0
-
-
-def _status_probe_geometry_is_stable(before: dict[str, dict], after: dict[str, dict]) -> bool:
-    frame_a = before.get(STATUS_TOGGLE_ID)
-    frame_b = after.get(STATUS_TOGGLE_ID)
-    if not frame_a or not frame_b:
-        return False
-    return all(abs(float(frame_a.get(key, 0)) - float(frame_b.get(key, 0))) <= 2 for key in ("x", "y", "width", "height"))
-
-
-def _find_status_toggle_frames(udid: str) -> dict[str, dict]:
-    del udid
-    return {}
-
-
-def _wait_ax_state(udid: str, identifier: str, present: bool, timeout_s: float) -> tuple[bool, list[str]]:
-    del udid, identifier, timeout_s
-    return present, []
-
-
-def _physical_status_probe(config: dict) -> dict:
-    return {
-        "status": "synthetic",
-        "geometry_stable": True,
-        "rss": _app_rss_kb(config),
-        "reason": "provided by public fixture data",
-    }
+def _await_stall_begin(stream, timeout_s) -> bool:
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        if any(getattr(e, "message", "") == "harness:ui_trace"
+               and (e.data or {}).get("kind") == "chat_list_js_stall_begin" for e in stream.all_events()):
+            return True
+        time.sleep(0.02)
+    return False
 
 
 def run(config: dict, stream, cap=None) -> Verdict:
-    expected = int(config.get("chat_list_event_count") or EVENT_COUNT)
-    events = list(stream.all_events())
-    received = [
-        event for event in events
-        if getattr(event, "message", "") == "chat:event_received"
-    ]
-    rendered = [
-        event for event in events
-        if getattr(event, "message", "") == "chat:event_rendered"
-    ]
-    failures = []
-    if len(received) < expected:
-        failures.append(f"expected at least {expected} received events, observed {len(received)}")
-    if len(rendered) < expected:
-        failures.append(f"expected at least {expected} rendered events, observed {len(rendered)}")
-    verdict = Verdict(
-        name=name,
-        verdict="FAIL" if failures else "PASS",
-        error="; ".join(failures) if failures else None,
-        extras={
-            "event_count": len(received),
-            "rendered_count": len(rendered),
-            "expected_event_count": expected,
-            "profile": _profile(config),
-            "status_probe": _physical_status_probe(config),
-        },
-    )
+    from ._m1_mock_control import MockControl
+
+    run_mode = mode(config)
+    url = fixture_url(config)
+    evidence = {"mode": run_mode, "baseline": {"ok": False, "error": None}, "frames": [], "cycles": [],
+                "expected_count": BURST_EVENT_COUNT, "first_send_mono": None, "last_ack_mono": None,
+                "received": [], "stall": None, "setup_errors": []}
+    controls = []
+    try:
+        control = MockControl(url)
+        controls.append(control)
+        control.rpc("debug_replay_snapshot_config", snapshot=build_snapshot(config), host=HOST)
+        if not await_event(stream, EventSpec("chat:ws_open", timeout_s=30)):
+            raise RuntimeError("chat:ws_open missing")
+        ui = _DrawerUI(config)
+        if not _await_sessions_button(ui):
+            evidence["baseline"]["error"] = "assistant header Sessions button absent"
+            raise RuntimeError(evidence["baseline"]["error"])
+        baseline = probe_cycle(ui, require_rows=BURST_STREAM_IDS)
+        evidence["baseline"].update(cycle=baseline, ok=len(baseline["transitions"]) == 2
+                                    and all(t["outcome"] == "observed" for t in baseline["transitions"])
+                                    and baseline["rows_present"] == list(BURST_STREAM_IDS))
+        if cap:
+            cap.screenshot(f"{name}_baseline")
+        if not evidence["baseline"]["ok"]:
+            raise RuntimeError("baseline drawer cycle failed")
+
+        injector = MockControl(url)
+        controls.append(injector)
+        sent = {"count": 0}
+        result = {}
+        thread = threading.Thread(target=lambda: result.update(run_injector(
+            injector, build_burst(), progress=lambda n: sent.update(count=n))), daemon=True)
+        thread.start()
+        triggered = run_mode != "stall_control"
+        screenshot_taken = False
+        while thread.is_alive():
+            if not triggered and sent["count"] >= BURST_EVENT_COUNT // 2:
+                # Trigger with no cycle in flight, then tap once the stall has begun.
+                trigger = MockControl(url)
+                controls.append(trigger)
+                trigger.rpc("debug_replay_event", expected_stream_id=TRIGGER_STREAM_ID, event=trigger_event())
+                triggered = True
+                if not _await_stall_begin(stream, STALL_BEGIN_WAIT_S):
+                    evidence["setup_errors"].append("stall_begin_trace_missing")
+            evidence["cycles"].append(probe_cycle(ui))
+            if cap and not screenshot_taken and sent["count"] >= BURST_EVENT_COUNT // 2:
+                cap.screenshot(f"{name}_mid_burst")
+                screenshot_taken = True
+        thread.join()
+        evidence.update(frames=result.get("frames", []), first_send_mono=result.get("first_send_mono"),
+                        last_ack_mono=result.get("last_ack_mono"))
+        if result.get("error"):
+            evidence["setup_errors"].append("injector: " + result["error"])
+        expected = {(f["stream_id"], int(f["seq"])) for f in evidence["frames"]}
+        deadline = time.monotonic() + DELIVERY_GRACE_S
+        while time.monotonic() < deadline and not expected <= set(received_identities(stream.all_events())):
+            time.sleep(0.25)
+    except Exception as exc:  # noqa: BLE001 - classified by the oracle below
+        if evidence["baseline"]["ok"]:
+            evidence["setup_errors"].append(str(exc))
+        else:
+            evidence["baseline"]["error"] = evidence["baseline"]["error"] or str(exc)
+    finally:
+        for control in controls:
+            try:
+                control.close()
+            except Exception:  # noqa: BLE001
+                pass
+    events = stream.all_events()
+    evidence["received"] = received_identities(events)
+    offset = time.time() - time.monotonic()
+    evidence["stall"] = stall_window(events, mono_to_wall=lambda mono: mono + offset)
+    verdict, failures, metrics = evaluate(evidence)
     if cap:
         cap.screenshot(f"{name}_end")
-    return verdict.finish()
-
+    return Verdict(name=name, verdict=verdict, error="; ".join(failures) or None, extras={
+        **metrics, "baseline": evidence["baseline"], "cycles": evidence["cycles"],
+        "frames": evidence["frames"], "setup_errors": evidence["setup_errors"]}).finish()

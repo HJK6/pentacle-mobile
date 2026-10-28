@@ -31,6 +31,7 @@ CONFIGURED_M1 = "m1_configured_roster_history"
 CONFIGURED_M1_MODULE = "e2e.scenarios.m1_configured_roster_history"
 
 REPORT_MODULES = {
+    "all_chats_load": "e2e.scenarios.all_chats_freeze_sim_regression",
     "nexus_agents_history_questions": "e2e.scenarios.nexus_agents_history_questions",
     "mock_answer_fallback_reconcile": "e2e.scenarios.mock_answer_fallback_reconcile",
     "report_viewer_horizontal_scroll": "e2e.scenarios.report_viewer_horizontal_scroll",

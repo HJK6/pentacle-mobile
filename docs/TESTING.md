@@ -404,6 +404,46 @@ Run the native-oracle controls with
 The fallback keeps the interpreter's notification identity; cached rows compare
 that identity so equal text from a later notification remains a separate answer.
 
+## Session list load responsiveness
+
+`all_chats_load` (`test/e2e/scenarios/all_chats_freeze_sim_regression.py`)
+checks the operator's session list under live delivery. Since the assistant
+home routes, that list is the assistant tab's sessions drawer; the older
+`chats` route is not reachable from product navigation. Start
+`python3 test/e2e/tools/mock_v2_daemon.py --port <mock-port>` (no credential
+registry), put `ws_url=ws://127.0.0.1:<mock-port>` in the env file, and run
+`python3 test/e2e/run_scenario.py all_chats_load --env-file <owned-env>
+--runs-dir <fresh-output>` with an installed harness app and the owned
+simulator binding. Set `PENTACLE_ASSISTANT_STREAM_ID` when the build uses a
+non-default assistant stream id.
+
+The scenario seeds eight synthetic sessions, a trigger session and the
+assistant session. It then paces 320 events (40 per stream) at an aggregate
+10 Hz, at least 100 ms apart, recording each frame's lateness. Meanwhile it
+repeatedly taps the real `Sessions, <n> need you` header button and the
+`Close sessions` scrim. Opening counts only when `assistant-drawer-panel` and
+the witness row appear. Closing counts only when the panel disappears. Both
+changes need JS to commit, so a stalled JS thread shows up as latency. A panel
+that was already present never counts as a response. Each transition must be
+observed within 2000 ms (timeout 8000 ms, measured to the end of the observing
+`idb ui describe-all`). The run needs at least six complete cycles, with one
+starting in each third of the burst. Every injected `(stream_id, seq)` must
+appear in a distinct `chat:event_received` line. That proves JS ingestion, not
+rendering. A failed idle baseline cycle is `SETUP_FAIL`. The result claims
+sampled responsiveness at the probe instants only.
+
+`PENTACLE_ALL_CHATS_MODE=stall_control` is the fail-first control. It arms the
+harness-only `chat_list_js_stall` action. Halfway through the burst, with no
+probe in flight, the scenario sends a trigger event. When the store holds that
+event, JS blocks synchronously for 5000 ms and emits
+`chat_list_js_stall_begin`/`_end` traces, timestamped with the device wall
+clock (shared with the host on a simulator). The control is exercised only if
+a tap starts inside the stall at or before begin + 3000 ms. Its expected
+verdict is `FAIL` with a responsiveness reason; otherwise it is `SETUP_FAIL`.
+Offline controls:
+`PYTHONPATH=test:test/e2e python3 -m pytest -q test/e2e/tests/test_all_chats_load.py`
+and `npx jest --runInBand tests/harnessChatListJsStall.test.ts`.
+
 The separate [configured M1 roster/history harness](configured_m1_harness.md)
 uses explicit owned identities, an in-memory mobile credential and a bounded
 authenticated observer. Its offline controls do not grant runtime access or

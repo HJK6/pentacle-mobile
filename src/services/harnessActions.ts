@@ -1974,6 +1974,58 @@ export async function runTabNavigation(deps: TabNavigationDeps): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
+// chat_list_js_stall: fail-first control for the all_chats_load scenario
+// ---------------------------------------------------------------------------
+
+export type ChatListJsStallDeps = {
+  isHarnessBuild?: boolean;
+  isArmed: () => boolean;
+  hasAction: (action: string) => boolean;
+  getParam: (name: string) => string | undefined;
+  subscribe: (listener: () => void) => () => void;
+  getState: () => { events: ReadonlyArray<{ stream_id?: unknown; daemon_seq?: unknown }> };
+  now?: () => number;
+};
+
+/**
+ * Blocks the JS thread once, synchronously, when the trigger event identity
+ * reaches the store, so the host-driven drawer probe must observe the stall as
+ * latency. Inert unless this is an armed harness run naming the action.
+ */
+export function subscribeChatListJsStall(deps: ChatListJsStallDeps): (() => void) | null {
+  const isHarnessBuild = deps.isHarnessBuild ?? process.env.EXPO_PUBLIC_HARNESS === '1';
+  if (!isHarnessBuild || !deps.isArmed() || !deps.hasAction('chat_list_js_stall')) return null;
+  const streamId = deps.getParam('chat_list_js_stall_stream_id') || '';
+  const seq = Number(deps.getParam('chat_list_js_stall_seq'));
+  const rawStallMs = deps.getParam('chat_list_js_stall_ms') || '';
+  const stallMs = /^\d+$/.test(rawStallMs) ? Number(rawStallMs) : NaN;
+  if (!streamId || !Number.isInteger(seq) || seq <= 0 || !(stallMs >= 500 && stallMs <= 8000)) {
+    logHarnessTrace('chat_list_js_stall_rejected', { reason: 'invalid_params' });
+    return null;
+  }
+  const now = deps.now ?? Date.now;
+  let fired = false;
+  let unsubscribe: (() => void) | null = null;
+  const maybeStall = () => {
+    if (fired) return;
+    const matched = deps.getState().events.some((event) =>
+      String(event.stream_id || '') === streamId && Number(event.daemon_seq) === seq);
+    if (!matched) return;
+    fired = true;
+    unsubscribe?.();
+    logHarnessTrace('chat_list_js_stall_begin', { stall_ms: stallMs, timestamp_emitter_wall: now() });
+    const until = now() + stallMs;
+    while (now() < until) {
+      // Deliberate synchronous block: nothing else may run on the JS thread.
+    }
+    logHarnessTrace('chat_list_js_stall_end', { stall_ms: stallMs, timestamp_emitter_wall: now() });
+  };
+  unsubscribe = deps.subscribe(maybeStall);
+  maybeStall();
+  return () => unsubscribe?.();
+}
+
+// ---------------------------------------------------------------------------
 // all_chats_regression
 // ---------------------------------------------------------------------------
 

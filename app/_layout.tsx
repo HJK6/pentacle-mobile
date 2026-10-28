@@ -873,10 +873,24 @@ if (process.env.EXPO_PUBLIC_HARNESS === '1') {
     }
   };
 
+  const subscribeChatListJsStall = () => {
+    if (composeFlowDispatched.has('chat_list_js_stall')) return;
+    if (!harnessRuntime.hasAction('chat_list_js_stall')) return;
+    composeFlowDispatched.add('chat_list_js_stall');
+    harnessActions.subscribeChatListJsStall({
+      isArmed: harnessRuntime.isArmed,
+      hasAction: harnessRuntime.hasAction,
+      getParam: harnessRuntime.getParam,
+      subscribe: pentacleStream.subscribePentacleStream,
+      getState: pentacleStream.getPentacleStreamState,
+    });
+  };
+
   const subscribeHarnessHydrationActions = () => {
     resetHarnessActionDispatchStateIfNeeded();
     subscribeWriteUserPreference();
     subscribeSessionStateDump();
+    subscribeChatListJsStall();
     // Navigation-driving harness actions must wait until the expo-router root
     // navigator has mounted. On a cold launch the harness bootstrap (and the
     // initial-URL promise) can run before RootLayout mounts; calling
