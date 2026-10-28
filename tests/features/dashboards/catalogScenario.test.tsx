@@ -19,7 +19,7 @@ for key,value in [('PENTACLE_DAEMON_WS_URL','wss://example.test:7791'),('PENTACL
  except ValueError: pass
  else: raise AssertionError('invalid input was accepted: '+key)
 assert m.DashboardCatalogScenario.params({**config,'_dashboard_catalog_phase':'unset'})['dashboard_catalog_spec_id']==''
-assert set(m.REPORT_MODULES)=={'report_viewer_horizontal_scroll','report_viewer_runtime_sentinel','report_viewer_comments_keyboard','nexus_agents_history_questions','mock_answer_fallback_reconcile'}
+assert set(m.REPORT_MODULES)=={'all_chats_load','report_viewer_horizontal_scroll','report_viewer_runtime_sentinel','report_viewer_comments_keyboard','nexus_agents_history_questions','mock_answer_fallback_reconcile'}
 class Sink(io.StringIO):
  def close(self): pass
 secret='example-synthetic-token/+=?&'
