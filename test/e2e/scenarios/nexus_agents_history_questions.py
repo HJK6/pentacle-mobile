@@ -116,17 +116,21 @@ def drive_question(ui, control, surface: str, mode: str) -> None:
             ui.tap('chat-row-toggle-mock-host-mock-session')
         prefix, submit = 'smart-question', 'smart-question-submit'
     ui.wait(label=body)
+    # Typed answers start with a capital so the on-device sentence-case
+    # autocapitalization of the first character is a no-op. This keeps the
+    # delivered text byte-identical to `expected_text` below and lets the
+    # dispatch oracle stay an exact, case-sensitive equality check.
     if is_free:
-        ui.type_text('question-freetext-0' if surface == 'session' else 'smart-question-free-text', 'free answer')
+        ui.type_text('question-freetext-0' if surface == 'session' else 'smart-question-free-text', 'Free answer')
     elif mode == 'custom':
         ui.tap(f'{prefix}-custom-toggle')
-        ui.type_text(f'{prefix}-custom-answer', 'custom answer')
+        ui.type_text(f'{prefix}-custom-answer', 'Custom answer')
     else:
         ui.tap(f'{prefix}-option-1')
         if mode == 'combined':
-            ui.type_text('question-note-0' if surface == 'session' else 'smart-question-note', 'note answer')
+            ui.type_text('question-note-0' if surface == 'session' else 'smart-question-note', 'Note answer')
     ui.tap(submit)
-    expected_text = 'free answer' if is_free else ('note answer' if mode == 'combined' else ('custom answer' if mode == 'custom' else None))
+    expected_text = 'Free answer' if is_free else ('Note answer' if mode == 'combined' else ('Custom answer' if mode == 'custom' else None))
     if not control.answer(question_id, None if is_free or mode == 'custom' else ['proceed'], expected_text):
         raise RuntimeError('M1 question dispatch mismatch: ' + question_id)
     if not ui.wait_absent(label=body):
@@ -158,20 +162,23 @@ def drive_history_navigation(ui, trace) -> None:
 
 
 def drive_two_turns(ui, control, trace) -> None:
+    # Freshly-sent transcript rows land at the bottom of the scroll view and can
+    # be clipped even though their AX frames are on screen, so hit-test them with
+    # the corrective-drag gate.
     ui.type_text('composer-input', 'M1 first turn')
     ui.tap('composer-send-button')
-    ui.wait_hit('M1 first turn')
-    ui.wait_hit('First synthetic reply.')
+    ui.wait_hit('M1 first turn', corrective=True)
+    ui.wait_hit('First synthetic reply.', corrective=True)
     trace.mark()
     closed = control.rpc('debug_replay_close', client='pentacle-mobile', close_reason='M1 reconnect')
     if closed.get('closed') != 1 or not trace.wait_reconnect():
         raise RuntimeError('M1 mock reconnect not observed')
-    ui.wait_hit('M1 first turn')
-    ui.wait_hit('First synthetic reply.')
+    ui.wait_hit('M1 first turn', corrective=True)
+    ui.wait_hit('First synthetic reply.', corrective=True)
     ui.type_text('composer-input', 'M1 second turn')
     ui.tap('composer-send-button')
-    ui.wait_hit('M1 second turn')
-    ui.wait_hit('Second synthetic reply.')
+    ui.wait_hit('M1 second turn', corrective=True)
+    ui.wait_hit('Second synthetic reply.', corrective=True)
     for text in ('M1 first turn', 'First synthetic reply.', 'M1 second turn', 'Second synthetic reply.'):
         if ui.count(text) != 1:
             raise RuntimeError('M1 turn missing or duplicated: ' + text)
@@ -274,6 +281,76 @@ def reset_diagnostic_question(ui, control):
     return True
 
 
+def _dismiss_question_surface(ui, control):
+    # Shared teardown: dismiss any lingering voice capture or question overlay
+    # and resolve the last mock-owned notification if it is still on screen.
+    # Only mock-owned notification state is changed; never submit an answer.
+    import copy
+    if ui.present('voice-recording-strip-discard'):
+        ui.tap('voice-recording-strip-discard')
+        if not ui.wait_absent('voice-recording-strip-discard'):
+            return False
+    if ui.present('question-overlay-cancel'):
+        ui.tap('question-overlay-cancel')
+        if not ui.wait_absent('question-overlay-cancel'):
+            return False
+    notification = copy.deepcopy(control.last_notification)
+    body = notification.get('body') if isinstance(notification, dict) else None
+    if notification and isinstance(body, str) and ui.present(label=body):
+        notification['state'] = 'resolved'
+        if isinstance(notification.get('question'), dict):
+            notification['question']['state'] = 'resolved'
+        control.rpc('debug_replay_notification', notification=notification)
+        if not ui.wait_absent(label=body):
+            return False
+    return True
+
+
+def reset_to_session_baseline(ui, control):
+    # Reset a cell that ends inside the mock session (reconnect, Nexus/non-Nexus
+    # controls) by returning to the mock-session composer, reusing the existing
+    # navigation oracles.
+    if not _dismiss_question_surface(ui, control):
+        return False
+    if ui.present(label='Back to chats'):
+        ui.tap(label='Back to chats')
+    # The navigation oracle for this row waits for `composer-input`, so a
+    # successful return re-establishes the measured baseline.
+    ui.tap('chat-row-mock-host-mock-session')
+    return True
+
+
+def reset_to_cards_baseline(ui, control):
+    # Reset a card-surface cell (`enter_cards`, `card_*`) to the CHAT LIST, where
+    # those cells operate (card questions open from `chat-row-toggle-…` in the
+    # list, not from a session). Landing on the session composer would make each
+    # later card cell FAIL for a harness reason instead of being measured.
+    if not _dismiss_question_surface(ui, control):
+        return False
+    if ui.present(label='Back to chats'):
+        ui.tap(label='Back to chats')
+    # Verify the chat list is shown (its rows are present), without entering a
+    # session.
+    ui.wait(identifier='chat-row-mock-host-mock-session')
+    return True
+
+
+def reset_diagnostic_cell(ui, control, label):
+    # Isolate each diagnostic cell so one failure does not blanket the rest as
+    # UNMEASURED: session question cells reset in place; card-surface cells reset
+    # to the chat list; the remaining in-session cells reset to the session
+    # composer. A reset that cannot verify its baseline fails closed (returns
+    # False) and the remaining cells stay UNMEASURED, as before.
+    try:
+        if label.startswith('session_'):
+            return reset_diagnostic_question(ui, control)
+        if label == 'enter_cards' or label.startswith('card_'):
+            return reset_to_cards_baseline(ui, control)
+        return reset_to_session_baseline(ui, control)
+    except Exception:
+        return False
+
+
 def run_broad(config: dict, stream, cap=None) -> Verdict:
     from ._m1_native_ui import NativeUI, SystemUIInterception
     from ._m1_mock_control import MockControl
@@ -298,7 +375,7 @@ def run_broad(config: dict, stream, cap=None) -> Verdict:
             cells += [('enter_cards', enter_cards)]
             cells += [(f'card_{mode}', lambda mode=mode: drive_question(ui, control, 'card', mode))
                       for mode in ('choice', 'free', 'combined', 'custom')]
-            outcomes = run_diagnostic_cells(cells, lambda label: label.startswith('session_') and reset_diagnostic_question(ui, control))
+            outcomes = run_diagnostic_cells(cells, lambda label: reset_diagnostic_cell(ui, control, label))
             return Verdict(name=name, verdict='PASS' if all(x['status'] == 'PASS' for x in outcomes) else 'FAIL',
                            extras={'scope': 'synthetic broad M1', 'cells': outcomes}).finish()
         for mode in ('choice', 'free', 'combined', 'custom'):

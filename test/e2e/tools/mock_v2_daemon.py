@@ -138,6 +138,7 @@ class MockDaemon:
             "debug_replay_event": self._on_debug_event,
             "debug_replay_notification": self._on_debug_notification,
             "debug_replay_close": self._on_debug_close,
+            "notification.list": self._on_notification_list,
             "notification.await": self._on_notification_await,
             "notification.resolve": self._on_notification_resolve,
         }.get(mtype)
@@ -199,13 +200,51 @@ class MockDaemon:
                 counts[kind] = counts.get(kind, 0) + 1
         await self._send(ws, {"type": "daemon.stats.ok", "request_id": msg.get("request_id"), "stats": {"clients": counts}})
 
+    def _open_notifications(self) -> list[dict[str, Any]]:
+        # The real hello/notification inventory is open-only: a notification
+        # whose state is open, and whose carried question (if any) is still open.
+        result = []
+        for record in self.notifications.values():
+            if record.get("state") != "open":
+                continue
+            question = record.get("question")
+            if isinstance(question, dict) and question.get("state", "open") != "open":
+                continue
+            result.append(record)
+        return result
+
+    async def _on_notification_list(self, ws: Any, msg: dict[str, Any]) -> None:
+        # Answer the app's notification backfill (`notification.list`), which the
+        # app issues on mount/focus and when a transcript ask row needs its
+        # notification re-hydrated. Leaving it unanswered let a tracked command
+        # time out and force-close the socket (rpc_timeout / liveness).
+        request_id = msg.get("request_id")
+        ids = msg.get("notification_ids")
+        if isinstance(ids, list):
+            wanted = [str(i) for i in ids]
+            records = [self.notifications[i] for i in wanted if i in self.notifications]
+        else:
+            records = self._open_notifications()
+            states = msg.get("states")
+            if isinstance(states, list) and states:
+                allowed = {str(s) for s in states}
+                records = [r for r in self.notifications.values() if str(r.get("state")) in allowed]
+            limit = msg.get("limit")
+            if isinstance(limit, int) and limit >= 0:
+                records = records[:limit]
+        await self._send(ws, {"type": "notification.list.ok", "request_id": request_id, "notifications": records})
+
     # ---- app-facing snapshot / stats --------------------------------------
     def _snapshot_frame(self, events_mode: str, exclude: list[str]) -> dict[str, Any]:
         snapshot: dict[str, Any] = {
             "type": "snapshot",
             "events_mode": events_mode,
             "sessions": self._sorted_summaries(),
-            "notifications": [],
+            # Fidelity with the real hello inventory: carry the OPEN notifications
+            # so a reconnect snapshot does not wipe an unanswered agent question
+            # (the window-05 no_entries overlay-close came from this snapshot
+            # replacing a non-empty notification slice with []).
+            "notifications": self._open_notifications(),
             "updates": [],
             "hosts": {self.local_host: {"host": self.local_host, "online": True, "host_status": "online"}},
             "working_states": {},
@@ -542,6 +581,13 @@ class MockDaemon:
         # register it and broadcast so the app's Updates surface reflects it.
         record = self._notification_record(notification)
         await self._broadcast_app({"type": "notification", "notification": record})
+        # Fidelity with the real daemon: an open agent question is also a durable
+        # stream event (a `prompt.ask.ok` TOOL_RESULT carrying the notification
+        # id). Persist it so a bounded request_stream_events('mount-fetch')
+        # returns it and the app re-hydrates the question through its transcript
+        # backfill, instead of dropping a replay-only live notification. A
+        # live-only broadcast was the window-05 `no_entries` overlay-close gap.
+        self._persist_agent_question_ask_event(record)
         await self._ack(ws, request_id, "ok", ack_type="debug_replay_notification.ack", extra={"notification": record})
 
     async def _seed_history(self, ws: Any, msg: dict[str, Any], notification: dict[str, Any]) -> None:
@@ -709,6 +755,46 @@ class MockDaemon:
             record["question"] = {**record["question"], "state": record["question"].get("state", "open")}
         self.notifications[record["notification_id"]] = record
         return record
+
+    def _persist_agent_question_ask_event(self, record: dict[str, Any]) -> None:
+        # Real-daemon fidelity for the transcript backfill path: the daemon's
+        # `prompt.ask.ok` lands as a TOOL_RESULT in the PRODUCER stream, and the
+        # app re-hydrates it via useTranscriptQuestionBackfill -> notification.list
+        # (answered by _on_notification_list). This is NOT the primary fix for the
+        # window-05 no_entries close (that is the open snapshot inventory above);
+        # it keeps the mock's backfill behaving like the daemon end to end.
+        # Only an OPEN agent question that declares its producer stream is made
+        # durable; report notifications and resolved replays stay broadcast-only.
+        question = record.get("question")
+        if not isinstance(question, dict) or str(question.get("state") or "open") != "open":
+            return
+        question_id = str(question.get("question_id") or "")
+        stream_id = str(question.get("producer_stream_id") or record.get("surfaced_to_stream_id")
+                        or record.get("answer_to_stream_id") or record.get("stream_id") or "")
+        if not question_id or not stream_id:
+            return
+        notification_id = str(record.get("notification_id") or "")
+        title = str(record.get("title") or question.get("title") or "")
+        host = str(record.get("host") or (stream_id.split(":", 1)[0] if ":" in stream_id else self.local_host))
+        session_name = str(record.get("session_name") or (stream_id.split(":", 1)[1] if ":" in stream_id else ""))
+        ring = self.recent_by_stream.get(stream_id, [])
+        next_seq = max([_event_seq(e) for e in ring] + [int(_now() * 1000)]) + 1
+        ask_payload = {
+            "type": "prompt.ask.ok", "ok": True,
+            "notification": {"notification_id": notification_id, "title": title},
+            "question": {"question_id": question_id, "notification_id": notification_id,
+                         "envelope": {"title": title, "question_id": question_id}},
+        }
+        event = {
+            "daemon_seq": next_seq, "host": host,
+            "provider": str(question.get("producer_provider") or record.get("provider") or "codex"),
+            "session_id": "", "session_name": session_name, "stream_id": stream_id,
+            "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "kind": "TOOL_RESULT", "text": json.dumps(ask_payload),
+            "raw": {"source": "mock-debug-replay-notification", "session_name": session_name},
+        }
+        self._index_session(event)
+        self._append_recent(event)
 
     @staticmethod
     def _notification_answer(record: dict[str, Any]) -> dict[str, Any]:

@@ -12,6 +12,11 @@ import time
 
 from ..harness import scenario_simctl_command
 
+# Bounded number of corrective drags applied when a row exists in the
+# accessibility tree but is clipped by its enclosing ScrollView (the PR #97
+# hit-test class). After this budget the caller's deadline fails closed.
+CORRECTIVE_DRAG_BUDGET = 4
+
 
 class SystemUIInterception(Exception):
     def __init__(self, foreground, video_timestamp_s):
@@ -163,12 +168,54 @@ class NativeUI:
     def row_visible(self, label):
         return self.hit_visible(label, roster=True)
 
-    def wait_hit(self, label, timeout=20, *, roster=False):
+    def _labeled_frame(self, label):
+        # First on-screen (or off-screen) accessibility node for this label.
+        for element in self.elements():
+            if element.get('AXLabel') == label and isinstance(element.get('frame'), dict):
+                return element['frame']
+        return None
+
+    def _root_frame(self):
+        return next(e['frame'] for e in self.elements() if e.get('role') == 'AXApplication')
+
+    def _corrective_drag(self, *, down):
+        # Reuse the swipe primitive. `down` scrolls content down (reveals a row
+        # clipped above the viewport); otherwise up (reveals one clipped below).
+        root = self._root_frame()
+        x = str(int(root['x'] + root['width'] * .5))
+        near = str(int(root['y'] + root['height'] * (.28 if down else .78)))
+        far = str(int(root['y'] + root['height'] * (.78 if down else .28)))
+        self._command('swipe', x, near, x, far, '--duration', '.4')
+
+    def wait_hit(self, label, timeout=20, *, roster=False, corrective=False):
         deadline = time.monotonic() + timeout
+        corrections = 0
         while time.monotonic() < deadline:
             self.check_foreground()
             if self.hit_visible(label, roster=roster):
                 return
+            # PR #97 hit-test gate: when the row is present in the accessibility
+            # tree (including off-screen nodes) but describe-point in
+            # `hit_visible` rejects it, it is clipped by the enclosing
+            # ScrollView. Apply a bounded, direction-aware corrective drag to
+            # bring it into the unclipped region, re-gating with describe-point.
+            if corrective and corrections < CORRECTIVE_DRAG_BUDGET:
+                before = self._labeled_frame(label)
+                if before is not None:
+                    root = self._root_frame()
+                    # A row whose top sits above the viewport is clipped at the
+                    # top (scroll down to reveal); otherwise clipped at the
+                    # bottom (scroll up).
+                    self._corrective_drag(down=before['y'] < root['y'])
+                    corrections += 1
+                    after = self._labeled_frame(label)
+                    # Movement check: if the drag did not move the row it cannot
+                    # become hittable, so fail closed instead of burning the
+                    # budget against a pinned scroll view.
+                    if after is None or abs(after['y'] - before['y']) < 1:
+                        raise RuntimeError('M1 visible row did not pass hit testing: ' + label
+                                           + ' (corrective drag did not move the row)')
+                    continue
             time.sleep(.2)
         raise RuntimeError('M1 visible row did not pass hit testing: ' + label)
 

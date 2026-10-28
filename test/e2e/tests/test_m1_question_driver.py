@@ -19,7 +19,7 @@ class Control:
 
 
 @pytest.mark.parametrize('surface', ['session', 'card'])
-@pytest.mark.parametrize('mode, selections, text', [('choice', ['proceed'], None), ('free', None, 'free answer'), ('combined', ['proceed'], 'note answer'), ('custom', None, 'custom answer')])
+@pytest.mark.parametrize('mode, selections, text', [('choice', ['proceed'], None), ('free', None, 'Free answer'), ('combined', ['proceed'], 'Note answer'), ('custom', None, 'Custom answer')])
 def test_answer_surface_requires_exact_stub_frame(surface, mode, selections, text):
     ui, control = UI(), Control()
     m1.drive_question(ui, control, surface, mode)
@@ -32,12 +32,12 @@ def test_answer_surface_requires_exact_stub_frame(surface, mode, selections, tex
         assert ('tap', f'{prefix}-option-1', None) in ui.calls
     if mode == 'custom':
         assert ('tap', f'{prefix}-custom-toggle', None) in ui.calls
-        assert ('text', f'{prefix}-custom-answer', 'custom answer') in ui.calls
+        assert ('text', f'{prefix}-custom-answer', 'Custom answer') in ui.calls
         assert control.calls[0][1]['notification']['question']['allow_custom'] is True
     if mode == 'combined':
-        assert ('text', 'question-note-0' if surface == 'session' else 'smart-question-note', 'note answer') in ui.calls
+        assert ('text', 'question-note-0' if surface == 'session' else 'smart-question-note', 'Note answer') in ui.calls
     if mode == 'free':
-        assert ('text', 'question-freetext-0' if surface == 'session' else 'smart-question-free-text', 'free answer') in ui.calls
+        assert ('text', 'question-freetext-0' if surface == 'session' else 'smart-question-free-text', 'Free answer') in ui.calls
     with pytest.raises(RuntimeError):
         m1.drive_question(UI(), Control(matches=False), surface, mode)
 
