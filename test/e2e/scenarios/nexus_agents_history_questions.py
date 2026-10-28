@@ -141,7 +141,7 @@ def drive_history_navigation(ui, trace) -> None:
     ui.tap('agent-thread-back-status')
     ui.wait(label='Close session status')
     ui.tap('nexus-status-history-mock-host-child-worker')
-    ui.tap(label='Close thread history')
+    ui.tap_stable('Close thread history')
     ui.wait(label='Close session status')
     for _ in range(8):
         ui.swipe_up()

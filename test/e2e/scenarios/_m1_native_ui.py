@@ -135,6 +135,12 @@ class NativeUI:
             time.sleep(.2)
         return True
 
+    def tap_stable(self, label):
+        self.wait_hit(label)
+        time.sleep(.6)
+        self.wait_hit(label)
+        self.tap(label=label)
+
     def tap(self, identifier=None, label=None):
         item = self.wait(identifier, label)
         if item.get('enabled') is False:

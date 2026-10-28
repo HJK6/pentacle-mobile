@@ -33,3 +33,22 @@ def test_ninth_row_hit_test_rejects_header_and_empty_results():
     assert not ui.row_visible('Worker 9')
     ui._command = lambda *args: (_ for _ in ()).throw(RuntimeError('hit failed'))
     assert not ui.row_visible('Worker 9')
+
+
+def test_modal_close_waits_for_two_hit_checks_before_tap(monkeypatch):
+    import pytest
+    from e2e.scenarios import _m1_native_ui as native
+    monkeypatch.setattr(native.time, 'sleep', lambda _: None)
+    ui = object.__new__(NativeUI)
+    calls = []
+    ui.wait_hit = lambda label: calls.append(('hit', label))
+    ui.tap = lambda **kwargs: calls.append(('tap', kwargs['label']))
+    ui.tap_stable('Close thread history')
+    assert calls == [('hit', 'Close thread history'), ('hit', 'Close thread history'), ('tap', 'Close thread history')]
+    calls.clear()
+    def unavailable(label):
+        calls.append(('hit', label))
+        if len(calls) == 2: raise RuntimeError('not yet visible')
+    ui.wait_hit = unavailable
+    with pytest.raises(RuntimeError): ui.tap_stable('Close thread history')
+    assert not any(call[0] == 'tap' for call in calls)
