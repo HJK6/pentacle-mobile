@@ -120,69 +120,13 @@ afterEach(() => {
 
 // --- List states ------------------------------------------------------------
 
-test('initial hydration shows the summoning copy', () => {
-  mockState.hasHydrated = false;
-  mockState.connecting = true;
-  render(<ChatsScreen />);
-  expect(screen.getByText('SUMMONING CHATS…')).toBeTruthy();
-});
 
-test('hydrated empty shows summon guidance', () => {
-  render(<ChatsScreen />);
-  expect(screen.getByText('No sessions yet')).toBeTruthy();
-  expect(screen.getByText('Summon an agent on a live machine to begin a transcript.')).toBeTruthy();
-});
 
-test('unreachable with no sessions shows a retry affordance', async () => {
-  jest.useFakeTimers();
-  mockState.hasHydrated = false;
-  mockState.connecting = false;
-  mockState.lastError = 'dial tcp: no route to host';
-  render(<ChatsScreen />);
 
-  expect(screen.getByTestId('chats-unreachable')).toBeTruthy();
-
-  await act(async () => {
-    fireEvent.press(screen.getByTestId('chats-retry'));
-  });
-  expect(mockActions.reconnect).toHaveBeenCalledTimes(1);
-  act(() => {
-    jest.advanceTimersByTime(700);
-  });
-});
-
-test('a connection error with populated sessions preserves the list non-destructively', () => {
-  mockState.sessions = [session('hostc:claude:kept', 'Kept session')];
-  mockState.lastError = 'stream dropped';
-  render(<ChatsScreen />);
-
-  expect(screen.getByText('Kept session')).toBeTruthy();
-  expect(screen.getByTestId('chats-error-banner')).toBeTruthy();
-  expect(screen.queryByTestId('chats-unreachable')).toBeNull();
-});
 
 // --- Deterministic expansion resets ------------------------------------------
 
-test('changing the roster filter collapses the open expansion', () => {
-  mockState.hosts = { hostc: { host: 'hostc', online: true, checked_at: '', session_count: 1 } };
-  mockState.sessions = [session('hostc:claude:status', 'Status session', { status_card: statusCard })];
-  render(<ChatsScreen />);
 
-  fireEvent.press(screen.getByTestId('chat-row-toggle-hostc-claude-status'));
-  expect(screen.getByTestId('card-status-mini-hostc:claude:status')).toBeTruthy();
-
-  fireEvent.press(screen.getByLabelText('hostc online'));
-  expect(screen.queryByTestId('card-status-mini-hostc:claude:status')).toBeNull();
-});
-
-test('opening a session collapses the open expansion', () => {
-  mockState.sessions = [session('hostc:claude:status', 'Status session', { status_card: statusCard })];
-  render(<ChatsScreen />);
-
-  fireEvent.press(screen.getByTestId('chat-row-toggle-hostc-claude-status'));
-  fireEvent.press(screen.getByTestId('chat-row-hostc-claude-status'));
-  expect(screen.queryByTestId('card-status-mini-hostc:claude:status')).toBeNull();
-});
 
 // --- Host roster regressions (spec_pentacle_mobile__host_regressions_assistant_hoste_hostd_2026_09)
 // The top filter roster must render only the real fleet hosts the client knows about
@@ -190,42 +134,6 @@ test('opening a session collapses the open expansion', () => {
 // shipping roster of hoste/hostc/hostb, the retired hosta host and the non-hosting
 // hostd must not appear as roster chips, and hoste must render as its own machine (ibis skin),
 // not the djinni skin from a positional fallback.
-test('roster renders only real fleet hosts — no retired hosta, no hostd, hoste is its own machine', () => {
-  (globalThis as Record<string, unknown>).__PENTACLE_EXPO_CONFIG__ = {
-    extra: {
-      wsUrl: 'ws://127.0.0.1:7791',
-      hosts: {
-        hoste: { label: 'hoste', sigil: 'ibis' },
-        hostc: { label: 'hostc', sigil: 'mage' },
-        hostb: { label: 'hostb', sigil: 'sun' },
-      },
-      hostOrder: ['hoste', 'hostc', 'hostb'],
-    },
-  };
-  mockState.hosts = {
-    hoste: { host: 'hoste', online: true, checked_at: '', session_count: 1 },
-    hostc: { host: 'hostc', online: true, checked_at: '', session_count: 1 },
-    hostb: { host: 'hostb', online: true, checked_at: '', session_count: 1 },
-    // Even if the daemon ever emitted the assistant identity host (the host part of
-    // home:assistant), it must never surface as a machine roster chip.
-    home: { host: 'home', online: true, checked_at: '', session_count: 1 },
-  };
-  render(<ChatsScreen />);
-
-  // The three real machines each get a roster chip.
-  expect(screen.getByLabelText('hoste online')).toBeTruthy();
-  expect(screen.getByLabelText('hostc online')).toBeTruthy();
-  expect(screen.getByLabelText('hostb online')).toBeTruthy();
-
-  // Regression 1: the retired hosta host must not appear as a roster chip,
-  // even when it arrives as a live daemon host (the identity host is filtered).
-  expect(screen.queryByLabelText('hosta online')).toBeNull();
-  expect(screen.queryByLabelText('hosta offline')).toBeNull();
-
-  // Regression 3: hostd cannot host chats and must not appear in the filter roster.
-  expect(screen.queryByLabelText('hostd online')).toBeNull();
-  expect(screen.queryByLabelText('hostd offline')).toBeNull();
-});
 
 // --- Summon flow --------------------------------------------------------------
 

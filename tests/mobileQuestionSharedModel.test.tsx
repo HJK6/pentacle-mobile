@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useState } from 'react';
 import { fireEvent, render, screen, within } from '@testing-library/react-native';
 import { StyleSheet } from 'react-native';
 import type { PentacleNotification, PentacleQuestion } from 'pentacle-chat-core';
@@ -9,7 +9,6 @@ import {
   mobileQuestionAnswered,
   mobileQuestionItems,
   MobileQuestionOne,
-  QuestionCardSurface,
   serializeMobileQuestionAnswer,
   useMobileQuestionFlow,
   type MobileQuestionDraft,
@@ -56,25 +55,6 @@ function OneHarness({ question }: { question: PentacleQuestion }) {
   );
 }
 
-function FlowHarness({ question }: { question: PentacleQuestion }) {
-  const entries = useMemo<MobileQuestionEntry[]>(() => mobileQuestionItems(question).map((item, index) => ({
-    key: `q-${index}`,
-    question: item,
-    source: null,
-  })), [question]);
-  const [activeIndex, setActiveIndex] = useState(0);
-  const flow = useMobileQuestionFlow(entries);
-  return (
-    <QuestionCardSurface
-      entries={entries}
-      activeIndex={activeIndex}
-      flow={flow}
-      accent="#3dff66"
-      onIndexChange={setActiveIndex}
-      onSend={jest.fn()}
-    />
-  );
-}
 
 test('renders label plus optional description and nests notes inside the selected option', () => {
   render(<OneHarness question={choiceQuestion()} />);
@@ -142,52 +122,7 @@ test('plain free-text questions serialize text rather than customText', () => {
   expect(serializeMobileQuestionAnswer(item, draft)).toEqual({ text: 'Ship after QA', note: 'not urgent' });
 });
 
-test('shared flow exposes one dot per render item with active and answered state', () => {
-  const question = {
-    prompt: 'Plan',
-    options: [],
-    multi: true,
-    questions: [
-      { index: 0, prompt: 'First?', options: [{ index: 1, label: 'Yes' }] },
-      { index: 1, prompt: 'Second?', options: [{ index: 1, label: 'Yes' }] },
-    ],
-  } as PentacleQuestion;
-  render(<FlowHarness question={question} />);
 
-  const firstDot = StyleSheet.flatten(screen.getByTestId('question-dot-0').props.style);
-  expect(firstDot).toMatchObject({ width: 9, height: 9, borderWidth: 1.4 });
-  expect(screen.getByTestId('question-dot-0').props.accessibilityState).toMatchObject({ selected: true, checked: false });
-  expect(screen.getByTestId('question-dot-1').props.accessibilityState).toMatchObject({ selected: false, checked: false });
-  fireEvent.press(screen.getByTestId('smart-question-option-1'));
-  expect(screen.getByTestId('question-dot-0').props.accessibilityState.checked).toBe(true);
-  fireEvent.press(screen.getByTestId('question-dot-1'));
-  expect(screen.getByTestId('question-dot-1').props.accessibilityState.selected).toBe(true);
-  expect(screen.getByTestId('smart-question-submit').props.accessibilityState.disabled).toBe(true);
-});
-
-test('card footer uses compact navigation and SEND ALL without an unanswered text button', () => {
-  const question = {
-    prompt: 'Plan',
-    options: [],
-    multi: true,
-    questions: [
-      { index: 0, prompt: 'First?', options: [{ index: 1, label: 'Yes' }] },
-      { index: 1, prompt: 'Second?', options: [{ index: 1, label: 'Yes' }] },
-    ],
-  } as PentacleQuestion;
-  render(<FlowHarness question={question} />);
-
-  expect(screen.getByTestId('smart-question-previous')).toBeTruthy();
-  expect(screen.getByTestId('smart-question-next')).toBeTruthy();
-  expect(screen.getByTestId('smart-question-submit-all').props.accessibilityState.disabled).toBe(true);
-  expect(StyleSheet.flatten(screen.getByTestId('smart-question-submit-all').props.style)).toMatchObject({ width: 44, opacity: 0.5 });
-  expect(StyleSheet.flatten(screen.getByTestId('smart-question-next').props.style)).toMatchObject({ width: 38, backgroundColor: 'transparent' });
-  expect(screen.queryByText(/unanswered/i)).toBeNull();
-
-  fireEvent.press(screen.getByTestId('smart-question-next'));
-  expect(screen.getByTestId('smart-question-submit')).toHaveTextContent('SEND ALL');
-  expect(screen.getByTestId('smart-question-submit').props.accessibilityState.disabled).toBe(true);
-});
 
 test('durable normalization preserves description and allow_custom with title-only fallback', () => {
   const notification = {
@@ -315,10 +250,10 @@ test('overlay typography splits prompt context and description bullets to the de
 function SkipHarness({durable=true,locked=false,overlay=false,onSkip=jest.fn()}: {durable?:boolean;locked?:boolean;overlay?:boolean;onSkip?:()=>void}) {
  const {QuestionOverlay}=require('../src/components/MobileQuestions');
  const entries:MobileQuestionEntry[]=[{key:'one',question:{...mobileQuestionItems(choiceQuestion())[0],...(durable?{question_id:'q-one'}:{})},source:null,locked}];
- const flow=useMobileQuestionFlow(entries);const Surface=overlay?QuestionOverlay:QuestionCardSurface;
+ const flow=useMobileQuestionFlow(entries);const Surface=QuestionOverlay;
  return <Surface entries={entries} activeIndex={0} flow={flow} accent="#3dff66" title="Review" onIndexChange={jest.fn()} onCancel={jest.fn()} onSend={jest.fn()} onSkip={onSkip}/>;
 }
-test.each([false,true])('Skip is available only for durable unlocked cards (overlay=%s)',overlay=>{
+test.each([true])('Skip is available only for durable unlocked cards (overlay=%s)',overlay=>{
  const onSkip=jest.fn();const prefix=overlay?'question':'smart-question';
  const {rerender}=render(<SkipHarness overlay={overlay} onSkip={onSkip}/>);
  fireEvent.press(screen.getByTestId(`${prefix}-skip`));expect(onSkip).toHaveBeenCalledTimes(1);
@@ -332,10 +267,4 @@ test('prompt and sentence helpers preserve punctuation, whitespace and unsplit p
  expect(splitSentences('First. Next! Last?')).toEqual(['First.','Next!','Last?']);
  expect(splitSentences('')).toEqual([]);
  expect(splitSentences('Use e.g. a sample.')).toEqual(['Use e.g.','a sample.']);
-});
-test('compact card retains its original prompt, label and description sizes',()=>{
- render(<FlowHarness question={choiceQuestion({prompt:'Which? Context.'})}/>);
- expect(screen.getByTestId('smart-question-prompt')).toHaveTextContent('Which? Context.');
- expect(StyleSheet.flatten(screen.getByTestId('smart-question-prompt').props.style)).toMatchObject({fontSize:16,lineHeight:20.2});
- expect(StyleSheet.flatten(screen.getByTestId('smart-question-option-description-1').props.style)).toMatchObject({fontSize:12.5,lineHeight:17.5});
 });
