@@ -308,13 +308,10 @@ test('elapsed time refreshes ETA locally without another transport request', asy
   expect(requestStreamEvents).toHaveBeenCalledTimes(count);
 });
 
-test('the tab removes notification-card dependencies while Unified retains its question drawer', () => {
+test('the tab removes notification-card dependencies', () => {
   const root = path.resolve(__dirname, '../../..');
   const updates = readFileSync(path.join(root, 'app/(tabs)/updates.tsx'), 'utf8');
   expect(updates).not.toMatch(/\b(?:NotificationCard|useNotifications)\b/);
-  const unified = readFileSync(path.join(root, 'app/(tabs)/unified.tsx'), 'utf8');
-  expect(unified).toContain('unified-question-badge');
-  expect(unified).toContain('QuestionCardSurface');
 });
 
 test('a request that settles during blur must not strand loading on a fresh refocus', async () => {

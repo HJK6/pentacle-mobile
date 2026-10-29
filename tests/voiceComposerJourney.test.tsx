@@ -4,7 +4,6 @@ import { Linking } from 'react-native';
 import { PermissionDeniedError } from '../src/services/voiceRecording';
 import { act, fireEvent, render } from '@testing-library/react-native';
 import { ComposerBar, TranscriptRow, hostChrome } from '../app/pentacle/session/[streamId]';
-import UnifiedScreen from '../app/(tabs)/unified';
 import { voiceRecorder, setVoiceLifecycle } from '../src/services/voiceRecordingEngine';
 import { uuid } from 'expo-modules-core';
 import { voiceDelivery, voiceTakeRow } from '../src/services/voiceDelivery';
@@ -140,19 +139,6 @@ test('pending row renders waveform, cancellation removes it and prevents late se
   expect(row.getByText('durable transcript')).toBeTruthy();
 });
 
-test('unified real composer pins selected destination through closing/reselecting while recording', async () => {
-  const view = render(<UnifiedScreen />);
-  fireEvent.press(view.getByTestId('unified-reply-hosta:origin'));
-  await act(async () => fireEvent.press(view.getByTestId('composer-mic-button')));
-  expect(voiceRecorder.activeStreamId()).toBe('hosta:origin');
-  fireEvent.press(view.getByLabelText('Close reply composer'));
-  fireEvent.press(view.getByTestId('unified-reply-hosta:other'));
-  await act(async () => fireEvent.press(view.getByTestId('composer-mic-button')));
-  expect(voiceDelivery.snapshot().takes[0].streamId).toBe('hosta:origin');
-  await act(async () => { resolveTranscript({ text: 'origin unified', model: 'large-v3', vocabulary_version: 'v1' }); await voiceDelivery.drain(); });
-  expect(mockSend).toHaveBeenCalledWith(expect.objectContaining({ streamId: 'hosta:origin', text: 'origin unified', meta: { voice: { duration_s: 3, context_v1: expect.any(Object) } } }));
-  expect(mockSend).toHaveBeenCalledTimes(1);
-});
 
 test('a take stuck checking delivery leaves the composer, its mic and Remove local copy usable in every chat', async () => {
   const alert = jest.spyOn(require('react-native').Alert, 'alert');

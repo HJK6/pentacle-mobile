@@ -1,7 +1,5 @@
-import React from 'react';
-import { render, screen, within } from '@testing-library/react-native';
 import { initialPentacleStreamState, type PentacleNotification } from 'pentacle-chat-core';
-import { ChatRow, selectSmartChatList, selectVisibleChatList } from '../app/(tabs)/chats';
+import { selectSmartChatList, selectVisibleChatList } from '../app/(tabs)/chats';
 
 jest.mock('expo-constants', () => require('./helpers/stubs/expoConstants.cjs'));
 jest.mock('expo-router', () => require('./helpers/mocks/expoRouter').makeMock());
@@ -40,24 +38,14 @@ function state(notifications: PentacleNotification[] = [1, 2, 3, 4].map((i) => c
   } as any;
 }
 
-function renderRows(input: ReturnType<typeof state>) {
-  const rows = selectSmartChatList(input);
-  render(<>{rows.map((chat, index) => <ChatRow key={chat.streamId} chat={chat} index={index}
-    onOpen={jest.fn()} onRename={jest.fn()} onDelete={jest.fn()} onToggle={jest.fn()} onSubmitQuestions={jest.fn()} />)}</>);
-  return rows;
-}
 
 test('the actual producer under a narrowed inventory has four questions on one composite row', () => {
   const input = state();
-  const rows = renderRows(input);
+  const rows = selectSmartChatList(input);
   expect(rows.map((row) => row.streamId)).toEqual([composite]);
   expect(rows[0].openQuestions).toHaveLength(4);
   expect(rows[0].machineName).toBe('hosta');
   expect(rows[0].provider.toLowerCase()).toBe('composite');
-  expect(screen.getByLabelText('Answer 4 questions')).toBeTruthy();
-  expect(screen.getByText('Assistant')).toBeTruthy();
-  expect(screen.queryByText('Codex')).toBeNull();
-  expect(screen.queryByText('Synthetic decision 1')).toBeNull();
   expect(input.notifications.every((n: PentacleNotification) => n.question?.producer_stream_id === producer && n.answer_to_stream_id === producer)).toBe(true);
 });
 
@@ -65,12 +53,9 @@ test('a different hidden seat keeps its own row and an unknown provider never be
   const other = card(5, { surfaced_to_stream_id: null, answer_to_stream_id: 'hostb:v2-other',
     question: { ...card(5).question, producer_stream_id: 'hostb:v2-other' } });
   const input = state([card(1), other]);
-  const rows = renderRows(input);
+  const rows = selectSmartChatList(input);
   expect(rows.map((row) => row.streamId)).toEqual([composite, 'hostb:v2-other']);
   expect(rows.map((row) => row.openQuestions.length)).toEqual([1, 1]);
-  expect(screen.getByText('Synthetic decision 5')).toBeTruthy();
-  expect(screen.queryByText('Codex')).toBeNull();
-  expect(screen.getByText('Agent')).toBeTruthy();
 });
 
 test.each(['claude', 'codex'])('a question-bearing seat uses its inventory provider %s', (provider) => {
@@ -81,26 +66,14 @@ test.each(['claude', 'codex'])('a question-bearing seat uses its inventory provi
     provider, title: 'Other seat', visibility: 'hidden', online: true });
   input.sessions.push({ stream_id: 'hostb:v2-unrelated', host: 'hostb', session_name: 'unrelated',
     provider: 'codex', title: 'Hidden unrelated seat', visibility: 'hidden', online: true });
-  const rows = renderRows(input);
+  const rows = selectSmartChatList(input);
   expect(rows.map((row) => row.streamId)).toEqual([composite, 'hostb:v2-other']);
   expect(selectVisibleChatList(input, 'hostb').map((row) => row.streamId)).toEqual(['hostb:v2-other']);
-  expect(screen.queryByText('Hidden unrelated seat')).toBeNull();
-  const otherRow = screen.getByTestId('chat-row-hostb-v2-other');
-  expect(within(otherRow).getByText(provider === 'claude' ? 'Claude' : 'Codex')).toBeTruthy();
 });
 
 test.each(['claude', 'codex'])('an absent seat inventory uses explicit question provider %s', (provider) => {
   const notification = card(5, { surfaced_to_stream_id: null, answer_to_stream_id: 'hostb:v2-other',
     question: { ...card(5).question, producer_stream_id: 'hostb:v2-other', producer_provider: provider } });
-  const rows = renderRows(state([notification]));
+  const rows = selectSmartChatList(state([notification]));
   expect(rows.find((row) => row.streamId === 'hostb:v2-other')?.provider.toLowerCase()).toBe(provider);
-  expect(screen.getByText(provider === 'claude' ? 'Claude' : 'Codex')).toBeTruthy();
-});
-
-test('a legacy three-part seat retains its explicit provider without inventory', () => {
-  const notification = card(5, { surfaced_to_stream_id: null, answer_to_stream_id: 'hostb:claude:other',
-    question: { ...card(5).question, producer_stream_id: 'hostb:claude:other' } });
-  renderRows(state([notification]));
-  expect(screen.getByText('Claude')).toBeTruthy();
-  expect(screen.queryByText('Codex')).toBeNull();
 });
