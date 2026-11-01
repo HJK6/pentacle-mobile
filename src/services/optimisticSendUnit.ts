@@ -1,5 +1,6 @@
 import type { ChatAttachment } from 'pentacle-chat-core';
 
+import { sendPhotoOutbox } from './pentacleStream';
 import { uploadStagedAttachments } from './attachmentUpload';
 import type { ProcessedAsset } from './imageCapture';
 import type { RenderAttachment } from '../types/renderAttachment';
@@ -18,12 +19,14 @@ import type { RenderAttachment } from '../types/renderAttachment';
 export interface StagedUpload {
   // The already-compressed local assets, retained so Retry can re-upload.
   staged: ProcessedAsset[];
+  durable?: boolean;
   // The in-flight upload (started immediately so it overlaps the row insert).
   promise: Promise<ChatAttachment[]>;
 }
 
 export function beginStagedUpload(staged: ProcessedAsset[]): StagedUpload {
-  return { staged, promise: uploadStagedAttachments(staged) };
+  let promise: Promise<ChatAttachment[]> | undefined;
+  return { staged, durable:true, get promise() { return promise ??= uploadStagedAttachments(staged); } };
 }
 
 // Pair wire attachments with their local thumbs (by index) so the optimistic
@@ -69,7 +72,7 @@ export async function settleUploadLeg(args: {
   });
   let wireAttachments: ChatAttachment[];
   try {
-    wireAttachments = await upload.promise;
+    wireAttachments = upload.durable ? await sendPhotoOutbox(optimisticId, upload.staged) : await upload.promise;
   } catch (error) {
     actions.markOptimisticFailed(optimisticId, error instanceof Error ? error.message : 'upload_error');
     throw error;

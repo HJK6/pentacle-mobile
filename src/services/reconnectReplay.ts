@@ -17,6 +17,9 @@ import {
 export function isVoiceOwnedSend(send: Pick<OptimisticSendState, 'request_id'> | undefined): boolean {
   return !!send?.request_id?.startsWith('voice-send-');
 }
+export function isPhotoOwnedSend(send: Pick<OptimisticSendState, 'request_id'> | undefined): boolean {
+  return !!send?.request_id?.startsWith('photo-');
+}
 
 // Automatic reconnect replay is bounded to survivors no older than 30 minutes.
 // Older ambiguous sends stay visibly recoverable (manual retry) rather than being
@@ -36,7 +39,7 @@ export function rearmOfflineQueuedSends(
   const optimisticSends = { ...(state.optimisticSends ?? {}) };
   for (const [optimisticId, send] of Object.entries(optimisticSends)) {
     if (
-      isVoiceOwnedSend(send) ||
+      isVoiceOwnedSend(send) || isPhotoOwnedSend(send) ||
       send.status !== 'queued' ||
       send.window_started_at !== null ||
       now - send.created_at > maxAgeMs
@@ -69,7 +72,7 @@ export function eligibleReconnectReplayOptimisticIds(
 ): string[] {
   return Object.values(state.optimisticSends ?? {})
     .filter((send: OptimisticSendState) => (
-      !isVoiceOwnedSend(send) &&
+      !isVoiceOwnedSend(send) && !isPhotoOwnedSend(send) &&
       send.socket_generation === generation &&
       (send.status === 'queued' || send.status === 'dispatched') &&
       now - send.created_at <= maxAgeMs

@@ -1,3 +1,7 @@
+import { uuid } from 'expo-modules-core';
+import { getAppIdentity } from '../config/appIdentity';
+import { outboxStore, type OutboxEntry, type OutboxPhoto, type OutboxText } from './outboxStore';
+import type { ProcessedAsset } from './imageCapture';
 import { acceptBlobChunk, newBlobFetchBudget, type BlobFetchBudget } from './blobFetchBudget';
 import { useCallback, useSyncExternalStore } from 'react';
 import { fromByteArray, toByteArray } from 'base64-js';
@@ -31,6 +35,7 @@ import {
 } from './operatorAuthV2';
 export type { SpawnCatalog, SpawnProvider } from './spawnCatalog';
 import {
+  RECONNECT_REPLAY_MAX_AGE_MS,
   isVoiceOwnedSend,
   markDaemonRestartSurvivorsIndeterminate,
   markDaemonRestartNotificationResolvesIndeterminate,
@@ -226,11 +231,11 @@ export type VoiceTransportSnapshot = {
   scopeGeneration: number; socketGeneration: number; origins: readonly PentacleSessionSummary[];
 };
 export type VoiceUploadAck = {
-  protocol: 2; upload_id: string; next_offset: number; complete: boolean; blob_sha?: string;
+  protocol: 2; upload_id: string; next_offset: number; complete: boolean; blob_sha?: string; server_send?: boolean;
 };
 export type VoiceUploadRpc = {
   type: 'upload_blob_init'; protocol: 2; upload_id: string; total_bytes: number;
-  sha256: string; mime: 'audio/mp4' | 'audio/wav'; voice_operation: VoiceOperation;
+  sha256: string; mime: 'audio/mp4' | 'audio/wav'; voice_operation: VoiceOperation; send_mandate?: Record<string, unknown>;
 } | {
   type: 'upload_blob_chunk'; protocol: 2; upload_id: string; offset: number;
   data_b64: string; chunk_sha256: string; final: boolean;
@@ -238,6 +243,11 @@ export type VoiceUploadRpc = {
 
 const VOICE_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const VOICE_SHA256 = /^[0-9a-f]{64}$/;
+let outboundCommitSupported = false;
+export const supportsOutboundCommit = () => outboundCommitSupported;
+export type OutboundStatus = { state: string; milestones: Record<string, unknown> };
+export function getOutboundOperation(operationId: string): Promise<OutboundStatus> { return sendCommand({ type: 'outbound.get', operation_id: operationId }, 'outbound.get'); }
+export function cancelOutboundOperation(operationId: string): Promise<{state: string}> { return sendCommand({ type: 'outbound.cancel', operation_id: operationId }, 'outbound.cancel'); }
 let voiceScopeGeneration = 0;
 let voiceLastOrigins = new Map<string, PentacleSessionSummary>();
 let voiceCurrentOrigins = new Map<string, PentacleSessionSummary>();
@@ -329,6 +339,8 @@ function rememberVoiceClose(message: Record<string, unknown>) {
   emit();
 }
 function resetVoiceScope() {
+  outboundCommitSupported = false;
+  void synchronizeOutbox().catch(() => undefined);
   voiceScopeGeneration += 1;
   for (const entry of [...voiceIntents.values()]) voiceReceiptWaiters.get(entry.intent.requestId)?.finish(voiceUnknown(entry.intent));
   voiceIntents.clear(); voiceEvidence.clear(); voiceDispatches.clear(); settledVoiceDispatches.clear();
@@ -384,7 +396,7 @@ export function validateVoiceDispatchIntent(value: unknown): value is VoiceDispa
 }
 export function prepareVoiceDispatchIntent(args: {
   recordingId: string; sequence: number; streamId: string; originGeneration: string;
-  text: string; attachments?: ChatAttachment[]; meta?: PentacleEvent['meta']; operationId: string;
+  text?: string; attachments?: ChatAttachment[]; meta?: PentacleEvent['meta']; operationId: string;
   previousIntent?: VoiceDispatchIntent;
 }): VoiceDispatchIntent {
   const proof = voiceOriginalRequest(args.recordingId, args.streamId, args.originGeneration, args.sequence);
@@ -398,7 +410,7 @@ export function prepareVoiceDispatchIntent(args: {
   const optimisticId = prior?.optimisticId || nextOptimisticId(args.streamId);
   const requestId = voiceRequestId(proof);
   const payload = prior ? { ...prior.payload, request_id: requestId } : {
-    ...sendPayloadForSession(origin, { text: args.text, attachments: args.attachments, meta: args.meta, optimisticId }),
+    ...sendPayloadForSession(origin, { text: args.text ?? '', attachments: args.attachments, meta: args.meta, optimisticId }),
     operation_id: args.operationId, request_id: requestId,
   };
   const intent: VoiceDispatchIntent = {
@@ -409,6 +421,11 @@ export function prepareVoiceDispatchIntent(args: {
   };
   if (!validateVoiceDispatchIntent(intent)) throw voiceError('invalid_voice_intent');
   return freezeVoiceJson(intent);
+}
+/** Complete the persisted text-free identity after legacy ASR without minting new ids. */
+export function completeVoiceDispatchIntent(skeleton: VoiceDispatchIntent, text: string): VoiceDispatchIntent {
+  const payload = { ...skeleton.payload, [skeleton.msgId ? 'message' : 'text']: text };
+  return freezeVoiceJson({ ...skeleton, payload, payloadSha256: voiceJsonHash(payload) });
 }
 /** Call only after voiceTakeStore has atomically committed this exact intent. No frame is sent here. */
 export function hydrateVoiceDispatchIntent(intent: VoiceDispatchIntent): void {
@@ -1369,6 +1386,7 @@ const streamActions = Object.freeze({
   resolveNotification,
   answerPrompt: answerDaemonPrompt,
   dismissQuestion,
+  persistLegacyAnswer,
   readThread: readPentacleThread,
   prefetchStreamEvents,
   prefetchSettledStreams,
@@ -1802,6 +1820,21 @@ function setState(next: PentacleStreamState, notify = true) {
     resetHostedDashboardPolicy();
     if (next.notifications.some(record=>record.producer?.startsWith('consent.'))) {
       next={...next,notifications:next.notifications.filter(record=>!record.producer?.startsWith('consent.'))};
+    }
+  }
+  if (next.optimisticSends !== state.optimisticSends) {
+    for (const row of Object.values(state.optimisticSends ?? {})) {
+      const current = next.optimisticSends?.[row.optimistic_id];
+      if ((!current || current.status === 'acked' || current.status === 'echoed') && row.status !== 'returned_to_prompt') {
+        const saved = outboxStore.snapshot().entries.find(e => (e.kind === 'text' || e.kind === 'photo') && e.frame.request_id === row.request_id);
+        if (saved && (saved.kind === 'text' || saved.kind === 'photo')) void outboxStore.remove(saved.id).catch(() => undefined);
+      }
+    }
+  }
+  if (next.optimisticSends !== state.optimisticSends) for (const row of Object.values(next.optimisticSends ?? {})) {
+    if (row.status === 'failed' && state.optimisticSends?.[row.optimistic_id]?.status !== 'failed') {
+      const saved = outboxStore.snapshot().entries.find(e => e.kind === 'text' && e.frame.request_id === row.request_id);
+      if (saved) void outboxStore.update(saved.id,e => ({...e,error:row.failure_reason ?? 'send_failed'})).catch(() => undefined);
     }
   }
   next = withPendingClosePresentation(next);
@@ -3052,6 +3085,7 @@ function requestFocusedProbe(_source: 'focus' | 'foreground' | 'interaction' | '
 function runHeartbeat(generation: number, socket: WebSocket) {
   if (!socketGenerationMatches(generation) || socket !== ws) return;
   if (socket.readyState !== WebSocket.OPEN) return;
+  if (lastAppState === 'active') void restoreOutboxOnConnection().catch(() => undefined);
   const now = monotonicNowMs();
   const desiredInterval = desiredHeartbeatIntervalMs();
   if (activeHeartbeatIntervalMs !== desiredInterval) {
@@ -3132,6 +3166,7 @@ function handlePentacleAppStateChange(nextState: AppStateStatus) {
   if (previous === 'active') return;
   requestFocusedProbe('foreground');
   scheduleForegroundResync();
+  void restoreOutboxOnConnection().catch(() => undefined);
   void ensurePendingSessionClosesHydrated().then(() => drainPendingSessionCloses());
 }
 
@@ -3197,7 +3232,7 @@ function dispatchOfflineQueuedSends(generation: number) {
   for (const optimisticId of queuedOptimisticDispatchRequests) {
     const optimistic = state.optimisticSends?.[optimisticId];
     if (
-      !optimistic || isVoiceOwnedSend(optimistic) ||
+      !optimistic || isVoiceOwnedSend(optimistic) || optimistic.request_id.startsWith('photo-') ||
       optimistic.status !== 'queued' ||
       optimistic.socket_generation !== generation
     ) continue;
@@ -4007,6 +4042,15 @@ function handleMessageInner(raw: string) {
   emitHarnessSpawnRpcInboundCadence(message);
   emitHarnessSpawnRpcResponseMetadata('inbound-response', message);
 
+  if (typeof message.type === 'string' && message.type.startsWith('outbound.') && typeof message.request_id === 'string') {
+    const pending = pendingRequests.get(message.request_id);
+    if (pending?.requestPrefix.startsWith('outbound.')) {
+      settlePendingRequest(message.request_id);
+      if (message.type.endsWith('.ok')) pending.resolve(message);
+      else pending.reject(Object.assign(new Error(String(message.error_code || message.error || 'outbound_failed')), { code: message.error_code }));
+      return;
+    }
+  }
   if (message.type === 'work_lanes.show.ok' && typeof message.request_id === 'string') {
     const pending = pendingRequests.get(message.request_id);
     if (pending?.requestPrefix === 'work_lanes_show') {
@@ -4113,6 +4157,7 @@ function handleMessageInner(raw: string) {
   if (message.type === 'snapshot') {
     replaceScheduledFromSnapshot(message);
     const capabilities = message.capabilities as Record<string, unknown> | undefined;
+    outboundCommitSupported = capabilities?.outbound_commit_v1 === true;
     consentProtocolSupported = capabilities?.consent_enrollment_offer_v1 === true && capabilities?.consent_open_v1 === true;
     consentHostId = typeof message.consent_host_id === 'string' ? message.consent_host_id : '';
     const sessions = Array.isArray(message.sessions)
@@ -4197,6 +4242,7 @@ function handleMessageInner(raw: string) {
     if (sessions) { sendInventoryGeneration = currentSocketGeneration; rememberVoiceInventory(sessions); }
     setState(nextState);
     dispatchOfflineQueuedSends(currentSocketGeneration);
+    void restoreOutboxOnConnection().catch(() => undefined);
     void reconcilePendingSessionCloses(sessions || [], currentSocketGeneration);
     return;
   }
@@ -4297,6 +4343,7 @@ function handleMessageInner(raw: string) {
       sessions,
     ));
     dispatchOfflineQueuedSends(currentSocketGeneration);
+    void restoreOutboxOnConnection().catch(() => undefined);
     void reconcilePendingSessionCloses(sessions, currentSocketGeneration);
     return;
   }
@@ -4499,7 +4546,8 @@ function handleMessageInner(raw: string) {
     if (pending?.requestPrefix === 'prompt-answer') {
       settlePendingRequest(message.request_id);
       if (message.type === 'prompt.answer.ok') pending.resolve(true);
-      else pending.reject(new Error(String(message.error || message.error_code || 'Prompt answer failed')));
+      else if (message.already_answered === true || message.error_code === 'already_answered') pending.resolve(true);
+      else pending.reject(Object.assign(new Error(String(message.error || message.error_code || 'Prompt answer failed')), { errorCode: message.error_code || 'prompt_answer_failed' }));
     }
     return;
   }
@@ -5144,6 +5192,7 @@ function connect() {
     }
     pendingNotificationResolves = rearmNotificationResolveSurvivors(pendingNotificationResolves, myGen, connectedAt);
     dispatchOfflineQueuedNotificationResolves(myGen);
+    void restoreOutboxOnConnection().catch(() => undefined);
     reconcilePendingSendReceipts();
     refetchFocusedStreamTail();
     refreshHeartbeatTimer();
@@ -5387,7 +5436,65 @@ function releaseSubscription() {
   }
 }
 
+function voiceScopeHashForOutbox(scope: { serverIdentity: string; credentialId: string }) {
+  return voiceJsonHash([scope.serverIdentity, scope.credentialId]);
+}
 function sendCommand<T>(
+  payload: Record<string, unknown>,
+  requestPrefix: string,
+  options: {
+    requestId?: string;
+    onDispatched?: (requestId: string, generation: number) => void;
+    onSocketSent?: (requestId: string, generation: number) => void;
+    optimisticId?: string;
+    retryOnOptimisticIdConflict?: boolean;
+    retryTelemetry?: RetryTelemetryContext;
+    blobMaxBytes?: number;
+    timeoutMs?: number;
+    voiceUploadId?: string;
+  } = {},
+): Promise<T> {
+  if (requestPrefix !== 'send' || String(options.requestId ?? '').startsWith('voice-send-'))
+    return sendCommandOnSocket<T>(payload, requestPrefix, options);
+  const photo = Object.values(state.optimisticSends ?? {}).find(
+    (e) => e.optimistic_id === options.optimisticId && e.request_id.startsWith('photo-'),
+  );
+  if (photo) return Promise.resolve(true as T); // The photo worker is the sole send owner.
+  const scope = currentOutboxScope();
+  if (!scope) return sendCommandOnSocket<T>(payload, requestPrefix, options); // Legacy credentials retain their compatibility route.
+  const scopeGeneration = voiceScopeGeneration;
+  const request_id = options.requestId ?? requestId(requestPrefix);
+  const row = options.optimisticId ? state.optimisticSends?.[options.optimisticId] : undefined;
+  const originGeneration =
+    row?.origin_generation ??
+    state.sessions.find((s) => s.stream_id === row?.stream_id)?.session_generation;
+  const key = `${scopeGeneration}:${request_id}`;
+  const inFlight = outboxTextWork.get(key);
+  if (inFlight) return inFlight as Promise<T>;
+  const work = (async () => {
+    await outboxStore.setScope(scope);
+    await outboxStore.put({
+      kind: 'text',
+      id: options.optimisticId ?? request_id,
+      createdAt: row?.created_at ?? Date.now(),
+      streamId:
+        row?.stream_id ?? String(payload.stream_id ?? `${payload.host}:${payload.session_name}`),
+      originGeneration,
+      frame: { ...payload, request_id },
+    });
+    if (
+      scopeGeneration !== voiceScopeGeneration ||
+      outboxStore.scopeHash() !== voiceScopeHashForOutbox(scope)
+    )
+      throw voiceError('auth_needed');
+    return sendCommandOnSocket<T>(payload, requestPrefix, { ...options, requestId: request_id });
+  })().finally(() => {
+    outboxTextWork.delete(key);
+  });
+  outboxTextWork.set(key, work);
+  return work;
+}
+function sendCommandOnSocket<T>(
   payload: Record<string, unknown>,
   requestPrefix: string,
   options: {
@@ -6374,6 +6481,19 @@ function waitForRetryConnection(optimisticId: string, sendRequestId: string): Pr
 export async function retryOptimisticSend(optimisticId: string): Promise<boolean> {
   const optimistic = state.optimisticSends?.[optimisticId];
   if (!optimistic || isVoiceOwnedSend(optimistic) || optimistic.status !== 'failed') return false;
+  if (optimistic.request_id.startsWith('photo-')) {
+    let saved = outboxStore.snapshot().entries.find(e => e.kind === 'photo' && e.frame.request_id === optimistic.request_id); if (saved?.kind !== 'photo') return false;
+    let failure = saved.error;
+    if (saved.committed && !saved.mandateFailed) {
+      const status = await getOutboundOperation(saved.operationId);
+      if (status.state !== 'failed') { queueSendReceiptQuery(String(saved.frame.request_id)); return false; }
+      failure = String(status.milestones.server_finish_failed_code ?? failure ?? 'send_unconfirmed');
+    }
+    const nextId = failure === 'not_landed' ? requestId('photo') : optimistic.request_id;
+    await outboxStore.update(saved.id,e => e.kind === 'photo' ? {...e,mandateFailed:true,error:undefined,frame:{...e.frame,request_id:nextId}}:e);
+    if (nextId !== optimistic.request_id) setState(rotateOptimisticSendRequestId(state,optimisticId,nextId));
+    await drivePhotoEntry(saved.id); return true;
+  }
   const session = state.sessions.find((item) => item.stream_id === optimistic.stream_id);
   if (!session) return false;
   // idempotent_mobile_send §A: explicit retry mints a NEW request_id (keeping
@@ -6456,7 +6576,7 @@ export function replaceOptimisticAttachments(
   attachments: ChatAttachment[],
 ) {
   const optimistic = state.optimisticSends?.[optimistic_id];
-  if (!optimistic || isVoiceOwnedSend(optimistic) || !attachments.length) return;
+  if (!optimistic || isVoiceOwnedSend(optimistic) || optimistic.request_id.startsWith('photo-') || !attachments.length) return;
   const optimisticSends = {
     ...(state.optimisticSends ?? {}),
     [optimistic_id]: {
@@ -6487,6 +6607,419 @@ export function takeSteerNotTaken(optimisticId: string): boolean {
   return notTaken;
 }
 
+function currentOutboxScope() {
+  const t = voiceTransportSnapshot();
+  return t.serverIdentity && t.credentialId
+    ? { serverIdentity: t.serverIdentity, credentialId: t.credentialId }
+    : null;
+}
+export async function synchronizeOutbox() {
+  await outboxStore.setScope(currentOutboxScope());
+}
+const outboxTextWork = new Map<string, Promise<unknown>>();
+let outboxRestore: Promise<void> | null = null;
+let outboxRestoreKey = '';
+const outboxPhotoWork = new Map<string, Promise<ChatAttachment[]>>();
+const outboxAnswerWork = new Map<string, Promise<void>>();
+async function dispatchOutboxAnswer(id: string): Promise<void> {
+  const inFlight = outboxAnswerWork.get(id);
+  if (inFlight) return inFlight;
+  const work = (async () => {
+    const e = outboxStore.get(id);
+    if (!e || e.error) return;
+    const scope = outboxStore.scopeHash();
+    try {
+      if (e.kind === 'prompt_answer')
+        await sendCommand<true>(e.frame, 'prompt-answer', { requestId: id });
+      else if (e.kind === 'legacy_answer') {
+        if (!e.legs.dismissed) {
+          try {
+            await sendCommand({ type: 'question.dismiss', ...e.dismiss }, 'question-dismiss');
+          } catch (err) {
+            if ((err as { errorCode?: string }).errorCode !== 'stale_question') throw err;
+          }
+          await outboxStore.update(id, (v) =>
+            v.kind === 'legacy_answer' ? { ...v, legs: { dismissed: true } } : v,
+          );
+        }
+        await outboxStore.put(e.send);
+        await sendCommand(e.send.frame, 'send', {
+          requestId: String(e.send.frame.request_id),
+          optimisticId: String(e.send.frame.optimistic_id ?? e.send.frame.msg_id ?? ''),
+        });
+      } else return;
+      if (scope === outboxStore.scopeHash()) await outboxStore.remove(id);
+    } catch (err) {
+      if (scope !== outboxStore.scopeHash()) return;
+      const code = (err as { errorCode?: string }).errorCode;
+      if (code) {
+        await outboxStore.update(id, (v) => ({ ...v, error: code }));
+        if (e.kind === 'prompt_answer') {
+          const nid =
+            e.notificationId ??
+            selectOptimisticQuestionAnswerIdentities(state).find(
+              (v) => v.questionId === e.frame.question_id,
+            )?.notificationId;
+          if (nid) surfaceNotificationResolveError(nid, code);
+        }
+        throw err;
+      }
+      // The exact frame remains owned through offline/timeout and process death.
+    }
+  })().finally(() => {
+    outboxAnswerWork.delete(id);
+  });
+  outboxAnswerWork.set(id, work);
+  return work;
+}
+export async function persistLegacyAnswer(args: {
+  streamId: string;
+  optimisticId: string;
+  host: string;
+  sessionName: string;
+  questionKey: string;
+  text: string;
+}) {
+  const scope = currentOutboxScope();
+  if (!scope) return null;
+  await outboxStore.setScope(scope);
+  const row = state.optimisticSends?.[args.optimisticId];
+  if (!row) throw voiceError('missing_optimistic');
+  const send: Omit<OutboxText, 'scopeHash'> = {
+    kind: 'text',
+    id: args.optimisticId,
+    createdAt: row.created_at,
+    streamId: args.streamId,
+    frame: {
+      type: 'send',
+      host: args.host,
+      session_name: args.sessionName,
+      text: args.text,
+      optimistic_id: args.optimisticId,
+      request_id: row.request_id,
+    },
+  };
+  const id = 'legacy-' + row.request_id;
+  await outboxStore.put({
+    kind: 'legacy_answer',
+    id,
+    createdAt: row.created_at,
+    dismiss: { host: args.host, session_name: args.sessionName, question_key: args.questionKey },
+    send,
+    legs: { dismissed: false },
+  });
+  return { id, dispatch: () => dispatchOutboxAnswer(id) };
+}
+function hydrateOutboxText(e: OutboxText | OutboxPhoto) {
+  const id = String(e.frame.optimistic_id ?? e.frame.msg_id ?? '');
+  if (!id || state.optimisticSends?.[id]) return;
+  const attachments =
+    e.kind === 'photo'
+      ? e.attachments.map((a) => ({
+          key: a.sha256,
+          mime: a.mime,
+          bytes: a.bytes,
+          width: a.width,
+          height: a.height,
+          uri: a.staged_path,
+        }))
+      : (e.frame.attachments as ChatAttachment[] | undefined);
+  let next = reduceSendOptimisticMessage(state, {
+    streamId: e.streamId,
+    optimisticId: id,
+    requestId: String(e.frame.request_id),
+    text: String(e.frame.text ?? e.frame.message ?? ''),
+    createdAt: e.createdAt,
+    windowStartedAt: null,
+    socketGeneration: currentSocketGeneration,
+    attachments,
+  });
+  const row = next.optimisticSends?.[id];
+  if (row)
+    next = {
+      ...next,
+      optimisticSends: {
+        ...next.optimisticSends,
+        [id]: {
+          ...row,
+          ...(e.frame.reply_to_message_id
+            ? { reply_to_message_id: String(e.frame.reply_to_message_id) }
+            : {}),
+          ...(e.frame.reply_to_question_id
+            ? { reply_to_question_id: String(e.frame.reply_to_question_id) }
+            : {}),
+          ...(e.originGeneration !== undefined ? { origin_generation: e.originGeneration } : {}),
+          ...(e.kind === 'text' &&
+          (e.error || Date.now() - e.createdAt > RECONNECT_REPLAY_MAX_AGE_MS)
+            ? { status: 'failed' as const, failure_reason: 'Delivery unconfirmed. Try again.' }
+            : {}),
+        },
+      },
+    };
+  if (e.kind === 'text') {
+    const event = peekEventsForStream(next, e.streamId).find((v) => v.optimistic_id === id);
+    if (event)
+      next = mutatePentacleEventBuckets(next, {
+        type: 'optimistic-replace',
+        streamId: e.streamId,
+        optimisticId: id,
+        event: {
+          ...event,
+          ...(e.frame.meta ? { meta: e.frame.meta as PentacleEvent['meta'] } : {}),
+          ...(e.frame.reply_to_message_id
+            ? { reply_to_message_id: String(e.frame.reply_to_message_id) }
+            : {}),
+          ...(e.frame.reply_to_question_id
+            ? { reply_to_question_id: String(e.frame.reply_to_question_id) }
+            : {}),
+        },
+      });
+  }
+  setState(next);
+  if (e.kind === 'text' && !e.error) queuedOptimisticDispatchRequests.add(id);
+}
+async function restoreOutboxOnConnection() {
+  const scope = currentOutboxScope();
+  if (!scope) return;
+  const key = `${voiceScopeGeneration}:${currentSocketGeneration}`;
+  if (outboxRestore && outboxRestoreKey === key) return outboxRestore;
+  outboxRestoreKey = key;
+  const work = (async () => {
+    await outboxStore.setScope(scope);
+    if (
+      voiceScopeHashForOutbox(scope) !== outboxStore.scopeHash() ||
+      key !== `${voiceScopeGeneration}:${currentSocketGeneration}`
+    )
+      return;
+    for (const e of outboxStore.snapshot().entries) {
+      if (e.kind === 'text' || e.kind === 'photo') hydrateOutboxText(e);
+      else if (e.kind === 'notification_resolve') {
+        const v = e.survivor as unknown as (typeof pendingNotificationResolves)[string];
+        if (!pendingNotificationResolves[v.notification_id])
+          pendingNotificationResolves[v.notification_id] = {
+            ...v,
+            status: 'queued',
+            socket_generation: currentSocketGeneration,
+          };
+      }
+      if (!voiceTransportSnapshot().ready) continue;
+      if (e.kind === 'prompt_answer' || e.kind === 'legacy_answer')
+        void dispatchOutboxAnswer(e.id).catch(() => undefined);
+      if (e.kind === 'photo' && voiceTransportSnapshot().ready)
+        void drivePhotoEntry(e.id).catch(() => undefined);
+    }
+    dispatchOfflineQueuedSends(currentSocketGeneration);
+    dispatchOfflineQueuedNotificationResolves(currentSocketGeneration);
+  })().finally(() => {
+    if (outboxRestore === work) outboxRestore = null;
+  });
+  outboxRestore = work;
+  return work;
+}
+export async function sendPhotoOutbox(
+  optimisticId: string,
+  assets: ProcessedAsset[],
+): Promise<ChatAttachment[]> {
+  const row = state.optimisticSends?.[optimisticId],
+    scope = currentOutboxScope();
+  if (!row || !scope)
+    return (
+      require('./attachmentUpload') as typeof import('./attachmentUpload')
+    ).uploadStagedAttachments(assets);
+  const session = state.sessions.find((s) => s.stream_id === row.stream_id);
+  if (!session) throw voiceError('origin_unavailable');
+  await outboxStore.setScope(scope);
+  const id = row.request_id.startsWith('photo-') ? row.request_id : requestId('photo');
+  const frame = {
+    ...sendPayloadForSession(session, { text: row.text, optimisticId }),
+    request_id: id,
+  };
+  const entry = await outboxStore.putPhoto(
+    {
+      kind: 'photo',
+      id,
+      createdAt: row.created_at,
+      streamId: row.stream_id,
+      originGeneration: session.session_generation,
+      frame,
+      operationId: uuid.v4(),
+      committed: false,
+      uploaded: [],
+      attachments: [],
+    },
+    assets,
+  );
+  const byRequest = { ...state.optimisticByRequestId };
+  delete byRequest[row.request_id];
+  byRequest[id] = optimisticId;
+  setState({
+    ...state,
+    optimisticByRequestId: byRequest,
+    optimisticSends: {
+      ...state.optimisticSends,
+      [optimisticId]: { ...row, request_id: id, origin_generation: session.session_generation },
+    },
+  });
+  return drivePhotoEntry(entry.id);
+}
+export async function discardPhotoOutbox(
+  optimisticId: string,
+  removeLocalCopy = false,
+): Promise<boolean> {
+  const e = outboxStore
+    .snapshot()
+    .entries.find(
+      (v) => v.kind === 'photo' && (v.frame.optimistic_id ?? v.frame.msg_id) === optimisticId,
+    );
+  if (e?.kind !== 'photo') return false;
+  if (e.committed && !e.mandateFailed && !removeLocalCopy) {
+    if (!voiceTransportSnapshot().ready) throw voiceError('server_owned_remove_local');
+    const result = await cancelOutboundOperation(e.operationId);
+    if (!['cancelled', 'no_mandate'].includes(result.state)) {
+      queueSendReceiptQuery(String(e.frame.request_id));
+      return false;
+    }
+  }
+  await outboxStore.remove(e.id);
+  let next = pruneOptimisticSend(state, optimisticId);
+  next = mutatePentacleEventBuckets(next, {
+    type: 'optimistic-remove',
+    streamId: e.streamId,
+    optimisticId,
+  });
+  setState(next);
+  return true;
+}
+function drivePhotoEntry(id: string): Promise<ChatAttachment[]> {
+  const active = outboxPhotoWork.get(id);
+  if (active) return active;
+  const work = (async () => {
+    let e = outboxStore.get(id);
+    if (e?.kind !== 'photo') return [];
+    if (e.error) throw voiceError(e.error);
+    const scope = outboxStore.scopeHash(),
+      generation = voiceScopeGeneration;
+    const guard = () => {
+      if (scope !== outboxStore.scopeHash() || generation !== voiceScopeGeneration)
+        throw voiceError('auth_needed');
+      if (!ws || ws.readyState !== WebSocket.OPEN) throw voiceError('disconnected');
+    };
+    const optimisticId = String(e.frame.optimistic_id ?? e.frame.msg_id);
+    const row = state.optimisticSends?.[optimisticId];
+    if (row?.status === 'failed' && !e.error)
+      setState({
+        ...state,
+        optimisticSends: {
+          ...state.optimisticSends,
+          [optimisticId]: { ...row, status: 'queued', failure_reason: undefined },
+        },
+      });
+    const attachments = e.attachments.map(({ sha256, mime, bytes, width, height }) => ({
+      key: sha256,
+      mime,
+      bytes,
+      width,
+      height,
+    }));
+    guard();
+    if (e.originGeneration && voiceOriginStatus(e.streamId, e.originGeneration) !== 'available')
+      throw voiceError('origin_unavailable');
+    if (!e.committed && !e.mandateFailed && supportsOutboundCommit()) {
+      const build = getAppIdentity();
+      const client_build = `${build.version} (${build.buildNumber})`;
+      await sendCommand(
+        {
+          type: 'outbound.commit',
+          voice_operation: {
+            version: 1,
+            operation_id: e.operationId,
+            origin_stream_id: e.streamId,
+            origin_generation: e.originGeneration,
+            operation_kind: 'message',
+            client_build,
+          },
+          send_mandate: {
+            version: 1,
+            request_id: id,
+            optimistic_id: e.frame.optimistic_id ?? e.frame.msg_id,
+            ...(e.frame.msg_id ? { msg_id: e.frame.msg_id } : {}),
+            sequence: 1,
+            text: e.frame.text ?? e.frame.message,
+            attachments,
+            meta: e.frame.meta ?? {},
+            client_build,
+            ...(e.frame.reply_to_message_id
+              ? { reply_to_message_id: e.frame.reply_to_message_id }
+              : {}),
+            ...(e.frame.reply_to_question_id
+              ? { reply_to_question_id: e.frame.reply_to_question_id }
+              : {}),
+          },
+        },
+        'outbound.commit',
+      );
+      guard();
+      e = (await outboxStore.update(id, (v) =>
+        v.kind === 'photo' ? { ...v, committed: true } : v,
+      )) as OutboxPhoto;
+    }
+    const { readAttachmentBase64 } =
+      require('./attachmentUpload') as typeof import('./attachmentUpload');
+    for (const a of e.attachments) {
+      if (e.uploaded.includes(a.sha256)) continue;
+      guard();
+      const encoded = await readAttachmentBase64(a.staged_path);
+      guard();
+      const result = await uploadBlobBase64(encoded, a.bytes);
+      guard();
+      if (result.blob_sha !== a.sha256) throw voiceError('digest_mismatch');
+      e = (await outboxStore.update(id, (v) =>
+        v.kind === 'photo' ? { ...v, uploaded: [...v.uploaded, a.sha256] } : v,
+      )) as OutboxPhoto;
+    }
+    guard();
+    if (e.committed && !e.mandateFailed) {
+      try {
+        const status = await getOutboundOperation(e.operationId);
+        guard();
+        if (status.state === 'failed') {
+          const code = String(status.milestones.server_finish_failed_code ?? 'send_unconfirmed');
+          await outboxStore.update(id, (v) => ({ ...v, error: code }));
+          markOptimisticFailed(String(e.frame.optimistic_id ?? e.frame.msg_id), code);
+        } else if (status.state === 'proved' || status.state === 'committed')
+          queueSendReceiptQuery(String(e.frame.request_id));
+      } catch (error) {
+        if (
+          !/^(unknown_verb|unsupported_in_v2|unsupported)$/.test(
+            String((error as { code?: string }).code),
+          )
+        )
+          throw error;
+        guard();
+        await outboxStore.update(id, (v) =>
+          v.kind === 'photo' ? { ...v, mandateFailed: true } : v,
+        );
+        // A rolled-back daemon has no committed path. Ordinary dispatch keeps the frozen identity.
+        await sendCommandOnSocket({ ...e.frame, attachments }, 'send', {
+          requestId: String(e.frame.request_id),
+          optimisticId,
+        });
+      }
+    } else {
+      await sendCommandOnSocket({ ...e.frame, attachments }, 'send', {
+        requestId: String(e.frame.request_id),
+        optimisticId,
+        onDispatched: (req, gen) =>
+          setState(markOptimisticDispatchedByRequestId(state, req, Date.now(), gen)),
+      });
+    }
+    return attachments;
+  })().finally(() => {
+    outboxPhotoWork.delete(id);
+  });
+  outboxPhotoWork.set(id, work);
+  return work;
+}
 export async function sendPentacleMessage(args: {
   originGeneration?: string | null;
   meta?: PentacleEvent['meta'];
@@ -6534,7 +7067,7 @@ export async function sendPentacleMessage(args: {
   // already inserted their optimistic row through sendTurn; this fallback also
   // keeps direct composite callers from deriving msg_id from a retryable
   // request_id.
-  if (session && isPentacleAssistantCompositeSession(session) && !optimistic && !args.optimisticId) {
+  if (session && !optimistic && !args.optimisticId) {
     const createdOptimisticId = appendOptimisticUserMessage(
       session.stream_id,
       args.text,
@@ -6597,6 +7130,7 @@ export async function sendPentacleMessage(args: {
   if (session && isPentacleAssistantCompositeSession(session) && !optimistic) {
     return Promise.reject(new Error('Composite send is missing its stable input id'));
   }
+  if (optimistic?.request_id.startsWith('photo-')) return true;
   if (optimistic) queuedOptimisticDispatchRequests.add(optimistic.optimistic_id);
   if (optimistic && args.urgent === true) steerReceipts.set(optimistic.optimistic_id, false);
   const payload = session
@@ -6643,7 +7177,7 @@ function settleVoiceUploadAck(pending: PendingRequest, frame: Record<string, unk
     pending.reject(voiceError('invalid_upload_ack')); return;
   }
   pending.resolve({ protocol: 2, upload_id: frame.upload_id as string, next_offset: frame.next_offset as number, complete: frame.complete,
-    ...(frame.complete ? { blob_sha: frame.blob_sha as string } : {}) } satisfies VoiceUploadAck);
+    ...(frame.complete ? { blob_sha: frame.blob_sha as string } : {}), ...(frame.server_send === true ? { server_send: true } : {}) } satisfies VoiceUploadAck);
 }
 /** Reuse the stream's one connection owner; never create an upload socket. */
 export function requestVoiceReconnect(): void {
@@ -7436,6 +7970,11 @@ export async function resolveNotification(args: ResolveNotificationArgs): Promis
       reconnect_count: existing?.reconnect_count ?? 0,
     },
   };
+  const scope = currentOutboxScope();
+  if (scope) {
+    await outboxStore.setScope(scope);
+    await outboxStore.put({ kind: 'notification_resolve', id: request_id, frame: { ...payload, request_id }, survivor: pendingNotificationResolves[notificationId] as unknown as Record<string, unknown>, createdAt: existing?.created_at ?? now });
+  }
   if (!connected) {
     // Offline at answer time: the resolve is durably queued for the next reconnect,
     // not discarded. Report optimistic success so the card stays "sending" and the
@@ -7458,13 +7997,20 @@ export async function answerDaemonPrompt(
       selection_count: args.selections?.length ?? 0,
     });
   }
-  return sendCommand<true>(payload, 'prompt-answer', { requestId: payload.request_id });
+  const scope = currentOutboxScope();
+  if (!scope) return sendCommand<true>(payload, 'prompt-answer', { requestId: payload.request_id });
+  await outboxStore.setScope(scope);
+  await outboxStore.put({ kind: 'prompt_answer', id: request_id, frame: payload, createdAt: Date.now(), notificationId: selectOptimisticQuestionAnswerIdentities(state).find(v => v.questionId === args.questionId)?.notificationId });
+  if (!state.connected) return true;
+  await dispatchOutboxAnswer(request_id); return true;
 }
 
 function clearPendingNotificationResolve(notificationId: string) {
   if (!pendingNotificationResolves[notificationId]) return;
   const { [notificationId]: _removed, ...rest } = pendingNotificationResolves;
   pendingNotificationResolves = rest;
+  const saved = outboxStore.snapshot().entries.find(e => e.kind === 'notification_resolve' && e.survivor.notification_id === notificationId);
+  if (saved) void outboxStore.remove(saved.id);
 }
 
 function surfaceNotificationResolveError(notificationId: string, message: string) {
@@ -7522,7 +8068,7 @@ async function dispatchNotificationResolve(notificationId: string): Promise<Pent
 function dispatchOfflineQueuedNotificationResolves(generation: number) {
   for (const notificationId of eligibleNotificationResolveReplayIds(pendingNotificationResolves)) {
     const entry = pendingNotificationResolves[notificationId];
-    if (!entry || entry.socket_generation !== generation) continue;
+    if (!entry || entry.socket_generation !== generation || pendingRequests.has(entry.request_id)) continue;
     void dispatchNotificationResolve(notificationId).catch(() => {
       // A hard error is already surfaced on the card; a further transport cut
       // leaves the survivor queued for the next reconnect generation.

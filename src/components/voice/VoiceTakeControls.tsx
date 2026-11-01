@@ -6,7 +6,7 @@ import { voiceRecorder, sendVoiceTake, discardVoiceTake } from '../../services/v
 import { voiceDelivery, type VoiceTake } from '../../services/voiceDelivery';
 
 const labels: Record<VoiceTake['status'], string> = {
-  unsent: 'Unsent', queued: 'Queued', uploading: 'Uploading', transcribing: 'Transcribing', checking: 'Checking delivery',
+  unsent: 'Unsent', queued: 'Queued', uploading: 'Uploading', transcribing: 'Transcribing', server_owned: 'Sending', checking: 'Checking delivery',
   failed: 'Failed', auth_needed: 'Sign in required', origin_unavailable: 'Original chat unavailable', not_landed: 'Not delivered',
 };
 const run = (work: () => Promise<unknown>) => { void work().catch(error => Alert.alert('Pentacle', error instanceof Error ? error.message : 'Could not update the recording.')); };
@@ -24,9 +24,12 @@ export default function VoiceTakeControls({ recording, take, onReturn, storageEr
   const label = recording ? recording.status === 'recording' ? 'Recording' : paused ? 'Paused' : recording.status === 'starting' ? 'Starting' : recording.status === 'stopping' ? 'Saving' : 'Unsent' : labels[take!.status];
   const error = recording?.error ?? take?.error ?? storageError;
   const discard = () => {
-    if (take?.manifest.dispatchIntent) {
+    if (take?.manifest.serverMandate && !take.manifest.serverMandateFailed && ['server_owned','checking','uploading'].includes(take.status)) {
+      if (require('../../services/pentacleStream').voiceTransportSnapshot().ready) run(() => discardVoiceTake(id));
+      else Alert.alert('Remove local copy?', 'This message is already on the server and may still be sent.', [{text:'Keep',style:'cancel'},{text:'Remove local copy',style:'destructive',onPress:()=>run(()=>discardVoiceTake(id,{removeLocalCopy:true}))}]);
+    } else if (take?.manifest.dispatchIntent) {
       Alert.alert('Remove local copy?', 'Remove local copy; delivery may already have happened', [
-        { text: 'Keep', style: 'cancel' }, { text: 'Remove local copy', style: 'destructive', onPress: () => run(() => discardVoiceTake(id)) },
+        { text: 'Keep', style: 'cancel' }, { text: 'Remove local copy', style: 'destructive', onPress: () => run(() => discardVoiceTake(id,{removeLocalCopy:true})) },
       ]);
     } else run(() => discardVoiceTake(id));
   };

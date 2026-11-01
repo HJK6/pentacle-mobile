@@ -71,6 +71,7 @@ jest.mock('expo-file-system/legacy', () => ({
 }));
 jest.mock('../src/services/pentacleStream', () => ({
   uploadBlobBase64: (...args: unknown[]) => mockUploadBlobBase64(...args),
+  sendPhotoOutbox: (_id: string, assets: unknown[]) => require('../src/services/attachmentUpload').uploadStagedAttachments(assets),
   usePentacleStreamActions: jest.fn(),
   usePentacleStreamSelectorWhen: jest.fn(),
   selectOptimisticQuestionAnswerIdentities: jest.fn(() => []),

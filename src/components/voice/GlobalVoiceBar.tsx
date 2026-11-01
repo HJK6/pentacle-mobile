@@ -14,7 +14,7 @@ import RecordingStrip from './RecordingStrip';
 import { DiscardGlyph, MicGlyph, VoiceCheckGlyph, VoiceRecordFace, VoiceSendGlyph, VoiceSpinner } from './VoiceGlyphs';
 
 const G = Tokens.palette.green;
-const labels = { unsent: 'UNSENT', queued: 'QUEUED', uploading: 'UPLOADING…', transcribing: 'TRANSCRIBING…', checking: 'CHECKING DELIVERY', failed: 'DELIVERY FAILED', auth_needed: 'SIGN IN REQUIRED', origin_unavailable: 'ORIGINAL CHAT UNAVAILABLE', not_landed: 'NOT DELIVERED' };
+const labels = { unsent: 'UNSENT', queued: 'QUEUED', uploading: 'UPLOADING…', transcribing: 'TRANSCRIBING…', server_owned: 'SENDING', checking: 'CHECKING DELIVERY', failed: 'DELIVERY FAILED', auth_needed: 'SIGN IN REQUIRED', origin_unavailable: 'ORIGINAL CHAT UNAVAILABLE', not_landed: 'NOT DELIVERED' };
 const run = (work: () => Promise<unknown>) => { void work().catch(error => Alert.alert('Voice recording', error instanceof Error ? error.message : 'Could not update recording.')); };
 /** Geometry-only projection. Capture, durable queue and dispatch remain their existing owners. */
 export default function GlobalVoiceBar({ anchored = false, docked = false, surfaceId, onReturn, bottom, top }: {
@@ -54,9 +54,12 @@ export default function GlobalVoiceBar({ anchored = false, docked = false, surfa
   const checking = anchored && take?.status === 'checking' && !!take.manifest.dispatchIntent;
   const absent = checking && take.receiptAbsent;
   const discard = () => {
-    if (take?.manifest.dispatchIntent) {
+    if (take?.manifest.serverMandate && !take.manifest.serverMandateFailed && ['server_owned','checking','uploading'].includes(take.status)) {
+      if (require('../../services/pentacleStream').voiceTransportSnapshot().ready) run(() => discardVoiceTake(id));
+      else Alert.alert('Remove local copy?', 'This message is already on the server and may still be sent.', [{text:'Keep',style:'cancel'},{text:'Remove local copy',style:'destructive',onPress:()=>run(()=>discardVoiceTake(id,{removeLocalCopy:true}))}]);
+    } else if (take?.manifest.dispatchIntent) {
       Alert.alert('Remove local copy?', 'Remove local copy; delivery may already have happened', [
-        { text: 'Keep', style: 'cancel' }, { text: 'Remove local copy', style: 'destructive', onPress: () => run(() => discardVoiceTake(id)) },
+        { text: 'Keep', style: 'cancel' }, { text: 'Remove local copy', style: 'destructive', onPress: () => run(() => discardVoiceTake(id,{removeLocalCopy:true})) },
       ]);
     } else run(() => discardVoiceTake(id));
   };
@@ -67,7 +70,7 @@ export default function GlobalVoiceBar({ anchored = false, docked = false, surfa
   const stateLabel = recording
     ? recording.status === 'starting' ? 'STARTING…' : recording.status === 'stopping' ? 'SAVING…' : interrupted ? `INTERRUPTED · ${formatDuration(recording.durationS)} KEPT` : `UNSENT · ${formatDuration(recording.durationS)} KEPT`
     : take ? `${connectionFailure ? 'NO CONNECTION' : absent ? 'NOT RECEIVED' : labels[take.status]}${failed || take.status === 'unsent' ? ` · ${formatDuration(take.durationS)} KEPT` : ''}` : `SENT TO ${originLabel.toUpperCase()}`;
-  const busy = !!recording && ['starting','stopping'].includes(recording.status) || !!take && ['queued','uploading','transcribing','checking'].includes(take.status) && !absent;
+  const busy = !!recording && ['starting','stopping'].includes(recording.status) || !!take && ['queued','uploading','transcribing','server_owned','checking'].includes(take.status) && !absent;
   const open = (streamId: string) => { if (onReturn) onReturn(streamId); else performChatOpenNavigation(streamId, router as unknown as Parameters<typeof performChatOpenNavigation>[1]); };
   const content = isRecording ? <RecordingStrip displayLevels={recording.displayLevels} sampleCount={recording.levels.length} durationS={recording.durationS} onDiscard={() => {}} showDiscard={false}
     destinationLabel={recording.streamId !== ASSISTANT_STREAM_ID ? originLabel : undefined} testID="voice-recording-strip" />
