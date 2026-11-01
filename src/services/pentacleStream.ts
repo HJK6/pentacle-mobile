@@ -6831,7 +6831,12 @@ export async function sendPhotoOutbox(
   await outboxStore.setScope(scope);
   const id = row.request_id.startsWith('photo-') ? row.request_id : requestId('photo');
   const frame = {
-    ...sendPayloadForSession(session, { text: row.text, optimisticId }),
+    ...sendPayloadForSession(session, {
+      text: row.text,
+      optimisticId,
+      replyToMessageId: row.reply_to_message_id,
+      replyToQuestionId: row.reply_to_question_id,
+    }),
     request_id: id,
   };
   const entry = await outboxStore.putPhoto(

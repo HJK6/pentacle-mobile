@@ -437,7 +437,17 @@ export class VoiceDelivery {
     try {
       const t = this.store.get(id);
       if (!t) return;
-      if (t.serverMandateFailed && ['failed','not_landed','auth_needed','origin_unavailable'].includes(t.delivery.phase)) {
+      if (t.sequence >= 1000 && this.enabled()
+        && (t.delivery.phase === 'not_landed' || t.delivery.error === 'attempt_limit')) {
+        await this.store.setDelivery(id, {
+          phase: 'failed',
+          error: 'attempt_limit',
+          retryAt: null,
+        });
+        return;
+      }
+      // Once a client intent exists, its normal retry path owns every later rotation.
+      if (t.serverMandateFailed && !t.dispatchIntent && ['failed','not_landed','auth_needed','origin_unavailable'].includes(t.delivery.phase)) {
         if (!this.enabled()) return;
         await this.store.retryServerMandate(id);
         await this.drain(); return;
@@ -448,14 +458,6 @@ export class VoiceDelivery {
           return;
         }
         if (!this.enabled()) return;
-        if (t.sequence >= 1000) {
-          await this.store.setDelivery(id, {
-            phase: 'failed',
-            error: 'attempt_limit',
-            retryAt: null,
-          });
-          return;
-        }
         const epoch = this.store.epoch(id),
           runtime = this.runtimeEpoch;
         try {

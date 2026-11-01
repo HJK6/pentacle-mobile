@@ -93,3 +93,34 @@ test('U12 an interrupted image resumes from its Documents copy after relaunch wi
   expect(fresh.socket.frames('outbound.commit')).toEqual([]); expect(fresh.socket.sends()).toEqual([]);
   expect(require('../src/services/outboxStore').outboxStore.snapshot().entries[0].uploaded).toEqual([saved.attachments[0].sha256]); fresh.cleanup();
 });
+
+test.each([true, false])('U12 photo reply targets survive persistence and restore (capability=%s)', async capability => {
+  const reply = { reply_to_message_id: 'synthetic-parent', reply_to_question_id: 'synthetic-question' };
+  const j = await connect(undefined, capability);
+  const id = j.stream.appendOptimisticUserMessage(originId, 'Synthetic photo',
+    [{ key: 'local', mime: 'image/jpeg' }],
+    { replyToMessageId: reply.reply_to_message_id, replyToQuestionId: reply.reply_to_question_id });
+  j.socket.holdImageUploads = true;
+  const work = j.stream.sendPhotoOutbox(id, [image]).catch(() => undefined);
+  let saved: any;
+  try {
+    await flush();
+    saved = require('../src/services/outboxStore').outboxStore.snapshot().entries[0];
+    expect(saved.frame).toMatchObject(reply);
+    if (capability) expect(j.socket.frames('outbound.commit')[0].send_mandate).toMatchObject(reply);
+  } finally { j.socket.close(); await work; j.cleanup(); }
+
+  const fresh = await connect(undefined, capability);
+  try {
+    await flush();
+    const restored = require('../src/services/outboxStore').outboxStore.snapshot().entries[0];
+    expect(restored.frame).toMatchObject({ ...reply, request_id: saved.frame.request_id });
+    if (capability) {
+      expect(fresh.socket.frames('outbound.commit')).toEqual([]);
+      expect(fresh.socket.sends()).toEqual([]);
+    } else {
+      expect(fresh.socket.sends()).toHaveLength(1);
+      expect(fresh.socket.sends()[0]).toMatchObject({ ...reply, request_id: saved.frame.request_id });
+    }
+  } finally { fresh.cleanup(); }
+});
