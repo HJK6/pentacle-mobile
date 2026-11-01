@@ -11,6 +11,7 @@ import { voiceDelivery } from '../../services/voiceDelivery';
 import { formatDuration } from '../../services/voiceRecording';
 import { performChatOpenNavigation } from '../../services/chatOpenNavigation';
 import RecordingStrip from './RecordingStrip';
+import { discardRetainedVoiceTake } from './VoiceTakeControls';
 import { DiscardGlyph, MicGlyph, VoiceCheckGlyph, VoiceRecordFace, VoiceSendGlyph, VoiceSpinner } from './VoiceGlyphs';
 
 const G = Tokens.palette.green;
@@ -51,18 +52,9 @@ export default function GlobalVoiceBar({ anchored = false, docked = false, surfa
   // In a chat the bar sits where the composer was, so a dispatched take keeps its own exits there.
   // Off-chat the overlay recovery card above the floating bar owns them.
   const canDiscard = !!target && (anchored || !take?.manifest.dispatchIntent);
-  const checking = anchored && take?.status === 'checking' && !!take.manifest.dispatchIntent;
+  const checking = anchored && take?.status === 'checking' && (!!take.manifest.dispatchIntent || !!take.manifest.serverMandate);
   const absent = checking && take.receiptAbsent;
-  const discard = () => {
-    if (take?.manifest.serverMandate && !take.manifest.serverMandateFailed && ['server_owned','checking','uploading'].includes(take.status)) {
-      if (require('../../services/pentacleStream').voiceTransportSnapshot().ready) run(() => discardVoiceTake(id));
-      else Alert.alert('Remove local copy?', 'This message is already on the server and may still be sent.', [{text:'Keep',style:'cancel'},{text:'Remove local copy',style:'destructive',onPress:()=>run(()=>discardVoiceTake(id,{removeLocalCopy:true}))}]);
-    } else if (take?.manifest.dispatchIntent) {
-      Alert.alert('Remove local copy?', 'Remove local copy; delivery may already have happened', [
-        { text: 'Keep', style: 'cancel' }, { text: 'Remove local copy', style: 'destructive', onPress: () => run(() => discardVoiceTake(id,{removeLocalCopy:true})) },
-      ]);
-    } else run(() => discardVoiceTake(id));
-  };
+  const discard = () => take ? discardRetainedVoiceTake(take) : run(() => discardVoiceTake(id));
   const connectionFailure = take?.status === 'failed' && /^(?:disconnected|not_connected|not connected|no connection|offline|network error)$/i.test(take.manifest.delivery?.error ?? take.error ?? '');
   const tone = interrupted ? Tokens.palette.amber : failed ? Tokens.palette.red : G;
   const fieldBorder = { borderColor: `${tone}66` };

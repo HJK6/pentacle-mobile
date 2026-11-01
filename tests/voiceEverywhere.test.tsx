@@ -1,9 +1,10 @@
 import React from 'react';
 import { act, fireEvent, render } from '@testing-library/react-native';
-import { Dimensions, Keyboard, PanResponder, StyleSheet, Text } from 'react-native';
+import { Alert, Dimensions, Keyboard, PanResponder, StyleSheet, Text } from 'react-native';
 import { initialPentacleStreamState } from 'pentacle-chat-core';
 import HeaderVoiceMic from '../src/components/voice/HeaderVoiceMic';
 import GlobalVoiceBar from '../src/components/voice/GlobalVoiceBar';
+import VoiceTakeControls from '../src/components/voice/VoiceTakeControls';
 import VoiceRecordingOverlay from '../src/components/voice/VoiceRecordingOverlay';
 import RenameChatModal from '../src/components/RenameChatModal';
 import {
@@ -15,7 +16,7 @@ import type { RecordingSnapshot } from '../src/services/voiceRecording';
 
 const mockStart = jest.fn(async (..._args: any[]) => 'take-1');
 const mockSend = jest.fn(async (_id: string) => undefined);
-const mockDiscard = jest.fn(async (_id: string) => undefined);
+const mockDiscard = jest.fn(async (_id: string, _options?: any) => undefined);
 let mockCapture: RecordingSnapshot | null = null;
 const mockCaptureListeners = new Set<(value: RecordingSnapshot | null) => void>();
 let mockDelivery: any = { takes: [], heldCount: 0, recoveryFailures: [], last: null };
@@ -35,11 +36,11 @@ jest.mock('../src/services/voiceRecordingEngine', () => ({
     subscribe: (fn: any) => { mockCaptureListeners.add(fn); fn(mockCapture); return () => mockCaptureListeners.delete(fn); }, start: (...args: any[]) => mockStart(...args), resume: jest.fn() },
   voiceLifecycleSnapshot: () => mockLifecycle,
   subscribeVoiceLifecycle: (fn: any) => { mockLifecycleListeners.add(fn); return () => mockLifecycleListeners.delete(fn); },
-  sendVoiceTake: (id: string) => mockSend(id), discardVoiceTake: (id: string) => mockDiscard(id),
+  sendVoiceTake: (id: string) => mockSend(id), discardVoiceTake: (id: string, options?: any) => options ? mockDiscard(id, options) : mockDiscard(id),
 }));
 jest.mock('../src/services/voiceTakeStore', () => ({ voiceTakeStore: { get: () => ({ recordingId: 'take-1' }) } }));
 jest.mock('../src/services/voiceDelivery', () => ({
-  voiceDelivery: { subscribeLanded: (fn: any) => { mockLandedListeners.add(fn); return () => mockLandedListeners.delete(fn); } },
+  voiceDelivery: { snapshot: () => mockDelivery, subscribeLanded: (fn: any) => { mockLandedListeners.add(fn); return () => mockLandedListeners.delete(fn); } },
   useVoiceDelivery: () => require('react').useSyncExternalStore((fn: any) => { mockDeliveryListeners.add(fn); return () => mockDeliveryListeners.delete(fn); }, () => mockDelivery),
 }));
 jest.mock('../src/services/pentacleStream', () => ({
@@ -430,4 +431,33 @@ test.each(['0', '1'])('assistant header recorder origin is gated (harness=%s)', 
     if (flag === '1') expect(origins).toContain(origin); else expect(origins).not.toContain(origin);
   }
   spy.mockRestore(); process.env.EXPO_PUBLIC_HARNESS = previous;
+});
+
+
+test.each(['bar', 'retained card'] as const)('%s offers explicit local removal after an in-flight server cancel', async surface => {
+  const owned = take('server_owned');
+  owned.manifest = { ...owned.manifest, serverMandate: { intent: {} } } as any;
+  mockDelivery = { ...mockDelivery, takes: [owned] };
+  const alert = jest.spyOn(Alert, 'alert');
+  mockDiscard.mockImplementation(async (_id, options) => {
+    if (!options?.removeLocalCopy) {
+      mockDelivery = { ...mockDelivery, takes: [{ ...owned, status: 'checking' }] };
+      mockDeliveryListeners.forEach(fn => fn());
+    }
+  });
+  try {
+    const view = render(surface === 'bar' ? <><VoiceRecordingOverlay /><Page /></>
+      : <VoiceTakeControls take={owned as any} onReturn={() => {}} />);
+    await act(async () => { fireEvent.press(view.getByLabelText('Discard recording')); });
+    expect(mockDiscard).toHaveBeenCalledWith('take-1');
+    expect(mockDelivery.takes).toHaveLength(1);
+    expect(alert).toHaveBeenCalledWith('Remove local copy?',
+      'This message is already on the server and may still be sent.', expect.any(Array));
+    const buttons = alert.mock.calls.at(-1)![2]!;
+    await act(async () => { buttons.find(button => button.text === 'Remove local copy')!.onPress!(); });
+    expect(mockDiscard).toHaveBeenLastCalledWith('take-1', { removeLocalCopy: true });
+  } finally {
+    alert.mockRestore();
+    mockDiscard.mockImplementation(async () => undefined);
+  }
 });
