@@ -89,6 +89,7 @@ export class OutboxStore {
   private records = new Map<string, OutboxEntry>();
   private listeners = new Set<() => void>();
   private writes = new Map<string, Promise<unknown>>();
+  private pendingDrafts = new Map<string, Extract<OutboxEntry, { kind: 'draft' }>>();
   private admission: Promise<unknown> = Promise.resolve();
   private loading?: Promise<void>;
   private loaded = false;
@@ -325,13 +326,26 @@ export class OutboxStore {
     return work;
   }
   async setDraft(streamId: string, text: string) {
+    const scopeHash = this.scope;
+    if (!scopeHash) throw new VoiceStorageError('auth_needed');
     const id = 'draft-' + voiceScopeHash({ serverIdentity: streamId, credentialId: 'draft' });
-    await this.put({
-      kind: 'draft',
-      id,
-      createdAt: this.io.now(),
-      streamId,
-      text,
+    const key = this.key(scopeHash, id);
+    // Start saving immediately, but let the next serial write take the latest
+    // edit. Saving every obsolete keystroke can leave the visible tail queued
+    // for seconds after typing stops. An in-flight atomic write still finishes.
+    this.pendingDrafts.set(key, {
+      kind: 'draft', id, scopeHash, createdAt: this.io.now(), streamId, text,
+    });
+    await this.restore();
+    await this.serial(key, async () => {
+      const latest = this.pendingDrafts.get(key);
+      if (!latest) return;
+      if (scopeHash !== this.scope) {
+        this.pendingDrafts.delete(key);
+        throw new VoiceStorageError('auth_needed');
+      }
+      await this.commit(latest);
+      if (this.pendingDrafts.get(key) === latest) this.pendingDrafts.delete(key);
     });
   }
   async remove(id: string) {

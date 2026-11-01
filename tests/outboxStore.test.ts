@@ -180,3 +180,87 @@ test('U9 cap refusal preserves draft, source assets and all unlanded entries bef
   expect(s.snapshot().drafts['hosta:chat']).toBe('keep');
   expect(f.files.get('file:///picker/image.jpg')).toBe('bytes');
 });
+
+test('U9 a fully typed draft survives kill 500ms later without draining obsolete keystroke writes', async () => {
+  jest.useFakeTimers();
+  const f = disk(), store = new OutboxStore(f.io);
+  await store.setScope(scope);
+  const write = f.io.write;
+  let killed = false;
+  f.io.write = async (path, value) => {
+    // Only the filesystem boundary is delayed. Every keystroke reaches the real store.
+    await new Promise(resolve => setTimeout(resolve, 12));
+    if (killed) throw new Error('process killed');
+    await write(path, value);
+  };
+  const complete = 'TEST P2 T2 retained draft ACKdrop';
+  const pending: Promise<unknown>[] = [];
+  try {
+    for (let end = 1; end <= complete.length; end++) {
+      pending.push(store.setDraft('hosta:chat', complete.slice(0, end)).catch(() => undefined));
+    }
+    // Same bounded post-typing interval as the configured RED. No flush/await of saves.
+    await jest.advanceTimersByTimeAsync(500);
+    killed = true;
+    const persisted = new Map(f.files), directories = new Set(f.dirs);
+    await jest.runAllTimersAsync();
+    await Promise.all(pending);
+    const relaunched = disk();
+    persisted.forEach((value, path) => relaunched.files.set(path, value));
+    directories.forEach(path => relaunched.dirs.add(path));
+    const recovered = new OutboxStore(relaunched.io);
+    await recovered.setScope(scope);
+    expect(recovered.snapshot().drafts['hosta:chat']).toBe(complete);
+  } finally {
+    jest.useRealTimers();
+  }
+});
+
+test.each(['The latest edit', ''])('U9 an edit during an in-flight save retains the latest value %j', async latest => {
+  const f = disk(), store = new OutboxStore(f.io);
+  await store.setScope(scope);
+  const write = f.io.write;
+  let release!: () => void, entered!: () => void;
+  const held = new Promise<void>(resolve => { entered = resolve; });
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  let first = true;
+  f.io.write = async (path, value) => {
+    if (first) { first = false; entered(); await gate; }
+    await write(path, value);
+  };
+  const saving = store.setDraft('hosta:chat', 'Obsolete prefix');
+  await held;
+  const editing = store.setDraft('hosta:chat', latest);
+  release();
+  await Promise.all([saving, editing]);
+  const recovered = new OutboxStore(f.io);
+  await recovered.setScope(scope);
+  expect(recovered.snapshot().drafts['hosta:chat']).toBe(latest);
+});
+
+test('U9 pending edits never cross the credential scope while an older save completes', async () => {
+  const f = disk(), store = new OutboxStore(f.io);
+  await store.setScope(scope);
+  const write = f.io.write;
+  let release!: () => void, entered!: () => void;
+  const held = new Promise<void>(resolve => { entered = resolve; });
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  let first = true;
+  f.io.write = async (path, value) => {
+    if (first) { first = false; entered(); await gate; }
+    await write(path, value);
+  };
+  const saving = store.setDraft('hosta:chat', 'Old account');
+  await held;
+  const editing = store.setDraft('hosta:chat', 'Old account tail').catch(() => undefined);
+  const other = { ...scope, credentialId: 'operator-b' };
+  await store.setScope(other);
+  await store.setDraft('hosta:chat', 'Other account');
+  release();
+  await Promise.all([saving, editing]);
+  const recovered = new OutboxStore(f.io);
+  await recovered.setScope(other);
+  expect(recovered.snapshot().drafts['hosta:chat']).toBe('Other account');
+  await recovered.setScope(scope);
+  expect(recovered.snapshot().drafts['hosta:chat']).toBe('Old account');
+});
