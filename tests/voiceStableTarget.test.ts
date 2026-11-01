@@ -184,6 +184,7 @@ test('ordinary voice and ordinary text preserve their existing route encoding', 
     expect(frame).toMatchObject({ host: 'hostb', session_name: 'other', text: 'spoken detail', meta: { voice: { duration_s: 3 } } });
     expect(frame).not.toHaveProperty('stream_id'); land(j.socket, frame, otherId); await voice; await flush();
     const text = j.stream.sendPentacleMessage({ host: 'hostb', sessionName: 'other', text: 'plain text' });
+    await until(() => j.socket.sends().length === 2);
     const textFrame = j.socket.sends()[1]; expect(textFrame).toMatchObject({ host: 'hostb', session_name: 'other', text: 'plain text' });
     expect(textFrame).not.toHaveProperty('meta'); land(j.socket, textFrame, otherId); await text;
     expect(j.voiceDelivery.snapshot().last).toBeNull();
