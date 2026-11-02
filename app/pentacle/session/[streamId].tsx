@@ -1,3 +1,5 @@
+import { discardRetainedVoiceTake } from '../../../src/components/voice/VoiceTakeControls';
+import PhotoDiscardControl from '../../../src/components/PhotoDiscardControl';
 import { QUESTION_SKIP_TEXT } from 'pentacle-chat-core';
 import React, { memo, useCallback, useEffect, useLayoutEffect, useMemo, useId, useRef, useState } from 'react';
 import { useComposerDraft, draftRevision, restoreDraft } from '../../../src/services/composerDrafts';
@@ -4197,13 +4199,12 @@ export const TranscriptRow = memo(function TranscriptRow({
           <>
             <View style={styles.voiceCaptionRow} testID="voice-transcription-status">
               {voiceTake.status === 'transcribing' ? <VoiceSpinner testID="voice-transcribing-spinner" /> : null}
-              <Text style={[styles.voiceCaptionText, voiceTake.error ? styles.voiceCaptionError : null]}>{voiceTake.error || ({ unsent: 'UNSENT', queued: 'QUEUED', uploading: 'UPLOADING', transcribing: 'TRANSCRIBING', checking: 'CHECKING DELIVERY', auth_needed: 'SIGN IN REQUIRED', origin_unavailable: 'ORIGINAL CHAT UNAVAILABLE', not_landed: 'NOT DELIVERED', failed: 'FAILED' }[voiceTake.status])}</Text>
+              <Text style={[styles.voiceCaptionText, voiceTake.error ? styles.voiceCaptionError : null]}>{voiceTake.error || ({ unsent: 'UNSENT', queued: 'QUEUED', uploading: 'UPLOADING', transcribing: 'TRANSCRIBING', server_owned: 'SENDING', checking: 'CHECKING DELIVERY', auth_needed: 'SIGN IN REQUIRED', origin_unavailable: 'ORIGINAL CHAT UNAVAILABLE', not_landed: 'NOT DELIVERED', failed: 'FAILED' }[voiceTake.status])}</Text>
               {(voiceTake.manifest.frozenAnswers?.length ?? voiceAnswersItemCount(voiceTake.recordingId)) > 0 ? <><Text style={styles.voiceCaptionText}>·</Text><Text testID="voice-answers-label" style={styles.voiceCaptionText}>{`ANSWERS ${(voiceTake.manifest.frozenAnswers?.length ?? voiceAnswersItemCount(voiceTake.recordingId))} QUESTION${(voiceTake.manifest.frozenAnswers?.length ?? voiceAnswersItemCount(voiceTake.recordingId)) === 1 ? '' : 'S'}`}</Text></> : null}
               {voiceTake.interrupted ? <><Text style={styles.voiceCaptionText}>·</Text><Text style={styles.voiceCaptionText}>INTERRUPTED AT {formatDuration(voiceTake.durationS)}</Text></> : null}
               {!sharedVoiceControls && voiceTake.status === 'failed' ? <Pressable accessibilityLabel="Retry transcription" testID="voice-transcription-retry" hitSlop={8} onPress={() => { void voiceDelivery.retry(voiceTake.recordingId); }}><Text style={[styles.voiceCaptionText, styles.voiceCaptionAction]}>RETRY</Text></Pressable> : null}
               {!sharedVoiceControls ? <Pressable accessibilityLabel="Discard voice message" testID="voice-transcription-discard" style={{ minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' }} onPress={() => {
-                if (voiceTake.manifest.dispatchIntent) Alert.alert('Remove local copy?', 'Remove local copy; delivery may already have happened', [{ text: 'Keep', style: 'cancel' }, { text: 'Remove local copy', style: 'destructive', onPress: () => { void voiceDelivery.discard(voiceTake.recordingId); } }]);
-                else void voiceDelivery.discard(voiceTake.recordingId);
+                discardRetainedVoiceTake(voiceTake);
               }}><DiscardGlyph size={10} /></Pressable> : null}
             </View>
             <VoiceBubble levels={voiceTake.levels} durationS={voiceTake.durationS} />
@@ -4278,6 +4279,7 @@ export const TranscriptRow = memo(function TranscriptRow({
             ) : null}
           </View>
         ) : null}
+        {!voiceTake && item.optimisticId && !isSentAffordance && !canceled ? <PhotoDiscardControl optimisticId={item.optimisticId} /> : null}
         {isSentAffordance ? (
           <View style={styles.userSendStatusRow} testID="user-send-sent">
             <FontAwesome name="check" size={10} color={P.muted} />

@@ -5572,6 +5572,7 @@ test('batch_submitted optimistic row settles after the reconcile window without 
 
   const optimisticId = stream.appendOptimisticUserMessage('hostc:codex:one', 'batch me');
   const sendPromise = stream.sendPentacleMessage({ host: 'hostc', sessionName: 'one', text: 'batch me' });
+  await flushMicrotasks(100); // Durable Documents commit precedes wire dispatch.
   const sendPayload = sentFrames(socket, 'send').at(-1);
   socket.message({
     type: 'send.result',
@@ -5602,6 +5603,7 @@ test('landed result stays confirmed when its USER echo is absent', async () => {
 
   const optimisticId = stream.appendOptimisticUserMessage('hostc:codex:one', 'batch me');
   const sendPromise = stream.sendPentacleMessage({ host: 'hostc', sessionName: 'one', text: 'batch me' });
+  await flushMicrotasks(100); // Durable Documents commit precedes wire dispatch.
   const sendPayload = sentFrames(socket, 'send').at(-1);
   socket.message({
     type: 'send.result',
@@ -5630,6 +5632,7 @@ test('batch_submitted whose USER echo lands is reconciled, never false-failed by
 
   const optimisticId = stream.appendOptimisticUserMessage('hostc:codex:one', 'batch me');
   const sendPromise = stream.sendPentacleMessage({ host: 'hostc', sessionName: 'one', text: 'batch me' });
+  await flushMicrotasks(100); // Durable Documents commit precedes wire dispatch.
   const sendPayload = sentFrames(socket, 'send').at(-1);
   socket.message({
     type: 'send.result',
@@ -6479,10 +6482,10 @@ test('photo Retry joins an in-flight v2 connection and waits for its existing re
   const retry = stream.retryOptimisticSend(optimisticId);
   expect(MockWebSocket.instances).toHaveLength(2);
   recovering.open();
-  await flushMicrotasks();
+  await flushMicrotasks(100);
   expect(reupload).not.toHaveBeenCalled();
   recovering.message(operatorV2Welcome());
-  await flushMicrotasks();
+  await flushMicrotasks(100);
   expect(reupload).toHaveBeenCalledTimes(1);
   expect(MockWebSocket.instances).toHaveLength(2);
   const sends = sentFrames(recovering, 'send');
@@ -7133,6 +7136,7 @@ describe('durable voice generic drain isolation', () => {
     const { stream, socket, prepare, unsubscribe } = readyVoiceTransport();
     const intent = prepare(); stream.hydrateVoiceDispatchIntent(intent);
     const sent = stream.sendPentacleMessage({ streamId: VOICE_STREAM_ID, text: 'synthetic voice transcript' });
+    await flushMicrotasks(100);
     const frame = sentFrames(socket, 'send').at(-1)!;
     expect(frame.request_id).toMatch(/^send-/);
     expect(frame.msg_id).not.toBe(intent.msgId);

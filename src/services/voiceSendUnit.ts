@@ -15,13 +15,13 @@ export interface VoiceUnitTelemetryTags { stream_id: string; recording_id: strin
 
 /** Synthetic IO seam exercises the same acknowledged-upload contract as production. */
 export interface VoiceUnitIO {
-  upload(args: VoiceUploadArgs): Promise<{ blob_sha: string }>;
+  upload(args: VoiceUploadArgs): Promise<{ blob_sha: string; server_send?: boolean }>;
   transcribe(blobSha: string, mime: string, options: {
     requestId: string; voiceOperation: VoiceOperation; isCancelled?: () => boolean;
   }): Promise<TranscribeBlobResult>;
 }
 const defaultIO: VoiceUnitIO = { upload: runVoiceUpload, transcribe: transcribeBlob };
-export interface VoiceUploadTranscribeResult { blobSha: string; transcript: TranscribeBlobResult }
+export interface VoiceUploadTranscribeResult { blobSha: string; transcript: TranscribeBlobResult; serverOwned?: boolean }
 
 const SAFE_ERROR_CODES = new Set([
   'invalid_request', 'upload_forbidden', 'upload_conflict', 'offset_mismatch', 'digest_mismatch',
@@ -81,6 +81,7 @@ export async function runVoiceUploadTranscribe(args: {
       throw Object.assign(new Error('invalid_upload_ack'), { code: 'invalid_upload_ack' });
     }
     lifecycle(take, 'upload', 'complete');
+    if ((uploaded.server_send || current.upload?.serverSend) && !current.serverMandateFailed) return { blobSha, transcript: { text: '' }, serverOwned: true };
   } catch (error) {
     guard();
     if (errorCodeOf(error) !== 'voice_cancelled') lifecycle(take, 'upload', 'failed', error);
@@ -109,6 +110,7 @@ export function voiceTranscribeFailureMessage(error: unknown): string {
   switch (errorCodeOf(error)) {
     case 'server_update_required': return 'Server update required';
     case 'upload_failed': return 'Audio upload failed. Try again.';
+    case 'transcribe_unavailable':
     case 'backend_unavailable': return 'Transcription is unavailable right now. Try again in a moment.';
     case 'too_long': return 'That recording is too long to transcribe.';
     case 'mime_unsupported': return "That audio format can't be transcribed.";

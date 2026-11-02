@@ -456,3 +456,41 @@ The separate [configured M1 roster/history harness](configured_m1_harness.md)
 uses explicit owned identities, an in-memory mobile credential and a bounded
 authenticated observer. Its offline controls do not grant runtime access or
 qualify a real configured native journey.
+
+## Durable outbox and server-owned mobile sends
+
+Run the focused P2 transport checks before the unit gate:
+
+```sh
+npm test -- --runInBand --runTestsByPath tests/outboxStore.test.ts tests/answerOutbox.test.ts tests/photoCommittedSend.test.ts tests/voiceServerOwned.test.ts tests/voiceDelivery.test.ts tests/voiceUpload.test.ts tests/voiceAnswersWire.test.ts
+```
+
+Text, exact prompt answers, keyed legacy answers, notification resolves and photo
+messages persist in Documents before their first wire attempt. Drafts persist per
+stream. Entries share voice's endpoint/credential scope: another scope's entries
+remain held, with the existing discard-held action. Text older than 30 minutes
+requires explicit Retry. Photo admission counts retained bytes across every scope,
+including interrupted staging; the limits are 20 MiB per message and 64 MiB total.
+A refused Send keeps the draft and source photos. Backup exclusion of the outbox
+Documents root remains an explicit P3 native setup dependency.
+
+Photo request IDs start with `photo-` and never enter generic reconnect replay.
+Their worker owns commit, per-image upload checkpoints and receipt reconciliation.
+With `outbound_commit_v1`, commit precedes image bytes and no client send follows
+the final ACK. Voice persists its text-free identity and frozen answer metadata
+before init, uploads images first, and carries the same mandate on every audio
+init. An acknowledged mandate finishes on the daemon after upload. While the app
+is enabled, `server_owned` polls operation/receipt evidence; only landed proof
+removes retained assets. A terminal mandate failure permits the ordinary client
+path with the same identity; only `not_landed` permits request rotation. An
+in-flight cancel keeps the local unit in Checking delivery. Offline Remove local
+copy warns that the server may still send it.
+
+The Jest transport fixture replaces the daemon peer and filesystem/native
+boundaries. It does not prove suspension, native recording, a physical phone,
+configured Release delivery or background file transfer. P2 requires separately
+allocated configured Release simulator journeys against an isolated real daemon:
+upload-then-background, kill/relaunch, cancel, restart, old-daemon compatibility,
+ASR failure, text/photo interruption, exact answers, voice with images and frozen
+voice answers. Retain per-path baseline/source qualification and raw failures.
+P3 owns transfer while JS is suspended and locked-device file/credential proof.

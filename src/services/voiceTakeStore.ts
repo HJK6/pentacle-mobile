@@ -52,6 +52,7 @@ export type VoiceDeliveryPhase =
   | 'unsent'
   | 'queued'
   | 'uploading'
+  | 'server_owned'
   | 'transcribing'
   | 'checking'
   | 'failed'
@@ -69,6 +70,7 @@ export type VoiceUploadProgress = {
   nextOffset: number;
   complete: boolean;
   blobSha?: string;
+  serverSend?: boolean;
 };
 export type VoiceTakeManifest = {
   version: 1;
@@ -106,6 +108,8 @@ export type VoiceTakeManifest = {
   attachments?: ChatAttachment[];
   sequence: number;
   dispatchIntent?: VoiceDispatchIntent;
+  serverMandate?: { intent: VoiceDispatchIntent; mandate: Record<string, unknown> };
+  serverMandateFailed?: boolean;
 };
 export type VoiceRecoveryFailure = {
   id: string;
@@ -250,6 +254,7 @@ function validManifest(
         'queued',
         'uploading',
         'transcribing',
+        'server_owned',
         'checking',
         'failed',
         'auth_needed',
@@ -270,6 +275,14 @@ function validManifest(
     )
       return false;
     if (t.storage === 'finalized' && !t.audio) return false;
+    if (t.serverMandate && (!validateVoiceDispatchIntent(t.serverMandate.intent)
+      || t.serverMandate.intent.recordingId !== recordingId
+      || t.serverMandate.intent.streamId !== t.origin.streamId
+      || t.serverMandate.intent.originGeneration !== t.origin.generation
+      || voiceScopeHash(t.serverMandate.intent) !== t.scopeHash
+      || t.serverMandate.mandate.request_id !== t.serverMandate.intent.requestId)) return false;
+    if (t.serverMandateFailed !== undefined && typeof t.serverMandateFailed !== 'boolean') return false;
+
     if (
       t.upload &&
       (!t.audio ||
@@ -333,7 +346,7 @@ export class VoiceTakeStore {
     recoveryFailures: [],
     ready: false,
   };
-  constructor(private readonly io: VoiceTakeIO = expoIO) {}
+  constructor(private readonly io: VoiceTakeIO = voiceTakeIO) {}
   snapshot = (): VoiceTakeSnapshot => this.state;
   subscribe = (fn: () => void) => {
     this.listeners.add(fn);
@@ -868,6 +881,17 @@ export class VoiceTakeStore {
   saveAttachments(id: string, attachments: ChatAttachment[]): Promise<VoiceTakeManifest> {
     return this.mutate(id, (t) => ({ ...t, attachments: clone(attachments) }));
   }
+  saveServerMandate(id: string, value: NonNullable<VoiceTakeManifest['serverMandate']>) {
+    return this.mutate(id, t => {
+      if (t.serverMandate && JSON.stringify(t.serverMandate) !== JSON.stringify(value)) throw new VoiceStorageError('immutable_dispatch_intent');
+      return { ...t, serverMandate: clone(value) };
+    });
+  }
+  retryServerMandate(id: string) {
+    return this.mutate(id, t => ({ ...t, serverMandateFailed: true, dispatchIntent: undefined,
+      sequence: t.delivery.phase === 'not_landed' ? t.sequence + 1 : t.sequence,
+      delivery: { phase: 'queued', retryAt: null, retryCount: 0 } }));
+  }
   saveDispatchIntent(id: string, intent: VoiceDispatchIntent): Promise<VoiceTakeManifest> {
     return this.mutate(id, (t) => {
       if (t.dispatchIntent && JSON.stringify(t.dispatchIntent) !== JSON.stringify(intent))
@@ -973,7 +997,7 @@ export class VoiceTakeStore {
     this.publish();
   }
 }
-const expoIO: VoiceTakeIO = {
+export const voiceTakeIO: VoiceTakeIO = {
   root: `${FileSystem.documentDirectory ?? ''}voice-takes-v1/`,
   cacheRoot: FileSystem.cacheDirectory ?? '',
   now: () => Date.now(),

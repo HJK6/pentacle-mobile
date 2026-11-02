@@ -57,3 +57,24 @@ jest.mock('../modules/pentacle-message-text', () => {
       textAlign: run.alignment, lineHeight: run.lineHeight,
     } }, run.text))) };
 });
+
+// Documents writes are part of the send boundary. Model the native filesystem,
+// so transport tests keep exercising the real durable store and send machinery.
+// Dedicated recovery/asset tests may replace this boundary with their own disk.
+jest.mock('expo-file-system/legacy', () => {
+  const files = new Map<string, Buffer>(), dirs = new Set<string>();
+  return {
+    ...jest.requireActual('expo-file-system/legacy'),
+    documentDirectory: 'file:///documents/', cacheDirectory: 'file:///cache/',
+    EncodingType: {Base64:'base64',UTF8:'utf8'},
+    getInfoAsync: jest.fn(async (p: string) => ({exists:files.has(p)||dirs.has(p)||dirs.has(p+'/'),size:files.get(p)?.length??0,isDirectory:dirs.has(p)||dirs.has(p+'/')})),
+    readDirectoryAsync: jest.fn(async (p: string) => [...new Set([...files.keys(),...dirs].filter(k=>k.startsWith(p)&&k!==p).map(k=>k.slice(p.length).split('/')[0]))]),
+    makeDirectoryAsync: jest.fn(async (p: string) => {for(let i=8;i<p.length;i++) if(p[i]==='/') dirs.add(p.slice(0,i+1));dirs.add(p);}),
+    readAsStringAsync: jest.fn(async (p: string,opts?:{encoding?:string;position?:number;length?:number}) => {const b=files.get(p);if(!b) throw Error('ENOENT');const start=opts?.position??0;return b.subarray(start,opts?.length===undefined?undefined:start+opts.length).toString(opts?.encoding==='base64'?'base64':'utf8');}),
+    writeAsStringAsync: jest.fn(async (p: string,text: string) => {files.set(p,Buffer.from(text));}),
+    moveAsync: jest.fn(async ({from,to}:{from:string;to:string}) => {const b=files.get(from);if(!b) throw Error('ENOENT');files.set(to,b);files.delete(from);}),
+    copyAsync: jest.fn(async ({from,to}:{from:string;to:string}) => {const b=files.get(from);if(!b) throw Error('ENOENT');files.set(to,Buffer.from(b));}),
+    deleteAsync: jest.fn(async (p:string) => {const prefix=p.endsWith('/')?p:p+'/';for(const k of files.keys()) if(k===p||k.startsWith(prefix))files.delete(k);for(const k of dirs)if(k===p||k.startsWith(prefix))dirs.delete(k);}),
+    getFreeDiskStorageAsync: jest.fn(async()=>1024*1024*1024),
+  };
+});

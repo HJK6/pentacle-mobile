@@ -57,6 +57,9 @@ export type VoiceLandedReceipt = {
 };
 type TransportSnapshot = ReturnType<typeof stream.voiceTransportSnapshot>;
 export interface VoiceDeliveryIO {
+  serverOwned?: () => boolean;
+  outboundGet?: typeof stream.getOutboundOperation;
+  outboundCancel?: typeof stream.cancelOutboundOperation;
   transcribe: typeof runVoiceUploadTranscribe;
   uploadImages?: (
     assets: ProcessedAsset[],
@@ -118,7 +121,7 @@ const DELIVERY_ERROR_CODES = new Set([
   'no_answers',
   'no_speech',
   'image_upload_unavailable',
-  'voice_failed',
+  'voice_failed', 'transcribe_unavailable', 'credential_revoked', 'send_unconfirmed', 'not_landed',
 ]);
 const errorCode = (error: unknown): string =>
   error && typeof error === 'object' && 'code' in error && typeof error.code === 'string'
@@ -151,7 +154,7 @@ function errorMessage(error: unknown): string {
   if (code === 'no_speech' || code === NOTHING_RECOGNIZED_MESSAGE)
     return NOTHING_RECOGNIZED_MESSAGE;
   if (code === 'transcribe_timeout') return 'Transcription timed out. Retry when you’re ready.';
-  if (code === 'auth_needed' || code === TRANSPORT_AUTH_NEEDED) return 'Sign in again to send this recording.';
+  if (code === 'credential_revoked' || code === 'auth_needed' || code === TRANSPORT_AUTH_NEEDED) return 'Sign in again to send this recording.';
   return voiceTranscribeFailureMessage(error);
 }
 
@@ -190,6 +193,7 @@ export class VoiceDelivery {
     readonly store: VoiceTakeStore = voiceTakeStore,
   ) {
     this.stopSubscriptions.push(store.subscribe(() => this.project()));
+    this.stopSubscriptions.push((require('./outboxStore') as typeof import('./outboxStore')).outboxStore.subscribe(() => this.project()));
     this.project();
   }
   private ensureSubscriptions() {
@@ -224,7 +228,7 @@ export class VoiceDelivery {
     this.state = {
       ...this.state,
       last: null,
-      heldCount: snapshot.heldCount,
+      heldCount: snapshot.heldCount + (require('./outboxStore') as typeof import('./outboxStore')).outboxStore.snapshot().heldCount,
       recoveryFailures: snapshot.recoveryFailures,
       takes: snapshot.takes
         .filter((t) => !['recording', 'paused'].includes(t.storage))
@@ -433,20 +437,27 @@ export class VoiceDelivery {
     try {
       const t = this.store.get(id);
       if (!t) return;
+      if (t.sequence >= 1000 && this.enabled()
+        && (t.delivery.phase === 'not_landed' || t.delivery.error === 'attempt_limit')) {
+        await this.store.setDelivery(id, {
+          phase: 'failed',
+          error: 'attempt_limit',
+          retryAt: null,
+        });
+        return;
+      }
+      // Once a client intent exists, its normal retry path owns every later rotation.
+      if (t.serverMandateFailed && !t.dispatchIntent && ['failed','not_landed','auth_needed','origin_unavailable'].includes(t.delivery.phase)) {
+        if (!this.enabled()) return;
+        await this.store.retryServerMandate(id);
+        await this.drain(); return;
+      }
       if (t.dispatchIntent) {
         if (t.delivery.phase !== 'not_landed') {
           await this.checkAgain(id);
           return;
         }
         if (!this.enabled()) return;
-        if (t.sequence >= 1000) {
-          await this.store.setDelivery(id, {
-            phase: 'failed',
-            error: 'attempt_limit',
-            retryAt: null,
-          });
-          return;
-        }
         const epoch = this.store.epoch(id),
           runtime = this.runtimeEpoch;
         try {
@@ -494,7 +505,7 @@ export class VoiceDelivery {
     if (!t?.dispatchIntent) return;
     this.seenReconciliation.delete(this.reconcileKey(t));
     await this.store.setDelivery(id, {
-      phase: 'checking',
+      phase: t.serverMandate && !t.serverMandateFailed ? 'server_owned' : 'checking',
       retryAt: null,
       error: undefined,
     });
@@ -505,6 +516,7 @@ export class VoiceDelivery {
   sendAgain = async (id: string): Promise<void> => {
     if (this.retrying.has(id)) return;
     const t = this.store.get(id);
+    if (t?.serverMandate && !t.serverMandateFailed) return;
     if (!t?.dispatchIntent || !this.io.redispatch || !this.enabled() || !this.receiptAbsent(t)) return;
     this.retrying.add(id);
     const epoch = this.store.epoch(id),
@@ -525,9 +537,16 @@ export class VoiceDelivery {
       this.retrying.delete(id);
     }
   };
-  discard = async (id: string, options: { nativeUri?: string } = {}): Promise<void> => {
+  discard = async (id: string, options: { nativeUri?: string; removeLocalCopy?: boolean } = {}): Promise<void> => {
     const t = this.store.get(id);
     if (!t) return;
+    if (t.serverMandate && !t.serverMandateFailed && !options.removeLocalCopy) {
+      if (!this.enabled() || !this.io.outboundCancel) throw new VoiceStorageError('server_owned_remove_local');
+      const result = await this.io.outboundCancel(id);
+      if (!['cancelled','no_mandate'].includes(result.state)) {
+        await this.store.setDelivery(id, {phase:'checking',retryAt:null}); await this.drain(); return;
+      }
+    }
     this.absent.delete(id);
     const work = this.store.discard(id, options); // Invalidates the operation epoch synchronously.
     releaseVoiceAnswersBinding(id);
@@ -546,6 +565,7 @@ export class VoiceDelivery {
     void this.drain();
   };
   discardHeld = async () => {
+    await (require('./outboxStore') as typeof import('./outboxStore')).outboxStore.discardHeld();
     await this.store.discardHeld((id) => {
       completeVoiceQuestionSession(id, 'discarded');
       releaseVoiceAnswersBinding(id);
@@ -593,6 +613,7 @@ export class VoiceDelivery {
     while (this.enabled()) {
       const t = this.store.snapshot().takes.find((t) => {
         if (attempted.has(t.recordingId) || t.sendRequestedAt === null || !t.audio) return false;
+        if (t.serverMandate && !t.serverMandateFailed && ['server_owned','checking'].includes(t.delivery.phase)) return true;
         if (t.dispatchIntent)
           return (
             t.delivery.phase === 'checking' && !this.seenReconciliation.has(this.reconcileKey(t))
@@ -624,6 +645,25 @@ export class VoiceDelivery {
     const guard = () => this.guard(id, epoch, runtime);
     try {
       guard();
+      if (initial.serverMandate && !initial.serverMandateFailed && ['server_owned','checking'].includes(initial.delivery.phase)) {
+        if (!this.io.outboundGet) throw new VoiceStorageError('server_update_required');
+        const status = await this.io.outboundGet(id); guard();
+        if (status.state === 'failed' || status.state === 'cancelled') {
+          const code = String(status.milestones.server_finish_failed_code ?? status.milestones.transcribe_failed_code ?? 'voice_failed');
+          this.io.forget(initial.serverMandate.intent);
+          await this.store.retryServerMandate(id);
+          await this.store.setDelivery(id, {phase: code === 'not_landed' ? 'not_landed' : code === 'credential_revoked' ? 'auth_needed' : code === 'origin_unavailable' ? 'origin_unavailable' : 'failed',error:code,retryAt:null});
+          return;
+        }
+        if (status.milestones.send_committed || ['committed','proved'].includes(status.state)) {
+          const intent = initial.dispatchIntent ?? initial.serverMandate.intent;
+          if (!initial.dispatchIntent) await this.store.saveDispatchIntent(id,intent);
+          this.io.hydrate(intent);
+          await this.applyEvidence(await this.io.query(intent)); guard();
+        }
+        if (this.store.get(id)) await this.store.setDelivery(id,{phase:initial.delivery.phase === 'checking' || ['committed','proved'].includes(status.state) ? 'checking':'server_owned',retryAt:null});
+        return;
+      }
       if (initial.dispatchIntent) {
         const key = this.reconcileKey(initial);
         this.seenReconciliation.add(key);
@@ -638,43 +678,6 @@ export class VoiceDelivery {
       }
       this.requireOrigin(initial);
       let take = this.store.get(id)!;
-      if (!take.transcription) {
-        await this.store.setDelivery(id, {
-          phase: 'uploading',
-          error: undefined,
-          retryAt: null,
-        });
-        guard();
-        const result = await this.io.transcribe({
-          recording: {
-            uri: this.store.audioUri(take),
-            mime: take.audio!.mime,
-            durationS: take.capturedAudioMs / 1000,
-            bytes: take.audio!.bytes,
-          },
-          transcribeRequestId: `transcribe-${id}`,
-          tags: { stream_id: take.origin.streamId, recording_id: id },
-          take,
-          store: this.store,
-          isCancelled: () =>
-            !this.store.isCurrent(id, epoch) || runtime !== this.runtimeEpoch || !this.enabled(),
-          onStage: async (stage: 'uploading' | 'transcribing') => {
-            guard();
-            await this.store.setDelivery(id, { phase: stage });
-            guard();
-          },
-        });
-        guard();
-        if (!result.transcript.text.trim()) throw new Error(NOTHING_RECOGNIZED_MESSAGE);
-        await this.store.saveTranscription(id, {
-          blobSha: result.blobSha,
-          requestId: `transcribe-${id}`,
-          result: result.transcript,
-        });
-        guard();
-        take = this.store.get(id)!;
-      }
-      if (!take.transcription!.result.text.trim()) throw new Error(NOTHING_RECOGNIZED_MESSAGE);
       if (take.draft.images.length && !take.attachments) {
         if (!this.io.uploadImages) throw new VoiceStorageError('image_upload_unavailable');
         const images = this.store.images(take);
@@ -718,28 +721,63 @@ export class VoiceDelivery {
         guard();
         take = this.store.get(id)!;
       }
+      if (this.io.serverOwned?.() && !take.serverMandate && !take.serverMandateFailed) {
+        const meta = this.voiceMeta(take);
+        const intent = this.io.prepare({ recordingId:id,sequence:take.sequence,streamId:take.origin.streamId,originGeneration:take.origin.generation,operationId:id,text:'',meta,attachments:take.attachments });
+        const mandate = { version:1,request_id:intent.requestId,optimistic_id:intent.optimisticId,...(intent.msgId ? {msg_id:intent.msgId}:{}),sequence:take.sequence,original_request:intent.originalRequest,text_prefix:take.draft.textPrefix,attachments:take.attachments ?? [],meta,client_build:take.operation.client_build };
+        await this.store.saveServerMandate(id,{intent,mandate}); guard(); take = this.store.get(id)!;
+      }
+      if (!take.transcription) {
+        await this.store.setDelivery(id, {
+          phase: 'uploading',
+          error: undefined,
+          retryAt: null,
+        });
+        guard();
+        const result = await this.io.transcribe({
+          recording: {
+            uri: this.store.audioUri(take),
+            mime: take.audio!.mime,
+            durationS: take.capturedAudioMs / 1000,
+            bytes: take.audio!.bytes,
+          },
+          transcribeRequestId: `transcribe-${id}`,
+          tags: { stream_id: take.origin.streamId, recording_id: id },
+          take,
+          store: this.store,
+          isCancelled: () =>
+            !this.store.isCurrent(id, epoch) || runtime !== this.runtimeEpoch || !this.enabled(),
+          onStage: async (stage: 'uploading' | 'transcribing') => {
+            guard();
+            await this.store.setDelivery(id, { phase: stage });
+            guard();
+          },
+        });
+        guard();
+        if (result.serverOwned) {
+          if (take.serverMandate) { await this.store.saveDispatchIntent(id,take.serverMandate.intent); guard(); this.io.hydrate(take.serverMandate.intent); }
+          await this.store.setDelivery(id,{phase:'server_owned',error:undefined,retryAt:null});
+          return;
+        }
+        if (!result.transcript.text.trim()) throw new Error(NOTHING_RECOGNIZED_MESSAGE);
+        await this.store.saveTranscription(id, {
+          blobSha: result.blobSha,
+          requestId: `transcribe-${id}`,
+          result: result.transcript,
+        });
+        guard();
+        take = this.store.get(id)!;
+      }
+      if (!take.transcription!.result.text.trim()) throw new Error(NOTHING_RECOGNIZED_MESSAGE);
       this.requireOrigin(take);
       guard();
       const text = [take.draft.textPrefix, take.transcription!.result.text.trim()]
         .filter(Boolean)
         .join('\n');
-      const meta = {
-        voice: { duration_s: take.capturedAudioMs / 1000, ...(take.context_v1 ? { context_v1: take.context_v1 } : {}) },
-        ...(take.operation.operation_kind === 'voice_answer'
-          ? {
-              voice_answers: {
-                version: 1,
-                recording_id: id,
-                blob_sha: take.transcription!.blobSha,
-                duration_s: take.capturedAudioMs / 1000,
-                items: take.frozenAnswers ?? [],
-              },
-            }
-          : {}),
-      };
+      const meta = this.voiceMeta(take);
       if (take.operation.operation_kind === 'voice_answer' && !take.frozenAnswers?.length)
         throw new VoiceStorageError('no_answers');
-      const intent = this.io.prepare({
+      const prepared = take.serverMandate ? undefined : this.io.prepare({
         recordingId: id,
         sequence: take.sequence,
         streamId: take.origin.streamId,
@@ -749,6 +787,10 @@ export class VoiceDelivery {
         meta,
         ...(take.attachments?.length ? { attachments: take.attachments } : {}),
       });
+      const skeleton = take.serverMandate?.intent;
+      const intent = skeleton && take.sequence === skeleton.sequence
+        ? stream.completeVoiceDispatchIntent(skeleton,text)
+        : skeleton ? stream.completeVoiceDispatchIntent(this.io.prepare({recordingId:id,sequence:take.sequence,streamId:take.origin.streamId,originGeneration:take.origin.generation,operationId:id,previousIntent:skeleton,text:''}),text) : prepared!;
       await this.store.saveDispatchIntent(id, intent);
       guard();
       this.io.hydrate(intent);
@@ -762,10 +804,23 @@ export class VoiceDelivery {
       await this.proofWrites.get(id);
     }
   }
+  private voiceMeta(take: VoiceTakeManifest) {
+    return {
+      voice: {duration_s:take.capturedAudioMs/1000,...(take.context_v1 ? {context_v1:take.context_v1}:{})},
+      ...(take.operation.operation_kind === 'voice_answer' ? {voice_answers:{version:1,recording_id:take.recordingId,blob_sha:take.audio!.sha256,duration_s:take.capturedAudioMs/1000,items:take.frozenAnswers ?? []}}:{}),
+    };
+  }
   private async handleFailure(id: string, error: unknown, hasIntent: boolean) {
     const t = this.store.get(id);
     if (!t || errorCode(error) === 'voice_cancelled') return;
     try {
+      if (t.serverMandate && !t.serverMandateFailed && /^(unsupported_in_v2|unknown_verb|unsupported)$/.test(errorCode(error))) {
+        this.io.forget(t.serverMandate.intent); await this.store.retryServerMandate(id);
+        await this.store.setDelivery(id,{phase:'queued',retryAt:this.now()+1}); return;
+      }
+      if (t.serverMandate && !t.serverMandateFailed && (t.delivery.phase === 'server_owned' || t.upload?.serverSend && t.upload.complete)) {
+        await this.store.setDelivery(id,{phase:'server_owned',retryAt:null}); return;
+      }
       if (hasIntent) {
         // Persisted intent is an ambiguity boundary even when dispatch threw synchronously.
         await this.store.setDelivery(id, {
@@ -838,7 +893,7 @@ export class VoiceDelivery {
       .catch(() => undefined)
       .then(async () => {
         const t = this.store.get(evidence.recordingId),
-          intent = t?.dispatchIntent;
+          intent = t?.dispatchIntent ?? t?.serverMandate?.intent;
         if (
           !t ||
           !intent ||
@@ -895,6 +950,7 @@ export class VoiceDelivery {
           t.delivery.retryAt !== null,
       )
       .map((t) => t.delivery.retryAt!);
+    if (this.store.snapshot().takes.some(t => t.serverMandate && !t.serverMandateFailed && ['server_owned','checking'].includes(t.delivery.phase))) times.push(this.now()+2000);
     if (!times.length) return;
     const delay = Math.max(1, Math.min(...times) - this.now());
     this.timer = (this.io.setTimer ?? ((fn, ms) => setTimeout(fn, ms)))(() => {
@@ -915,6 +971,9 @@ export class VoiceDelivery {
   }
 }
 const defaultIO: VoiceDeliveryIO = {
+  serverOwned: () => stream.supportsOutboundCommit(),
+  outboundGet: id => stream.getOutboundOperation(id),
+  outboundCancel: id => stream.cancelOutboundOperation(id),
   transcribe: runVoiceUploadTranscribe,
   uploadImages: async (assets, context) => {
     const attachments: ChatAttachment[] = [];

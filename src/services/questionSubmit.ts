@@ -30,7 +30,7 @@ export type QuestionSubmitActions = Pick<
   | 'discardOptimisticQuestionAnswer'
   | 'dismissQuestion'
   | 'sendMessage'
->;
+> & { persistLegacyAnswer?: typeof import('./pentacleStream').persistLegacyAnswer };
 
 export type QuestionSubmitHooks = {
   // A durable answer's optimistic row exists, so a failure is retryable from the caller.
@@ -108,6 +108,11 @@ export async function submitQuestionSubmission(
   });
   const optimisticId = actions.beginOptimisticQuestionAnswer({ streamId, text: answerText });
   if (!optimisticId) throw new Error('Question answer could not be queued. Try again.');
+  const persisted = await actions.persistLegacyAnswer?.({streamId,optimisticId,host:submission.action.host,sessionName:submission.action.sessionName,questionKey,text:answerText});
+  if (persisted) {
+    try { await persisted.dispatch(); } catch { hooks.onLegacySendFailed?.(); }
+    return;
+  }
   try {
     await actions.dismissQuestion({
       host: submission.action.host,

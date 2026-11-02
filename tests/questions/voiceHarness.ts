@@ -1,9 +1,9 @@
 import { uuid } from 'expo-modules-core';
-import {
+import type {
   VoiceRecorder,
-  type FinishedRecording,
-  type RecordingEngine,
-  type VoicePermission,
+  FinishedRecording,
+  RecordingEngine,
+  VoicePermission,
 } from '../../src/services/voiceRecording';
 
 // A recorder wired to a fake engine whose clock is Date.now (jest fake timers), so the
@@ -32,6 +32,9 @@ export class FakeEngine implements RecordingEngine {
 }
 
 export function makeRecorderHarness() {
+  // This helper is also loaded by the native filesystem mock factory. Load the
+  // recorder only when requested, so that factory never re-enters its own import.
+  const { VoiceRecorder } = require('../../src/services/voiceRecording') as typeof import('../../src/services/voiceRecording');
   jest.spyOn(uuid, 'v4').mockReturnValue('efbc042e-ce76-48fb-8dfc-2606f46243dc');
   const engine = new FakeEngine();
   const recorder = new VoiceRecorder(engine);
@@ -94,6 +97,7 @@ export function makeVoiceTransportMock(state: () => any, transcribe: (...args: a
     setVoiceReceiptAbsentForTests: (value: boolean) => { receiptAbsent = value; },
     validateVoiceDispatchIntent: jest.requireActual('../../src/services/pentacleStream').validateVoiceDispatchIntent,
     getPentacleStreamState: state,
+    supportsOutboundCommit: () => false,
     voiceTransportSnapshot: () => ({ ...scope, ready: !!state()?.connected, authNeeded: false, inventoryFresh: true, scopeGeneration: 1, socketGeneration: 1, origins: origins() }),
     voiceOriginStatus: (id: string, generation: string) => origins().find((row: any) => row.stream_id === id)?.session_generation === generation ? 'available' : 'unavailable',
     subscribeVoiceTransport: () => () => {}, subscribeVoiceSendEvidence: () => () => {},

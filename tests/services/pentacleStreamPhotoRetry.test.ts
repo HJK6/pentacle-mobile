@@ -81,7 +81,7 @@ beforeEach(async () => {
   jest.useFakeTimers();
 });
 
-async function flushMicrotasks(times = 3) {
+async function flushMicrotasks(times = 100) {
   for (let index = 0; index < times; index += 1) {
     await Promise.resolve();
   }
@@ -161,6 +161,7 @@ test('batch_submitted optimistic row settles after the reconcile window without 
 
   const optimisticId = stream.appendOptimisticUserMessage('merlin:codex:one', 'batch me');
   const sendPromise = stream.sendPentacleMessage({ host: 'merlin', sessionName: 'one', text: 'batch me' });
+  await flushMicrotasks();
   const sendPayload = sentFrames(socket, 'send').at(-1);
   socket.message({
     type: 'send.result',
@@ -191,6 +192,7 @@ test('landed result stays confirmed when its USER echo is absent', async () => {
 
   const optimisticId = stream.appendOptimisticUserMessage('merlin:codex:one', 'batch me');
   const sendPromise = stream.sendPentacleMessage({ host: 'merlin', sessionName: 'one', text: 'batch me' });
+  await flushMicrotasks();
   const sendPayload = sentFrames(socket, 'send').at(-1);
   socket.message({
     type: 'send.result',
@@ -216,6 +218,7 @@ test('batch_submitted whose USER echo lands is reconciled, never false-failed by
 
   const optimisticId = stream.appendOptimisticUserMessage('merlin:codex:one', 'batch me');
   const sendPromise = stream.sendPentacleMessage({ host: 'merlin', sessionName: 'one', text: 'batch me' });
+  await flushMicrotasks();
   const sendPayload = sentFrames(socket, 'send').at(-1);
   socket.message({
     type: 'send.result',

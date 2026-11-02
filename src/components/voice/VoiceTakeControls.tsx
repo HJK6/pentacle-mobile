@@ -6,12 +6,32 @@ import { voiceRecorder, sendVoiceTake, discardVoiceTake } from '../../services/v
 import { voiceDelivery, type VoiceTake } from '../../services/voiceDelivery';
 
 const labels: Record<VoiceTake['status'], string> = {
-  unsent: 'Unsent', queued: 'Queued', uploading: 'Uploading', transcribing: 'Transcribing', checking: 'Checking delivery',
+  unsent: 'Unsent', queued: 'Queued', uploading: 'Uploading', transcribing: 'Transcribing', server_owned: 'Sending', checking: 'Checking delivery',
   failed: 'Failed', auth_needed: 'Sign in required', origin_unavailable: 'Original chat unavailable', not_landed: 'Not delivered',
 };
 const run = (work: () => Promise<unknown>) => { void work().catch(error => Alert.alert('Pentacle', error instanceof Error ? error.message : 'Could not update the recording.')); };
 export function VoiceControlButton({ label, children, onPress, disabled, testID }: { label: string; children: string; onPress(): void; disabled?: boolean; testID?: string }) {
   return <Pressable accessibilityRole="button" accessibilityLabel={label} accessibilityState={{ disabled: !!disabled }} disabled={disabled} onPress={onPress} testID={testID} style={[styles.button, disabled && styles.disabled]}><Text style={styles.action}>{children}</Text></Pressable>;
+}
+/** Existing Discard action: cancel first, then offer explicit removal if sending already won. */
+export function discardRetainedVoiceTake(take: VoiceTake) {
+  const id = take.recordingId;
+  const remove = () => Alert.alert('Remove local copy?', 'This message is already on the server and may still be sent.', [
+    { text: 'Keep', style: 'cancel' },
+    { text: 'Remove local copy', style: 'destructive', onPress: () => run(() => discardVoiceTake(id, { removeLocalCopy: true })) },
+  ]);
+  if (take.manifest.serverMandate && !take.manifest.serverMandateFailed) {
+    if (require('../../services/pentacleStream').voiceTransportSnapshot().ready) run(async () => {
+      await discardVoiceTake(id);
+      if (voiceDelivery.snapshot().takes.some(current => current.recordingId === id && current.status === 'checking')) remove();
+    });
+    else remove();
+  } else if (take.manifest.dispatchIntent) {
+    Alert.alert('Remove local copy?', 'Remove local copy; delivery may already have happened', [
+      { text: 'Keep', style: 'cancel' },
+      { text: 'Remove local copy', style: 'destructive', onPress: () => run(() => discardVoiceTake(id, { removeLocalCopy: true })) },
+    ]);
+  } else run(() => discardVoiceTake(id));
 }
 /** Pure projection; commands return to the single recorder/durable scheduler. */
 export default function VoiceTakeControls({ recording, take, onReturn, storageError, primaryControls = true }: { recording?: RecordingSnapshot | null; take?: VoiceTake; onReturn(streamId: string): void; storageError?: string; primaryControls?: boolean }) {
@@ -19,17 +39,11 @@ export default function VoiceTakeControls({ recording, take, onReturn, storageEr
   const id = target.recordingId;
   const paused = recording?.status === 'paused';
   const busy = recording?.status === 'starting' || recording?.status === 'stopping';
-  const unknown = !!take?.manifest.dispatchIntent && take.status !== 'not_landed';
+  const unknown = !!take && (!!take.manifest.dispatchIntent || !!take.manifest.serverMandate && take.status === 'checking') && take.status !== 'not_landed';
   const title = recording?.originLabel || take?.draft?.originLabel || target.streamId;
   const label = recording ? recording.status === 'recording' ? 'Recording' : paused ? 'Paused' : recording.status === 'starting' ? 'Starting' : recording.status === 'stopping' ? 'Saving' : 'Unsent' : labels[take!.status];
   const error = recording?.error ?? take?.error ?? storageError;
-  const discard = () => {
-    if (take?.manifest.dispatchIntent) {
-      Alert.alert('Remove local copy?', 'Remove local copy; delivery may already have happened', [
-        { text: 'Keep', style: 'cancel' }, { text: 'Remove local copy', style: 'destructive', onPress: () => run(() => discardVoiceTake(id)) },
-      ]);
-    } else run(() => discardVoiceTake(id));
-  };
+  const discard = () => take ? discardRetainedVoiceTake(take) : run(() => discardVoiceTake(id));
   return <View style={styles.card} testID={`voice-take-controls-${id}`}>
     <View style={styles.heading}><Text numberOfLines={1} style={styles.origin}>{title}</Text><Text style={styles.state}>{label} · {formatDuration(target.durationS)}</Text></View>
     {take?.status === 'uploading' && take.manifest.audio ? <Text style={styles.detail}>{`${take.manifest.upload?.nextOffset ?? 0} / ${take.manifest.audio.bytes} bytes`}</Text> : null}
@@ -41,7 +55,7 @@ export default function VoiceTakeControls({ recording, take, onReturn, storageEr
         : unknown && take?.receiptAbsent ? <VoiceControlButton label="Send recording again" onPress={() => run(() => voiceDelivery.sendAgain(id))}>Send again</VoiceControlButton>
         : unknown ? <VoiceControlButton label="Check recording delivery again" onPress={() => run(() => voiceDelivery.checkAgain(id))}>Check again</VoiceControlButton>
         : primaryControls && take && (['failed','auth_needed','origin_unavailable','not_landed'].includes(take.status) || !!storageError) ? <VoiceControlButton label="Retry recording delivery" onPress={() => run(() => voiceDelivery.retry(id))}>Retry</VoiceControlButton> : null}
-      {primaryControls || take?.manifest.dispatchIntent ? <VoiceControlButton label={take?.manifest.dispatchIntent ? 'Remove local recording copy' : 'Discard recording'} onPress={discard}>{take?.manifest.dispatchIntent ? 'Remove local copy' : 'Discard'}</VoiceControlButton> : null}
+      {primaryControls || take?.manifest.dispatchIntent || take?.manifest.serverMandate && take.status === 'checking' ? <VoiceControlButton label={take?.manifest.dispatchIntent ? 'Remove local recording copy' : 'Discard recording'} onPress={discard}>{take?.manifest.dispatchIntent ? 'Remove local copy' : 'Discard'}</VoiceControlButton> : null}
     </View>
   </View>;
 }

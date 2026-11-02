@@ -11,10 +11,11 @@ import { voiceDelivery } from '../../services/voiceDelivery';
 import { formatDuration } from '../../services/voiceRecording';
 import { performChatOpenNavigation } from '../../services/chatOpenNavigation';
 import RecordingStrip from './RecordingStrip';
+import { discardRetainedVoiceTake } from './VoiceTakeControls';
 import { DiscardGlyph, MicGlyph, VoiceCheckGlyph, VoiceRecordFace, VoiceSendGlyph, VoiceSpinner } from './VoiceGlyphs';
 
 const G = Tokens.palette.green;
-const labels = { unsent: 'UNSENT', queued: 'QUEUED', uploading: 'UPLOADING…', transcribing: 'TRANSCRIBING…', checking: 'CHECKING DELIVERY', failed: 'DELIVERY FAILED', auth_needed: 'SIGN IN REQUIRED', origin_unavailable: 'ORIGINAL CHAT UNAVAILABLE', not_landed: 'NOT DELIVERED' };
+const labels = { unsent: 'UNSENT', queued: 'QUEUED', uploading: 'UPLOADING…', transcribing: 'TRANSCRIBING…', server_owned: 'SENDING', checking: 'CHECKING DELIVERY', failed: 'DELIVERY FAILED', auth_needed: 'SIGN IN REQUIRED', origin_unavailable: 'ORIGINAL CHAT UNAVAILABLE', not_landed: 'NOT DELIVERED' };
 const run = (work: () => Promise<unknown>) => { void work().catch(error => Alert.alert('Voice recording', error instanceof Error ? error.message : 'Could not update recording.')); };
 /** Geometry-only projection. Capture, durable queue and dispatch remain their existing owners. */
 export default function GlobalVoiceBar({ anchored = false, docked = false, surfaceId, onReturn, bottom, top }: {
@@ -51,15 +52,9 @@ export default function GlobalVoiceBar({ anchored = false, docked = false, surfa
   // In a chat the bar sits where the composer was, so a dispatched take keeps its own exits there.
   // Off-chat the overlay recovery card above the floating bar owns them.
   const canDiscard = !!target && (anchored || !take?.manifest.dispatchIntent);
-  const checking = anchored && take?.status === 'checking' && !!take.manifest.dispatchIntent;
+  const checking = anchored && take?.status === 'checking' && (!!take.manifest.dispatchIntent || !!take.manifest.serverMandate);
   const absent = checking && take.receiptAbsent;
-  const discard = () => {
-    if (take?.manifest.dispatchIntent) {
-      Alert.alert('Remove local copy?', 'Remove local copy; delivery may already have happened', [
-        { text: 'Keep', style: 'cancel' }, { text: 'Remove local copy', style: 'destructive', onPress: () => run(() => discardVoiceTake(id)) },
-      ]);
-    } else run(() => discardVoiceTake(id));
-  };
+  const discard = () => take ? discardRetainedVoiceTake(take) : run(() => discardVoiceTake(id));
   const connectionFailure = take?.status === 'failed' && /^(?:disconnected|not_connected|not connected|no connection|offline|network error)$/i.test(take.manifest.delivery?.error ?? take.error ?? '');
   const tone = interrupted ? Tokens.palette.amber : failed ? Tokens.palette.red : G;
   const fieldBorder = { borderColor: `${tone}66` };
@@ -67,7 +62,7 @@ export default function GlobalVoiceBar({ anchored = false, docked = false, surfa
   const stateLabel = recording
     ? recording.status === 'starting' ? 'STARTING…' : recording.status === 'stopping' ? 'SAVING…' : interrupted ? `INTERRUPTED · ${formatDuration(recording.durationS)} KEPT` : `UNSENT · ${formatDuration(recording.durationS)} KEPT`
     : take ? `${connectionFailure ? 'NO CONNECTION' : absent ? 'NOT RECEIVED' : labels[take.status]}${failed || take.status === 'unsent' ? ` · ${formatDuration(take.durationS)} KEPT` : ''}` : `SENT TO ${originLabel.toUpperCase()}`;
-  const busy = !!recording && ['starting','stopping'].includes(recording.status) || !!take && ['queued','uploading','transcribing','checking'].includes(take.status) && !absent;
+  const busy = !!recording && ['starting','stopping'].includes(recording.status) || !!take && ['queued','uploading','transcribing','server_owned','checking'].includes(take.status) && !absent;
   const open = (streamId: string) => { if (onReturn) onReturn(streamId); else performChatOpenNavigation(streamId, router as unknown as Parameters<typeof performChatOpenNavigation>[1]); };
   const content = isRecording ? <RecordingStrip displayLevels={recording.displayLevels} sampleCount={recording.levels.length} durationS={recording.durationS} onDiscard={() => {}} showDiscard={false}
     destinationLabel={recording.streamId !== ASSISTANT_STREAM_ID ? originLabel : undefined} testID="voice-recording-strip" />

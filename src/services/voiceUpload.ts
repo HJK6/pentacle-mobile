@@ -77,14 +77,14 @@ function validatedProgress(value: VoiceUploadAck, take: VoiceTakeManifest, minim
       || typeof value.complete !== 'boolean') throw uploadError('invalid_upload_ack');
   if (value.complete) {
     if (value.next_offset !== audio.bytes || value.blob_sha !== audio.sha256) throw uploadError('invalid_upload_ack');
-    return { nextOffset: value.next_offset, complete: true, blobSha: value.blob_sha };
+    return { nextOffset: value.next_offset, complete: true, blobSha: value.blob_sha, ...(value.server_send === true ? { serverSend: true } : {}) };
   }
   if (value.blob_sha !== undefined) throw uploadError('invalid_upload_ack');
-  return { nextOffset: value.next_offset, complete: false };
+  return { nextOffset: value.next_offset, complete: false, ...(value.server_send === true ? { serverSend: true } : {}) };
 }
 
 /** One acknowledged raw-byte chunk in flight, with durable client progress before continuation. */
-export async function runVoiceUpload(args: VoiceUploadArgs): Promise<{ blob_sha: string }> {
+export async function runVoiceUpload(args: VoiceUploadArgs): Promise<{ blob_sha: string; server_send?: boolean }> {
   const { take, store } = args;
   const { recordingId, epoch, audio } = take;
   const io = { ...defaultUploadIO, ...args.io };
@@ -99,12 +99,13 @@ export async function runVoiceUpload(args: VoiceUploadArgs): Promise<{ blob_sha:
   if (!audio || current.sendRequestedAt === null || !['finalized', 'interrupted'].includes(current.storage)) throw uploadError('audio_unavailable');
   if (current.upload?.complete) {
     if (current.upload.blobSha !== audio.sha256 || current.upload.nextOffset !== audio.bytes) throw uploadError('invalid_upload_ack');
-    return { blob_sha: current.upload.blobSha };
+    return { blob_sha: current.upload.blobSha, ...(current.upload.serverSend && !current.serverMandateFailed ? { server_send: true } : {}) };
   }
   const uri = store.audioUri(take);
   const persist = async (ack: VoiceUploadAck, minimum: number) => {
     guard();
     const progress = validatedProgress(ack, take, minimum);
+    if (store.get(recordingId)?.upload?.serverSend) progress.serverSend = true;
     await store.checkpointUpload(recordingId, progress);
     guard();
     return progress;
@@ -114,7 +115,8 @@ export async function runVoiceUpload(args: VoiceUploadArgs): Promise<{ blob_sha:
     try {
       guard();
       const initial = await io.rpc({ type: 'upload_blob_init', protocol: 2, upload_id: audio.uploadId,
-        total_bytes: audio.bytes, sha256: audio.sha256, mime: audio.mime, voice_operation: take.operation });
+        total_bytes: audio.bytes, sha256: audio.sha256, mime: audio.mime, voice_operation: take.operation,
+        ...(take.serverMandate && !take.serverMandateFailed ? { send_mandate: take.serverMandate.mandate } : {}) });
       guard();
       let progress = await persist(initial, 0);
       guard();
@@ -135,7 +137,7 @@ export async function runVoiceUpload(args: VoiceUploadArgs): Promise<{ blob_sha:
       }
       current = guard();
       if (!current.upload?.complete || current.upload.blobSha !== audio.sha256) throw uploadError('invalid_upload_ack');
-      return { blob_sha: current.upload.blobSha };
+      return { blob_sha: current.upload.blobSha, ...(current.upload.serverSend && !current.serverMandateFailed ? { server_send: true } : {}) };
     } catch (error) {
       guard();
       if (!restartedExpired && error && typeof error === 'object' && 'code' in error && error.code === 'upload_expired') {

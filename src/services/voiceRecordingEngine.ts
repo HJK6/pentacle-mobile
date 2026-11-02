@@ -222,7 +222,7 @@ export async function sendVoiceTake(id: string) {
   }
   await voiceDelivery.enqueue(id, { frozenAnswers }); completeVoiceQuestionSession(id, 'sent');
 }
-export async function discardVoiceTake(id: string) {
+export async function discardVoiceTake(id: string, options: {removeLocalCopy?: boolean} = {}) {
   if (voiceRecorder.snapshot()?.recordingId === id) await voiceRecorder.discard();
-  else { await voiceDelivery.discard(id); completeVoiceQuestionSession(id, 'discarded'); }
+  else { await voiceDelivery.discard(id,options); if (!voiceTakeStore.get(id)) completeVoiceQuestionSession(id, 'discarded'); }
 }
