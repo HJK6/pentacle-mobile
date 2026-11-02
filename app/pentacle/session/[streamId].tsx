@@ -1,4 +1,5 @@
 import { discardRetainedVoiceTake } from '../../../src/components/voice/VoiceTakeControls';
+import PhotoDiscardControl from '../../../src/components/PhotoDiscardControl';
 import { QUESTION_SKIP_TEXT } from 'pentacle-chat-core';
 import React, { memo, useCallback, useEffect, useLayoutEffect, useMemo, useId, useRef, useState } from 'react';
 import { useComposerDraft, draftRevision, restoreDraft } from '../../../src/services/composerDrafts';
@@ -4278,6 +4279,7 @@ export const TranscriptRow = memo(function TranscriptRow({
             ) : null}
           </View>
         ) : null}
+        {!voiceTake && item.optimisticId && !isSentAffordance && !canceled ? <PhotoDiscardControl optimisticId={item.optimisticId} /> : null}
         {isSentAffordance ? (
           <View style={styles.userSendStatusRow} testID="user-send-sent">
             <FontAwesome name="check" size={10} color={P.muted} />
