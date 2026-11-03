@@ -318,6 +318,8 @@ test('a transient restore failure renews ownership and releases only after recov
 });
 
 // Host prerequisite: the real-controller case drives an installed sim-queue binary.
+// Resolution follows spawn: a name containing a slash is a cwd-relative or absolute path,
+// a bare name is searched on PATH (an empty PATH entry means cwd). Returns an absolute path.
 const resolveSimQueueBinary = () => {
   const executable = (candidate) => {
     try {
@@ -328,14 +330,14 @@ const resolveSimQueueBinary = () => {
     }
   };
   const configured = process.env.PENTACLE_SIM_QUEUE_BIN;
-  const found = configured
-    ? (executable(configured) ? configured : null)
-    : (process.env.PATH || '').split(path.delimiter).filter(Boolean)
-      .map((directory) => path.join(directory, 'sim-queue'))
-      .find(executable);
+  const name = configured || 'sim-queue';
+  const candidates = name.includes('/')
+    ? [path.resolve(name)]
+    : (process.env.PATH || '').split(path.delimiter).map((directory) => path.resolve(directory || '.', name));
+  const found = candidates.find(executable);
   if (found) return found;
   throw new Error(
-    `setup failure: host prerequisite sim-queue not found (${configured ? `PENTACLE_SIM_QUEUE_BIN=${configured} is not an executable file` : 'not on PATH'}); `
+    `setup failure: host prerequisite sim-queue not found (${configured ? `PENTACLE_SIM_QUEUE_BIN=${configured} does not resolve to an executable file` : 'not on PATH'}); `
       + 'set PENTACLE_SIM_QUEUE_BIN to the sim-queue executable or put sim-queue on PATH',
   );
 };
