@@ -42,6 +42,20 @@ Jest covers modeled behavior; it does not certify native builds, device signing,
 or live spawn/send journeys. Those require the configured daemon and native
 runtime described in [Native builds](PENTACLE_MOBILE_BUILD.md).
 
+Run npm run test:scripts for the node:test suites: every `scripts/*.test.cjs`
+plus `test/testtime-jest-reporter.test.cjs` and `test/e2e/native/m1_cfu.test.cjs`,
+one file at a time. CI does not run them; they spawn real processes and use
+host tools. Prerequisites: node 22, writable temporary space (each suite owns
+and removes its directories) and `sim-queue`, through `PENTACLE_SIM_QUEUE_BIN`
+or on PATH. Without `sim-queue`, the real-controller case in
+`scripts/sim-resource-guard.test.cjs` fails as a setup failure that names it.
+The full run took about 15 minutes on a macOS development host (2026-11-03).
+While iterating on one script, run node --test scripts/<file>.test.cjs.
+Eight storage certification suites currently have known failures on main: a
+stale certified pin for `pentacle.config.example.ts`, synthetic runs without a
+quiet-start claim, and the absent `scripts/gate-diagnostic.cjs` driver. Compare
+any failures against main before attributing them to a change.
+
 The explicit installed-client seam entry replays a same-run candidate daemon
 capture through the real `pentacleStream` WebSocket callback, history request
 handling and shared model. It checks multiline summary/history, ordered live
