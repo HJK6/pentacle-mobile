@@ -24,6 +24,7 @@
     "test": "jest",
     "test:coverage": "jest --coverage",
     "test:unit": "jest --runInBand",
+    "test:scripts": "node --test --test-concurrency=1 scripts/*.test.cjs test/testtime-jest-reporter.test.cjs test/e2e/native/m1_cfu.test.cjs",
     "storage:install": "node scripts/storage-cli.cjs storage:install",
     "storage:update": "node scripts/storage-cli.cjs storage:update",
     "storage:reseal-authority": "node scripts/storage-cli.cjs storage:reseal-authority",

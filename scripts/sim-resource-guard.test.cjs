@@ -317,10 +317,33 @@ test('a transient restore failure renews ownership and releases only after recov
   assert.ok(renewIndex >= 0 && renewIndex < releaseIndex);
 });
 
+// Host prerequisite: the real-controller case drives an installed sim-queue binary.
+const resolveSimQueueBinary = () => {
+  const executable = (candidate) => {
+    try {
+      fs.accessSync(candidate, fs.constants.X_OK);
+      return fs.statSync(candidate).isFile();
+    } catch {
+      return false;
+    }
+  };
+  const configured = process.env.PENTACLE_SIM_QUEUE_BIN;
+  const found = configured
+    ? (executable(configured) ? configured : null)
+    : (process.env.PATH || '').split(path.delimiter).filter(Boolean)
+      .map((directory) => path.join(directory, 'sim-queue'))
+      .find(executable);
+  if (found) return found;
+  throw new Error(
+    `setup failure: host prerequisite sim-queue not found (${configured ? `PENTACLE_SIM_QUEUE_BIN=${configured} is not an executable file` : 'not on PATH'}); `
+      + 'set PENTACLE_SIM_QUEUE_BIN to the sim-queue executable or put sim-queue on PATH',
+  );
+};
+
 test('a real controller stays live and blocks handoff while CrashReporter restore keeps failing', async (context) => {
+  const queueBinary = resolveSimQueueBinary();
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'pentacle-restore-recovery-'));
   const marker = path.join(tempRoot, 'restore-failed');
-  const queueBinary = process.env.PENTACLE_SIM_QUEUE_BIN || 'sim-queue';
   const childSource = `
     const { spawnSync } = require('node:child_process');
     const fs = require('node:fs');
