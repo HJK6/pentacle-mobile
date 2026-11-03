@@ -23,6 +23,7 @@
     "validate": "tsc --noEmit && npx expo export --platform ios --output-dir /tmp/expo-validate-build",
     "test": "jest",
     "test:coverage": "jest --coverage",
+    "pretest:unit": "node scripts/check-test-prerequisites.cjs",
     "test:unit": "jest --runInBand",
     "storage:install": "node scripts/storage-cli.cjs storage:install",
     "storage:update": "node scripts/storage-cli.cjs storage:update",

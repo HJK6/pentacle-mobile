@@ -23,8 +23,8 @@ event is held, later tool activity or working-state changes cannot append a seco
 summary bubble. Summary matching uses kind and normalized text; `last_event_at`
 describes all activity rather than message identity. An identical repeated message
 renders when its own transcript event arrives. Run the matching vendored core
-suite separately with `npm --prefix pentacle-chat-core test`; the root Jest suite
-excludes core tests.
+suite with `npm --prefix pentacle-chat-core test`; CI runs it separately because
+the root Jest suite excludes core tests.
 
 tests/contracts/assistant_preview_thread_parity.test.ts guards that the Chats-list
 preview for the assistant composite equals the thread's last rendered row, and
@@ -81,7 +81,27 @@ need not match the example palette; offline hosts remain visible but disabled.
 
 Public main is the normal development and build source. See [repository workflow](repo_workflow.md) for the mandatory pre-push content/history guard and required CI. Private-data exceptions use immediate reviewed public projection; keep local config out of Git.
 
-The portable synthetic harness gate and retained private inputs are documented in [Public source boundary](public_boundary.md). CI runs only the four named Python mock/helper test files; JavaScript export validation uses the disposable ignored example config.
+The portable synthetic harness gate and retained private inputs are documented in [Public source boundary](public_boundary.md). CI runs the portable Python test directory, excluding diagnostic capture that requires simulator tooling; JavaScript export validation uses the disposable ignored example config.
+
+## Which checks for which change
+
+Run the focused loop while iterating; run the partition row(s) your changed surface maps to before asking for review; CI runs the required set on every push. Nothing here waives a row of the [release validation matrix](PENTACLE_MOBILE_BUILD.md#release-validation), the certified gate or the pre-push guard. Budgets are medians measured on the GitHub-hosted runner (CI) and on a qualified macOS development host (local), 2026-11-03.
+
+| Changed surface | Focused loop | Required before review | In CI | Budget |
+|---|---|---|---|---|
+| `src/**`, `app/**`, `constants/**`, `plugins/**` | `npx jest --runInBand --runTestsByPath tests/<file>…` | `npm run test:unit`, `npm run typecheck` | yes | unit ≈ 170 s CI / ≈ 115 s local; typecheck ≈ 10 s |
+| `pentacle-chat-core/**` | `node --import tsx --test pentacle-chat-core/tests/<file>` | `npm --prefix pentacle-chat-core test` and `npm run test:unit` | yes (both) | core ≈ 4 s |
+| `test/e2e/tools/**`, `test/e2e/harness/**`, `test/e2e/tests/**` | `PYTHONPATH=test:test/e2e python3 -m pytest -q test/e2e/tests/<file>` | the portable pytest selection (the CI step's command) | yes | ≈ 100 s local |
+| `test/e2e/run_scenario.py`, `test/e2e/scenarios/**`, `test/e2e/recorder_preflight.py`, `test/e2e/wire_contract_validator.py` | `PYTHONPATH=test:test/e2e python3 -m pytest -q test/e2e/tests/test_run_scenario.py test/e2e/tests/test_recorder_preflight.py test/e2e/tests/test_native_capture.py` | portable pytest selection, plus one reachable scenario run (`python3 test/e2e/run_scenario.py <name>`) when behavior changes | pytest yes; scenario no | scenario: simulator host, per run |
+| `scripts/**` | `node --test scripts/<file>.test.cjs` | `npm run test:scripts` (node:test suites; needs `sim-queue` for one case) | no (host-bound) | recorded at the first measured run |
+| Gate-code pinned files (hash list in `scripts/storage-authority.cjs`) | as above | the row above, and the release coordinator decides whether certified gate identity changes | partially | — |
+| `ios/**`, `app.config.ts`, `eas.json`, non-dev `package-lock.json` delta, `metro.config.js`, native config plugins | `npm run validate`; `npx jest --runInBand --runTestsByPath tests/hermesRuntimeGuard.test.ts tests/prodBuildGuardrails.test.ts tests/prodBuildHostSigilGuard.test.ts` | `validate` + `test:unit`; full qualification per the release matrix row "Native/toolchain/runtime dependencies" | validate yes; full gate no | validate ≈ 35 s CI |
+| Daemon wire transport/model (`src/services/pentacleStream*.ts`, `src/model/**`, chat-core reducers) | `npx jest --runInBand --runTestsByPath tests/services/pentacleStream.test.ts tests/reconnectReplay.test.ts tests/pentacleStreamHistoryResume.test.ts tests/optimisticSendReconnect.test.ts tests/contracts/chat_sync_contracts.test.ts` | the TypeScript row plus the installed-client seam entry with a fresh daemon capture (§ above in this document) | seam: no | focused ≈ 15 s |
+| `docs/**`, `*.md` | none | `scripts/check-public-boundary.sh origin/main` | yes | 2 s |
+| `.github/workflows/**`, `scripts/hooks/**`, `scripts/check_*` | `python3 scripts/test_check_private_terms.py`, `python3 scripts/test_check_public_residue.py` | the whole CI job once | yes | ≈ 6 min |
+
+Prerequisites: `test:unit` needs node 22, `python3`, `tar` and `pentacle.config.local.ts` (the `pretest:unit` check names what is missing and exits 3); the portable pytest selection needs Python 3.13 with `test/e2e/tools/requirements.txt`; `test:scripts` needs node 22 and `sim-queue` (`PENTACLE_SIM_QUEUE_BIN` or PATH); simulator scenarios and the certified gate keep their documented prerequisites.
+
 
 ## Certified native gate and storage
 
