@@ -120,7 +120,7 @@ request at <https://github.com/HJK6/pentacle-mobile/issues>.
 
 ## Development
 
-Run `npm run typecheck` and `npm test` for offline checks. These do not prove
+Run `npm run typecheck` and `npm run test:unit` for offline checks. These do not prove
 live connectivity. See [Testing](docs/TESTING.md) and
 [Native builds](docs/PENTACLE_MOBILE_BUILD.md) for details. Normal builds compile
 the vendored core automatically. Clear caches or regenerate native projects

@@ -19,7 +19,7 @@ paths, captured production payloads, or private repository links.
 
 ## Development loop
 
-Install dependencies with `npm install`, run the smallest relevant test, and
+Install dependencies with `npm ci`, run the smallest relevant test, and
 finish with `npm run test:unit` and `npm run typecheck`. Keep changes to the
 screen, reducer, and transport layers independently testable.
 
