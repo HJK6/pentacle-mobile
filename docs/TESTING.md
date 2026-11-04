@@ -51,6 +51,11 @@ or on PATH. Without `sim-queue`, the real-controller case in
 `scripts/sim-resource-guard.test.cjs` fails as a setup failure that names it.
 The full run took about 15 minutes on a macOS development host (2026-11-03).
 While iterating on one script, run node --test scripts/<file>.test.cjs.
+One storage case currently fails on main: `storage-lifecycle-seams.test.cjs`
+"jointly legacy published evidence can discard scratch and later retire
+evidence". A legacy run record has no quiet-start claim, so the gate's
+quiet-start-binding check refuses it. Compare any other failure against main
+before attributing it to a change.
 
 The explicit installed-client seam entry replays a same-run candidate daemon
 capture through the real `pentacleStream` WebSocket callback, history request
