@@ -12,6 +12,7 @@ const state = require('./storage-state.cjs');
 const stateMutations = state.bind(mutationCapability);
 const gate = require('./storage-gate.cjs');
 const { dispatch } = require('./storage-cli.cjs');
+const { quietStartFixture } = require('./storage-quiet-start-fixture.cjs');
 
 function command(binary, args, options = {}) {
   const result = spawnSync(binary, args, { encoding: 'utf8', ...options });
@@ -42,15 +43,17 @@ function detachIfMounted(target) { try { command('/usr/bin/hdiutil', ['detach', 
 async function invokeWrapper(invocation, authority) {
   const id = crypto.randomUUID();
   const clock = '2026-06-01T00:00:00.000Z';
+  const quiet = quietStartFixture({ host: authority.host, uid: authority.uid, candidateSha: 'a'.repeat(40), gateCodeSha: 'b'.repeat(40), reservedAt: clock, runId: id });
   let run = stateMutations.createRecord('runs', {
     schema: 1, id, revision: 0, state: 'reserved', generation: authority.generation,
     owner: { host: authority.host, uid: authority.uid, pid: process.pid }, candidate_ref: 'a'.repeat(40),
     gate_code_sha: 'b'.repeat(40), gate_code_tree_clean: true,
     scratch_image: `${id}.sparsebundle`, evidence_image: `${id}.sparsebundle`,
-    lock_token_digest: 'b'.repeat(64), reserved_at: clock, first_dead_at: null,
+    lock_token_digest: 'b'.repeat(64), reserved_at: clock, quiet_start: quiet.claim, first_dead_at: null,
   });
   const scratch = containerMutations.createImage('scratch', id, recoverableExecute);
   const evidence = containerMutations.createImage('evidence', id, recoverableExecute);
+  quiet.copyTo(fixedLayout().evidenceMount);
   fs.mkdirSync(path.join(fixedLayout().scratchMount, 'device-set'), { mode: 0o700 });
   fs.writeFileSync(path.join(fixedLayout().scratchMount, `invocation-${invocation}.txt`), 'scratch\n', { flag: 'wx' });
   fs.writeFileSync(path.join(fixedLayout().evidenceMount, 'run.json'), `${JSON.stringify({

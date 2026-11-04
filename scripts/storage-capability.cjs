@@ -3,7 +3,7 @@
 const path = require('node:path');
 const TOKEN = Object.freeze({});
 const TRUSTED = new Set([
-  'gate-diagnostic.cjs', 'storage-cli.cjs', 'storage-gate.cjs', 'storage-janitor.cjs', 'storage-scheduler.cjs', 'storage-worktrees.cjs',
+  'storage-cli.cjs', 'storage-gate.cjs', 'storage-janitor.cjs', 'storage-scheduler.cjs', 'storage-worktrees.cjs',
   'storage-behavior.test.cjs', 'storage-model-oracle.test.cjs', 'storage-qa-regressions.test.cjs', 'storage-slice-q1.test.cjs',
   'storage-scheduler-recovery-worker.cjs', 'storage-slice-q3-worker.cjs', 'storage-slice-q6-worker.cjs', 'storage-synthetic-worker.cjs', 'storage-worktree-q2-worker.cjs',
   // WORKERS, not test files: separate processes that drive the real lifecycle and arm the real crash
