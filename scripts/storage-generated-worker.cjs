@@ -104,8 +104,12 @@ function main() {
       }
     }
   }
-  for (const endpoint of Object.keys(require('./storage-authority.cjs').CONTRACT.endpoints)) { assert.throws(() => parseEndpoint(endpoint, { path: '/tmp/escape' })); endpointProducts += 1; }
-  process.stdout.write(`${JSON.stringify({ models: Object.keys(GRAPHS), states, transition_pairs: transitionPairs, argument_products: argumentProducts, event_products: eventProducts, event_instances: eventInstances, crash_boundaries: CRASH_BOUNDARIES.length, endpoint_products: endpointProducts })}\n`);
+  const endpointRejections = {};
+  for (const endpoint of Object.keys(require('./storage-authority.cjs').CONTRACT.endpoints)) {
+    try { parseEndpoint(endpoint, { path: '/tmp/escape' }); endpointRejections[endpoint] = null; } catch (error) { endpointRejections[endpoint] = error.message; }
+    endpointProducts += 1;
+  }
+  process.stdout.write(`${JSON.stringify({ models: Object.keys(GRAPHS), states, transition_pairs: transitionPairs, argument_products: argumentProducts, event_products: eventProducts, event_instances: eventInstances, crash_boundaries: CRASH_BOUNDARIES.length, endpoint_products: endpointProducts, endpoint_rejections: endpointRejections })}\n`);
 }
 
 if (require.main === module) main();

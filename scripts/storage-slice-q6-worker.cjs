@@ -166,10 +166,14 @@ if (['evidence-chain', 'unknown-preserve'].includes(scenario)) {
   const payload = path.join(evidence, 'ios-export', 'payload.bin');
   fs.writeFileSync(payload, 'abc');
   const runId = '33333333-3333-4333-8333-333333333333';
+  const owner = { host: require('node:os').hostname(), uid: process.getuid(), pid: process.pid };
+  const reservedAt = '2026-06-30T00:00:00.000Z';
+  const quiet = require('./storage-quiet-start-fixture.cjs').quietStartFixture({ host: owner.host, uid: owner.uid, candidateSha: 'a'.repeat(40), gateCodeSha: 'b'.repeat(40), reservedAt, runId });
+  quiet.copyTo(evidence);
   let attachments = 0;
   let discards = 0;
   let currentRun = {
-    id: runId, revision: 7, state: 'scratch_discarding', gate_status: 17,
+    id: runId, revision: 7, state: 'scratch_discarding', gate_status: 17, owner, reserved_at: reservedAt, quiet_start: quiet.claim,
     candidate_ref: 'a'.repeat(40), gate_code_sha: 'b'.repeat(40), gate_code_tree_clean: true,
     published_at: '2026-07-01T00:00:00.000Z', evidence_seal: { fixture: true },
   };

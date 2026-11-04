@@ -196,14 +196,17 @@ fs.writeFileSync(path.join(layout.state, 'gate.lock'), `${JSON.stringify({
   pid: process.pid, token: lockToken, claimed: false, created_at: new Date().toISOString(),
 })}\n`, { flag: 'wx', mode: 0o600 });
 
+const reservedAt = new Date().toISOString();
+const quiet = require('./storage-quiet-start-fixture.cjs').quietStartFixture({ host: authority.host, uid: authority.uid, candidateSha: 'a'.repeat(40), gateCodeSha, reservedAt, runId });
 let run = stateMutations.createRecord('runs', {
   schema: 1, id: runId, revision: 0, state: 'reserved', generation: authority.generation,
   owner: { host: authority.host, uid: authority.uid, pid: process.pid },
   candidate_ref: 'a'.repeat(40), gate_code_sha: gateCodeSha, gate_code_tree_clean: true,
   scratch_image: `${runId}.sparsebundle`, evidence_image: `${runId}.sparsebundle`,
   lock_token_digest: crypto.createHash('sha256').update(lockToken).digest('hex'),
-  reserved_at: new Date().toISOString(), first_dead_at: null,
+  reserved_at: reservedAt, quiet_start: quiet.claim, first_dead_at: null,
 });
+quiet.copyTo(evidence.mount);
 run = stateMutations.transitionRun(runId, run.revision, 'allocated', {
   scratch_seal: scratch.seal, evidence_seal: evidence.seal,
   device_set_identity: state.canonicalIdentity(path.join(scratch.mount, 'native')),
