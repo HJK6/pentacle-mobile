@@ -217,3 +217,34 @@ export function whoFromToggles(toggles: { me: boolean; partner: boolean }): Who 
   if (toggles.me && toggles.partner) return 'both';
   return toggles.partner ? 'partner' : 'self';
 }
+
+
+/** Display-only Calendar rows: events keep event controls; due rows open their source list. */
+export type CalendarRow =
+  | { key: string; kind: 'event'; date: string; event: HouseholdEvent }
+  | { key: string; kind: 'due'; date: string; title: string; list: ListId; created_by: HouseholdItem['created_by'] };
+
+export function calendarRows(snapshot: HouseholdSnapshot, hiddenEvents: Record<number, true> = {},
+  hiddenItems: Record<number, true> = {}): CalendarRow[] {
+  const visible = (scope: string) => scope === 'private' || scope === 'shared';
+  const items = LIST_ORDER.flatMap((list) => snapshot.lists[list] ?? []);
+  // Include done/optimistically hidden occurrences when suppressing a routine projection.
+  const referenced = new Set(items.map((item) => item.routine_id).filter((id) => id !== null));
+  const rows: CalendarRow[] = snapshot.events.filter((event) => !hiddenEvents[event.id])
+    .map((event) => ({ key: `event:${event.id}`, kind: 'event', date: event.date, event }));
+  for (const item of items) {
+    if (item.done_at !== null || hiddenItems[item.id] || !visible(item.scope) || !isListId(item.list) || !parseRouteDate(item.due_date)) continue;
+    rows.push({ key: `item:${item.id}`, kind: 'due', date: item.due_date!, title: item.label,
+      list: item.list, created_by: item.created_by });
+  }
+  for (const routine of snapshot.routines ?? []) {
+    if (routine.paused || routine.item_id !== null || referenced.has(routine.id) || !visible(routine.scope)
+      || !isListId(routine.list) || !parseRouteDate(routine.next_due)) continue;
+    rows.push({ key: `routine:${routine.id}`, kind: 'due', date: routine.next_due, title: routine.label,
+      list: routine.list, created_by: routine.created_by });
+  }
+  return rows.sort((a, b) => a.date.localeCompare(b.date)
+    || (a.kind === 'event' && b.kind === 'event'
+      ? (a.event.time ?? '').localeCompare(b.event.time ?? '') || a.event.id - b.event.id
+      : a.kind !== b.kind ? (a.kind === 'event' ? -1 : 1) : a.key.localeCompare(b.key)));
+}

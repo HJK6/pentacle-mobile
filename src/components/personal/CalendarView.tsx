@@ -2,13 +2,15 @@
 // selected-day agenda, ✕ remove, new-event sheet. Days are America/Chicago (snapshot.today).
 // Paging selects today in today's month and the 1st elsewhere; it is held while a change is unresolved.
 import React, { useState } from 'react';
+import { logTelemetry } from 'pentacle-chat-core';
+import { MOBILE_TELEMETRY_EVENTS } from '../../services/mobileTelemetryEvents';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Fonts } from '../../../constants/Colors';
 import { useHouseholdStore } from '../../services/household/householdStore';
 import {
-  MAX_MONTH, MIN_MONTH, dateIn, dayLabel, daysInMonth, eventsOn, formatTime, isAssistantEvent, monthName, monthOf,
+  LIST_META, MAX_MONTH, MIN_MONTH, calendarRows, dateIn, dayLabel, daysInMonth, formatTime, isAssistantEvent, monthName, monthOf,
   parseRouteDate, partnerName, selectionForMonth, shiftMonth, weekdayIndex, whoDisplay, yearOf,
 } from '../../services/household/selectors';
 import AddEventSheet from './AddEventSheet';
@@ -20,7 +22,7 @@ const WEEKDAYS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
 export default function CalendarView({ date }: { date?: string }) {
   const assistant = useAssistantIdentity();
   const insets = useSafeAreaInsets();
-  const { snapshot, hiddenEvents, removeEvent, unresolved } = useHouseholdStore();
+  const { snapshot, hiddenEvents, hiddenItems, removeEvent, unresolved } = useHouseholdStore();
   const routeDate = parseRouteDate(date);
   const [picked, setPicked] = useState<string | null>(null);
   // The picked (or paged-to) month, else the route month, else the daemon's default (today's month).
@@ -43,8 +45,8 @@ export default function CalendarView({ date }: { date?: string }) {
 
   const partner = partnerName(snapshot);
   const month = monthOf(selected);
-  const events = snapshot.events.filter((event) => !hiddenEvents[event.id] && monthOf(event.date) === month);
-  const dayEvents = eventsOn(events, selected);
+  const rows = calendarRows(snapshot, hiddenEvents, hiddenItems).filter((row) => monthOf(row.date) === month);
+  const dayRows = rows.filter((row) => row.date === selected);
   const first = weekdayIndex(dateIn(month, 1));
   const cells: Array<string | null> = [
     ...Array.from({ length: first }, () => null),
@@ -52,7 +54,7 @@ export default function CalendarView({ date }: { date?: string }) {
   ];
   while (cells.length % 7) cells.push(null);
   const weeks = Array.from({ length: cells.length / 7 }, (_, w) => cells.slice(w * 7, w * 7 + 7));
-  const count = dayEvents.length;
+  const count = dayRows.length;
   // Held while a change is unresolved so its readbacks and the screen agree on the month.
   const pagingHeld = unresolved > 0;
   const page = (n: number) => setPicked(selectionForMonth(shiftMonth(month, n), today));
@@ -120,7 +122,7 @@ export default function CalendarView({ date }: { date?: string }) {
                 if (!day) return <View key={`blank-${w}-${i}`} style={styles.cellBlank} />;
                 const isToday = day === today;
                 const isSelected = day === selected;
-                const dots = eventsOn(events, day).slice(0, 3);
+                const dots = rows.filter((row) => row.date === day).slice(0, 3);
                 return (
                   <Pressable
                     key={day}
@@ -148,10 +150,11 @@ export default function CalendarView({ date }: { date?: string }) {
                       {String(Number(day.slice(8)))}
                     </Text>
                     <View style={styles.dots}>
-                      {dots.map((event) => (
+                      {dots.map((row) => (
                         <View
-                          key={event.id}
-                          style={[styles.dot, { backgroundColor: isAssistantEvent(event) ? P.green : P.dim }]}
+                          key={row.key}
+                          testID={row.kind === 'due' ? 'calendar-due-dot' : undefined}
+                          style={[styles.dot, { backgroundColor: (row.kind === 'event' ? isAssistantEvent(row.event) : row.created_by === 'assistant') ? P.green : P.dim }]}
                         />
                       ))}
                     </View>
@@ -165,7 +168,7 @@ export default function CalendarView({ date }: { date?: string }) {
           <Text style={[base.sectionLabel, styles.flex]}>
             {`${dayLabel(selected)}${selected === today ? ' · TODAY' : ''}`}
           </Text>
-          <Text style={styles.count}>{`${count} EVENT${count === 1 ? '' : 'S'}`}</Text>
+          <Text style={styles.count}>{`${count} ITEM${count === 1 ? '' : 'S'}`}</Text>
         </View>
         {count === 0 ? (
           <Pressable accessibilityRole="button" onPress={() => setAdding(true)} style={styles.emptyBox}>
@@ -173,10 +176,29 @@ export default function CalendarView({ date }: { date?: string }) {
             <Text style={styles.emptyAdd}>+ ADD AN EVENT</Text>
           </Pressable>
         ) : null}
-        {dayEvents.map((event) => {
+        {dayRows.map((row) => {
+          if (row.kind === 'due') {
+            return (
+              <Pressable key={row.key} testID="agenda-due-row" accessibilityRole="button"
+                accessibilityLabel={`${row.title}, due, ${LIST_META[row.list].name}`}
+                onPress={() => {
+                  logTelemetry(MOBILE_TELEMETRY_EVENTS.HOUSEHOLD_CALENDAR_DUE_OPENED as Parameters<typeof logTelemetry>[0],
+                    { subsystem: 'household', bug_ref: 'household_due_reminders', source: row.key.split(':')[0], list: row.list });
+                  router.push({ pathname: '/pentacle/personal/list/[id]', params: { id: row.list } });
+                }}
+                style={[styles.agendaRow, base.rowLine]}>
+                <Text style={styles.time}>DUE</Text>
+                <View style={styles.flex}>
+                  <Text style={styles.title}>{row.title}</Text>
+                  <Text style={styles.metaText}>{LIST_META[row.list].name.toUpperCase()}</Text>
+                </View>
+              </Pressable>
+            );
+          }
+          const event = row.event;
           const who = whoDisplay(event, partner);
           return (
-            <View key={event.id} testID="agenda-row" style={[styles.agendaRow, base.rowLine]}>
+            <View key={row.key} testID="agenda-row" style={[styles.agendaRow, base.rowLine]}>
               <Text style={styles.time}>{formatTime(event.time)}</Text>
               <WhoBar bars={who.bars} height={30} />
               <View style={styles.flex}>

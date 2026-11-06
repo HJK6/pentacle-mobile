@@ -16,7 +16,7 @@ that service the screens show only an unavailable notice.
 | Personal TO-DO | open items from those lists that are priority `hi` or due today, tomorrow or earlier |
 | Personal TODAY | events dated today (all-day first, then by time) |
 | Personal UPCOMING | the next four events after today up to today + 7, by date then time |
-| Calendar | events of the shown month |
+| Calendar | events, dated open list items and known routine next dates of the shown month |
 
 The app talks only to the Pentacle daemon, through `sendHouseholdCommand` in
 `src/services/pentacleStream.ts` and six verbs (`household.snapshot`, `household.item.add`,
@@ -61,6 +61,7 @@ The daemon accepts only the operator's own connection. The app never sends a `pr
   header reads `<YEAR> · BACK TO TODAY`, which returns to today. Paging and back-to-today are held
   while a change is unresolved, so the readbacks and the screen agree on the month. The `date`
   route parameter still opens on a given day.
+- **Due rows.** Calendar merges display rows with stable `event:`, `item:` and `routine:` keys; it stores no mirror events. Dots and agenda include open items on their due date and each unpaused routine's known `next_due` only when no occurrence exists. Existing item/routine identity suppresses duplicates, including done/undo occurrences. Optional `routines` may be absent during rollout. `DUE` rows show their list name and open that list; only real events have event controls. The combined count reads `ITEMS`. Overdue rows stay on their original date, and the normal snapshot refresh moves the next date after completion. No weekly/monthly series is predicted.
 - **New-event date.** The DATE field (`WED OCT 7`, with `, 2027` when the year is not today's)
   opens an inline month calendar with its own ‹ / › paging; tapping a day picks it and closes the
   picker. Paging the picker fetches nothing. An event may be saved in any month: on Save the
