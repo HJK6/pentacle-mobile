@@ -99,6 +99,7 @@ async function load(month: string | undefined): Promise<HouseholdSnapshot | null
       month: frame.month,
       lists: frame.lists,
       events: frame.events,
+      routines: frame.routines,
       server_now: frame.server_now,
       people: frame.people,
     };

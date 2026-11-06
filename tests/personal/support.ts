@@ -185,6 +185,7 @@ export class FakeHousehold {
   people: HouseholdSnapshot['people'];
   lists: Record<ListId, HouseholdItem[]>;
   events: HouseholdEvent[];
+  routines: HouseholdSnapshot['routines'];
   private nextId = 1000;
   private overrides = new Map<string, Override>();
 
@@ -193,6 +194,7 @@ export class FakeHousehold {
     this.events = JSON.parse(JSON.stringify(snapshot.events));
     this.today = snapshot.today;
     this.people = snapshot.people;
+    this.routines = snapshot.routines ? JSON.parse(JSON.stringify(snapshot.routines)) : undefined;
   }
 
   override(verb: string, fn: Override): this {
@@ -231,6 +233,7 @@ export class FakeHousehold {
           people: this.people,
           lists: JSON.parse(JSON.stringify(this.lists)),
           events: JSON.parse(JSON.stringify(events)),
+          routines: this.routines ? JSON.parse(JSON.stringify(this.routines)) : undefined,
           server_now,
         });
       }

@@ -10,6 +10,8 @@ registerOutboundGuard();
 let server: FakeHousehold;
 beforeEach(() => {
   server = resetWorld();
+  // This suite isolates real event controls; due-row coverage lives in CalendarDue.
+  Object.values(server.lists).flat().forEach((item) => { item.due_date = null; });
 });
 
 const TEXT = '#e6fff2';
@@ -74,7 +76,7 @@ describe('CalendarView agenda', () => {
   it("defaults to today: header 'TUE 6 · TODAY', event count and rows in time order with who labels and the assistant markers", async () => {
     await mount('CalendarView');
     expect(screen.getByText('TUE 6 · TODAY')).toBeTruthy();
-    expect(screen.getByText('4 EVENTS')).toBeTruthy();
+    expect(screen.getByText('4 ITEMS')).toBeTruthy();
     expect(agenda()).toHaveLength(4);
     const expectRow = (i: number, title: string, time: string, who: string) => {
       const row = agenda()[i];
@@ -100,14 +102,14 @@ describe('CalendarView agenda', () => {
     await flush();
     expect(screen.getByText('THU 8')).toBeTruthy();
     expect(screen.queryByText(/TODAY/)).toBeNull();
-    expect(screen.getByText('2 EVENTS')).toBeTruthy();
+    expect(screen.getByText('2 ITEMS')).toBeTruthy();
     expect(agenda().map((r) => textOf(r).includes('Early run'))).toEqual([true, false]); // 8:00a before 4:00p
     expect(textOf(agenda()[1])).toContain('Dentist');
 
     fireEvent.press(cell('2026-10-07'));
     await flush();
     expect(screen.getByText('WED 7')).toBeTruthy();
-    expect(screen.getByText('1 EVENT')).toBeTruthy();
+    expect(screen.getByText('1 ITEM')).toBeTruthy();
     expect(within(agendaRow('Job A site visit')).getByText('SAM')).toBeTruthy();
   });
 
@@ -116,7 +118,7 @@ describe('CalendarView agenda', () => {
     fireEvent.press(cell('2026-10-10'));
     await flush();
     expect(screen.getByText('SAT 10')).toBeTruthy();
-    expect(screen.getByText('0 EVENTS')).toBeTruthy();
+    expect(screen.getByText('0 ITEMS')).toBeTruthy();
     expect(screen.getByText('Nothing scheduled')).toBeTruthy();
     expect(agenda()).toHaveLength(0);
     expect(screen.queryByTestId('event-sheet-title')).toBeNull();
@@ -151,7 +153,7 @@ describe('CalendarView ✕ remove', () => {
     await flush();
     expect(mutationCalls()).toEqual([{ verb: 'household.event.remove', fields: { event_id: 104 } }]);
     expect(hasAgendaRow('TestFlight cutoff')).toBe(false);
-    expect(screen.getByText('3 EVENTS')).toBeTruthy();
+    expect(screen.getByText('3 ITEMS')).toBeTruthy();
   });
 
   it('a failed remove restores the row and is not retried', async () => {
@@ -354,7 +356,7 @@ describe('CalendarView route date', () => {
       jest.setSystemTime(new Date('2026-10-07T03:00:00Z'));
       await mount('CalendarView');
       expect(screen.getByText('TUE 6 · TODAY')).toBeTruthy();
-      expect(screen.getByText('4 EVENTS')).toBeTruthy();
+      expect(screen.getByText('4 ITEMS')).toBeTruthy();
       expect(sameColor(colorOf(within(cell('2026-10-06')).getByText('6')), GREEN)).toBe(true);
       expect(sameColor(colorOf(within(cell('2026-10-07')).getByText('7')), TEXT)).toBe(true);
     } finally {

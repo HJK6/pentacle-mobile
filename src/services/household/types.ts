@@ -37,12 +37,26 @@ export type HouseholdEvent = {
   created_by: CreatedBy;
 };
 
+/** Only the known next occurrence is projected; completion determines the following date. */
+export type HouseholdRoutine = {
+  id: number;
+  list: ListId;
+  label: string;
+  scope: Scope;
+  created_by: CreatedBy;
+  next_due: string;
+  paused: boolean;
+  item_id: number | null;
+};
+
 export type HouseholdSnapshot = {
   /** America/Chicago calendar day computed by the daemon; every day rule derives from it. */
   today: string;
   month?: string;
   lists: Record<ListId, HouseholdItem[]>;
   events: HouseholdEvent[];
+  /** Additive during daemon rollout; older snapshots may omit it. */
+  routines?: HouseholdRoutine[];
   server_now: string;
   /** Display name of the other household member (runtime config on the daemon). */
   people?: { partner?: string };
