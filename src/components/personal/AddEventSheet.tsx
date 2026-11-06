@@ -1,7 +1,8 @@
 // README § 8 new-event sheet (`AddEventSheet`). WHO is a display tag only: an event tagged with the partner
 // stays private to the operator, and the sheet says so (advisor correction 2, deviation D6).
 import React, { useState } from 'react';
-import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Fonts } from '../../../constants/Colors';
 import { useHouseholdStore } from '../../services/household/householdStore';
 import { dateFieldLabel, parseTimeInput, partnerName, whoFromToggles } from '../../services/household/selectors';
@@ -20,6 +21,7 @@ export default function AddEventSheet({
   /** Called with the event's date as it is sent, so the calendar can follow it to its month. */
   onSubmit?: (date: string) => void;
 }) {
+  const insets = useSafeAreaInsets();
   const snapshot = useHouseholdStore().snapshot;
   const partner = partnerName(snapshot);
   const today = snapshot?.today ?? day;
@@ -56,104 +58,121 @@ export default function AddEventSheet({
   return (
     <View style={styles.overlay}>
       <Pressable accessibilityLabel="Close" style={styles.scrim} onPress={onClose} />
-      <View style={styles.panel}>
-        <View style={styles.grabber} />
-        <View style={styles.bar}>
-          <Pressable onPress={onClose} hitSlop={8}>
-            <Text style={styles.cancel}>Cancel</Text>
-          </Pressable>
-          <Text style={styles.heading}>New event</Text>
-          <Pressable
-            testID="event-sheet-save"
-            accessibilityRole="button"
-            disabled={disabled}
-            accessibilityState={{ disabled }}
-            onPress={() => void save()}
-            hitSlop={8}
-          >
-            <Text style={[styles.save, { color: disabled ? P.muted : P.green }]}>Save</Text>
-          </Pressable>
-        </View>
-        <StatusLines />
-        <View>
-          <Text style={styles.label}>TITLE</Text>
-          <TextInput
-            testID="event-sheet-title"
-            autoFocus
-            value={title}
-            onChangeText={setTitle}
-            onSubmitEditing={() => void save()}
-            placeholder="What’s happening?"
-            placeholderTextColor={P.muted}
-            style={styles.field}
-          />
-        </View>
-        <View style={styles.columns}>
-          <View style={styles.column}>
-            <Text style={styles.label}>DATE</Text>
-            <Pressable
-              testID="event-sheet-date"
-              accessibilityRole="button"
-              accessibilityState={{ expanded: picking }}
-              onPress={() => setPicking((open) => !open)}
-              style={[styles.field, styles.dateField, picking && styles.dateFieldOpen]}
+      <KeyboardAvoidingView
+        style={styles.keyboardAvoider}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        enabled={Platform.OS === 'ios'}
+        pointerEvents="box-none"
+      >
+        <View style={[styles.sheetArea, { paddingTop: insets.top }]} pointerEvents="box-none">
+          <View style={[styles.panel, { paddingBottom: Math.max(22, insets.bottom) }]}>
+            <View style={styles.grabber} />
+            <View style={styles.bar}>
+              <Pressable onPress={onClose} hitSlop={8}>
+                <Text style={styles.cancel}>Cancel</Text>
+              </Pressable>
+              <Text style={styles.heading}>New event</Text>
+              <Pressable
+                testID="event-sheet-save"
+                accessibilityRole="button"
+                disabled={disabled}
+                accessibilityState={{ disabled }}
+                onPress={() => void save()}
+                hitSlop={8}
+              >
+                <Text style={[styles.save, { color: disabled ? P.muted : P.green }]}>Save</Text>
+              </Pressable>
+            </View>
+            <ScrollView
+              style={styles.body}
+              contentContainerStyle={styles.bodyContent}
+              automaticallyAdjustKeyboardInsets={false}
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="interactive"
             >
-              <Text style={styles.dateText}>{dateFieldLabel(date, today)}</Text>
-              <Text style={styles.caret}>{picking ? '▴' : '▾'}</Text>
-            </Pressable>
-          </View>
-          <View style={styles.column}>
-            <Text style={styles.label}>TIME</Text>
-            <TextInput
-              testID="event-sheet-time"
-              value={time}
-              onChangeText={setTime}
-              placeholder="all day"
-              placeholderTextColor={P.muted}
-              autoCapitalize="none"
-              style={[styles.field, styles.timeField]}
-            />
+              <StatusLines />
+              <View>
+                <Text style={styles.label}>TITLE</Text>
+                <TextInput
+                  testID="event-sheet-title"
+                  autoFocus
+                  value={title}
+                  onChangeText={setTitle}
+                  onSubmitEditing={() => void save()}
+                  placeholder="What’s happening?"
+                  placeholderTextColor={P.muted}
+                  style={styles.field}
+                />
+              </View>
+              <View style={styles.columns}>
+                <View style={styles.column}>
+                  <Text style={styles.label}>DATE</Text>
+                  <Pressable
+                    testID="event-sheet-date"
+                    accessibilityRole="button"
+                    accessibilityState={{ expanded: picking }}
+                    onPress={() => setPicking((open) => !open)}
+                    style={[styles.field, styles.dateField, picking && styles.dateFieldOpen]}
+                  >
+                    <Text style={styles.dateText}>{dateFieldLabel(date, today)}</Text>
+                    <Text style={styles.caret}>{picking ? '▴' : '▾'}</Text>
+                  </Pressable>
+                </View>
+                <View style={styles.column}>
+                  <Text style={styles.label}>TIME</Text>
+                  <TextInput
+                    testID="event-sheet-time"
+                    value={time}
+                    onChangeText={setTime}
+                    placeholder="all day"
+                    placeholderTextColor={P.muted}
+                    autoCapitalize="none"
+                    style={[styles.field, styles.timeField]}
+                  />
+                </View>
+              </View>
+              {picking ? (
+                <MiniCalendar
+                  value={date}
+                  today={today}
+                  onPick={(next) => {
+                    setDate(next);
+                    setPicking(false);
+                  }}
+                />
+              ) : null}
+              <View>
+                <Text style={styles.label}>WHO · ONE OR BOTH</Text>
+                <View style={styles.whoRow}>
+                  {(['me', 'partner'] as const).map((key) => {
+                    const on = who[key];
+                    const color = key === 'me' ? P.text : PARTNER_BLUE;
+                    return (
+                      <Pressable
+                        key={key}
+                        testID={`event-sheet-who-${key}`}
+                        accessibilityRole="switch"
+                        accessibilityState={{ checked: on }}
+                        onPress={() => toggle(key)}
+                        style={[
+                          styles.who,
+                          { borderColor: on ? color : P.line, backgroundColor: on ? `${color}1a` : 'transparent' },
+                        ]}
+                      >
+                        <View style={[styles.whoSwatch, { backgroundColor: color, opacity: on ? 1 : 0.4 }]} />
+                        <Text style={[styles.whoText, { color: on ? color : P.muted }]}>{key === 'me' ? 'Me' : partner}</Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+                {who.partner ? (
+                  <Text testID="event-sheet-private-note" style={styles.privateNote}>{privateNote(partner)}</Text>
+                ) : null}
+              </View>
+            </ScrollView>
           </View>
         </View>
-        {picking ? (
-          <MiniCalendar
-            value={date}
-            today={today}
-            onPick={(next) => {
-              setDate(next);
-              setPicking(false);
-            }}
-          />
-        ) : null}
-        <View>
-          <Text style={styles.label}>WHO · ONE OR BOTH</Text>
-          <View style={styles.whoRow}>
-            {(['me', 'partner'] as const).map((key) => {
-              const on = who[key];
-              const color = key === 'me' ? P.text : PARTNER_BLUE;
-              return (
-                <Pressable
-                  key={key}
-                  testID={`event-sheet-who-${key}`}
-                  accessibilityRole="switch"
-                  accessibilityState={{ checked: on }}
-                  onPress={() => toggle(key)}
-                  style={[
-                    styles.who,
-                    { borderColor: on ? color : P.line, backgroundColor: on ? `${color}1a` : 'transparent' },
-                  ]}
-                >
-                  <View style={[styles.whoSwatch, { backgroundColor: color, opacity: on ? 1 : 0.4 }]} />
-                  <Text style={[styles.whoText, { color: on ? color : P.muted }]}>{key === 'me' ? 'Me' : partner}</Text>
-                </Pressable>
-              );
-            })}
-          </View>
-          {who.partner ? (
-            <Text testID="event-sheet-private-note" style={styles.privateNote}>{privateNote(partner)}</Text>
-          ) : null}
-        </View>
-      </View>
+      </KeyboardAvoidingView>
     </View>
   );
 }
@@ -161,11 +180,10 @@ export default function AddEventSheet({
 const styles = StyleSheet.create({
   overlay: { ...StyleSheet.absoluteFillObject, zIndex: 20 },
   scrim: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(3,7,5,0.7)' },
+  keyboardAvoider: { flex: 1 },
+  sheetArea: { flex: 1, justifyContent: 'flex-end' },
   panel: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
+    flexShrink: 1,
     backgroundColor: P.panel,
     borderTopWidth: 1,
     borderTopColor: P.line,
@@ -173,9 +191,10 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 18,
     paddingTop: 10,
     paddingHorizontal: 16,
-    paddingBottom: 22,
     gap: 16,
   },
+  body: { flexGrow: 0, flexShrink: 1 },
+  bodyContent: { gap: 16 },
   grabber: { width: 42, height: 4, borderRadius: 999, backgroundColor: P.line, alignSelf: 'center' },
   bar: { flexDirection: 'row', alignItems: 'center' },
   cancel: { color: P.muted, fontFamily: Fonts.rajdhani.bold, fontSize: 15 },

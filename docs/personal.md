@@ -67,6 +67,7 @@ The daemon accepts only the operator's own connection. The app never sends a `pr
   picker. Paging the picker fetches nothing. An event may be saved in any month: on Save the
   calendar moves to the event's month with its day selected, and every readback for that event
   (and for a removal) reads the event's own month.
+- **New-event keyboard.** On iOS, the sheet stays above the software keyboard. The action header stays reachable while the form scrolls, including an expanded date picker. Safe-area bounds and one keyboard inset owner keep the resting sheet from retaining a keyboard-sized gap. Title, Time, date and WHO values survive focus and keyboard changes.
 - **Loading.** Until the first snapshot arrives each screen shows the shared `Spinner` atom; a
   failed first read shows `Household store unavailable` instead.
 - **Freshness.** The app refetches on screen focus, on returning to the foreground, on
@@ -77,3 +78,10 @@ The daemon accepts only the operator's own connection. The app never sends a `pr
 `npm run test:unit -- tests/personal` (selectors, client, store timeline, every screen, static
 check that no `todo.*`/`v2_todo` verb is used). The suites mock only `sendHouseholdCommand` with a
 fake daemon (`tests/personal/support.ts`).
+
+`tests/personal/AddEventSheet.test.tsx` feeds compact and large container layouts
+and keyboard events to the real avoidance component; Jest does not establish
+native visibility. In configured Release, verify focused Title and Time bounds
+above the software keyboard, expanded-picker overflow, retained values and
+keyboard dismissal. Use Cancel for layout checks: Return in Title submits the
+event, as does Save.
