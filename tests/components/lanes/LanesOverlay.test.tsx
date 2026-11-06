@@ -59,7 +59,7 @@ function propsFor(
     ...overrides,
   };
 }
-function frameFor(overrides: Partial<WorkLane>) {
+function frameFor(overrides: Partial<WorkLane> & { stale?: boolean }) {
   return { ...baseFrame, lanes: [{ ...baseLane, ...overrides }] };
 }
 function show(lane = baseLane, members = lane.members ?? []): WorkLaneShow {
@@ -1018,5 +1018,57 @@ test.each(["compact", "current", "bars"] as const)(
     const ac = view.getByText("AC 8/11");
     expect(ac.props.numberOfLines).toBe(1);
     expect(StyleSheet.flatten(ac.props.style)).toMatchObject({ fontSize: 9.5, letterSpacing: 0.5 });
+  },
+);
+
+// Exercise the production normalizer, shared selector and both actual lane views.
+test.each(["closed", "absent", "nonqualifying"] as const)(
+  "fresh member work renders ACTIVE in list and map with a %s lead",
+  (kind) => {
+    const lead = kind === "absent" ? null : {
+      ...baseLane.lead!, qualifies: false, status: kind === "closed" ? "closed" : "open",
+      presence: { ...baseLane.lead!.presence, online: false, working: false },
+    };
+    const props = propsFor(frameFor({ state: "active", state_reason: "members_working", stale: false, lead }));
+    const view = render(<LanesOverlay {...props} />);
+    expect(view.getByTestId(`lane-card-state-${baseLane.lane_id}`)).toHaveTextContent(/^ACTIVE$/);
+    expect(view.queryByText(/RECOVERING|ACTIVE · IDLE/)).toBeNull();
+    expect(props.lanes[0].presenceLabel).toBe(kind === "absent" ? "no lead" : "offline");
+    fireEvent.press(view.getByTestId(`lane-card-chat-${baseLane.lane_id}`));
+    expect(props.onChat).toHaveBeenCalledWith(props.lanes[0]);
+    fireEvent.press(view.getByTestId("lanes-view-map"));
+    const node = view.getByTestId(`lanes-map-lane-${baseLane.lane_id}`);
+    expect(node.props.accessibilityLabel).toContain(", ACTIVE,");
+    fireEvent.press(node);
+    expect(view.getAllByText(/^ACTIVE$/).length).toBeGreaterThan(0);
+    expect(view.queryByText(/RECOVERING|ACTIVE · IDLE/)).toBeNull();
+  },
+);
+
+test.each(["list", "map"] as const)(
+  "fresh inventory clears a prior Recovering label in %s without lane-data repair",
+  (mode) => {
+    const lost = frameFor({ state: "active", state_reason: "lead_lost", lead: null });
+    const previous = applyWorkLanesInventory(initialPentacleStreamState, lost);
+    const props = propsFor(lost);
+    const view = render(<LanesOverlay {...props} />);
+    if (mode === "map") {
+      fireEvent.press(view.getByTestId("lanes-view-map"));
+      fireEvent.press(view.getByTestId(`lanes-map-lane-${baseLane.lane_id}`));
+    }
+    expect(view.getAllByText("ACTIVE · RECOVERING").length).toBeGreaterThan(0);
+    const fresh = applyWorkLanesInventory(previous, frameFor({
+      state: "active", state_reason: "members_working", lead: null, stale: false,
+      freshness_at: "2026-01-02T00:05:00.000Z",
+    }));
+    const refreshed = selectLaneCardViewModels(fresh, NOW);
+    view.rerender(<LanesOverlay {...props} inventory={fresh.workLanes} lanes={refreshed} />);
+    expect(view.getAllByText(/^ACTIVE$/).length).toBeGreaterThan(0);
+    expect(view.queryByText(/RECOVERING|ACTIVE · IDLE/)).toBeNull();
+    expect(refreshed.map((model) => model.lane.lane_id)).toEqual(props.lanes.map((model) => model.lane.lane_id));
+    expect(fresh.workLanes!.counts).toEqual(previous.workLanes!.counts);
+    expect(refreshed[0].tap).toEqual(props.lanes[0].tap);
+    expect(refreshed[0].presenceLabel).toBe("no lead");
+    expect(view.getByTestId("lanes-view-toggle").props.accessibilityValue.text).toBe(mode);
   },
 );

@@ -66,7 +66,8 @@ infer lanes from chats. Open the list from the assistant header
   full update log, newest first. These are the same updates that appear as cards
   in the assistant's conversation.
 - **Open lanes · N.** One card per open lane. Each card shows the state
-  (**WORKING**, **ACTIVE · IDLE**, **ACTIVE · RECOVERING** while a lost lead is
+  (**ACTIVE** for daemon-reported member work, **WORKING**, **ACTIVE · IDLE**,
+  **ACTIVE · RECOVERING** while a lost lead is
   being replaced, **BLOCKED**, **PAUSED** or **PAUSED · LEAD LOST**), the lead's host (or *no lead*) and how long ago the
   lane last changed. On the right, **EST WORK** gives the open-work range in
   hours, or a short status such as *All specs done*. A blocked lane shows its
@@ -74,6 +75,9 @@ infer lanes from chats. Open the list from the assistant header
   **done/total SPECS DONE** with acceptance counts (**AC**) appear. Tap that
   row to show or hide the lane's specs. Until the daemon sends them, the card
   reads *Specs arrive when the daemon updates*.
+  Member work stays **ACTIVE** in both list and map even when the old lead is
+  closed, absent or no longer qualifies. It means an eligible member seat is
+  open, not necessarily busy; the lead's own presence remains separate.
 - **Open a lane.** Tap the lane's title row to go to its chat. An open chat
   opens normally; the assistant's own lane returns to the assistant tab. A closed
   chat opens as a read-only history. If the chat is gone, the card says

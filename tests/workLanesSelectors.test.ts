@@ -91,6 +91,8 @@ describe('lane progress truth precedence', () => {
 
 describe('one lane model for list and map', () => {
   test.each<[WorkLane['state'], string, boolean, string]>([
+    ['active', 'members_working', false, 'ACTIVE'], ['active', 'members_working', true, 'ACTIVE'],
+    ['paused', 'members_working', false, 'PAUSED'], ['blocked', 'members_working', false, 'BLOCKED'],
     ['active', 'fd', true, 'WORKING'], ['active', 'fd', false, 'ACTIVE · IDLE'],
     ['paused', 'fd', true, 'PAUSED'], ['paused', 'lead_lost', false, 'PAUSED · LEAD LOST'],
     ['paused', 'lead_lost_unreconciled', false, 'PAUSED · LEAD LOST'], ['blocked', 'fd', true, 'BLOCKED'],
@@ -100,6 +102,21 @@ describe('one lane model for list and map', () => {
     expect(laneCardStateLabel(lane)).toBe(label);
     expect(selectLaneCardViewModels(stateFor([lane]), NOW)[0].stateLabel).toBe(label);
   });
+
+  test.each(['closed', 'absent', 'nonqualifying'] as const)(
+    'member-work stays ACTIVE with truthful presence for a %s lead', (kind) => {
+      const lead = kind === 'absent' ? null : {
+        ...base().lead!, qualifies: false, status: kind === 'closed' ? 'closed' : 'open',
+        presence: { ...base().lead!.presence, online: false, working: false },
+      };
+      const lane = { ...base(), state_reason: 'members_working', stale: false, lead };
+      const model = selectLaneCardViewModels(stateFor([lane]), NOW)[0];
+      expect(model.stateLabel).toBe('ACTIVE');
+      expect(model.presenceLabel).toBe(kind === 'absent' ? 'no lead' : 'offline');
+      expect(model.lane.lead).toEqual(lead);
+      expect(model.tap).toEqual(selectLaneCardViewModels(stateFor([base()]), NOW)[0].tap);
+    },
+  );
 
   test('segments follow member order and exact acceptance fractions for every member status', () => {
     const statuses = ['completed', 'in_progress', 'needs_qa', 'ready_for_dev', 'analysis', 'backlog', 'deprecated', 'missing', 'ambiguous'];
