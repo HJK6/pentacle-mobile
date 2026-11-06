@@ -336,3 +336,85 @@ describe('AddEventSheet unknown outcomes (spec Target 6)', () => {
     });
   });
 });
+
+
+describe('AddEventSheet keyboard layout', () => {
+  it.each([
+    { name: 'compact', width: 375, height: 667, keyboardHeight: 291, top: 20, bottom: 0 },
+    { name: 'large', width: 430, height: 932, keyboardHeight: 346, top: 59, bottom: 34 },
+  ])('responds to the keyboard and retains the expanded form in a $name container', async (size) => {
+    const { act } = require('@testing-library/react-native');
+    const { ScrollView } = require('react-native');
+    const emitter = require('react-native/Libraries/EventEmitter/RCTDeviceEventEmitter').default;
+    const safeArea = jest.spyOn(require('react-native-safe-area-context'), 'useSafeAreaInsets')
+      .mockReturnValue({ top: size.top, bottom: size.bottom, left: 0, right: 0 });
+    const view = await openSheet();
+    const ancestors = () => {
+      const nodes: Array<ReturnType<typeof title>> = [];
+      let node = title().parent;
+      while (node) { nodes.push(node); node = node.parent; }
+      return nodes.filter((node) => typeof node.type === 'string');
+    };
+    const padding = () => Math.max(0, ...ancestors().map((node) => Number(flatStyle(node).paddingBottom) || 0));
+    const keyboard = async (height: number) => {
+      await act(async () => {
+        const event = {
+          duration: 0, easing: 'keyboard',
+          endCoordinates: { screenX: 0, screenY: size.height - height, width: size.width, height },
+        };
+        emitter.emit('keyboardWillChangeFrame', event);
+        emitter.emit(height ? 'keyboardWillShow' : 'keyboardWillHide', event);
+      });
+      await flush();
+    };
+    try {
+      // Drive the real avoidance component's layout handler, wherever it is in the
+      // existing ancestry. This does not simulate UIKit field visibility.
+      await act(async () => {
+        for (const node of ancestors().filter((node) => node.props.onLayout)) {
+          fireEvent(node, 'layout', {
+            nativeEvent: { layout: { x: 0, y: 0, width: size.width, height: size.height } },
+            persist: () => undefined,
+          });
+        }
+      });
+      const restingPadding = padding();
+      type(title(), 'Keyboard layout probe');
+      type(time(), '4:30p');
+      fireEvent.press(screen.getByTestId('event-sheet-date'));
+      togglePartner();
+      expect(screen.getByTestId('mini-calendar')).toBeTruthy();
+      await keyboard(size.keyboardHeight);
+      // Baseline fails here: its available area never responds to the keyboard.
+      expect(padding()).toBe(size.keyboardHeight);
+      const panel = ancestors().find((node) => flatStyle(node).borderTopLeftRadius === 18);
+      expect(flatStyle(panel).position).not.toBe('absolute');
+      expect(flatStyle(panel).flexShrink).toBe(1);
+      const scroller = view.UNSAFE_getAllByType(ScrollView).find((node: ReturnType<typeof title>) =>
+        within(node).queryByTestId('event-sheet-title'));
+      expect(scroller).toBeTruthy();
+      expect(scroller?.props.keyboardShouldPersistTaps).toBe('handled');
+      expect(scroller?.props.automaticallyAdjustKeyboardInsets).toBe(false);
+      expect(within(scroller as never).queryByTestId('event-sheet-save')).toBeNull();
+      await keyboard(size.keyboardHeight - 40);
+      expect(padding()).toBe(size.keyboardHeight - 40);
+      fireEvent(time(), 'focus');
+      fireEvent(title(), 'focus');
+      await keyboard(0);
+      expect(padding()).toBe(restingPadding);
+      expect(title().props.value).toBe('Keyboard layout probe');
+      expect(time().props.value).toBe('4:30p');
+      expect(screen.getByTestId('mini-calendar')).toBeTruthy();
+      expect(screen.getByTestId('event-sheet-private-note')).toBeTruthy();
+      fireEvent.press(screen.getByTestId('mini-calendar-day-2026-10-09'));
+      fireEvent.press(save());
+      await flush();
+      expect(callsOf('household.event.add')).toEqual([
+        { verb: 'household.event.add', fields: { date: '2026-10-09', time: '16:30', title: 'Keyboard layout probe', who: 'both' } },
+      ]);
+    } finally {
+      await keyboard(0);
+      safeArea.mockRestore();
+    }
+  });
+});
