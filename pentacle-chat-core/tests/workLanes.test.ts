@@ -7,6 +7,7 @@ import {
   initialPentacleStreamState,
   normalizeWorkLanesInventory,
   parseLaneUpdateEvent,
+  parseWorkLaneShow,
   resolveWorkLaneTap,
   selectOpenLaneCount,
   selectWorkLanes,
@@ -84,6 +85,32 @@ test('active without a qualifying lead presents lead_lost; deliberate pauses and
   assert.equal(byId['wl-x4'].state, 'paused');
   assert.equal(byId['wl-x4'].state_reason, 'fd');
 });
+
+// Synthetic equivalents of fresh member-work projections with an old or absent lead.
+for (const leadKind of ['closed', 'absent', 'nonqualifying'] as const) {
+  test(`active/members_working survives snapshot, inventory and detail with ${leadKind} lead`, () => {
+    const base = fixture.inventory_frame.lanes[1];
+    const lead = leadKind === 'absent' ? null : {
+      ...base.lead, qualifies: false, status: leadKind === 'closed' ? 'closed' : 'open',
+      presence: { ...base.lead.presence, online: false, working: false },
+    };
+    const lane = { ...base, state_reason: 'members_working', lead, stale: false,
+      freshness_at: '2026-01-02T00:00:00.000Z' };
+    const frame = { ...fixture.inventory_frame, lanes: [lane] };
+    const snapshot = applyPentacleSnapshotMessage(initialPentacleStreamState, { sessions: [], work_lanes: frame });
+    const pushed = applyWorkLanesInventory(initialPentacleStreamState, frame);
+    const detail = parseWorkLaneShow({ type: 'work_lanes.show.ok', lane: { lane_id: lane.lane_id },
+      projection: lane, members: [], updates: [], events: [] });
+    assert.ok(detail);
+    for (const normalized of [selectWorkLanes(snapshot)[0], selectWorkLanes(pushed)[0], detail.projection!]) {
+      assert.equal(normalized.state, 'active');
+      assert.equal(normalized.state_reason, 'members_working');
+      assert.equal(normalized.freshness_at, lane.freshness_at);
+      assert.deepEqual(normalized.lead, lead);
+      assert.deepEqual(normalized.visible_chat, base.visible_chat);
+    }
+  });
+}
 
 test('malformed frames and lanes are rejected without throwing', () => {
   assert.equal(normalizeWorkLanesInventory(null), null);

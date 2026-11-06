@@ -232,9 +232,9 @@ function normalizeLane(value: unknown): WorkLane | null {
   const lead = normalizeLead(raw.lead);
   const lastRaw = obj(raw.last_update);
   const lastKind = UPDATE_KINDS.find((item) => item === lastRaw?.kind);
-  // Unexpected owner loss is a fault the FD repairs, never an intentional pause:
-  // an active lane without a qualifying lead presents active/lead_lost.
-  const unled = state === 'active' && (!lead || !lead.qualifies);
+  // Member-work is authoritative even when the old lead is gone. Other active
+  // lanes without a qualifying lead retain the legacy owner-loss fallback.
+  const unled = state === 'active' && raw.state_reason !== 'members_working' && (!lead || !lead.qualifies);
   return {
     lane_id: String(raw.lane_id),
     title: str(raw.title) ?? '',

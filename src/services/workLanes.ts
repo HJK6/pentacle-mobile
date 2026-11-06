@@ -115,6 +115,8 @@ export function laneCardStateLabel(lane: WorkLane): string {
   }
   // An owner-loss fault: the FD is repairing it; it is not a pause and not idle work.
   if (lane.state === 'active' && lane.state_reason === 'lead_lost') return 'ACTIVE · RECOVERING';
+  // Open member seats do not imply busy work; lead presence remains separate.
+  if (lane.state === 'active' && lane.state_reason === 'members_working') return 'ACTIVE';
   if (lane.state === 'active') return lane.lead?.presence.working ? 'WORKING' : 'ACTIVE · IDLE';
   return laneStateLabel(lane.state);
 }
