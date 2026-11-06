@@ -59,7 +59,7 @@ function propsFor(
     ...overrides,
   };
 }
-function frameFor(overrides: Partial<WorkLane>) {
+function frameFor(overrides: Partial<WorkLane> & { stale?: boolean }) {
   return { ...baseFrame, lanes: [{ ...baseLane, ...overrides }] };
 }
 function show(lane = baseLane, members = lane.members ?? []): WorkLaneShow {
