@@ -246,12 +246,12 @@ the existing glow-capsule composer:
 Message timestamps stay centered, as on every other row, so the caption does
 not repeat the time. `voiceMockFidelity.test.tsx` checks these values.
 
-`voiceRecordingEngine.ts` adapts expo-audio to the process-owned `VoiceRecorder`.
+`voiceRecordingEngine.ts` adapts native capture to the process-owned `VoiceRecorder`.
 The capture profile is AAC/M4A, 16 kHz mono, 32 kbps, with a five-minute cap.
-Tap, cap, interruption and background all use the same stop subscriber.
-An interruption/background stop marks its pending row `interrupted at m:ss`.
+Tap and cap use the same stop subscriber. An interruption pauses capture; an
+active take continues through background and lock until stopped or capped.
 A failed native stop pauses automatic polling and retains the take for another
-Stop or Discard. The app does not enable background capture or audio playback.
+Stop or Discard. The app enables iOS background audio capture.
 
 `voiceDelivery.ts` owns the pending takes outside screen lifetimes. Stop inserts
 a waveform row with `TRANSCRIBING`, then `runVoiceUploadTranscribe` uploads the

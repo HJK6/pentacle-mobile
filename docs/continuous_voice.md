@@ -8,8 +8,8 @@ recorders or independent delivery queues. In-app navigation never changes the
 recording's destination, pauses capture, or sends a take.
 
 The iOS capture path uses the in-repository `pentacle-voice-capture` Expo module.
-Background, inactive, lock and interruption pause the same native recorder. Returning
-to active/unlocked only changes eligibility; recording requires explicit Resume,
+An active take continues through background, inactive and lock; an interruption
+pauses the same native recorder. Returning to active/unlocked only changes eligibility; resuming requires explicit Resume,
 unlocked foreground, the original credential/server scope and no authoritative
 closure or replacement of the origin. Missing network inventory alone does not
 invalidate a previously authenticated origin. No Expo Audio recorder or audio-mode

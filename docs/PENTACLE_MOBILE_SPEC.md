@@ -181,10 +181,10 @@ stream at start; changing the selection never redirects a take.
 Stopped audio is sent to the configured transcription backend for English
 recognition. A waveform user row shows
 TRANSCRIBING and an X until text dispatch. Errors or empty recognition offer
-Retry/Discard; interrupted/backgrounded takes continue with an interruption
+Retry/Discard; interrupted takes continue with an interruption
 caption. The final message is plain text, with a durable microphone/duration
 caption. Audio never reaches the selected agent. Capture uses microphone
-permission, AAC/M4A 16 kHz mono and a five-minute cap, without background audio
-entitlement or playback. See [chat surface contract](chat_surface.md#voice-input)
+permission, AAC/M4A 16 kHz mono and a five-minute cap, with iOS background audio
+capture. See [chat surface contract](chat_surface.md#voice-input)
 for state ownership, cancellation and retry details; measurable vocabulary
 acceptance uses [voice fixtures](../test/fixtures/voice/README.md).
