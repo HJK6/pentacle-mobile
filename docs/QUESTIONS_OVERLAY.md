@@ -133,7 +133,8 @@ The mic answers many durable questions with **one take** and never answers anyth
   never covered or bound and keeps its `ANSWER BY TAP` label. At most 20 pages are bound (the daemon limit); the earliest by segment win.
 - **Done** freezes the selected set (covered ∩ still listed), registers the binding for the recording id, stops the take and
   leaves the overlay (back to the assistant tab). With nothing covered Done discards the take and stays. The recorder's own
-  stops (5-minute cap, interruption, backgrounding) freeze and leave the same way; with nothing covered the delivered take is discarded.
+  cap freezes and leaves the same way; with nothing covered the delivered take is discarded. Interruptions pause capture;
+  backgrounding an active take does not stop it.
 - **Discard**: ✕ (or Android back) while recording asks `Discard this recording?` (`questions-voice-confirm`, keep/discard);
   discarding drops the take, uploads nothing and leaves. A removal the navigator starts while a take is live (iOS swipe-dismiss
   of the `transparentModal`, any pop that is not ours) is held by a `beforeRemove` listener on the route's navigation

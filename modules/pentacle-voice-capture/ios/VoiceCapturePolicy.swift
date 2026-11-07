@@ -147,6 +147,7 @@ public struct VoiceCapturePolicy {
       if event.admissionGeneration == nil { admissionGeneration += 1 }
       if event.type == "resignActive" || event.type == "background" { foreground = false }
       if event.type == "lock" { protectedData = false }
+      if event.type != "interruptionBegan" && state == .recording { return finished() }
       let why = event.type == "interruptionBegan" ? "interruption" : event.type == "lock" ? "locked" : event.type == "resignActive" ? "inactive" : "background"
       return finished(makePaused(why, forceEpoch: true))
     case "foreground":

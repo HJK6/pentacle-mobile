@@ -271,7 +271,7 @@ test('R11 pause freezes captured milliseconds; explicit resume uses same live ta
 
 test('R11 unlock and foreground never automatically resume; locked Resume is refused', async () => {
   const { recorder, engine } = owned(); const resume = jest.spyOn(engine, 'resume');
-  await recorder.start('hosta:origin'); recorder.setLifecycle({ foreground: false, unlocked: false }); await flushCapture();
+  await recorder.start('hosta:origin'); await recorder.pause(); recorder.setLifecycle({ foreground: false, unlocked: false }); await flushCapture();
   await expect(recorder.resume()).rejects.toThrow('Unlock');
   recorder.setLifecycle({ foreground: true, unlocked: true }); await flushCapture();
   expect(recorder.snapshot()?.status).toBe('paused'); expect(resume).not.toHaveBeenCalled();
@@ -300,12 +300,12 @@ test('R10 Discard during ownership write cleans only that new take and cannot re
   expect((await start).message).toBe('voice_cancelled'); expect(engine.started).toBe(false); expect(ownership.discard).toHaveBeenCalledTimes(1);
 });
 
-test('R11 background pause preempts a pending ownership checkpoint without waiting on disk', async () => {
+test('R11 background keeps capture running while the initial checkpoint is pending', async () => {
   const { recorder, engine, ownership } = owned(); const checkpoint = deferred<void>(); const pause = jest.spyOn(engine, 'pause');
   ownership.checkpoint.mockReturnValueOnce(checkpoint.promise);
   const start = recorder.start('hosta:origin').catch(error => error); await flushCapture();
   recorder.setLifecycle({ foreground: false, unlocked: false });
-  expect(pause).toHaveBeenCalledTimes(1); expect(recorder.snapshot()?.status).toBe('paused');
+  expect(pause).not.toHaveBeenCalled(); expect(recorder.snapshot()?.status).toBe('recording');
   checkpoint.resolve(); await start; await flushCapture(); expect(ownership.requestSend).not.toHaveBeenCalled(); await recorder.discard();
 });
 
@@ -366,7 +366,7 @@ test('CAP-02 Send preempts native capture while the initial checkpoint is pendin
   ownership.checkpoint.mockReturnValueOnce(checkpoint.promise);
   const starting = recorder.start('hosta:origin').catch(error => error); await flushCapture();
   const sending = recorder.send(); expect(pause).toHaveBeenCalledTimes(1); expect(stop).not.toHaveBeenCalled();
-  recorder.setLifecycle({ foreground: false, unlocked: false }); expect(pause).toHaveBeenCalledTimes(2);
+  recorder.setLifecycle({ foreground: false, unlocked: false }); expect(pause).toHaveBeenCalledTimes(1);
   recorder.setLifecycle({ foreground: true, unlocked: false });
   checkpoint.resolve(); await starting; await sending;
   expect(stop).toHaveBeenCalledTimes(1); expect(ownership.finalize).toHaveBeenCalledTimes(1); expect(ownership.requestSend).toHaveBeenCalledTimes(1);

@@ -91,8 +91,14 @@ test('R1 foreground route subscriber removal preserves the singleton capture and
   expect(voiceRecorder.snapshot()).toMatchObject({ streamId: 'hosta:origin', status: 'recording' }); expect(mockAccept).not.toHaveBeenCalled();
 });
 test('R2 background never automatically hands a take to delivery', async () => {
-  await voiceRecorder.start('hosta:origin'); listeners.forEach(listener => listener('background')); await flush();
-  expect(mockAccept).not.toHaveBeenCalled(); expect(mockSend).not.toHaveBeenCalled(); expect(voiceRecorder.snapshot()?.status).toBe('paused');
+  const id = await voiceRecorder.start('hosta:origin'); const uri = mockStatus.uri;
+  listeners.forEach(listener => listener('background')); await flush();
+  expect(mockAccept).not.toHaveBeenCalled(); expect(mockSend).not.toHaveBeenCalled();
+  expect(voiceRecorder.snapshot()).toMatchObject({ recordingId: id, streamId: 'hosta:origin', status: 'recording' });
+  expect(mockStatus.uri).toBe(uri);
+  setVoiceLifecycle({ foreground: false, unlocked: false }); await flush();
+  expect(voiceRecorder.snapshot()).toMatchObject({ recordingId: id, status: 'recording' });
+  expect(mockStatus.uri).toBe(uri);
 });
 test('R2 five-minute cap retains an unsent take without automatic delivery', async () => {
   const id = await voiceRecorder.start('hosta:origin');

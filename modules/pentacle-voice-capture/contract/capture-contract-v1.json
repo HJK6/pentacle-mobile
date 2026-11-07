@@ -223,14 +223,11 @@
             "protectedData": true
           },
           "expect": {
-            "state": "paused",
-            "reason": "inactive",
-            "pauseEpoch": 1,
+            "state": "recording",
+            "reason": null,
+            "pauseEpoch": 0,
             "capturedMs": 25,
-            "actions": [
-              "pause",
-              "releaseSession"
-            ],
+            "actions": [],
             "error": null
           }
         },
@@ -240,10 +237,10 @@
             "nowMs": 80
           },
           "expect": {
-            "state": "paused",
-            "reason": "inactive",
-            "pauseEpoch": 1,
-            "capturedMs": 25,
+            "state": "recording",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 80,
             "actions": [],
             "error": null
           }
@@ -254,10 +251,10 @@
             "nowMs": 81
           },
           "expect": {
-            "state": "paused",
-            "reason": "inactive",
-            "pauseEpoch": 1,
-            "capturedMs": 25,
+            "state": "recording",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 81,
             "actions": [],
             "error": null
           }
@@ -265,7 +262,7 @@
       ]
     },
     {
-      "name": "background_foreground_is_sticky",
+      "name": "background_foreground_continues",
       "steps": [
         {
           "event": {
@@ -309,14 +306,11 @@
             "nowMs": 100
           },
           "expect": {
-            "state": "paused",
-            "reason": "background",
-            "pauseEpoch": 1,
+            "state": "recording",
+            "reason": null,
+            "pauseEpoch": 0,
             "capturedMs": 100,
-            "actions": [
-              "pause",
-              "releaseSession"
-            ],
+            "actions": [],
             "error": null
           }
         },
@@ -326,10 +320,10 @@
             "nowMs": 1100
           },
           "expect": {
-            "state": "paused",
-            "reason": "background",
-            "pauseEpoch": 1,
-            "capturedMs": 100,
+            "state": "recording",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 1100,
             "actions": [],
             "error": null
           }
@@ -340,10 +334,10 @@
             "nowMs": 1101
           },
           "expect": {
-            "state": "paused",
-            "reason": "background",
-            "pauseEpoch": 1,
-            "capturedMs": 100,
+            "state": "recording",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 1101,
             "actions": [],
             "error": null
           }
@@ -354,10 +348,10 @@
             "nowMs": 1102
           },
           "expect": {
-            "state": "paused",
-            "reason": "background",
-            "pauseEpoch": 1,
-            "capturedMs": 100,
+            "state": "recording",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 1102,
             "actions": [],
             "error": null
           }
@@ -365,7 +359,7 @@
       ]
     },
     {
-      "name": "lock_unlock_is_sticky",
+      "name": "lock_unlock_continues",
       "steps": [
         {
           "event": {
@@ -409,14 +403,11 @@
             "nowMs": 100
           },
           "expect": {
-            "state": "paused",
-            "reason": "locked",
-            "pauseEpoch": 1,
+            "state": "recording",
+            "reason": null,
+            "pauseEpoch": 0,
             "capturedMs": 100,
-            "actions": [
-              "pause",
-              "releaseSession"
-            ],
+            "actions": [],
             "error": null
           }
         },
@@ -426,10 +417,10 @@
             "nowMs": 200
           },
           "expect": {
-            "state": "paused",
-            "reason": "locked",
-            "pauseEpoch": 1,
-            "capturedMs": 100,
+            "state": "recording",
+            "reason": null,
+            "pauseEpoch": 0,
+            "capturedMs": 200,
             "actions": [],
             "error": null
           }
@@ -2120,14 +2111,32 @@
         },
         {
           "event": {
+            "type": "pause",
+            "nowMs": 90,
+            "recordingId": "capture-a"
+          },
+          "expect": {
+            "state": "paused",
+            "reason": "user",
+            "pauseEpoch": 1,
+            "capturedMs": 90,
+            "actions": [
+              "pause",
+              "releaseSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
             "type": "background",
             "nowMs": 100
           },
           "expect": {
             "state": "paused",
             "reason": "background",
-            "pauseEpoch": 1,
-            "capturedMs": 100,
+            "pauseEpoch": 2,
+            "capturedMs": 90,
             "actions": [
               "pause",
               "releaseSession"
@@ -2141,13 +2150,13 @@
             "nowMs": 101,
             "recordingId": "capture-a",
             "admission": 1,
-            "pauseEpoch": 1
+            "pauseEpoch": 2
           },
           "expect": {
             "state": "paused",
             "reason": "background",
-            "pauseEpoch": 1,
-            "capturedMs": 100,
+            "pauseEpoch": 2,
+            "capturedMs": 90,
             "actions": [],
             "error": "not_foreground"
           }
@@ -2195,14 +2204,32 @@
         },
         {
           "event": {
+            "type": "pause",
+            "nowMs": 90,
+            "recordingId": "capture-a"
+          },
+          "expect": {
+            "state": "paused",
+            "reason": "user",
+            "pauseEpoch": 1,
+            "capturedMs": 90,
+            "actions": [
+              "pause",
+              "releaseSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
             "type": "lock",
             "nowMs": 100
           },
           "expect": {
             "state": "paused",
             "reason": "locked",
-            "pauseEpoch": 1,
-            "capturedMs": 100,
+            "pauseEpoch": 2,
+            "capturedMs": 90,
             "actions": [
               "pause",
               "releaseSession"
@@ -2216,13 +2243,13 @@
             "nowMs": 101,
             "recordingId": "capture-a",
             "admission": 1,
-            "pauseEpoch": 1
+            "pauseEpoch": 2
           },
           "expect": {
             "state": "paused",
             "reason": "locked",
-            "pauseEpoch": 1,
-            "capturedMs": 100,
+            "pauseEpoch": 2,
+            "capturedMs": 90,
             "actions": [],
             "error": "locked"
           }
@@ -4933,14 +4960,15 @@
         },
         {
           "event": {
-            "type": "resignActive",
-            "nowMs": 100
+            "type": "pause",
+            "nowMs": 90,
+            "recordingId": "capture-a"
           },
           "expect": {
             "state": "paused",
-            "reason": "inactive",
+            "reason": "user",
             "pauseEpoch": 1,
-            "capturedMs": 100,
+            "capturedMs": 90,
             "actions": [
               "pause",
               "releaseSession"
@@ -4957,7 +4985,7 @@
             "state": "paused",
             "reason": "inactive",
             "pauseEpoch": 2,
-            "capturedMs": 100,
+            "capturedMs": 90,
             "actions": [
               "pause",
               "releaseSession"
@@ -4967,14 +4995,14 @@
         },
         {
           "event": {
-            "type": "background",
-            "nowMs": 101
+            "type": "resignActive",
+            "nowMs": 100
           },
           "expect": {
             "state": "paused",
-            "reason": "background",
+            "reason": "inactive",
             "pauseEpoch": 3,
-            "capturedMs": 100,
+            "capturedMs": 90,
             "actions": [
               "pause",
               "releaseSession"
@@ -4991,7 +5019,24 @@
             "state": "paused",
             "reason": "background",
             "pauseEpoch": 4,
-            "capturedMs": 100,
+            "capturedMs": 90,
+            "actions": [
+              "pause",
+              "releaseSession"
+            ],
+            "error": null
+          }
+        },
+        {
+          "event": {
+            "type": "background",
+            "nowMs": 101
+          },
+          "expect": {
+            "state": "paused",
+            "reason": "background",
+            "pauseEpoch": 5,
+            "capturedMs": 90,
             "actions": [
               "pause",
               "releaseSession"
@@ -5007,8 +5052,8 @@
           "expect": {
             "state": "paused",
             "reason": "background",
-            "pauseEpoch": 4,
-            "capturedMs": 100,
+            "pauseEpoch": 5,
+            "capturedMs": 90,
             "actions": [],
             "error": null
           }
@@ -5021,27 +5066,10 @@
           "expect": {
             "state": "paused",
             "reason": "background",
-            "pauseEpoch": 4,
-            "capturedMs": 100,
+            "pauseEpoch": 5,
+            "capturedMs": 90,
             "actions": [],
             "error": null
-          }
-        },
-        {
-          "event": {
-            "type": "resume",
-            "nowMs": 1001,
-            "recordingId": "capture-a",
-            "admission": 4,
-            "pauseEpoch": 3
-          },
-          "expect": {
-            "state": "paused",
-            "reason": "background",
-            "pauseEpoch": 4,
-            "capturedMs": 100,
-            "actions": [],
-            "error": "stale_epoch"
           }
         },
         {
@@ -5055,8 +5083,25 @@
           "expect": {
             "state": "paused",
             "reason": "background",
-            "pauseEpoch": 4,
-            "capturedMs": 100,
+            "pauseEpoch": 5,
+            "capturedMs": 90,
+            "actions": [],
+            "error": "stale_epoch"
+          }
+        },
+        {
+          "event": {
+            "type": "resume",
+            "nowMs": 1001,
+            "recordingId": "capture-a",
+            "admission": 4,
+            "pauseEpoch": 5
+          },
+          "expect": {
+            "state": "paused",
+            "reason": "background",
+            "pauseEpoch": 5,
+            "capturedMs": 90,
             "actions": [
               "activateSession"
             ],
@@ -5072,8 +5117,8 @@
           "expect": {
             "state": "recording",
             "reason": null,
-            "pauseEpoch": 4,
-            "capturedMs": 100,
+            "pauseEpoch": 5,
+            "capturedMs": 90,
             "actions": [
               "record"
             ],
