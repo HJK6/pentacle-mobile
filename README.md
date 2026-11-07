@@ -1,13 +1,45 @@
 # Pentacle Mobile
 
-[Pentacle](https://github.com/HJK6/pentacle) is a control plane for your AI
-agents. Pentacle Mobile is its phone client: read what your fleet is doing,
-answer an agent's question, approve work and talk to your always-on assistant
-from anywhere.
+**The phone client for Pentacle, a control plane for your AI agents.**
 
-It connects to the daemon in [**HJK6/pentacle**](https://github.com/HJK6/pentacle),
-which runs on the computer where your agents work. Set up that daemon first;
-the phone app does not run it. The desktop app is optional for mobile users.
+Pentacle runs a fleet of coding agents across machines, providers and accounts.
+They share one memory, follow enforced process, and report to one always-on
+agent you talk to. Pentacle Mobile puts that agent, and the fleet behind it, in
+your pocket.
+
+## What Pentacle is
+
+1. **One fleet, any provider.** Claude, Codex, Cursor, Gemini and ChatGPT
+   agents are interchangeable workers. The control plane is the constant.
+2. **Memory outlives the session.** Shared memory, work specs and procedures
+   live outside any single agent or context window.
+3. **Work is tracked, not trusted.** Every task is a spec with a status,
+   evidence and independent QA.
+4. **Rules are enforced, not prompted.** Roles, procedures, QA gates and usage
+   limits are checked by the daemon.
+5. **Agents talk to agents.** Any agent can message, spawn, commission and
+   report to any other agent in the fleet, on any machine.
+6. **One point of contact.** An always-on assistant triages, delegates and
+   answers.
+7. **Manage from anywhere.** Web, mobile and voice.
+
+The full overview, the layer-by-layer picture and the daemon live in
+[**HJK6/pentacle**](https://github.com/HJK6/pentacle).
+
+## What the phone does
+
+- Talk to your always-on assistant and watch its work land.
+- See every session on every host, and what each one is doing.
+- Answer an agent's question, approve work and reopen it later.
+- Read work lanes, specs, reports and the assets agents publish.
+- Open runtime dashboards.
+
+## Where the daemon lives
+
+The phone is a client only. The daemon, the `agent-orch` CLI, the process
+workspace and Pentacle Web are in [HJK6/pentacle](https://github.com/HJK6/pentacle)
+and run on the computer where your agents work. Set that up first, then enroll
+this app against it.
 
 ## See the app
 
@@ -27,7 +59,7 @@ on the phone.
 ## Getting started
 
 1. Set up the [Pentacle daemon](https://github.com/HJK6/pentacle) on the computer
-   where your coding agents run. The desktop app is optional.
+   where your coding agents run.
 2. Build and install this app on a simulator or phone.
 3. Connect and enroll the app with your daemon. Enrollment opens the assistant tab; start a
    session from the Sessions drawer (left header button) with **+**, then choose the host.
@@ -57,8 +89,8 @@ behavior, and the separately owned startup/back-navigation integration.
 **No.** [pentacle-chat-core](https://github.com/HJK6/pentacle-chat-core) is public,
 and its source is already vendored at `pentacle-chat-core/`. The dependency is
 `file:./pentacle-chat-core`, so `npm ci` installs the included copy. You do not
-need another clone, a sibling directory or a separate core service. Desktop
-vendors its own copy too.
+need another clone, a sibling directory or a separate core service. Pentacle
+Web vendors its own copy too.
 
 ## Manual quick start
 
@@ -106,7 +138,7 @@ configured display name (default **Zephyr**) and its host-associated identity
 icon. Rename the session to change the displayed name. It is opt-in: set
 `features.assistantRole` in your `pentacle.config.local.ts` to match the
 daemon's assistant role. You choose the assistant's name and provider when you
-bootstrap it on the daemon host — see the desktop
+bootstrap it on the daemon host — see the
 [assistant guide](https://github.com/HJK6/pentacle/blob/main/docs/assistant.md).
 The home tab reads the assistant composite from one stream id, `features.assistantStreamId`
 in your `pentacle.config.local.ts` (default `home:assistant`). It must equal the daemon's
