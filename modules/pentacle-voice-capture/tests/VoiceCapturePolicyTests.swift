@@ -3,6 +3,18 @@ import XCTest
 @testable import VoiceCapturePolicy
 
 final class VoiceCapturePolicyTests: XCTestCase {
+  func testActiveRecordingContinuesThroughLifecycle() {
+    var policy = VoiceCapturePolicy()
+    _ = policy.handle(.init("start", recordingId: "capture-a", admission: 0))
+    var ready = VoiceCapturePolicy.Event("startReady"); ready.sessionActive = true
+    _ = policy.handle(ready)
+    for type in ["resignActive", "background", "lock", "unlock", "becameActive"] {
+      let result = policy.handle(.init(type))
+      XCTAssertEqual(policy.state, .recording, type)
+      XCTAssertEqual(policy.recordingId, "capture-a", type)
+      XCTAssertTrue(result.actions.isEmpty, type)
+    }
+  }
   struct Contract: Decodable {
     let contract: String
     let revision: Int

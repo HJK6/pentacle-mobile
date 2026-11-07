@@ -120,7 +120,7 @@ export class VoiceRecorder {
   setLifecycle(value: { foreground: boolean; unlocked: boolean }) {
     const changed = value.foreground !== this.lifecycle.foreground || value.unlocked !== this.lifecycle.unlocked;
     this.lifecycle = { ...value };
-    if (changed && (!value.foreground || !value.unlocked) && (this.active || this.starting)) {
+    if (changed && (!value.foreground || !value.unlocked) && this.starting && (!this.active || this.active.status === 'starting')) {
       void this.pause(!value.foreground ? 'background' : 'locked').catch(() => undefined);
     }
     // Unlock/foreground only changes eligibility. Resume is always an explicit command.

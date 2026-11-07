@@ -98,6 +98,7 @@ class CaptureContractModel {
         if (event.admissionGeneration === undefined) this.generation++;
         if (event.type === 'resignActive' || event.type === 'background') this.foreground = false;
         if (event.type === 'lock') this.protectedData = false;
+        if (event.type !== 'interruptionBegan' && this.state === 'recording') break;
         const why = event.type === 'interruptionBegan' ? 'interruption' : event.type === 'lock' ? 'locked' : event.type === 'resignActive' ? 'inactive' : 'background';
         actions.push(...this.pause(why, true)); break;
       }

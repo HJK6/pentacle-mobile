@@ -134,6 +134,7 @@ export default function defineConfig(_context: ConfigContext): ExpoConfig {
       buildNumber,
       entitlements: {'aps-environment': config.apple.pushEnvironment || 'development'},
       infoPlist: {
+        UIBackgroundModes: ['audio'],
         ITSAppUsesNonExemptEncryption: false,
         NSFaceIDUsageDescription: 'Pentacle uses Face ID to secure access to live machine sessions.',
         NSCameraUsageDescription: 'Pentacle uses the camera so you can take a photo to attach to a chat message.',

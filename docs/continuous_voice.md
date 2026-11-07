@@ -61,8 +61,9 @@ commits its tombstone before cleanup.
 All native observer and command events feed the pure Swift `VoiceCapturePolicy`
 reducer on one serial executor. The iOS observer for interruption-began,
 `willResignActive`, background and protected-data-unavailable synchronously revokes
-admission and applies the policy pause before returning. Every such pause advances
-`pauseEpoch`. Interruption-end (including `shouldResume`), foreground/active,
+admission. An active recording continues through lifecycle changes; a pending start
+or resume is cancelled. A real interruption pauses and advances `pauseEpoch`.
+Interruption-end (including `shouldResume`), foreground/active,
 protected-data-available and route changes never produce a record action. A complete
 begin/end pair between JS polls therefore leaves sticky paused state. The engine
 uses the current native epoch on explicit Resume. The controller consumes settled
@@ -91,8 +92,9 @@ Native captured time excludes paused dwell and never reports more than 300,000 m
 The native deadline finalizes while JS is stalled; acoustic samples beyond that cap
 are forbidden. The accepted container-duration tolerance is at most 250 ms of AAC
 encoder padding, not extra acoustic capture. The format remains mono AAC/M4A,
-16 kHz and 32 kbps with metering. No audio background mode or app permission change
-is introduced. The recording session configuration is released on pause/finalize.
+16 kHz and 32 kbps with metering. iOS audio background mode permits an active take
+to continue while backgrounded or locked. The recording session configuration is
+released on pause/finalize.
 
 The shared `contract/capture-contract-v1.json` sequences exercise the Swift reducer
 and the same JavaScript native model used by the engine/controller tests. The
