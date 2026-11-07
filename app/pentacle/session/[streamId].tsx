@@ -5235,7 +5235,7 @@ export function ComposerBar({
     setStagedAttachments([]);
     // composer_text_persists_after_send_2026_09: on iOS a multiline TextInput
     // commits pending marked text (predictive/QuickType input, dictation,
-    // third-party keyboards — autocorrect itself is off here) when it resigns
+    // third-party keyboards) when it resigns
     // first responder, which can re-populate the native view AFTER the
     // controlled `value` went to '' — the message sends, but the text stays on
     // screen and the next tap has nothing to send. Clear the native view
@@ -5384,7 +5384,6 @@ export function ComposerBar({
           placeholderTextColor={P.muted}
           multiline
           textAlignVertical="center"
-          autoCorrect={false}
           keyboardAppearance="dark"
           editable={!disabled && !voiceHidesComposer}
           returnKeyType="default"
