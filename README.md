@@ -1,6 +1,10 @@
 # Pentacle Mobile
 
-Pentacle Mobile lets you work with your coding-agent sessions from your phone.
+[Pentacle](https://github.com/HJK6/pentacle) is a control plane for your AI
+agents. Pentacle Mobile is its phone client: read what your fleet is doing,
+answer an agent's question, approve work and talk to your always-on assistant
+from anywhere.
+
 It connects to the daemon in [**HJK6/pentacle**](https://github.com/HJK6/pentacle),
 which runs on the computer where your agents work. Set up that daemon first;
 the phone app does not run it. The desktop app is optional for mobile users.
