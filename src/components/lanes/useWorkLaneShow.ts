@@ -76,5 +76,5 @@ export function useWorkLaneShow(laneId: string, connected: boolean, enabled = tr
     void load();
     return () => { epoch.current += 1; };
   }, [load]);
-  return { data, loading, error, complete, retry: load };
+  return { data, loading, error, complete, requestEpoch: epoch.current, retry: load };
 }

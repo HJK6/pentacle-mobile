@@ -31,14 +31,17 @@ export function currentMember(
 export function useLaneMembers(
   inline: WorkLaneMember[],
   data: WorkLaneShow | null,
+  loadEpoch?: number,
 ) {
   const baseline = useRef<{
     data: WorkLaneShow | null;
     inline: WorkLaneMember[];
+    loadEpoch?: number;
   }>({ data: null, inline });
   // Pagination changes data on each page; retain the opening observation baseline for the whole load.
-  if (!data || !baseline.current.data || data.lane_id !== baseline.current.data.lane_id
-    || data.detail_revision !== baseline.current.data.detail_revision) baseline.current = { data, inline };
+  if ((loadEpoch === undefined ? data !== baseline.current.data : loadEpoch !== baseline.current.loadEpoch)
+    || !data || !baseline.current.data || data.lane_id !== baseline.current.data.lane_id
+    || data.detail_revision !== baseline.current.data.detail_revision) baseline.current = { data, inline, loadEpoch };
   return data
     ? data.members.map((member) =>
         currentMember(

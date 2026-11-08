@@ -265,7 +265,7 @@ export default function LanesMap({
     revision,
   );
   const laneData = show.data?.lane_id === focusedLaneId ? show.data : null;
-  const observedMembers = useLaneMembers(focused?.members ?? [], laneData);
+  const observedMembers = useLaneMembers(focused?.members ?? [], laneData, show.requestEpoch);
   const members = focused?.lane.no_spec_reason ? [] : observedMembers;
   const groups = useMemo(() => specGroups(members), [members]);
   const currentSelection = members.find(
