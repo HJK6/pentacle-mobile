@@ -141,7 +141,7 @@ function hostPlatform(layout) {
           if (state) states.push(state[1]);
           if (/^pid = \d+\s*$/.test(field)) pid = true;
         }
-        if (field.endsWith(' = {')) depth++;
+        if (field.endsWith('{')) depth++;
         else if (field === '}') { depth--; if (depth < 0) malformed = true; }
       }
       if (pid || states.includes('running')) fail('LIVE_JANITOR');
