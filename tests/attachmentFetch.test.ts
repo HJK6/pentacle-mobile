@@ -34,7 +34,7 @@ test('renderAttachmentsWithLocalUris returns local optimistic image URIs without
     { key: 'local:1', mime: 'image/jpeg', width: 100, height: 200, uri: 'file:///tmp/a.jpg' } as any,
   ]);
 
-  expect(rendered).toEqual([{ uri: 'file:///tmp/a.jpg', width: 100, height: 200 }]);
+  expect(rendered).toEqual([{ uri: 'file:///tmp/a.jpg', width: 100, height: 200, attachmentIndex: 0 }]);
   expect(mockFetchBlobBase64).not.toHaveBeenCalled();
 });
 
@@ -54,6 +54,7 @@ test('fetchRenderAttachments fetches URI-less daemon blob refs and caches them a
     uri: `file:///cache/pentacle-chat-attachments/${'f'.repeat(64)}.jpg`,
     width: 320,
     height: 240,
+    attachmentIndex: 0,
   }]);
 
   await fetchRenderAttachments([{ key: 'f'.repeat(64), mime: 'image/jpeg' }]);
@@ -73,7 +74,7 @@ test('existing PNG cache entries are reused from disk without daemon or write I/
   mockMakeDirectoryAsync.mockRejectedValueOnce(new Error('already exists'));
   mockGetInfoAsync.mockResolvedValueOnce({ exists: true });
   await expect(fetchRenderAttachments([{ key: 'cached', mime: 'image/png', width: 10, height: 20 }])).resolves.toEqual([
-    { uri: 'file:///cache/pentacle-chat-attachments/cached.png', width: 10, height: 20 },
+    { uri: 'file:///cache/pentacle-chat-attachments/cached.png', width: 10, height: 20, attachmentIndex: 0 },
   ]);
   expect(mockFetchBlobBase64).not.toHaveBeenCalled();
   expect(mockWriteAsStringAsync).not.toHaveBeenCalled();
@@ -90,8 +91,8 @@ test('concurrent requests for the same key share one daemon fetch', async () => 
   await Promise.resolve();
   resolveFetch({ blob_sha: 'shared', content_b64: 'YQ==', size_bytes: 1 });
   await expect(Promise.all([first, second])).resolves.toEqual([
-    [{ uri: 'file:///cache/pentacle-chat-attachments/shared.jpg', width: undefined, height: undefined }],
-    [{ uri: 'file:///cache/pentacle-chat-attachments/shared.jpg', width: undefined, height: undefined }],
+    [{ uri: 'file:///cache/pentacle-chat-attachments/shared.jpg', width: undefined, height: undefined, attachmentIndex: 0 }],
+    [{ uri: 'file:///cache/pentacle-chat-attachments/shared.jpg', width: undefined, height: undefined, attachmentIndex: 0 }],
   ]);
   expect(mockFetchBlobBase64).toHaveBeenCalledTimes(1);
 });
@@ -113,11 +114,22 @@ test('managed file descriptors remain visible without prefetch or trusting a cal
 test('an inline PNG maps once to media and never duplicates a file bubble', async () => {
  const image={key:'b'.repeat(64),mime:'image/png',filename:'synthetic.png',size:32,uri:'file:///synthetic.png'};
  const local=renderAttachmentsWithLocalUris([image]);
- expect(local).toEqual([{uri:'file:///synthetic.png',width:undefined,height:undefined}]);
+ expect(local).toEqual([{uri:'file:///synthetic.png',width:undefined,height:undefined,attachmentIndex:0}]);
  mockGetInfoAsync.mockResolvedValue({exists:false});
  mockFetchBlobBase64.mockResolvedValue({content_b64:'c3ludGhldGlj'});
  const fetched=await fetchRenderAttachments([image]);
  expect(fetched).toHaveLength(1);
  expect(fetched?.[0].kind).toBeUndefined();
  expect(fetched?.[0].attachment).toBeUndefined();
+});
+
+
+test('partial local rendering preserves original indexes across unmounted images and files', () => {
+  const rows = renderAttachmentsWithLocalUris([
+    {key:'remote',mime:'image/png'},
+    {key:'pdf',mime:'application/pdf'},
+    {key:'local',mime:'image/png',uri:'file:///same.png'} as any,
+    {key:'repeat',mime:'image/png',uri:'file:///same.png'} as any,
+  ]);
+  expect(rows?.filter(x => x.kind !== 'file').map(x => x.attachmentIndex)).toEqual([2,3]);
 });

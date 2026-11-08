@@ -73,7 +73,7 @@ test('a user bubble renders one MediaBubble per attachment (FIFO) and tap calls 
 
   // Tapping the first opens the viewer with that image's uri.
   fireEvent.press(screen.getByTestId('message-image-0'));
-  expect(onPressAttachment).toHaveBeenCalledWith('file:///tmp/a.jpg');
+  expect(onPressAttachment).toHaveBeenCalledWith('file:///tmp/a.jpg', 0);
 });
 
 test('a photo-only user row (no text) renders the image without an empty text bubble', () => {
@@ -155,7 +155,7 @@ test('an assistant image row renders the existing MediaBubble and opens the exis
   expect(screen.queryByTestId('assistant-message-image-0-file')).toBeNull();
   expect(screen.getByTestId('assistant-message-image-0-img').props.accessible).toBe(true);
   fireEvent.press(screen.getByTestId('assistant-message-image-0'));
-  expect(onPressAttachment).toHaveBeenCalledWith('file:///tmp/a.jpg');
+  expect(onPressAttachment).toHaveBeenCalledWith('file:///tmp/a.jpg', 0);
 });
 
 test('ImageViewerModal shows the tapped image and closes', () => {

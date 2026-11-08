@@ -197,3 +197,30 @@ For a direct release, compare every visible change against the exact installed
 source, preserve Copy and private configuration, and bind the reviewed source
 to the signed app/build/bundle. Validate chats loading and the affected real
 runtime journeys before delivery; distinguish simulator from physical evidence.
+
+
+## Chat image viewer
+
+Open a chat image to pinch between 1× and 4×, pan within its bounds, or
+double-tap between contain-fit and 2×. A single tap still closes the viewer;
+the close X and top-left Share control stay visible. There is no swipe-down
+dismissal or tap-toggled toolbar.
+
+At contain-fit, swipe left for newer images and right for older images from
+the loaded chat, without wrapping. Zoomed swipes pan the current image. The
+ordered image occurrences are frozen for each opening, including repeated
+attachments; reopen after loading history or receiving new images to refresh
+the list. Each entered image starts at contain-fit.
+
+Share opens the native image sheet for the original delivered/sent JPEG or PNG
+file, including Save Image, Copy and system-provided destinations. Files are
+not recompressed or cropped to the zoomed view. The iOS add-only purpose
+string is `Save images to your photo library.`; this native configuration change
+uses the full native release-validation tier above. Physical Messages draft
+verification does not authorize sending a message.
+
+Focused coverage: `imageViewerModal.test.tsx`, `imageGallery.test.ts`,
+`imageShare.test.ts`, `attachmentFetch.test.ts` and the existing media/voice/
+question-host suites. The [focused XCUITest journey](../test/e2e/image_viewer/README.md)
+provides real two-touch pinch proof in addition to the configured Release
+Save/Copy, iPad presentation and unchanged certified nine-case gate.

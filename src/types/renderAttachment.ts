@@ -6,4 +6,5 @@ export interface RenderAttachment {
   attachment?: ChatAttachment;
   width?: number;
   height?: number;
+  attachmentIndex?: number;
 }
