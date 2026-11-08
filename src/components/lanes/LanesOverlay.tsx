@@ -156,6 +156,7 @@ export default function LanesOverlay({
           <View style={{ flexDirection: "row", gap: 9, alignItems: "center" }}>
             {focused || allUpdates ? (
               <Pressable
+                testID="lanes-back"
                 accessibilityRole="button"
                 accessibilityLabel="Back"
                 onPress={allUpdates ? closeGlobalLog : () => mapBack.current()}
@@ -228,6 +229,7 @@ export default function LanesOverlay({
               <HeaderVoiceMic />
             </View>
             <Pressable
+              testID="lanes-close"
               accessibilityRole="button"
               accessibilityLabel="Close lanes"
               onPress={allUpdates ? closeGlobalLog : onClose}

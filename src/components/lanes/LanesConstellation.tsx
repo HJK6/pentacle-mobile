@@ -355,6 +355,8 @@ export default function LanesConstellation({
         />
       ))}
       <Animated.View
+        accessible
+        accessibilityRole="image"
         testID={
           centreLane
             ? `lane-zoom-centre-${centreLane.lane_id}`
