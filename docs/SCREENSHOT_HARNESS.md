@@ -13,9 +13,10 @@ EXPO_PUBLIC_SCREENSHOT_HARNESS=1 npm run web           # RN-web dev server with 
 npx jest tests/harnessScreenshotFixtures.test.ts       # render-smoke over the fixture registry
 ```
 
-This repository has no npm scripts for the harness and does not include the
-Playwright capture driver or its `.ui-review` output. Open the served routes in a
-browser, or bring your own driver that calls `window.__pentacleHarness.seed(...)`.
+This repository has no npm scripts for the harness. The scoped lanes driver is
+described below; raw capture output stays outside the repository. Open other
+served routes in a browser or use a driver that calls
+`window.__pentacleHarness.seed(...)`.
 
 ## How it works
 
@@ -37,7 +38,7 @@ browser, or bring your own driver that calls `window.__pentacleHarness.seed(...)
 3. **Real app under the router** — screens render through the same providers
    `_layout` supplies; the driver navigates to real routes (`/chats`,
    `/pentacle/session/<id>`, …), so navigation hooks behave normally.
-4. **Driver** — not included here. A driver (Playwright headless Chromium,
+4. **Driver** — a scoped lanes driver is included. A driver (Playwright headless Chromium,
    390×844 @2x) walks a screen registry, calls
    `window.__pentacleHarness.seed(...)`, settles, and writes each PNG.
 
@@ -71,7 +72,10 @@ The scoped Playwright driver `scripts/lanes-flow-v2-render.cjs` checks actual
 captures map, full list, lane zoom, done fold and full/sparse spec detail.
 It requires an already admitted screenshot server via `PENTACLE_RENDER_URL`
 and an external output directory via `PENTACLE_RENDER_OUTPUT`. These are web
-render checks, separate from configured Release simulator gesture proof.
+render checks, separate from configured Release simulator gesture proof. The
+driver receipt labels these supplemental fixture evidence. It hides the
+unrelated web voice-recording overlay under the FD-approved accommodation for
+its observed storage-unavailable banner; native Release proof hides nothing.
 
 ## Adding a screen or variant
 
