@@ -31,9 +31,11 @@ final class ImageViewerUITests: XCTestCase {
   }
 
   private func waitForZoom(_ matches: @escaping (Double) -> Bool) -> Bool {
+    var lastValue: String?
     let predicate = NSPredicate { [weak self] _, _ in
       guard let raw = self?.image.value as? String,
             let percentage = Double(raw.components(separatedBy: "%")[0]) else { return false }
+      if lastValue != raw { print("Observed native viewer zoom: \(raw)"); lastValue = raw }
       return matches(percentage / 100)
     }
     return XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: predicate, object: image)], timeout: 6) == .completed
@@ -68,10 +70,11 @@ final class ImageViewerUITests: XCTestCase {
     capture("new-page-at-fit")
     image.doubleTap()
     XCTAssertTrue(waitForZoom { abs($0 - 2) < 0.05 })
-    scroll.pinch(withScale: 2, velocity: 1)
-    XCTAssertTrue(waitForZoom { $0 > 3.5 && $0 <= 4.01 })
+    // Drive beyond the boundary: synthesized finger travel need not equal scale exactly.
+    scroll.pinch(withScale: 4, velocity: 1)
+    XCTAssertTrue(waitForZoom { abs($0 - 4) < 0.02 })
     scroll.pinch(withScale: 1.3, velocity: 1)
-    XCTAssertTrue(waitForZoom { $0 > 3.5 && $0 <= 4.01 })
+    XCTAssertTrue(waitForZoom { abs($0 - 4) < 0.02 })
     scroll.swipeLeft()
     scroll.swipeUp()
     XCTAssertEqual(image.label, "Chat image 3 of 3")
