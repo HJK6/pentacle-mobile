@@ -11,7 +11,11 @@ const expoRouter = require('expo-router');
 import usePentacleToken from '../../../src/hooks/usePentacleToken';
 import { usePentacleStreamActions, usePentacleStreamSelectorWhen } from '../../../src/services/pentacleStream';
 import { useUserPreference } from '../../../src/services/userPreferences';
+import { questionCardStore } from '../../../src/components/questions/questionCardStore';
+import { FlatList, StyleSheet } from 'react-native';
+import { SessionScreen } from '../../../app/pentacle/session/[streamId]';
 import type { PentacleSessionSummary, PentacleStreamState } from 'pentacle-chat-core';
+import { legacyQuestion } from '../../questions/fixtures';
 import { assistantQuestion, assistantSession } from './fixtures';
 
 const STREAM_ID = ASSISTANT_STREAM_ID;
@@ -24,6 +28,9 @@ let mockState: PentacleStreamState;
 const mockActions = {
   getSpawnCatalog: jest.fn(), spawnSessionV2: jest.fn(),
   sendMessage: jest.fn(),
+  beginOptimisticQuestionAnswer: jest.fn(), answerPrompt: jest.fn(),
+  queueOptimisticQuestionAnswer: jest.fn(), discardOptimisticQuestionAnswer: jest.fn(),
+  dismissQuestion: jest.fn(),
   sendTurn: jest.fn(),
   enqueueTurn: jest.fn(() => 'optimistic_queued_1'),
   flushQueuedSends: jest.fn(),
@@ -65,6 +72,7 @@ jest.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({
 jest.mock('../../../src/hooks/usePentacleToken', () => jest.fn());
 jest.mock('../../../src/services/pentacleStream', () => ({
   usePentacleStreamActions: jest.fn(),
+  usePentacleStreamSelector: (selector: (state: any) => unknown) => selector(mockState),
   usePentacleStreamSelectorWhen: jest.fn(),
   selectOptimisticQuestionAnswerIdentities: jest.fn(() => mockOptimistic),
   selectPentacleConnectionSlice: jest.fn((state) => ({ connected: state.connected, connecting: state.connecting })),
@@ -111,6 +119,7 @@ function session(): PentacleSessionSummary {
 }
 
 beforeEach(() => {
+  questionCardStore.reset();
   mockIsFocused = true;
   mockOptimistic = [];
   jest.requireActual('../../../src/services/pentacleStream').__resetPentacleStreamForTests();
@@ -199,21 +208,16 @@ test('a failed lanes router dispatch can be retried', async () => {
   expect(router.push).toHaveBeenCalledTimes(2);
 });
 
-test('Questions dispatches once per focus visit and is available again after returning', async () => {
+test('zero pending Questions tap is a no-op across focus visits', async () => {
   const view = render(<AssistantScreen />);
   await act(async () => {});
-  const router = expoRouter.useRouter();
-  const button = screen.getByLabelText('Questions, 0 pending');
-  fireEvent.press(button);
-  fireEvent.press(button);
-  expect(router.push).toHaveBeenCalledTimes(1);
-  expect(router.push).toHaveBeenCalledWith('/pentacle/questions');
-  mockIsFocused = false;
-  view.rerender(<AssistantScreen />);
-  mockIsFocused = true;
-  view.rerender(<AssistantScreen />);
   fireEvent.press(screen.getByLabelText('Questions, 0 pending'));
-  expect(router.push).toHaveBeenCalledTimes(2);
+  expect(expoRouter.useRouter().push).not.toHaveBeenCalled();
+  expect(questionCardStore.getSnapshot().shown).toBe(false);
+  mockIsFocused = false; view.rerender(<AssistantScreen />);
+  mockIsFocused = true; view.rerender(<AssistantScreen />);
+  fireEvent.press(screen.getByLabelText('Questions, 0 pending'));
+  expect(expoRouter.useRouter().push).not.toHaveBeenCalled();
 });
 
 
@@ -246,16 +250,49 @@ test('both badges derive from real fixture state, include the assistant deck pag
 });
 
 
-test('The assistant home shows only the header Questions button for its own open question and still opens the overlay', async () => {
-  mockState = { ...mockState, notifications: [assistantQuestion(STREAM_ID, 2)] };
+test('Questions toggles the bottom transcript card with an identical header button and no overlay navigation', async () => {
+  mockState = { ...mockState, notifications: [assistantQuestion(STREAM_ID, 2)], events: [{ daemon_seq: 1, stream_id: STREAM_ID,
+    host: 'hostc', provider: 'claude', session_id: 'assistant', session_name: 'assistant', kind: 'ASSIST',
+    timestamp: '2026-05-16T12:00:00Z', text: 'Synthetic greeting', publish_kind: 'prose' }] };
   render(<AssistantScreen />);
   await act(async () => {});
-  expect(screen.getByLabelText('Questions, 2 pending')).toBeTruthy();
+  const button = screen.getByLabelText('Questions, 2 pending');
+  const buttonBefore = StyleSheet.flatten(button.props.style);
+  expect(buttonBefore).toMatchInlineSnapshot(`
+{
+  "alignItems": "center",
+  "backgroundColor": "rgba(8,11,10,0.7)",
+  "borderColor": "rgba(120,255,160,0.16)",
+  "borderRadius": 4,
+  "borderWidth": 1,
+  "height": 40,
+  "justifyContent": "center",
+  "width": 40,
+}
+`);
+  expect(screen.getByTestId('question-deck-card')).toBeTruthy();
+  const list = screen.UNSAFE_getByType(FlatList);
+  expect(list.props.inverted).toBe(true);
+  expect(list.props.ListHeaderComponent.props.testID).toBe('transcript-bottom-item');
   expect(screen.queryByTestId('question-fab')).toBeNull();
-  expect(screen.queryByTestId('question-fab-dock')).toBeNull();
-  expect(screen.queryByLabelText('2 unanswered questions')).toBeNull();
-  fireEvent.press(screen.getByLabelText('Questions, 2 pending'));
-  expect(expoRouter.useRouter().push).toHaveBeenCalledWith('/pentacle/questions');
+  fireEvent.press(button);
+  expect(screen.queryByTestId('question-deck-card')).toBeNull();
+  expect(StyleSheet.flatten(button.props.style)).toEqual(buttonBefore);
+  expect(button.props.accessibilityState?.selected).toBeUndefined();
+  expect(button.props.accessibilityState?.expanded).toBeUndefined();
+  fireEvent.press(button);
+  expect(screen.getByTestId('question-deck-card')).toBeTruthy();
+  expect(expoRouter.useRouter().push).not.toHaveBeenCalled();
+});
+
+test('an ordinary session never accepts an embedded bottom item', async () => {
+  const other = 'hostc:claude:ordinary';
+  mockState = { ...mockState, sessions: [assistantSession(other)], events: [{ daemon_seq: 1, stream_id: other,
+    host: 'hostc', provider: 'claude', session_id: 'ordinary', session_name: 'ordinary', kind: 'ASSIST',
+    timestamp: '2026-05-16T12:00:00Z', text: 'Ordinary greeting', publish_kind: 'prose' }] };
+  render(<SessionScreen streamId={other} bottomItem={<Modal testID="unwanted-card" />} />);
+  await act(async () => {});
+  expect(screen.queryByTestId('unwanted-card')).toBeNull();
 });
 
 
@@ -310,15 +347,7 @@ test('drawer + uses the real shared flow once after dismissal, filters identity 
   expect(expoRouter.useRouter().push).toHaveBeenCalledWith('/pentacle/session/hostc%3Aclaude%3Acreated');
 });
 
-test('failed Questions router dispatch can be retried', async () => {
-  render(<AssistantScreen />);
-  await act(async () => {});
-  const router = expoRouter.useRouter();
-  router.push.mockImplementationOnce(() => { throw new Error('Synthetic router unavailable'); });
-  fireEvent.press(screen.getByLabelText('Questions, 0 pending'));
-  fireEvent.press(screen.getByLabelText('Questions, 0 pending'));
-  expect(router.push).toHaveBeenCalledTimes(2);
-});
+
 
 test('newer navigation cancels a queued drawer-to-summon transition', async () => {
   mockState = { ...mockState, hosts: { hostc: { host: 'hostc', online: true, checked_at: '', session_count: 0 } } };
@@ -365,4 +394,75 @@ test('the assistant header omits Scheduled while retaining its active controls',
   expect(screen.getByLabelText('Lews status, 0 open lanes')).toBeTruthy();
   expect(screen.getByLabelText('Questions, 0 pending')).toBeTruthy();
   expect(screen.getByTestId('header-voice-mic')).toBeTruthy();
+});
+
+
+function questionHostState() {
+  mockState = { ...mockState, notifications: [assistantQuestion(STREAM_ID, 1)], events: [{ daemon_seq: 1, stream_id: STREAM_ID,
+    host: 'hostc', provider: 'claude', session_id: 'assistant', session_name: 'assistant', kind: 'ASSIST',
+    timestamp: '2026-05-16T12:00:00Z', text: 'Choose below', publish_kind: 'prose' }] };
+}
+async function settleQuestion() { for (let i = 0; i < 25; i++) await Promise.resolve(); }
+
+test.each([false, true])('Assistant host pins a final submit through settlement and keeps a rejection draft (reject=%s)', async (reject) => {
+  questionHostState();
+  const original = mockState.notifications;
+  let resolve!: () => void;
+  let fail!: (error: Error) => void;
+  const pending = new Promise<void>((yes, no) => { resolve = yes; fail = no; });
+  mockActions.beginOptimisticQuestionAnswer.mockImplementation(() => { mockState = { ...mockState, notifications: [] }; return 'question-opt'; });
+  mockActions.answerPrompt.mockReturnValue(pending);
+  mockActions.discardOptimisticQuestionAnswer.mockImplementation(() => { mockState = { ...mockState, notifications: original }; });
+  render(<AssistantScreen />);
+  await act(async () => {});
+  fireEvent.press(screen.getByTestId('questions-option-1'));
+  await act(async () => { fireEvent.press(screen.getByTestId('questions-submit')); await settleQuestion(); });
+  expect(screen.getByTestId('questions-counter')).toHaveTextContent('QUESTION 1 / 1');
+  expect(screen.getByTestId('questions-submit-label')).toHaveTextContent('Sending');
+  await act(async () => { if (reject) fail(new Error('Answer rejected')); else resolve(); await settleQuestion(); });
+  if (reject) {
+    expect(screen.getByTestId('questions-item-error')).toHaveTextContent('Answer rejected');
+    expect(screen.getByTestId('questions-submit-label')).toHaveTextContent('Send all answers');
+  } else expect(screen.queryByTestId('question-deck-card')).toBeNull();
+});
+
+
+test('Assistant host retains a final legacy error banner until it is dismissed', async () => {
+  questionHostState();
+  const other = 'hostc:claude:legacy';
+  mockState = { ...mockState, notifications: [], sessions: [session(), assistantSession(other, { question: legacyQuestion() })] };
+  mockActions.beginOptimisticQuestionAnswer.mockReturnValue('legacy-opt');
+  mockActions.dismissQuestion.mockImplementation(async () => { mockState = { ...mockState, sessions: mockState.sessions.map(s => ({ ...s, question: null })) }; });
+  mockActions.sendMessage.mockRejectedValue(new Error('Offline'));
+  render(<AssistantScreen />);
+  await act(async () => {});
+  fireEvent.press(screen.getByTestId('questions-option-1'));
+  await act(async () => { fireEvent.press(screen.getByTestId('questions-submit')); await settleQuestion(); });
+  expect(screen.getByTestId('questions-legacy-error')).toBeTruthy();
+  expect(screen.getByTestId('questions-legacy-see-chat')).toBeTruthy();
+  fireEvent.press(screen.getByTestId('questions-legacy-dismiss'));
+  expect(screen.queryByTestId('question-deck-card')).toBeNull();
+});
+
+test('Assistant header reopens a hidden in-flight draft when another question remains pending', async () => {
+  questionHostState();
+  const other = 'hostc:claude:other';
+  mockState = { ...mockState, sessions: [...mockState.sessions, assistantSession(other)], notifications: [...mockState.notifications, assistantQuestion(other, 1)] };
+  let resolve!: () => void;
+  mockActions.beginOptimisticQuestionAnswer.mockImplementation(() => {
+    mockState = { ...mockState, notifications: mockState.notifications.filter(n => n.answer_to_stream_id !== STREAM_ID) };
+    return 'pending-opt';
+  });
+  mockActions.answerPrompt.mockReturnValue(new Promise<void>(yes => { resolve = yes; }));
+  const view = render(<AssistantScreen />);
+  await act(async () => {});
+  fireEvent.press(screen.getByTestId('questions-option-1'));
+  await act(async () => { fireEvent.press(screen.getByTestId('questions-submit')); await settleQuestion(); });
+  view.rerender(<AssistantScreen />);
+  expect(screen.getByLabelText('Questions, 1 pending')).toBeTruthy();
+  fireEvent.press(screen.getByTestId('questions-close'));
+  expect(screen.queryByTestId('question-deck-card')).toBeNull();
+  fireEvent.press(screen.getByLabelText('Questions, 1 pending'));
+  expect(screen.getByTestId('questions-submit-label')).toHaveTextContent('Sending');
+  await act(async () => { resolve(); await settleQuestion(); });
 });

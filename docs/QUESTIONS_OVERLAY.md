@@ -1,9 +1,27 @@
-# Questions overlay
+# Questions card and overlay
 
-`/pentacle/questions` is the assistant-first cross-session answer surface: every open durable question
+The Assistant header `?` toggles the embedded `QuestionDeckCard` as the newest transcript item directly above the composer. It shows only the pending count and has no selected styling. At zero pending, tapping it does nothing.
+
+The card shares the page body, dots, footer, draft model and submission function with the `/pentacle/questions` overlay, retained for notification deep links and other callers: every open durable question
 (the assistant's and every session's) one per page, with partial submit. It replaces the Unified tab's
 question drawer as the place to answer across sessions. Shared route, selector and answer contracts
 live in [assistant_home_contracts.md](assistant_home_contracts.md); this page records what the overlay does.
+
+## Embedded card
+
+Approved design: `mobile/Pentacle Questions Embedded.html`, version 11, frames 01–02.
+A previously unseen deck key shows the card on its first unseen page. Close hides it until
+another unseen key arrives or the header `?` is tapped. Seen keys last for this app process;
+a cold start shows a pending deck. Hiding preserves drafts, errors and pending submissions.
+A final submission keeps its page pinned until settlement. The card leaves only when the
+effective deck is empty, no submission is pending and no legacy error banner is held.
+The banner retains See chat recovery and Dismiss. The embedded header omits mic and See chat;
+the Assistant header mic remains ordinary talk-to-assistant voice.
+
+A source lane lead match takes precedence over an inline member seat match. A matched lane
+uses its lane icon in the question accent ring. With no match, complete inventories and the
+assistant resolve to none; capped member/seat data resolves to unknown. Both fall back to
+SourceMark without extra fetching. Other session transcripts do not embed this card.
 
 ## Files
 
@@ -12,7 +30,10 @@ live in [assistant_home_contracts.md](assistant_home_contracts.md); this page re
 | `app/pentacle/questions.tsx` | Route. Reads `notificationId?`, sets `presentation: 'transparentModal'`, renders `QuestionsScreen` with the route's navigation (the live-take removal guard). |
 | `src/components/questions/questionSelectors.ts` | `selectQuestionDeck`, `selectPendingQuestionCount`, `QuestionDeckEntry`. |
 | `src/components/questions/submitDeckAnswers.ts` | `submitDeckAnswers`, `sendableKeys`: serial send orchestration over `submitQuestionSubmission`. |
-| `src/components/questions/QuestionsScreen.tsx` | The overlay (header, page body, dots, footer, toast). |
+| `src/components/questions/QuestionDeckCard.tsx` | Shared page body, dots, footer and errors, hosted by the transcript or overlay. |
+| `src/components/questions/QuestionsScreen.tsx` | Notification overlay wrapper, retaining its voice controls and See chat header. |
+| `src/components/questions/questionCardStore.ts` | Process-local visibility, seen keys, page, drafts, errors and in-flight pinned deck. |
+| `src/components/questions/questionSourceLane.ts` | Bounded lead/inline-seat lane lookup, with none/unknown SourceMark fallback. |
 | `src/components/questions/SourceMark.tsx`, `DeckDots.tsx` | Source ring and the per-question-accent dots. |
 | `src/components/questions/index.ts` | Re-exports; P3 imports `selectPendingQuestionCount` from here. |
 | `tests/questions/*` | Selector, submit and screen tests (`fixtures.ts` builds the shared synthetic state). |

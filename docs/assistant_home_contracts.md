@@ -243,6 +243,8 @@ export function SessionScreen(props: {
   header?: React.ReactNode;
   // The header already carries the Questions button, so the in-chat question FAB is not drawn.
   questionsInHeader?: boolean;
+  // Optional newest transcript item at the composer edge, only for the Assistant stream.
+  bottomItem?: React.ReactNode;
 }): JSX.Element
 ```
 
@@ -252,12 +254,22 @@ options, no back/menu header, and no redirect away when the session is missing. 
 back button and missing-session redirect return to the home destination `HOME_ROUTE`
 (`'/(tabs)/assistant'`, `src/services/homeRoute.ts`, shared edit S3), which is also the app's launch
 redirect (`app/index.tsx`), the post-enrollment target and the push-tap stack seed. `app/(tabs)/assistant.tsx` renders
-`<SessionScreen streamId={ASSISTANT_STREAM_ID} header={<AssistantHeader … />} questionsInHeader />`: the header's
-Questions button is then the only questions control on the home screen, and the glowing in-chat FAB
+`<SessionScreen streamId={ASSISTANT_STREAM_ID} header={<AssistantHeader … />} questionsInHeader bottomItem={<QuestionDeckCard embedded />} />`: the header's
+Questions button toggles that card when its pending count is above zero, with unchanged button styling. At zero it is a no-op. It never navigates to the overlay. The glowing in-chat FAB
 (`QuestionFab`) stays on every other chat, where it is the sole affordance. P3 does not fork or copy
 the session screen.
 
 ## Answering questions
+
+Approved embedded-card design: `mobile/Pentacle Questions Embedded.html`, version 11, frames 01–02.
+In the Assistant thread, `QuestionDeckCard` is the newest transcript item directly above the composer.
+New unseen deck keys show the card on the first unseen page. Closing hides it until a new key arrives
+or the header `?` is tapped. Visibility and its draft/error controller are process-local; hiding
+preserves drafts and pending submissions. Final submissions stay pinned until settled, and a legacy
+send error holds its See chat banner until dismissed. The card's source mark uses a found lane icon,
+with SourceMark fallback when no lane is found or the carried inventory is incomplete.
+The card omits header mic and See chat. The Assistant header mic talks to the assistant in free form.
+`/pentacle/questions` remains the notification deep-link overlay and shares the same card body and footer.
 
 P4 answers each action exactly as the Chats row does, by calling
 `submitQuestionSubmission(actions, streamId, submission, hooks?)` from `src/services/questionSubmit.ts`
