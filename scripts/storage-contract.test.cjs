@@ -65,7 +65,7 @@ test('public mutation surface and state models are closed', () => {
 
 test('actual CommonJS and package surfaces expose no unbound mutation helper', () => {
   const expected = {
-    'storage-state.cjs': ['RECORD_LIMIT', 'SCHEMA', 'STATE_LIMIT', 'bind', 'canonicalIdentity', 'directoryBytes', 'exactSeal', 'listRecords', 'processStartToken', 'readAuthorityState', 'readRecord', 'validateAuthorityShape', 'validateInstalledAuthority', 'validateRecord', 'validateSchedulerLock', 'validateStateLayout', 'validateUpdateCommitAuthority', 'validateUpdateSmokeAuthority'],
+    'storage-state.cjs': ['RECORD_LIMIT', 'SCHEMA', 'STATE_LIMIT', 'bind', 'canonicalIdentity', 'directoryBytes', 'exactSeal', 'listRecords', 'processStartMatches', 'processStartToken', 'readAuthorityState', 'readRecord', 'validateAuthorityShape', 'validateInstalledAuthority', 'validateRecord', 'validateSchedulerLock', 'validateStateLayout', 'validateUpdateCommitAuthority', 'validateUpdateSmokeAuthority'],
     'storage-containers.cjs': ['GiB', 'LIMITS', 'MiB', 'assertImageDetached', 'attachedImageAt', 'bind', 'createCapacityGuard', 'enforceCap', 'enforceImageBacking', 'exactDirectoryBytes', 'freeBytes', 'imagePath', 'mountPath', 'requireCapacity', 'requireSeal', 'resolveMounted', 'withinCap'],
     'storage-system-scratch.cjs': ['bind', 'buildOwnership', 'evaluateRecovery'],
     'storage-authority-reseal.cjs': ['assertNormalReady', 'bind', 'inspect'],
