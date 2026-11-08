@@ -49,6 +49,30 @@ not hit on the seeded path.
 
 The `screen:variant` list is the `FIXTURES` registry in `src/harness/screenshotFixtures.ts`.
 
+### Lanes flow v2
+
+The flow follows the approved `mobile/Pentacle Lanes Flow v2.html`, frames
+01–04. `assistant:lane_updates` and `lanes:flow_v2` provide 13 synthetic lanes:
+two blocked, one needs-you, three working, three recent pauses and four
+dormant pauses. One lane contains 27 specs: six in progress, two ready,
+seven backlog and twelve done (including one deprecated). Its inventory
+inlines eight members; zoom reads all 27 through the screenshot counterpart
+of `work_lanes.show`, using the production wire normalizer.
+
+`lanes:spec_detail_full` supplies worked time, lead seat, criteria, transitions,
+validated Status/Next and an open question. `lanes:spec_detail_sparse` omits
+the optional fields to exercise the older daemon path. Seed either fixture,
+open the Test infrastructure lane and select its first spec. The full sheet
+shows the structured detail; Back deselects, then restores the overview's
+snap and scroll position. Done and dormant folds expand in place.
+
+The scoped Playwright driver `scripts/lanes-flow-v2-render.cjs` checks actual
+`lanes-map-label-*` rectangles for pairwise overlap at 390 and 375 px and
+captures map, full list, lane zoom, done fold and full/sparse spec detail.
+It requires an already admitted screenshot server via `PENTACLE_RENDER_URL`
+and an external output directory via `PENTACLE_RENDER_OUTPUT`. These are web
+render checks, separate from configured Release simulator gesture proof.
+
 ## Adding a screen or variant
 
 Two registries, intentionally split:

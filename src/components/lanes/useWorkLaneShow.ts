@@ -5,7 +5,7 @@ import { requestWorkLaneShow } from '../../services/pentacleStream';
 export type ReadWorkLaneShow = (laneId: string) => Promise<WorkLaneShow>;
 
 /** Each view owns its request epoch; replies after back/target/reconnect are ignored. */
-export function useWorkLaneShow(laneId: string, connected: boolean, enabled = true, readShow: ReadWorkLaneShow = requestWorkLaneShow) {
+export function useWorkLaneShow(laneId: string, connected: boolean, enabled = true, readShow: ReadWorkLaneShow = requestWorkLaneShow, revision?: string) {
   const epoch = useRef(0);
   const [data, setData] = useState<WorkLaneShow | null>(null);
   const [loading, setLoading] = useState(false);
@@ -26,7 +26,7 @@ export function useWorkLaneShow(laneId: string, connected: boolean, enabled = tr
         setError(code === 'timeout' || code === 'request_timeout' || /timed?\s*out|timeout/i.test(message) ? 'Request timed out' : 'Lane details unavailable');
       }
     } finally { if (mine === epoch.current) setLoading(false); }
-  }, [laneId, connected, enabled, readShow]);
+  }, [laneId, connected, enabled, readShow, revision]);
   useEffect(() => {
     void load();
     return () => { epoch.current += 1; };

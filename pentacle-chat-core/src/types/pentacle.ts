@@ -741,6 +741,12 @@ export interface WorkLaneMember {
   seats?: WorkLaneSeat[];
   seats_total?: number;
   open_questions?: { count: number; first_question_id: string | null };
+  worked?: { elapsed_h: number | null; censored: boolean; active_h: number | null; seats: number; qa_rounds: number; as_of: string } | null;
+  criteria?: Array<{ title: string; disposition: 'open' | 'done' | 'waived' | 'tracked' | 'parked' }>;
+  transitions?: Array<{ status: string; at: string }>;
+  lead_seat?: { stream_id: string; host: string; provider: string | null; activity: WorkLaneSeat['activity']; eta_at: string | null; active_step: string | null } | null;
+  status_line?: string | null;
+  next_line?: string | null;
 }
 
 export interface WorkLaneSeat {
@@ -776,6 +782,7 @@ export interface WorkIndex {
 
 export interface WorkLane extends WorkLaneAggregates {
   lane_id: string;
+  icon?: string | null;
   title: string;
   summary: string;
   /** Presented state; `done` never appears in the header list. */
@@ -806,6 +813,7 @@ export interface WorkLanesInventory {
 
 export interface WorkLaneLogUpdate {
   update_id: string;
+  spec_id?: string | null;
   kind: WorkLaneUpdateKind;
   event_id: string | number | null;
   created_at: string;

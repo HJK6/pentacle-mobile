@@ -5,7 +5,7 @@ import type { LaneCardViewModel } from "../../services/workLanes";
 import type { WorkLaneMember } from "pentacle-chat-core";
 import { Fonts } from "@/constants/Colors";
 import { body, Icon, label, mono, p, SpecGlyph, laneTime } from "./LaneAtoms";
-import { formatLaneFreshness } from "../../services/workLanes";
+import { formatLaneFreshness, specDetailModel } from "../../services/workLanes";
 export function memberTitle(member: WorkLaneMember) {
   return member.title || member.spec_id;
 }
@@ -249,7 +249,282 @@ export default function LaneMemberDetail({
           {laneTitle}
         </Text>
       </Pressable>
-      <MemberContent member={member} model={model} />
+      <StructuredMemberContent member={member} model={model} />
+    </View>
+  );
+}
+
+function DetailField({
+  name,
+  children,
+  id,
+}: {
+  name: string;
+  children: React.ReactNode;
+  id?: string;
+}) {
+  return (
+    <View testID={id} style={{ gap: 5 }}>
+      <Text style={label}>{name}</Text>
+      {children}
+    </View>
+  );
+}
+export function AcceptanceBar({
+  checked,
+  total,
+  color = p.green,
+}: {
+  checked?: number | null;
+  total?: number | null;
+  color?: string;
+}) {
+  const fraction = total ? Math.max(0, Math.min(1, (checked ?? 0) / total)) : 0;
+  return (
+    <View
+      accessibilityRole="progressbar"
+      accessibilityValue={{ min: 0, max: total ?? 0, now: checked ?? 0 }}
+      style={{
+        height: 5,
+        backgroundColor: p.line,
+        borderRadius: 3,
+        overflow: "hidden",
+      }}
+    >
+      <View
+        style={{
+          height: "100%",
+          width: `${fraction * 100}%`,
+          backgroundColor: color,
+        }}
+      />
+    </View>
+  );
+}
+/** Detail field order follows approved frames; absent observations never become invented values. */
+export function StructuredMemberContent({
+  member,
+  model,
+}: {
+  member: WorkLaneMember;
+  model?: LaneCardViewModel;
+}) {
+  const detail = specDetailModel(member),
+    worked = member.worked,
+    lead = member.lead_seat;
+  return (
+    <View testID={`member-detail-${member.spec_id}`} style={{ gap: 16 }}>
+      <View
+        style={{
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 7,
+          flexWrap: "wrap",
+        }}
+      >
+        <SpecGlyph member={member} model={model} />
+        <Text style={label}>
+          {(member.status ?? "unknown").replace(/_/g, " ").toUpperCase()}
+        </Text>
+        {detail.since ? (
+          <Text testID="member-since" style={mono}>
+            · {detail.since}
+          </Text>
+        ) : null}
+        {member.source_changed_at ? (
+          <Text testID="member-changed" style={mono}>
+            · changed{" "}
+            {formatLaneFreshness(member.source_changed_at, Date.now())}
+          </Text>
+        ) : null}
+      </View>
+      <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 8 }}>
+        <Text
+          style={{
+            ...body,
+            flex: 1,
+            fontFamily: Fonts.rajdhani.bold,
+            fontSize: 21,
+            lineHeight: 25,
+            color: p.text,
+          }}
+        >
+          {memberTitle(member)}
+        </Text>
+        <HeaderVoiceMic />
+      </View>
+      {member.transitions?.length ? (
+        <Text testID="member-lifecycle" style={{ ...mono, lineHeight: 17 }}>
+          {member.transitions
+            .map((t) => `${t.status.replace(/_/g, " ").toUpperCase()} ${t.at}`)
+            .join(" › ")}
+        </Text>
+      ) : null}
+      <View style={{ flexDirection: "row", gap: 12 }}>
+        {member.ac_checked != null && member.ac_total != null ? (
+          <View testID="member-acceptance" style={{ flex: 1, gap: 4 }}>
+            <Text style={mono}>ACCEPTANCE</Text>
+            <Text
+              style={{
+                ...body,
+                color: p.text,
+                fontSize: 24,
+                fontFamily: Fonts.rajdhani.bold,
+              }}
+            >
+              {memberAcceptance(member)}
+            </Text>
+          </View>
+        ) : null}
+        {member.estimate ? (
+          <View testID="member-estimate" style={{ flex: 1, gap: 4 }}>
+            <Text style={mono}>ESTIMATE</Text>
+            <Text
+              style={{
+                ...body,
+                color: p.text,
+                fontSize: 24,
+                fontFamily: Fonts.rajdhani.bold,
+              }}
+            >
+              {member.estimate.p25}–{member.estimate.p75}h
+            </Text>
+            <Text style={{ ...mono, lineHeight: 15 }}>
+              median {member.estimate.median}h
+              {member.estimate.provisional ? " · provisional" : ""}
+            </Text>
+          </View>
+        ) : null}
+        {worked ? (
+          <View testID="member-worked" style={{ flex: 1, gap: 4 }}>
+            <Text style={mono}>WORKED</Text>
+            {worked.elapsed_h != null ? (
+              <Text
+                style={{
+                  ...body,
+                  color: p.text,
+                  fontSize: 24,
+                  fontFamily: Fonts.rajdhani.bold,
+                }}
+              >
+                {worked.elapsed_h}h{worked.censored ? "+" : ""}
+              </Text>
+            ) : null}
+            <Text style={{ ...mono, lineHeight: 15 }}>
+              {worked.active_h != null ? `${worked.active_h}h active · ` : ""}
+              {worked.seats} seats · {worked.qa_rounds} QA
+            </Text>
+          </View>
+        ) : null}
+      </View>
+      {member.ac_checked != null && member.ac_total != null ? (
+        <AcceptanceBar
+          checked={member.ac_checked}
+          total={member.ac_total}
+          color={member.status === "blocked" ? p.amber : p.green}
+        />
+      ) : null}
+      {lead ? (
+        <View
+          testID="member-lead"
+          style={{
+            padding: 12,
+            borderWidth: 1,
+            borderColor: p.line,
+            borderRadius: 9,
+            gap: 5,
+          }}
+        >
+          <Text
+            style={{ ...body, color: p.text, fontFamily: Fonts.rajdhani.bold }}
+          >
+            Lead · {lead.host}
+            {lead.provider ? ` · ${lead.provider}` : ""}
+          </Text>
+          <Text style={{ ...mono, lineHeight: 17 }}>
+            {lead.activity.toUpperCase()}
+            {lead.eta_at ? ` · ETA ${laneTime(lead.eta_at)}` : ""}
+            {lead.active_step ? ` · ${lead.active_step}` : ""}
+          </Text>
+        </View>
+      ) : null}
+      {(member.open_questions?.count ?? 0) > 0 ? (
+        <View
+          testID="member-open-questions"
+          style={{
+            padding: 12,
+            borderWidth: 1,
+            borderColor: `${p.amber}88`,
+            borderRadius: 9,
+          }}
+        >
+          <Text style={{ ...body, color: p.amber }}>
+            ? {member.open_questions!.count} open{" "}
+            {member.open_questions!.count === 1 ? "question" : "questions"}
+          </Text>
+        </View>
+      ) : null}
+      {detail.status ? (
+        <DetailField name="STATUS" id="member-status">
+          <Text
+            style={{ ...body, color: p.text, fontSize: 16, lineHeight: 23 }}
+          >
+            {detail.status}
+          </Text>
+        </DetailField>
+      ) : null}
+      {detail.next ? (
+        <DetailField name="NEXT" id="member-next">
+          <Text
+            style={{ ...body, color: p.text, fontSize: 16, lineHeight: 23 }}
+          >
+            {detail.next}
+          </Text>
+        </DetailField>
+      ) : null}
+      {detail.criteria.length ? (
+        <DetailField
+          name={`ACCEPTANCE · ${detail.criteria.filter((c) => c.disposition === "open").length} OPEN · ${detail.criteria.filter((c) => c.disposition === "done").length} DONE`}
+          id="member-criteria"
+        >
+          {detail.criteria.map((criterion, index) => (
+            <View
+              key={`${index}:${criterion.title}`}
+              testID={`member-criterion-${index}`}
+              style={{
+                flexDirection: "row",
+                gap: 9,
+                paddingVertical: 9,
+                borderBottomWidth: 1,
+                borderColor: p.line,
+              }}
+            >
+              <Text
+                style={{
+                  ...body,
+                  color: criterion.disposition === "done" ? p.green : p.dim,
+                }}
+              >
+                {criterion.disposition === "done" ? "✓" : "○"}
+              </Text>
+              <Text
+                style={{
+                  ...body,
+                  flex: 1,
+                  color: criterion.disposition === "done" ? p.dim : p.text,
+                }}
+              >
+                {criterion.title}
+              </Text>
+              {criterion.disposition !== "open" &&
+              criterion.disposition !== "done" ? (
+                <Text style={mono}>{criterion.disposition}</Text>
+              ) : null}
+            </View>
+          ))}
+        </DetailField>
+      ) : null}
+      <ObservationMarker member={member} />
     </View>
   );
 }

@@ -1,24 +1,21 @@
-import HeaderVoiceMic from '../voice/HeaderVoiceMic';
-import { compactHeaderLayout } from '../headerLayout';
-import { useVoiceSurface } from '../../services/voicePresentation';
 import React, { useEffect, useRef, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import type { WorkLanesInventory } from "pentacle-chat-core";
 import { Fonts } from "@/constants/Colors";
+import HeaderVoiceMic from "../voice/HeaderVoiceMic";
+import { compactHeaderLayout } from "../headerLayout";
+import { useVoiceSurface } from "../../services/voicePresentation";
 import ArcaneRingFrame from "../ArcaneRingFrame";
 import MachineSigil from "../MachineSigil";
-import StatusTag from "../StatusTag";
 import Starfield from "../Starfield";
-import Bevel from "../Bevel";
 import type {
   LaneCardViewModel,
   LaneUpdateEntry,
 } from "../../services/workLanes";
-import LaneCard, { type ListVariant } from "./LaneCard";
+import type { ListVariant } from "./LaneCard";
 import LaneLog from "./LaneLog";
 import LanesMap from "./LanesMap";
 import {
-  laneTime,
   body,
   Icon,
   label,
@@ -27,9 +24,13 @@ import {
   LeafText,
   mono,
   p,
+  laneTime,
 } from "./LaneAtoms";
 import { emitHarnessUiTrace } from "./lanesTelemetry";
 import type { ReadWorkLaneShow } from "./useWorkLaneShow";
+import type { SheetSnap } from "./LanesSheet";
+export { LatestUpdate } from "./LatestUpdate";
+
 export function AssistantMark({ size = 38 }: { size?: number }) {
   return (
     <ArcaneRingFrame size={size} color={p.green}>
@@ -37,87 +38,31 @@ export function AssistantMark({ size = 38 }: { size?: number }) {
     </ArcaneRingFrame>
   );
 }
-export function LatestUpdate({
-  updates,
-  onPress,
-  map = false,
-}: {
-  updates: LaneUpdateEntry[];
-  onPress(): void;
-  map?: boolean;
-}) {
-  const latest = updates[0];
+function HeaderRing({ lanes }: { lanes: LaneCardViewModel[] }) {
   return (
-    <View style={{ gap: 8 }}>
-      {!map ? (
-        <View style={{ flexDirection: "row", alignItems: "center" }}>
-          <Text style={[label, { flex: 1 }]}>Latest update</Text>
-          <Pressable
-            testID="lanes-all-updates"
-            accessibilityRole="button"
-            accessibilityLabel="All updates"
-            onPress={onPress}
+    <View
+      testID="lanes-header-mini-ring"
+      pointerEvents="none"
+      style={StyleSheet.absoluteFill}
+    >
+      {lanes.map((model, i) => {
+        const angle =
+          -Math.PI / 2 + (2 * Math.PI * i) / Math.max(lanes.length, 1);
+        return (
+          <View
+            key={model.lane.lane_id}
             style={{
-              flexDirection: "row",
-              alignItems: "center",
-              gap: 3,
-              padding: 2,
+              position: "absolute",
+              width: 4,
+              height: 4,
+              borderRadius: 2,
+              left: 17 + 22 * Math.cos(angle),
+              top: 17 + 22 * Math.sin(angle),
+              backgroundColor: p[model.stateTone],
             }}
-          >
-            <Text
-              style={{
-                ...body,
-                fontSize: 13.5,
-                fontFamily: Fonts.rajdhani.bold,
-              }}
-            >
-              All updates · {updates.length}
-            </Text>
-            <Icon kind="chevron" size={13} />
-          </Pressable>
-        </View>
-      ) : null}
-      <Pressable
-        testID="lanes-latest-update"
-        accessibilityRole="button"
-        accessibilityLabel="Open update log"
-        onPress={onPress}
-      >
-        <Bevel
-          cut={10}
-          fill={`${p.green}0c`}
-          stroke={`${p.green}33`}
-          contentStyle={{ paddingHorizontal: 13, paddingVertical: 11, gap: 4 }}
-        >
-          <View style={{ flexDirection: "row", gap: 7, alignItems: "center" }}>
-            <Text
-              style={{
-                ...mono,
-                fontSize: 10,
-                letterSpacing: 1,
-                color: p.green,
-                fontFamily: Fonts.jetBrainsMono.bold,
-              }}
-            >
-              {map ? "LATEST · " : ""}
-              {laneTime(latest?.update.ts)}
-            </Text>
-            <View
-              style={{
-                width: 6,
-                height: 6,
-                borderRadius: 3,
-                backgroundColor: p.green,
-              }}
-            />
-          </View>
-          <Text
-            style={{ ...body, color: p.text, fontSize: 14.5, lineHeight: 22 }}
-          >
-            {latest?.update.summary || "No updates yet"}
-          </Text>
-        </Bevel>
-      </Pressable>
+          />
+        );
+      })}
     </View>
   );
 }
@@ -132,7 +77,6 @@ export default function LanesOverlay({
   onChat,
   onClose,
   readShow,
-  listVariant = "compact",
   active = true,
 }: {
   lanes: LaneCardViewModel[];
@@ -148,15 +92,14 @@ export default function LanesOverlay({
   listVariant?: ListVariant;
   active?: boolean;
 }) {
-  const [view, setView] = useState<"list" | "map">("list"),
-    [focus, setFocus] = useState<string | null>(null),
-    [logId, setLogId] = useState<string | null>(null),
+  const [focus, setFocus] = useState<string | null>(null),
+    [snap, setSnap] = useState<SheetSnap>("peek");
+  const [logId, setLogId] = useState<string | null>(null),
     [allUpdates, setAllUpdates] = useState(false),
     [unavailableLog, setUnavailableLog] = useState<string | null>(null);
   const mapBack = useRef<() => void>(() => setFocus(null));
-  const focused =
-    view === "map" ? lanes.find((m) => m.lane.lane_id === focus) : undefined;
-  const log = lanes.find((m) => m.lane.lane_id === logId);
+  const focused = lanes.find((m) => m.lane.lane_id === focus),
+    log = lanes.find((m) => m.lane.lane_id === logId);
   useEffect(() => {
     if (logId && !log) setLogId(null);
   }, [logId, log]);
@@ -175,23 +118,23 @@ export default function LanesOverlay({
         ).length,
       });
   }, [inventory]);
-  useEffect(() => {
-    if (!logId) emitHarnessUiTrace("work_lanes_view", { view });
-  }, [view, logId]);
-  const openLog = (model: LaneCardViewModel) => setLogId(model.lane.lane_id);
   const closeGlobalLog = () => {
     setAllUpdates(false);
     setUnavailableLog(null);
   };
-  const openPublicationLog = (entry: LaneUpdateEntry) => {
-    const model = lanes.find(
-      (lane) => lane.lane.lane_id === entry.update.lane_id,
-    );
-    setUnavailableLog(model ? null : entry.update.lane_id);
-    if (model) openLog(model);
-  };
+  const openLog = (model: LaneCardViewModel) => setLogId(model.lane.lane_id);
   const hidden = !!log || allUpdates;
-  useVoiceSurface({ page_id: log || allUpdates ? 'updates' : focused ? 'lane' : 'lanes', title: log ? log.lane.title : allUpdates ? 'Update log' : focused?.lane.title || 'Work lanes', ...(log || focused ? { entity_id: (log || focused)!.lane.lane_id } : {}) }, active, { priority: 1, bottom: bottom + 10, top: top + 72 });
+  useVoiceSurface(
+    {
+      page_id: hidden ? "updates" : focused ? "lane" : "lanes",
+      title:
+        log?.lane.title ||
+        (allUpdates ? "Update log" : focused?.lane.title || "Work lanes"),
+      ...(log || focused ? { entity_id: (log || focused)!.lane.lane_id } : {}),
+    },
+    active,
+    { priority: 1, bottom: bottom + 10, top: top + 72 },
+  );
   return (
     <View testID="lanes-overlay" style={{ flex: 1, backgroundColor: p.ink }}>
       <Starfield />
@@ -211,21 +154,11 @@ export default function LanesOverlay({
           }}
         >
           <View style={{ flexDirection: "row", gap: 9, alignItems: "center" }}>
-            {focused ? (
+            {focused || allUpdates ? (
               <Pressable
                 accessibilityRole="button"
                 accessibilityLabel="Back"
-                onPress={() => mapBack.current()}
-                style={styles.round}
-              >
-                <Icon kind="back" />
-              </Pressable>
-            ) : null}
-            {allUpdates ? (
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Back"
-                onPress={closeGlobalLog}
+                onPress={allUpdates ? closeGlobalLog : () => mapBack.current()}
                 style={styles.round}
               >
                 <Icon kind="back" />
@@ -235,7 +168,10 @@ export default function LanesOverlay({
               {focused ? (
                 <LaneMark model={focused} size={38} />
               ) : (
-                <AssistantMark />
+                <View>
+                  <AssistantMark />
+                  {snap === "full" ? <HeaderRing lanes={lanes} /> : null}
+                </View>
               )}
               <View style={compactHeaderLayout.copy}>
                 <Text
@@ -254,7 +190,7 @@ export default function LanesOverlay({
                 <View
                   style={{
                     flexDirection: "row",
-                    gap: 9,
+                    gap: 7,
                     alignItems: "center",
                     marginTop: 3,
                   }}
@@ -263,66 +199,34 @@ export default function LanesOverlay({
                     <>
                       <LaneGlyph model={focused} size={10} />
                       <Text
+                        numberOfLines={1}
                         style={{
                           ...mono,
                           color: p[focused.stateTone],
                           letterSpacing: 1,
+                          flexShrink: 1,
                         }}
                       >
-                        {focused.stateLabel}
+                        {focused.stateLabel} ·{" "}
+                        {focused.leadHost ||
+                          focused.lane.visible_chat.stream_id.split(":")[0]}
                       </Text>
                     </>
                   ) : (
-                    <>
-                      <StatusTag status={connected ? "working" : "idle"} />
-                      <Text style={{ ...mono, letterSpacing: 0.5 }}>
-                        {inventory?.counts.open ?? lanes.length} LANES
-                      </Text>
-                    </>
+                    <Text
+                      numberOfLines={1}
+                      style={{ ...mono, letterSpacing: 0.5 }}
+                    >
+                      {inventory?.counts.open ?? lanes.length} LANES
+                      {inventory?.counts.blocked
+                        ? ` · ${inventory.counts.blocked} BLOCKED`
+                        : ""}
+                    </Text>
                   )}
                 </View>
               </View>
               <HeaderVoiceMic />
             </View>
-            {!allUpdates ? (
-              <View
-                testID="lanes-view-toggle"
-                accessibilityValue={{ text: view }}
-                style={{
-                  flexDirection: "row",
-                  gap: 2,
-                  borderWidth: 1,
-                  borderColor: p.line,
-                  padding: 2,
-                  borderRadius: 4,
-                }}
-              >
-                {(["list", "map"] as const).map((value) => (
-                  <Pressable
-                    key={value}
-                    testID={`lanes-view-${value}`}
-                    accessibilityRole="button"
-                    accessibilityLabel={`${value === "list" ? "List" : "Map"} view`}
-                    accessibilityState={{ selected: view === value }}
-                    onPress={() => setView(value)}
-                    style={{
-                      width: 34,
-                      height: 30,
-                      alignItems: "center",
-                      justifyContent: "center",
-                      borderRadius: 3,
-                      backgroundColor:
-                        view === value ? `${p.green}22` : "transparent",
-                    }}
-                  >
-                    <Icon
-                      kind={value}
-                      color={view === value ? p.green : p.muted}
-                    />
-                  </Pressable>
-                ))}
-              </View>
-            ) : null}
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="Close lanes"
@@ -345,94 +249,45 @@ export default function LanesOverlay({
           accessibilityElementsHidden={hidden}
           importantForAccessibility={hidden ? "no-hide-descendants" : "auto"}
         >
-          <View
-            style={[{ flex: 1 }, view !== "list" && styles.hidden]}
-            accessibilityElementsHidden={view !== "list"}
-            importantForAccessibility={
-              view !== "list" ? "no-hide-descendants" : "auto"
+          <LanesMap
+            active={active && !hidden}
+            bottom={bottom}
+            voiceBottom={bottom + 10}
+            voiceTop={top + 72}
+            onBackHandler={(handler) => {
+              mapBack.current = handler;
+            }}
+            lanes={lanes}
+            assistantName={assistantName}
+            focusedLaneId={focus}
+            onFocusLane={setFocus}
+            onSnapChange={setSnap}
+            onOpenMember={(m, member) =>
+              emitHarnessUiTrace("work_lanes_view", {
+                view: "member_detail",
+                lane_id: m.lane.lane_id,
+                spec_id: member.spec_id,
+              })
             }
-          >
-            <ScrollView
-              contentContainerStyle={{
-                paddingTop: 16,
-                paddingHorizontal: 14,
-                paddingBottom: Math.max(28, bottom),
-                gap: 20,
-              }}
-            >
-              <LatestUpdate
-                updates={updates}
-                onPress={() => setAllUpdates(true)}
-              />
-              <View style={{ gap: 10 }}>
-                <Text style={label}>
-                  OPEN LANES ·{" "}
-                  {inventory?.truncated
-                    ? `${lanes.length} OF ${inventory.counts.open}`
-                    : (inventory?.counts.open ?? lanes.length)}
-                </Text>
-                {!lanes.length ? <Text style={body}>No open lanes</Text> : null}
-                {lanes.map((model) => (
-                  <LaneCard
-                    key={model.lane.lane_id}
-                    model={model}
-                    connected={connected}
-                    readShow={readShow}
-                    variant={listVariant}
-                    onOpenMember={(m, member) =>
-                      emitHarnessUiTrace("work_lanes_view", {
-                        view: "member_detail",
-                        lane_id: m.lane.lane_id,
-                        spec_id: member.spec_id,
-                      })
-                    }
-                    onShowAll={(m) =>
-                      emitHarnessUiTrace("work_lanes_view", {
-                        view: "members",
-                        lane_id: m.lane.lane_id,
-                      })
-                    }
-                    onLog={openLog}
-                    onChat={onChat}
-                  />
-                ))}
-              </View>
-            </ScrollView>
-          </View>
-          {view === "map" ? (
-            <LanesMap active={active && !hidden} voiceBottom={bottom + 10} voiceTop={top + 72}
-              onBackHandler={(handler) => {
-                mapBack.current = handler;
-              }}
-              lanes={lanes}
-              assistantName={assistantName}
-              focusedLaneId={focus}
-              onFocusLane={setFocus}
-              page={0}
-              onPageChange={() => {}}
-              onOpenMember={(m, member) =>
-                emitHarnessUiTrace("work_lanes_view", {
-                  view: "member_detail",
-                  lane_id: m.lane.lane_id,
-                  spec_id: member.spec_id,
-                })
-              }
-              onShowAll={() => setView("list")}
-              onLog={openLog}
-              onChat={onChat}
-              updates={updates}
-              onAllUpdates={() => setAllUpdates(true)}
-              connected={connected}
-              readShow={readShow}
-            />
-          ) : null}
+            onLog={openLog}
+            onChat={onChat}
+            updates={updates}
+            onAllUpdates={() => setAllUpdates(true)}
+            connected={connected}
+            readShow={readShow}
+          />
         </View>
         {allUpdates ? (
           <ScrollView
             testID="lanes-update-log"
             contentContainerStyle={{ padding: 16, gap: 14 }}
           >
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}><Text style={label}>Update log</Text><HeaderVoiceMic /></View>
+            <View
+              style={{ flexDirection: "row", alignItems: "center", gap: 8 }}
+            >
+              <Text style={label}>Update log</Text>
+              <HeaderVoiceMic />
+            </View>
             {unavailableLog ? (
               <LeafText
                 id="lanes-update-log-unavailable"
@@ -446,7 +301,13 @@ export default function LanesOverlay({
                 testID={`lanes-update-log-row-${entry.update.update_id}`}
                 accessibilityRole="button"
                 accessibilityLabel={`Open lane log: ${entry.update.summary}`}
-                onPress={() => openPublicationLog(entry)}
+                onPress={() => {
+                  const model = lanes.find(
+                    (m) => m.lane.lane_id === entry.update.lane_id,
+                  );
+                  setUnavailableLog(model ? null : entry.update.lane_id);
+                  if (model) openLog(model);
+                }}
                 style={{ gap: 5 }}
               >
                 <Text style={{ ...mono, color: i === 0 ? p.green : p.muted }}>
@@ -458,7 +319,6 @@ export default function LanesOverlay({
                     color: i === 0 ? p.text : p.dim,
                     borderWidth: 1,
                     borderColor: i === 0 ? `${p.green}33` : p.line,
-                    backgroundColor: i === 0 ? `${p.green}0c` : "transparent",
                     padding: 12,
                     lineHeight: 22,
                   }}

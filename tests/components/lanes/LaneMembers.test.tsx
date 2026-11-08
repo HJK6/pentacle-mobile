@@ -166,15 +166,8 @@ test.each<WorkLaneObservationQuality>([
     expect(view.getByText("2–4h")).toBeTruthy();
     expect(view.getByText("median 3h · provisional")).toBeTruthy();
     expect(view.getByText("Model prepared.")).toBeTruthy();
-    expect(view.getByText("NEXT Inspect the paper span.")).toBeTruthy();
-    expect(
-      view.getByLabelText(`Spec ${member.spec_id}, observed ${observedAt}`),
-    ).toBeTruthy();
-    expect(
-      view.getByLabelText(
-        `CHANGED, source ${member.source_changed_at || "unknown"}`,
-      ),
-    ).toBeTruthy();
+    expect(view.getByTestId('member-next')).toHaveTextContent(/Inspect the paper span\./);
+    expect(view.getByTestId('member-changed')).toHaveTextContent(/changed/);
     if (quality === "fresh")
       expect(view.queryByText(/^FRESH · observed/)).toBeNull();
     else
@@ -204,13 +197,14 @@ test.each(["missing_member", "ambiguous_member"])(
       />,
     );
     expect(view.getAllByText(member.spec_id).length).toBeGreaterThan(0);
-    expect(view.getAllByText("—")).toHaveLength(2);
+    expect(view.queryByTestId('member-acceptance')).toBeNull();
+    expect(view.queryByTestId('member-estimate')).toBeNull();
     expect(
       view.getByText(
         `${member.observation!.quality.toUpperCase()} · observed unknown`,
       ),
     ).toBeTruthy();
-    expect(view.getByText("unknown")).toBeTruthy();
+    expect(view.queryByTestId('member-changed')).toBeNull();
     expect(view.queryByText(/^Median/)).toBeNull();
   },
 );

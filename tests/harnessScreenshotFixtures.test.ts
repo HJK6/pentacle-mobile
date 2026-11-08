@@ -83,7 +83,7 @@ describe('screenshot harness fixtures', () => {
 
   it('assistant:lane_updates seeds one typed card per update kind in the assistant timeline', () => {
     const state = seed('assistant:lane_updates');
-    expect(selectOpenLaneCount(state)).toBe(4);
+    expect(selectOpenLaneCount(state)).toBe(13);
     expect(selectLaneUpdates(state).map((entry) => entry.update.kind).sort()).toEqual([
       'lane_blocked', 'lane_completed', 'lane_started', 'lane_unblocked', 'major_decision', 'milestone',
     ]);

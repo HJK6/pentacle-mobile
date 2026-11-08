@@ -1,6 +1,7 @@
 import { readFileSync } from "fs";
 import { join } from "path";
 import React from "react";
+import { AccessibilityInfo } from 'react-native';
 import { act, fireEvent, render, screen } from "@testing-library/react-native";
 import {
   applyWorkLanesInventory,
@@ -45,6 +46,8 @@ jest.mock("../../../src/services/pentacleStream", () => ({
 const router = () => require("expo-router").useRouter();
 
 beforeEach(() => {
+  jest.useFakeTimers();
+  jest.spyOn(AccessibilityInfo, 'isReduceMotionEnabled').mockResolvedValue(true);
   resetChatOpenNavigationIntents();
   jest.clearAllMocks();
   mockState = applyWorkLanesInventory(
@@ -53,34 +56,45 @@ beforeEach(() => {
   );
   (requestLaneHistory as jest.Mock).mockResolvedValue([]);
 });
+afterEach(() => jest.restoreAllMocks());
+async function openZoom(id: string) {
+  if (!screen.queryByTestId('lane-row-' + id) && screen.queryByTestId('lanes-dormant-fold')) fireEvent.press(screen.getByTestId('lanes-dormant-fold'));
+  fireEvent.press(screen.getByTestId('lane-row-' + id));
+  await act(async () => {});
+}
 
-test("renders the daemon lanes in order with the open count", () => {
+test("renders the daemon lanes on the map with the open count", async () => {
   render(<LanesRoute />);
-  expect(screen.getByText("OPEN LANES · 4")).toBeTruthy();
+  await act(async () => {});
+  expect(screen.getByText("4 LANES · 1 BLOCKED")).toBeTruthy();
+  if (screen.queryByTestId('lanes-dormant-fold')) fireEvent.press(screen.getByTestId('lanes-dormant-fold'));
   expect(
-    screen.getAllByTestId(/^lane-card-wl-/).map((row) => row.props.testID),
-  ).toEqual(fixture.expected.order.map((id: string) => `lane-card-${id}`));
+    screen.getAllByTestId(/^lane-row-wl-/).map((row) => row.props.testID).sort(),
+  ).toEqual(fixture.expected.order.map((id: string) => `lane-row-${id}`).sort());
 });
 
-test("an open session lane navigates to that session", () => {
+test("an open session lane navigates to that session from zoom", async () => {
   render(<LanesRoute />);
-  fireEvent.press(screen.getByTestId("lane-card-chat-wl-blocked-0001"));
+  await openZoom('wl-blocked-0001');
+  fireEvent.press(screen.getByTestId('lane-zoom-open-chat'));
   expect(router().push).toHaveBeenCalledWith(
     "/pentacle/session/fixture-host%3Av2-lead0001",
   );
 });
 
-test("a lane whose visible chat is the assistant composite returns to the assistant thread, not a session route", () => {
+test("a lane whose visible chat is the assistant composite returns to the assistant thread, not a session route", async () => {
   render(<LanesRoute />);
-  fireEvent.press(screen.getByTestId("lane-card-chat-wl-active-0002"));
+  await openZoom('wl-active-0002');
+  fireEvent.press(screen.getByTestId('lane-zoom-open-chat'));
   expect(router().replace).toHaveBeenCalledWith('/(tabs)/assistant');
   expect(router().push).not.toHaveBeenCalled();
 });
 
 test("a closed chat opens the read-only history for its exact generation, never a session route", async () => {
   render(<LanesRoute />);
+  await openZoom('wl-paused-0003');
   await act(async () => {
-    fireEvent.press(screen.getByTestId("lane-card-chat-wl-paused-0003"));
+    fireEvent.press(screen.getByTestId('lane-zoom-open-chat'));
   });
   expect(screen.getByTestId("lane-history-screen")).toBeTruthy();
   expect(requestLaneHistory).toHaveBeenCalledWith(
@@ -94,25 +108,27 @@ test("a closed chat opens the read-only history for its exact generation, never 
   expect(screen.queryByTestId("lane-history-screen")).toBeNull();
 });
 
-test("an unavailable chat navigates nowhere and keeps the lane visible", () => {
+test("an unavailable chat navigates nowhere and keeps the lane visible", async () => {
   render(<LanesRoute />);
+  await openZoom('wl-paused-0004');
   expect(
-    screen.getByTestId("lane-card-chat-wl-paused-0004").props.accessibilityState
+    screen.getByTestId('lane-zoom-open-chat').props.accessibilityState
       .disabled,
   ).toBe(true);
-  fireEvent.press(screen.getByTestId("lane-card-chat-wl-paused-0004"));
+  fireEvent.press(screen.getByTestId('lane-zoom-open-chat'));
   expect(router().push).not.toHaveBeenCalled();
   expect(router().replace).not.toHaveBeenCalled();
-  expect(screen.getByTestId("lane-card-chat-wl-paused-0004")).toBeTruthy();
+  expect(screen.getByTestId('lane-zoom-wl-paused-0004')).toBeTruthy();
 });
 
-test("close returns to the previous screen", () => {
+test("close returns to the previous screen", async () => {
   render(<LanesRoute />);
+  await act(async () => {});
   fireEvent.press(screen.getByLabelText("Close lanes"));
   expect(router().back).toHaveBeenCalledTimes(1);
 });
 
-test("with no lane inventory the route says so instead of inventing lanes from sessions", () => {
+test("with no lane inventory the route says so instead of inventing lanes from sessions", async () => {
   mockState = {
     ...initialPentacleStreamState,
     connected: true,
@@ -134,6 +150,7 @@ test("with no lane inventory the route says so instead of inventing lanes from s
     ],
   };
   render(<LanesRoute />);
+  await act(async () => {});
   expect(screen.getByText("No open lanes")).toBeTruthy();
-  expect(screen.getByText("OPEN LANES · 0")).toBeTruthy();
+  expect(screen.getByText("0 LANES")).toBeTruthy();
 });

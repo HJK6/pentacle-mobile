@@ -14,6 +14,7 @@ export * from './services/optimisticMatch';
 export * from './services/pentacleStreamReducer';
 export * from './services/pentacleChatModel';
 export * from './services/workLanes';
+export * from './services/laneIcons';
 export * from './services/markdown';
 export * from './services/questionAnswerFormat';
 export * from './services/questionAnswerFormat.examples';

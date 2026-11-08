@@ -15,6 +15,7 @@ import {
 import { readFileSync } from "fs";
 import { join } from "path";
 import LanesOverlay from "../../../src/components/lanes/LanesOverlay";
+import LaneCard from "../../../src/components/lanes/LaneCard";
 import { selectLaneCardViewModels } from "../../../src/services/workLanes";
 import { parseWorkLaneShow } from "pentacle-chat-core";
 import LaneLog from "../../../src/components/lanes/LaneLog";
@@ -38,17 +39,7 @@ test("pending text is exposed exactly once by a leaf View with a current label",
   );
   const models = selectLaneCardViewModels(state);
   const view = render(
-    <LanesOverlay
-      lanes={models}
-      inventory={state.workLanes}
-      assistantName="Sample guide"
-      connected
-      updates={[]}
-      top={0}
-      bottom={0}
-      onChat={() => {}}
-      onClose={() => {}}
-    />,
+    <LaneCard model={models[0]} connected onOpenMember={() => {}} onShowAll={() => {}} onLog={() => {}} onChat={() => {}} />,
   );
   const id = `lane-card-members-pending-${models[0].lane.lane_id}`;
   const leaf = view.getByTestId(id);
@@ -197,7 +188,7 @@ test("log, member and history loading wrappers expose sole indicators and disapp
   await act(async () => resolveHistory([]));
   expect(history.queryByTestId("lane-history-loading")).toBeNull();
 });
-test("snapshot unknown/current labels update in place while header leaves stay inside their pressable", () => {
+test("snapshot unknown/current labels update in place while header leaves stay inside their pressable", async () => {
   const m = model(),
     inventory = {
       ...frame,
@@ -234,22 +225,12 @@ test("snapshot unknown/current labels update in place while header leaves stay i
     />,
   );
   assertLeaf(view, "lanes-index-banner", "DATA AS OF 9:41 AM");
-  expect(
-    view.getByTestId(`lane-card-${m.lane.lane_id}`).props.accessible,
-  ).not.toBe(true);
-  expect(
-    view.getByTestId(`lane-card-progress-${m.lane.lane_id}`).props.accessible,
-  ).not.toBe(true);
-  expect(
-    view.getByTestId(`lane-card-state-${m.lane.lane_id}`).props.accessible,
-  ).not.toBe(true);
-  fireEvent.press(view.getByTestId("lanes-view-map"));
-  fireEvent.press(view.getByTestId(`lanes-map-lane-${m.lane.lane_id}`));
-  assertLeaf(
-    view,
-    `lanes-map-progress-${m.lane.lane_id}`,
-    m.progressLabel.replace(/^est\. open work /, ""),
-  );
+  await act(async () => {});
+  expect(view.getByTestId(`lane-row-${m.lane.lane_id}`).props.accessibilityRole).toBe('button');
+  fireEvent.press(view.getByTestId(`lane-row-${m.lane.lane_id}`));
+  await act(async () => {});
+  expect(view.getByTestId('lane-acceptance')).toHaveTextContent(/ACCEPTANCE/i);
+
 });
 test("both source-only legacy leaves have sole native-shaped wrappers and rerender current counts", () => {
   const state = applyWorkLanesInventory(
@@ -321,7 +302,8 @@ test("last-update enrichment dedupes per update identity, retains four feed entr
     readShow: read,
     listVariant: "current" as const,
   };
-  const view = render(<LanesOverlay {...props} />);
+  const Rows = ({ lanes }: { lanes: typeof models }) => <View>{lanes.map(m => <LaneCard key={m.lane.lane_id} model={m} connected readShow={read} variant="current" onOpenMember={() => {}} onShowAll={() => {}} onLog={() => {}} onChat={() => {}} />)}</View>;
+  const view = render(<Rows lanes={models} />);
   await act(async () => {});
   expect(read).toHaveBeenCalledTimes(4);
   while (releases.length) {
@@ -331,12 +313,11 @@ test("last-update enrichment dedupes per update identity, retains four feed entr
   expect(read).toHaveBeenCalledTimes(14);
   expect(peak).toBeLessThanOrEqual(4);
   expect(view.getByText("Actual cache-0")).toBeTruthy();
-  view.rerender(<LanesOverlay {...props} />);
+  view.rerender(<Rows lanes={models} />);
   await act(async () => {});
   expect(read).toHaveBeenCalledTimes(14);
   view.rerender(
-    <LanesOverlay
-      {...props}
+    <Rows
       lanes={[
         {
           ...models[0],
