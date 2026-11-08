@@ -75,6 +75,7 @@ import { Spinner } from '../../../src/components/ArcaneAtoms';
 import { AttachmentBubble } from '../../../src/components/AttachmentBubble';
 import { isImageAttachment } from '../../../src/services/fileAttachmentShare';
 import { ImageViewerModal } from '../../../src/components/ImageViewerModal';
+import { createImageGallery, type ImageGallery } from '../../../src/services/imageGallery';
 import ReportViewerModal from '../../../src/components/ReportViewerModal';
 import {
   listReports,
@@ -1100,7 +1101,8 @@ export function SessionScreen(props: SessionScreenProps) {
   const [locallyResolvedQuestionKeys, setLocallyResolvedQuestionKeys] = useState<Set<string>>(() => new Set());
   const [locallyDismissedQuestionKey, setLocallyDismissedQuestionKey] = useState<string | null>(null);
   // A1 (photo/camera send): the tapped attachment shown full-screen in the viewer.
-  const [viewerUri, setViewerUri] = useState<string | null>(null);
+  const [viewerGallery, setViewerGallery] = useState<ImageGallery | null>(null);
+  useLayoutEffect(() => { setViewerGallery(null); }, [streamId]);
   const nextQuestionAnswerAttemptIdRef = useRef(0);
   const transcriptRef = useRef<FlatList<PentacleTranscriptItem> | null>(null);
   const transcriptScrollOffsetRef = useRef(0);
@@ -1399,7 +1401,7 @@ export function SessionScreen(props: SessionScreenProps) {
     page_id: streamId === ASSISTANT_STREAM_ID ? 'assistant' : 'chat',
     title: streamId === ASSISTANT_STREAM_ID ? selectAssistantIdentity({ sessions: getPentacleStreamState?.()?.sessions ?? [] }).name : title,
     ...(streamId === ASSISTANT_STREAM_ID ? {} : { entity_id: streamId }),
-  }, isFocused && !!session && !statusOverlayShown && !questionOverlayOpen && !menuVisible && !renameVisible && !reportsVisible && !viewerUri && !agentThreadTarget, { chat: true });
+  }, isFocused && !!session && !statusOverlayShown && !questionOverlayOpen && !menuVisible && !renameVisible && !reportsVisible && !viewerGallery && !agentThreadTarget, { chat: true });
   const connecting = streamConnecting || shellSlice.connecting;
   useEffect(() => {
     if (!isFocused || !connectionSlice.connected || !streamId) return;
@@ -2093,6 +2095,9 @@ export function SessionScreen(props: SessionScreenProps) {
     ),
     [authoritativeQuestionAnswerProjections, detail?.transcriptItems, questionAnswerProjections, questionEventTimestamps, voiceState, streamId],
   );
+  const openImageViewer = useCallback((rowId: string, attachmentIndex: number) => {
+    setViewerGallery(createImageGallery(transcriptData, rowId, attachmentIndex));
+  }, [transcriptData]);
   useEffect(() => {
     const correlationId = chatOpenCorrelationIdRef.current;
     const firstAuthoritative = transcriptData.find((item) => !String(item.id).startsWith('fallback:'));
@@ -2534,7 +2539,7 @@ export function SessionScreen(props: SessionScreenProps) {
         onCopy={copyFromChat}
         showTurnDuration={showTurnDuration}
         queuedWhileWorking={item.queuedWhileWorking === true}
-        onPressAttachment={setViewerUri}
+        onPressAttachment={(_uri, attachmentIndex) => openImageViewer(item.id, attachmentIndex)}
         onRetry={retryFromChat}
         canSendNow={item.queuedWhileWorking === true && Boolean(item.optimisticId) && (actions.canSendQueuedNow?.(streamId, item.optimisticId as string) ?? false)}
         onSendNow={async (id) => {
@@ -2556,7 +2561,7 @@ export function SessionScreen(props: SessionScreenProps) {
         })}
       />
     </View>
-	  ), [chrome, copyFromChat, directChildForTranscript, harnessExpandedRowId, latestThinkingRowId, retryFromChat, session?.session_generation, showTurnDuration, streamId, actions, composerNotice]);
+	  ), [openImageViewer, chrome, copyFromChat, directChildForTranscript, harnessExpandedRowId, latestThinkingRowId, retryFromChat, session?.session_generation, showTurnDuration, streamId, actions, composerNotice]);
   const loadedEarlierRemaining = detail?.remainingCount || 0;
   const loadEarlierAvailable = loadedEarlierRemaining > 0 || hasOlderHistoryPage;
   useEffect(() => {
@@ -3505,7 +3510,7 @@ export function SessionScreen(props: SessionScreenProps) {
         onClose={() => setRenameVisible(false)}
       />
       {/* A1 (photo/camera send): full-screen viewer for a tapped attachment. */}
-      <ImageViewerModal uri={viewerUri} onClose={() => setViewerUri(null)} />
+      <ImageViewerModal gallery={viewerGallery} onClose={() => setViewerGallery(null)} />
       <ReportViewerModal visible={reportsVisible || (process.env.EXPO_PUBLIC_SCREENSHOT_HARNESS === '1' && params.reportHarness === '1')} streamId={streamId} accent={chrome.accent} onClose={() => setReportsVisible(false)} />
       {statusOverlayShown ? <StatusOverlay
         active={isFocused}
@@ -4076,7 +4081,7 @@ export const TranscriptRow = memo(function TranscriptRow({
   attachments?: RenderAttachment[];
   // Positive provider queue receipt, never inferred from a busy/origin hint.
   queuedWhileWorking?: boolean;
-  onPressAttachment?: (uri: string) => void;
+  onPressAttachment?: (uri: string, attachmentIndex: number) => void;
   // FEAT-SEND-RETRY: tap-to-retry a "failed sending" row (re-arm → re-transmit).
   onRetry?: (optimisticId: string) => void;
   canSendNow?: boolean;
@@ -4190,7 +4195,7 @@ export const TranscriptRow = memo(function TranscriptRow({
                 height={att.height}
                 borderColor={P.userBorder}
                 testID={`message-image-${i}`}
-                onPress={() => onPressAttachment?.(att.uri)}
+                onPress={() => onPressAttachment?.(att.uri, att.attachmentIndex ?? i)}
               />
             ))}
           </View>
@@ -4430,7 +4435,7 @@ export const TranscriptRow = memo(function TranscriptRow({
               height={att.height}
               borderColor={chrome.border}
               testID={`assistant-message-image-${i}`}
-              onPress={() => onPressAttachment?.(att.uri)}
+              onPress={() => onPressAttachment?.(att.uri, att.attachmentIndex ?? i)}
             />
           ))}
         </View>

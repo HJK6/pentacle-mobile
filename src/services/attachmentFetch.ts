@@ -55,24 +55,33 @@ async function fetchAttachmentUri(attachment: ChatAttachment): Promise<string> {
 
 export function renderAttachmentsWithLocalUris(attachments?: ChatAttachment[]): RenderAttachment[] | undefined {
   if (!attachments?.length) return undefined;
-  const renderAttachments = attachments.flatMap<RenderAttachment>((attachment) => {
+  const renderAttachments = attachments.flatMap<RenderAttachment>((attachment, attachmentIndex) => {
     if (!isImageAttachment(attachment.mime)) return [{ kind: 'file' as const, uri: '', attachment }];
     const uri = (attachment as AttachmentWithLocalUri).uri;
     return typeof uri === 'string'
-      ? [{ uri, width: attachment.width, height: attachment.height }]
+      ? [{ uri, width: attachment.width, height: attachment.height, attachmentIndex }]
       : [];
   });
   return renderAttachments.length > 0 ? renderAttachments : undefined;
 }
 
+/** The viewer uses the same local/cache resolver as transcript rows, including unmounted rows. */
+export async function resolveImageAttachment(attachment: ChatAttachment): Promise<string> {
+  if (!isImageAttachment(attachment.mime)) throw new Error('Unsupported image');
+  const uri = (attachment as AttachmentWithLocalUri).uri;
+  if (typeof uri === 'string' && uri) return uri;
+  return fetchAttachmentUri(attachment);
+}
+
 export async function fetchRenderAttachments(attachments?: ChatAttachment[]): Promise<RenderAttachment[] | undefined> {
   if (!attachments?.length) return undefined;
-  const renderAttachments: RenderAttachment[] = await Promise.all(attachments.map(async (attachment) => {
+  const renderAttachments: RenderAttachment[] = await Promise.all(attachments.map(async (attachment, attachmentIndex) => {
     if (!isImageAttachment(attachment.mime)) return { kind: 'file' as const, uri: '', attachment };
     return {
-      uri: await fetchAttachmentUri(attachment),
+      uri: await resolveImageAttachment(attachment),
       width: attachment.width,
       height: attachment.height,
+      attachmentIndex,
     };
   }));
   return renderAttachments.length > 0 ? renderAttachments : undefined;
