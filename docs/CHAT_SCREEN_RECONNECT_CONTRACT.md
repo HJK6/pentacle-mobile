@@ -89,7 +89,7 @@ next message. Only the Send action is disabled while the turn phase is not
 ## Close reply frames
 
 A close RPC (`{type:'close', host, session_name, defer_if_working:true}`) settles on
-exactly one v2 reply frame, mirroring the desktop rule:
+exactly one v2 reply frame, mirroring the Pentacle Web rule:
 
 - `close.ok` / `close.degraded` → success (`closed` unless the frame sets `deferred`).
 - `close.already_closed` → success (`closed: true`); the session was already gone.
