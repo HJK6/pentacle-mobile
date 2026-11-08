@@ -4,7 +4,7 @@ import XCTest
 final class ImageViewerUITests: XCTestCase {
   private var app: XCUIApplication!
   private var image: XCUIElement { app.images["image-viewer-image"] }
-  private var scroll: XCUIElement { app.scrollViews["image-viewer-scroll"] }
+  private var scroll: XCUIElement { app.scrollViews.containing(.image, identifier: "image-viewer-image").firstMatch }
 
   override func setUpWithError() throws {
     continueAfterFailure = false
