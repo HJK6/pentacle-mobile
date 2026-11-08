@@ -22,6 +22,9 @@ assert(
 fs.mkdirSync(output, { recursive: true });
 const receipt = {
   kind: "lanes-flow-v2-render",
+  evidence_class: "SUPPLEMENTAL fixture evidence: label rectangles, layout and visual states only",
+  accommodation: "FD approved hiding the unrelated web voice-recording overlay after its storage_unavailable banner covered the top node",
+  certifies_not: ["native pointer, touch or gesture acceptance"],
   source: require("node:child_process")
     .execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" })
     .trim(),
@@ -63,7 +66,14 @@ async function run() {
       });
       page.on("pageerror", (error) => receipt.errors.push(String(error)));
       await page.goto(new URL("/pentacle/lanes", url).toString());
-      await page.waitForFunction(() => !!window.__pentacleHarness?.ready);
+      await page.waitForFunction(
+        () => typeof window.__pentacleHarness?.seed === "function",
+      );
+      await page.locator(tid("lanes-map")).waitFor();
+      // FD-approved web-only accommodation; the normal Release driver hides nothing.
+      await page.addStyleTag({
+        content: '[data-testid="voice-recording-overlay"] { display: none !important; }',
+      });
       await seed(page, "flow_v2");
       await page.evaluate(() => document.fonts.ready);
       await page.locator('[data-testid^="lanes-map-label-"]').first().waitFor();
