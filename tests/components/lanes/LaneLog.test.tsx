@@ -124,7 +124,7 @@ test("updates join audit summaries, then published text, then kind/time without 
     }),
   );
   await act(async () => {});
-  expect(readShow).toHaveBeenCalledWith(model.lane.lane_id);
+  expect(readShow).toHaveBeenCalledWith(model.lane.lane_id, { members_limit: 32 });
   expect(
     within(view.getByTestId("lane-log-row-0")).getByText(
       "Audit publication text",
@@ -319,7 +319,7 @@ test.each(["updates", "spec-changes", "events"] as const)(
     fireEvent.press(view.getByTestId(`lane-log-tab-${tab}`));
     expect(view.getByTestId("lane-log-row-0")).toBeTruthy();
     expect(view.getAllByTestId(/^lane-log-row-/)).toHaveLength(50);
-    expect(readShow.mock.calls).toEqual([[model.lane.lane_id]]);
+    expect(readShow.mock.calls).toEqual([[model.lane.lane_id, { members_limit: 32 }]]);
   },
 );
 
@@ -395,8 +395,8 @@ test.each([
     expect(view.queryByTestId("lane-log-error")).toBeNull();
     expect(view.getByTestId("lane-log-empty")).toBeTruthy();
     expect(readShow.mock.calls).toEqual([
-      [model.lane.lane_id],
-      [model.lane.lane_id],
+      [model.lane.lane_id, { members_limit: 32 }],
+      [model.lane.lane_id, { members_limit: 32 }],
     ]);
   },
 );
@@ -471,7 +471,7 @@ test.each(["resolve", "reject"] as const)(
     expect(view.getByTestId("lane-log-wl-next")).toBeTruthy();
     expect(view.getByText(`lane_started · ${at}`)).toBeTruthy();
     expect(view.queryByTestId("lane-log-error")).toBeNull();
-    expect(readShow.mock.calls).toEqual([[model.lane.lane_id], ["wl-next"]]);
+    expect(readShow.mock.calls).toEqual([[model.lane.lane_id, { members_limit: 32 }], ["wl-next", { members_limit: 32 }]]);
   },
 );
 

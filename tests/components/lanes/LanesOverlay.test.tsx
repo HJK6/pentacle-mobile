@@ -90,7 +90,7 @@ test("legacy inventory stays navigable with unknown progress and no invented com
     fireEvent.press(view.getByTestId("lanes-dormant-fold"));
   expect(view.getAllByTestId(/^lane-row-/)).toHaveLength(4);
   expect(view.queryAllByTestId(/^lane-segment-/)).toHaveLength(0);
-  expect(view.getAllByText("—/— specs")).toHaveLength(4);
+  expect(view.getAllByText("0/0")).toHaveLength(4);
   expect(view.queryByText("All specs done")).toBeNull();
   expect(props.readShow).not.toHaveBeenCalled();
   fireEvent.press(view.getByTestId("lane-row-" + props.lanes[0].lane.lane_id));
@@ -153,7 +153,7 @@ test("full sheet and dormant folds do not issue per-row enrichment requests; zoo
   fireEvent.press(view.getByTestId("lane-row-" + f.zoomLaneId));
   await act(async () => {});
   expect(readShow).toHaveBeenCalledTimes(1);
-  expect(readShow).toHaveBeenCalledWith(f.zoomLaneId);
+  expect(readShow).toHaveBeenCalledWith(f.zoomLaneId, { members_limit: 32 });
   fireEvent.press(view.getByTestId("lane-zoom-open-chat"));
   expect(props.onChat).toHaveBeenCalledWith(
     props.lanes.find((m) => m.lane.lane_id === f.zoomLaneId),

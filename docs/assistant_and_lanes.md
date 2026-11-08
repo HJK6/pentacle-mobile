@@ -54,7 +54,8 @@ and shows the default name. Setup is in the README's
 A work lane is one stream of work the daemon tracks: its title, state, lead
 and specs. Open `/pentacle/lanes` from the assistant header. The map is the
 only overview; the grouped list is its bottom sheet. The approved design is
-`mobile/Pentacle Lanes Goals.html`, frames 01–02, on the v2 map geometry.
+`mobile/Pentacle Lanes Goals.html`, frames 01–02, on the geometry from
+`mobile/Pentacle Lanes Flow v2.html`, frames 01–04.
 
 - **Map and sheet.** The first six attention lanes sit clockwise from the top:
   blocked, needs-you, working, then active-idle, with latest update time and
