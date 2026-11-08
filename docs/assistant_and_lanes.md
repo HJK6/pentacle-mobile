@@ -15,24 +15,24 @@ and shows the default name. Setup is in the README's
 [Always-on assistant](../README.md#always-on-assistant) section.
 
 <p>
-<img src="images/mobile-assistant-home.png" width="260" alt="Assistant tab: header with Sessions button, assistant name, 4 LANES and 1 BLOCKED, Questions button; the conversation shows lane update cards for an unblocked lane, a decision, a milestone and a completed lane" />
-<img src="images/mobile-assistant-sessions.png" width="260" alt="Sessions drawer open over the assistant tab, listing invented sessions under NEEDS YOU, WORKING and IDLE with a message preview on each row and a + button" />
+<img src="images/mobile-assistant-home.png" width="260" alt="Assistant tab: header with Sessions button, assistant name, 4 LANES and 1 Blocked, Questions button; the conversation shows lane update cards for an unblocked lane, a decision, a milestone and a completed lane" />
+<img src="images/mobile-assistant-sessions.png" width="260" alt="Sessions drawer open over the assistant tab, listing invented sessions under Needs you, Working and IDLE with a message preview on each row and a + button" />
 </p>
 
 - **Header.** Left: the **Sessions** button. Its badge counts other chats that
   need an answer. Centre: the assistant's icon and name, a working/idle status
   ring, the open lane count (**N LANES**) and, when any lane is blocked,
-  **N BLOCKED**. Tapping the icon, name or lane count opens the
+  **N Blocked**. Tapping the icon, name or lane count opens the
   [work lanes list](#work-lanes). Right: the voice mic and the **?** Questions
   button. Its badge counts pending questions from every chat, including the
   assistant.
 - **Conversation.** The same transcript, composer and voice input as any other
   session. When the daemon publishes a lane update, it appears in the thread as a
-  card with its kind (**LANE STARTED**, **LANE BLOCKED**, **LANE UNBLOCKED**,
+  card with its kind (**LANE STARTED**, **LANE Blocked**, **LANE UNBlocked**,
   **DECISION**, **MILESTONE**, **LANE COMPLETED**), the lane title and a one-line
   summary.
 - **Sessions drawer.** Slides in from the left. Other chats are grouped as
-  **NEEDS YOU**, **WORKING** and **IDLE**, each row with the chat's latest
+  **Needs you**, **Working** and **IDLE**, each row with the chat's latest
   message preview. Tap a row to open that chat, or **+** to start a session on a
   machine. Close it with the scrim, system Back or a left swipe.
 
@@ -54,7 +54,7 @@ and shows the default name. Setup is in the README's
 A work lane is one stream of work the daemon tracks: its title, state, lead
 and specs. Open `/pentacle/lanes` from the assistant header. The map is the
 only overview; the grouped list is its bottom sheet. The approved design is
-`mobile/Pentacle Lanes Flow v2.html`, frames 01–04.
+`mobile/Pentacle Lanes Goals.html`, frames 01–02, on the v2 map geometry.
 
 - **Map and sheet.** The first six attention lanes sit clockwise from the top:
   blocked, needs-you, working, then active-idle, with latest update time and
@@ -66,12 +66,21 @@ only overview; the grouped list is its bottom sheet. The approved design is
   the row shows the oldest age and unfolds in place. Age uses the last lane
   update, falling back to the lane's update timestamp.
 - **Lane rows.** Needs you / Working / Paused groups follow map order. Rows
-  show a lane icon, state, machine text, per-spec segmented acceptance bar,
-  and done/total specs. Icons resolve from the stream, then the shared title
+  show a lane icon, goal title and done/total count, machine/estimate or
+  question/blocker text, and a bar split into equal-width goal parts.
+  The first two in-progress goals supply the map rings; otherwise the first
+  goal supplies one ring. Goals sort by rank then ID, with the transitional
+  unassigned part last. Blocked in-progress parts are amber; other started/done
+  parts are green. Needs-you lanes retain the question badge and amber rings.
+  Node labels show only the lane title; state stays accessible to screen readers. Icons resolve from the stream, then the shared title
   keyword table, then a two-letter monogram. Tap a row or node to zoom.
-  Member work keeps the daemon's ACTIVE label; lead presence is separate.
 - **Lane zoom.** The lane is at the centre with its acceptance arc. The app
-  reads `work_lanes.show` for all members; inventory frames inline only eight.
+  reads `work_lanes.show` sequentially in pages of 32 until `members_next` is
+  null; inventory frames inline only eight. Rows appear as pages arrive, with
+  loaded-subset counts until the final page. A failed page retains fetched rows
+  and offers Retry from page one. `detail_revision` invalidates open details
+  when source content changes, including work outside the preview; presence
+  and no-op scans do not. Mixed revisions restart once, then offer Retry.
   In-progress specs carry labels and arcs; ready and backlog specs occupy
   the outer orbit. Done and deprecated specs fold together as `✓N` and
   unfold in the grouped sheet. The sheet begins with a plain acceptance bar,
@@ -97,7 +106,10 @@ only overview; the grouped list is its bottom sheet. The approved design is
   A publication opens its lane log; a missing lane reports unavailability.
   An unavailable work index keeps the DATA AS OF snapshot banner visible.
 
-Cut A works with the older stream. Optional `icon`, `worked`, `criteria`,
+When goals are absent, a single whole-lane part uses the uncapped completed
+and nondeprecated counts. The inline fallback for an older partial goal contract
+is transitional. Legacy nonpaged show replies still work; known incomplete
+replies retain their warning. Optional `icon`, `worked`, `criteria`,
 `transitions`, `lead_seat`, `status_line` and `next_line` light up when present.
 The shared keyword data lives in vendored `pentacle-chat-core/lane_icons.json`;
 prose rules and cases live in its `tests/fixtures/summary_prose_cases.json`.

@@ -5,7 +5,9 @@ import type { WorkLane, WorkLaneMember } from "pentacle-chat-core";
 import { Fonts, type MachineSigilKind } from "@/constants/Colors";
 import MachineSigil from "../MachineSigil";
 import LaneIcon from "./LaneIcon";
-import { mono, p, ProgressRing, SpecGlyph } from "./LaneAtoms";
+import { Bang, mono, p, ProgressRing, SpecGlyph } from "./LaneAtoms";
+import { GoalRings } from './GoalProgress';
+import { laneNeedsYou } from '../../services/workLanes';
 import {
   innerRingPoints,
   outerRingPoints,
@@ -148,7 +150,10 @@ function Node({
           borderRadius: size / 2,
         }}
       >
-        <ProgressRing size={size} fraction={node.fraction} color={node.color} />
+        {node.lane ? <GoalRings lane={node.lane} size={size} color={node.color} />
+          : <ProgressRing size={size} fraction={node.fraction} color={node.color} />}
+        {node.lane && laneNeedsYou(node.lane) ? <View testID={`lane-needs-you-${node.id}`}
+          style={{ position: 'absolute', right: -4, top: -4 }}><Bang question /></View> : null}
         {node.working && motion.moving ? (
           <Animated.View
             testID={`working-pulse-${node.id}`}
@@ -222,7 +227,7 @@ function Node({
           >
             {node.title}
           </Text>
-          <Text
+          {!node.lane ? <Text
             accessible={false}
             numberOfLines={1}
             style={{
@@ -235,7 +240,7 @@ function Node({
             }}
           >
             {node.state}
-          </Text>
+          </Text> : null}
         </View>
       ) : null}
     </View>

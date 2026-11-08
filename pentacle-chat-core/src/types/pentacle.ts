@@ -726,6 +726,7 @@ export interface WorkLaneObservation {
 /** Optional facts stay absent when an older or malformed projection omits them. */
 export interface WorkLaneMember {
   spec_id: string;
+  goal_id?: string | null;
   title?: string | null;
   status?: string;
   terminal?: 'completed' | 'deprecated' | null;
@@ -780,6 +781,20 @@ export interface WorkIndex {
   error?: string | null;
 }
 
+export type WorkLaneGoalState = 'in_progress' | 'not_started' | 'done';
+export interface WorkLaneDefaultGoal {
+  state: WorkLaneGoalState;
+  done: number;
+  total: number;
+}
+export interface WorkLaneGoal extends WorkLaneDefaultGoal {
+  goal_id: string;
+  title: string;
+  rank: number;
+  target_date?: string;
+  icon?: import('../services/laneIcons').LaneIconKey | null;
+}
+
 export interface WorkLane extends WorkLaneAggregates {
   lane_id: string;
   icon?: string | null;
@@ -799,6 +814,10 @@ export interface WorkLane extends WorkLaneAggregates {
   last_update: { update_id: string; kind: WorkLaneUpdateKind; event_id: number; ts: string } | null;
   members?: WorkLaneMember[];
   members_total?: number;
+  goals?: WorkLaneGoal[];
+  goals_total?: number;
+  default_goal?: WorkLaneDefaultGoal;
+  detail_revision?: string;
   no_spec_reason?: string | null;
   freshness_at?: string | null;
 }
@@ -844,11 +863,20 @@ export interface WorkLaneShow {
   lane_id: string;
   projection: WorkLane | null;
   members: WorkLaneMember[];
+  members_total?: number;
+  members_next?: string | null;
+  detail_revision?: string;
   work_index?: WorkIndex;
   updates: WorkLaneLogUpdate[];
   spec_changes: WorkLaneSpecChange[];
   /** Other audit events; item_change events are expanded in spec_changes. */
   events: WorkLaneLogEvent[];
+}
+
+export interface WorkLaneShowOptions {
+  members_limit?: number;
+  members_after?: string;
+  goal_id?: string;
 }
 
 export interface WorkLaneUpdate {

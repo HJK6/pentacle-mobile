@@ -36,7 +36,9 @@ export function useLaneMembers(
     data: WorkLaneShow | null;
     inline: WorkLaneMember[];
   }>({ data: null, inline });
-  if (data !== baseline.current.data) baseline.current = { data, inline };
+  // Pagination changes data on each page; retain the opening observation baseline for the whole load.
+  if (!data || !baseline.current.data || data.lane_id !== baseline.current.data.lane_id
+    || data.detail_revision !== baseline.current.data.detail_revision) baseline.current = { data, inline };
   return data
     ? data.members.map((member) =>
         currentMember(

@@ -185,6 +185,7 @@ export default function LaneCard({
     connected,
     expanded && needsShow,
     readShow,
+    model.lane.detail_revision,
   );
   const members = useLaneMembers(model.members, data),
     total = data?.projection?.members_total ?? model.membersTotal;

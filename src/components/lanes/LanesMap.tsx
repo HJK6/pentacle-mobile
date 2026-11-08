@@ -25,6 +25,8 @@ import {
   lanePausedAge,
   laneRingOrder,
   laneWorking,
+  laneRowMeta,
+  laneRowDetail,
   memberHasLiveSeat,
   specGroups,
   type LaneCardViewModel,
@@ -39,7 +41,6 @@ import {
   LeafText,
   mono,
   p,
-  Segments,
   SpecGlyph,
 } from "./LaneAtoms";
 import LaneMemberDetail, {
@@ -56,6 +57,7 @@ import { useWorkLaneShow, type ReadWorkLaneShow } from "./useWorkLaneShow";
 import { useLaneMembers } from "./useLaneMembers";
 import { emitHarnessUiTrace, traceMemberList } from "./lanesTelemetry";
 import { LatestUpdate } from "./LatestUpdate";
+import { GoalBar } from './GoalProgress';
 
 type Props = {
   active?: boolean;
@@ -97,12 +99,12 @@ function LaneRow({
   model: LaneCardViewModel;
   onPress(): void;
 }) {
-  const attention = model.lane.state === "blocked" || laneNeedsYou(model.lane);
+  const meta = laneRowMeta(model.lane), detail = laneRowDetail(model);
   return (
     <Pressable
       testID={`lane-row-${model.lane.lane_id}`}
       accessibilityRole="button"
-      accessibilityLabel={`Open ${model.lane.title}`}
+      accessibilityLabel={`Open ${model.lane.title}, ${laneNeedsYou(model.lane) ? 'NEEDS YOU' : model.stateLabel}`}
       onPress={onPress}
       style={{
         flexDirection: "row",
@@ -128,33 +130,13 @@ function LaneRow({
           >
             {model.lane.title}
           </Text>
-          <Text style={mono}>
-            {model.lane.items_completed ?? "—"}/
-            {model.lane.items_total ?? model.lane.members_total ?? "—"} specs
-          </Text>
+          <View style={{ flexDirection: 'row', flexShrink: 1, maxWidth: '58%', alignItems: 'baseline', gap: 4 }}>
+            {meta.title ? <Text numberOfLines={1} style={{ ...mono, flexShrink: 1 }}>{meta.title}</Text> : null}
+            <Text style={{ ...mono, fontFamily: Fonts.jetBrainsMono.bold, flexShrink: 0 }}>{meta.count}</Text>
+          </View>
         </View>
-        <Text numberOfLines={1} style={mono}>
-          <Text style={{ color: attention ? p.amber : p[model.stateTone] }}>
-            {laneNeedsYou(model.lane) && model.lane.state !== "blocked"
-              ? "NEEDS YOU"
-              : model.stateLabel}
-          </Text>
-          {" · "}
-          {attention && model.blockerLabel
-            ? model.lane.blocker || model.blockerLabel
-            : model.lane.state === "paused"
-              ? model.freshnessLabel
-              : [
-                  model.leadHost,
-                  formatWorkLaneEstimate(
-                    model.lane.open_estimate_h,
-                    model.lane.estimate_complete !== false,
-                  ),
-                ]
-                  .filter(Boolean)
-                  .join(" · ")}
-        </Text>
-        <Segments model={model} height={4} />
+        <Text numberOfLines={1} style={{ ...mono, color: p[detail.tone] }}>{detail.text}</Text>
+        <GoalBar lane={model.lane} />
       </View>
     </Pressable>
   );
@@ -264,7 +246,7 @@ export default function LanesMap({
     offset = useRef(0),
     restoreOffset = useRef<number | null>(null);
   const focused = lanes.find((model) => model.lane.lane_id === focusedLaneId);
-  const revision = JSON.stringify([
+  const revision = focused?.lane.detail_revision ?? JSON.stringify([
     focused?.lane.version,
     focused?.members.map((m) => [
       m.spec_id,
@@ -357,10 +339,11 @@ export default function LanesMap({
     if (
       selectedId &&
       laneData &&
+      show.complete &&
       !laneData.members.some((member) => member.spec_id === selectedId)
     )
       setSelectedId(null);
-  }, [selectedId, laneData]);
+  }, [selectedId, laneData, show.complete]);
   useEffect(() => {
     if (restoreOffset.current !== null) {
       offset.current = restoreOffset.current;
@@ -369,8 +352,8 @@ export default function LanesMap({
     }
   }, [focusedLaneId, selectedId]);
   useEffect(() => {
-    if (focused && show.data) traceMemberList(focused.lane.lane_id, members);
-  }, [focused?.lane.lane_id, show.data, members]);
+    if (focused && show.data && show.complete) traceMemberList(focused.lane.lane_id, members);
+  }, [focused?.lane.lane_id, show.data, show.complete, members]);
   useEffect(() => {
     emitHarnessUiTrace("work_lanes_view", {
       view: selected ? "member_detail" : focused ? "lane_zoom" : "map",
@@ -413,9 +396,7 @@ export default function LanesMap({
       model.lane.state === "blocked" || laneNeedsYou(model.lane)
         ? p.amber
         : p[model.stateTone],
-    fraction: model.lane.ac_total
-      ? (model.lane.ac_checked ?? 0) / model.lane.ac_total
-      : 0,
+    fraction: 0,
     lane: model.lane,
     working: laneWorking(model.lane) && !laneNeedsYou(model.lane),
     labelled,
@@ -466,11 +447,11 @@ export default function LanesMap({
     if (groups.done.length)
       outer.push({
         id: "done",
-        title: `✓${groups.done.length}`,
+        title: `✓${groups.done.length}${show.complete ? '' : ' loaded'}`,
         state: "DONE",
         color: p.muted,
         fraction: 0,
-        fold: `✓${groups.done.length}`,
+        fold: `✓${groups.done.length}${show.complete ? '' : '+'}`,
         onPress: () => {
           setSelectedId(null);
           setDoneOpen((v) => !v);
@@ -501,11 +482,10 @@ export default function LanesMap({
         },
       });
   }
-  const incomplete =
+  const incomplete = !show.loading &&
     !!focused &&
-    !!laneData &&
-    laneData.members.length <
-      (laneData.projection?.members_total ?? focused.membersTotal);
+    !!laneData && (!show.complete || laneData.members.length !==
+      (laneData.members_total ?? laneData.projection?.members_total ?? focused.membersTotal));
   const error =
     show.error ?? (incomplete ? "Incomplete member list. Please retry." : null);
   const latest = selected
@@ -559,7 +539,7 @@ export default function LanesMap({
           }}
         >
           {focused
-            ? `${groups.inProgress.length} IN PROGRESS   ${groups.ready.length} READY   ${groups.backlog.length} BACKLOG   ✓ ${groups.done.length}`
+            ? `${show.complete ? '' : 'LOADED · '}${groups.inProgress.length} IN PROGRESS   ${groups.ready.length} READY   ${groups.backlog.length} BACKLOG   ✓ ${groups.done.length}`
             : `${lanes.filter((m) => m.lane.state === "active").length} ACTIVE   ! ${lanes.filter((m) => m.lane.state === "blocked").length} BLOCKED   || ${lanes.filter((m) => m.lane.state === "paused").length} PAUSED`}
         </Text>
       </View>
@@ -698,7 +678,7 @@ export default function LanesMap({
                               : key === "other"
                                 ? "Unknown"
                                 : key}{" "}
-                            · {groups[key].length}
+                            · {groups[key].length}{show.complete ? '' : ' loaded'}
                           </Text>
                           {groups[key].map((member) => (
                             <SpecRow
@@ -713,7 +693,7 @@ export default function LanesMap({
                   )}
                   {groups.done.length ? (
                     <View>
-                      <Text style={label}>Done · {groups.done.length}</Text>
+                      <Text style={label}>Done · {groups.done.length}{show.complete ? '' : ' loaded'}</Text>
                       <Pressable
                         testID="spec-done-fold"
                         accessibilityRole="button"
@@ -721,7 +701,7 @@ export default function LanesMap({
                         onPress={() => setDoneOpen((v) => !v)}
                         style={{ paddingVertical: 12 }}
                       >
-                        <Text style={body}>✓{groups.done.length}</Text>
+                        <Text style={body}>✓{groups.done.length}{show.complete ? '' : ' loaded'}</Text>
                       </Pressable>
                       {doneOpen
                         ? groups.done.map((member) => (

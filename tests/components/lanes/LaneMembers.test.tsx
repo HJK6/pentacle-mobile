@@ -102,7 +102,7 @@ test("fetches all 32 members once and keeps every accessible row in daemon membe
   );
   await act(async () => {});
   expect(readShow).toHaveBeenCalledTimes(1);
-  expect(readShow).toHaveBeenCalledWith(overflowModel.lane.lane_id);
+  expect(readShow).toHaveBeenCalledWith(overflowModel.lane.lane_id, { members_limit: 32 });
   expect(view.getAllByTestId(/^lane-members-row-/)).toHaveLength(32);
   const rows = view.getAllByTestId(/^lane-members-row-/);
   expect(rows.map((row) => row.props.testID)).toEqual(
@@ -236,8 +236,8 @@ test.each([
       fireEvent.press(view.getByLabelText("Retry members"));
     });
     expect(readShow.mock.calls).toEqual([
-      [overflowModel.lane.lane_id],
-      [overflowModel.lane.lane_id],
+      [overflowModel.lane.lane_id, { members_limit: 32 }],
+      [overflowModel.lane.lane_id, { members_limit: 32 }],
     ]);
     expect(view.queryByTestId("lane-members-error")).toBeNull();
     expect(view.getAllByTestId(/^lane-members-row-/)).toHaveLength(32);
@@ -255,7 +255,7 @@ test("an incomplete full-member reply is explicit and Retry never silently accep
   await act(async () => {});
   expect(view.getByTestId("lane-members-error")).toBeTruthy();
   expect(view.getByText("Incomplete member list. Please retry.")).toBeTruthy();
-  expect(view.queryAllByTestId(/^lane-members-row-/)).toHaveLength(0);
+  expect(view.queryAllByTestId(/^lane-members-row-/)).toHaveLength(8);
   await act(async () => {
     fireEvent.press(view.getByLabelText("Retry members"));
   });
@@ -326,8 +326,8 @@ test.each(["resolve", "reject"] as const)(
       else pending.reject(new Error("stale failure"));
     });
     expect(readShow.mock.calls).toEqual([
-      [overflowModel.lane.lane_id],
-      ["wl-next"],
+      [overflowModel.lane.lane_id, { members_limit: 32 }],
+      ["wl-next", { members_limit: 32 }],
     ]);
     expect(view.getByText("Current lane member")).toBeTruthy();
     expect(view.queryByText("Sample spec 1")).toBeNull();

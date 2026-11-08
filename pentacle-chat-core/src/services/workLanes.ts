@@ -8,6 +8,8 @@ import type {
   WorkLane,
   WorkLaneLead,
   WorkLaneEstimate,
+  WorkLaneDefaultGoal,
+  WorkLaneGoal,
   WorkLaneLogEvent,
   WorkLaneLogUpdate,
   WorkLaneMember,
@@ -24,6 +26,7 @@ import type {
   WorkLanesInventory,
   WorkIndex,
 } from '../types/pentacle';
+import { LANE_ICON_KEYS, type LaneIconKey } from './laneIcons';
 
 const LANE_STATES: readonly WorkLaneState[] = ['active', 'paused', 'blocked', 'done'];
 const OWNER_KINDS: readonly WorkLaneOwnerKind[] = ['operator', 'fd'];
@@ -102,6 +105,7 @@ function normalizeMember(value: unknown): WorkLaneMember | null {
   const specId = str(raw?.spec_id);
   if (!raw || !specId) return null;
   const member: WorkLaneMember = { spec_id: specId };
+  if (nullableString(raw.goal_id)) member.goal_id = raw.goal_id;
   for (const key of ['title', 'status_text', 'next_action_text', 'source_changed_at', 'status_line', 'next_line'] as const) {
     if (nullableString(raw[key])) member[key] = raw[key];
   }
@@ -146,14 +150,18 @@ function normalizeMember(value: unknown): WorkLaneMember | null {
   return member;
 }
 
-function normalizeMembers(value: unknown): WorkLaneMember[] | undefined {
+function normalizeMembers(value: unknown, deduplicate = false): WorkLaneMember[] | undefined {
   if (!Array.isArray(value)) return undefined;
   const members: WorkLaneMember[] = [];
   const seen = new Set<string>();
   for (const item of value) {
     const member = normalizeMember(item);
     // An invalid membership list is absent, not a deceptively complete subset.
-    if (!member || seen.has(member.spec_id)) return undefined;
+    if (!member) return undefined;
+    if (seen.has(member.spec_id)) {
+      if (deduplicate) continue;
+      return undefined;
+    }
     seen.add(member.spec_id);
     members.push(member);
   }
@@ -171,8 +179,36 @@ function normalizeWorkIndex(value: unknown): WorkIndex | undefined {
   return index;
 }
 
+function normalizeDefaultGoal(value: unknown): WorkLaneDefaultGoal | undefined {
+  const raw = obj(value);
+  if (!raw || !['in_progress', 'not_started', 'done'].includes(String(raw.state))
+    || !count(raw.done) || !count(raw.total) || raw.done > raw.total) return undefined;
+  return { state: raw.state as WorkLaneDefaultGoal['state'], done: raw.done, total: raw.total };
+}
+
+function normalizeGoal(value: unknown): WorkLaneGoal | undefined {
+  const raw = obj(value), progress = normalizeDefaultGoal(value);
+  if (!raw || !progress || !str(raw.goal_id) || !str(raw.title) || !count(raw.rank)) return undefined;
+  return {
+    ...progress, goal_id: String(raw.goal_id), title: String(raw.title), rank: raw.rank,
+    ...(typeof raw.target_date === 'string' ? { target_date: raw.target_date } : {}),
+    ...(raw.icon === null || LANE_ICON_KEYS.includes(raw.icon as LaneIconKey)
+      ? { icon: raw.icon as LaneIconKey | null } : {}),
+  };
+}
+
 function normalizeProgress(raw: Obj): Partial<WorkLane> {
   const progress: Partial<WorkLane> = {};
+  if (Array.isArray(raw.goals)) {
+    const goals = raw.goals.map(normalizeGoal);
+    if (goals.every((goal): goal is WorkLaneGoal => goal !== undefined)
+      && new Set(goals.map(goal => goal.goal_id)).size === goals.length) progress.goals = goals;
+  }
+  if (count(raw.goals_total)) progress.goals_total = raw.goals_total;
+  const defaultGoal = normalizeDefaultGoal(raw.default_goal);
+  if (defaultGoal) progress.default_goal = defaultGoal;
+  if (typeof raw.detail_revision === 'string' && /^[a-f0-9]{64}$/.test(raw.detail_revision))
+    progress.detail_revision = raw.detail_revision;
   const members = normalizeMembers(raw.members);
   if (members !== undefined) progress.members = members;
   for (const key of ['members_total', 'items_total', 'items_completed', 'items_dropped',
@@ -483,7 +519,15 @@ export function parseWorkLaneShow(value: unknown): WorkLaneShow | null {
   const projection = normalizeLane(raw.projection);
   const laneId = str(lane?.lane_id) || projection?.lane_id;
   if (!laneId || (projection && projection.lane_id !== laneId)) return null;
-  const members = normalizeMembers(raw.members) ?? projection?.members ?? [];
+  const paged = Object.hasOwn(raw, 'members_total') || Object.hasOwn(raw, 'members_next');
+  const revision = raw.detail_revision;
+  if ((revision !== undefined && (typeof revision !== 'string' || !/^[a-f0-9]{64}$/.test(revision)))
+    || (paged && (!count(raw.members_total) || !Object.hasOwn(raw, 'members_next')
+      || !(raw.members_next === null || (typeof raw.members_next === 'string' && raw.members_next.length > 0))
+      || typeof revision !== 'string'))
+    || (typeof revision === 'string' && projection?.detail_revision && projection.detail_revision !== revision)) return null;
+  if (paged && normalizeMembers(raw.members, true) === undefined) return null;
+  const members = normalizeMembers(raw.members, paged) ?? projection?.members ?? [];
   const membersById = new Map(members.map((member) => [member.spec_id, member]));
   const audit = newestFirst((Array.isArray(raw.events) ? raw.events : [])
     .map((event) => normalizeAuditEvent(event, laneId))
@@ -522,6 +566,8 @@ export function parseWorkLaneShow(value: unknown): WorkLaneShow | null {
     lane_id: laneId,
     projection,
     members,
+    ...(paged ? { members_total: raw.members_total as number, members_next: raw.members_next as string | null } : {}),
+    ...(typeof revision === 'string' ? { detail_revision: revision } : {}),
     ...(workIndex ? { work_index: workIndex } : {}),
     updates: newestFirst(updates),
     spec_changes: newestFirst(audit.filter((event) => event.operation === 'item_change')
