@@ -77,6 +77,13 @@ driver receipt labels these supplemental fixture evidence. It hides the
 unrelated web voice-recording overlay under the FD-approved accommodation for
 its observed storage-unavailable banner; native Release proof hides nothing.
 
+The `lanes:goals` fixture adds one-, two-, three- and eight-goal lanes, a
+whole-lane compatibility case and blocked progress for the approved
+`mobile/Pentacle Lanes Goals.html` design. Goal arcs use `lane-goal-arc-*`;
+equal-width row parts use `lane-goal-part-*`. Capture these at 390 and 375 px
+and retain the existing label-rectangle check. Paging proof additionally needs
+a 65-member transport journey; seeded screenshots alone do not prove it.
+
 ## Adding a screen or variant
 
 Two registries, intentionally split:

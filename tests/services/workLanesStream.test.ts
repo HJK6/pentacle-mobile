@@ -390,3 +390,17 @@ test('show telemetry is harness-only and reports ids, counts and settlement stat
   unsubscribe();
   delete process.env.EXPO_PUBLIC_HARNESS;
 });
+
+test('requestWorkLaneShow carries exact member cursor/filter and preserves paged identity', async () => {
+  const { stream } = loadStream();
+  const { unsubscribe, socket } = connect(stream);
+  socket.message({ type: 'snapshot', sessions: [], events: [] });
+  const reply = showReply(), revision = 'a'.repeat(64);
+  const options = { members_limit: 32, members_after: 'spec_sample_032', goal_id: 'g_sample' };
+  const promise = stream.requestWorkLaneShow(reply.lane.lane_id, options);
+  const request = frames(socket, 'work_lanes.show').at(-1)!;
+  expect(request).toEqual({ type: 'work_lanes.show', lane_id: reply.lane.lane_id, ...options, request_id: expect.any(String) });
+  socket.message({ ...reply, request_id: request.request_id, members_total: 65, members_next: 'spec_sample_064', detail_revision: revision });
+  await expect(promise).resolves.toMatchObject({ members_total: 65, members_next: 'spec_sample_064', detail_revision: revision });
+  unsubscribe();
+});

@@ -31,6 +31,8 @@ import type {
 } from "pentacle-chat-core";
 import type { AssetComment, PentacleReport } from "../services/pentacleAssets";
 import { lanesFlowFixture } from './lanesFlowFixture';
+import { lanesGoalsFixture } from './lanesGoalsFixture';
+import { lanesPagingFixture } from './lanesPagingFixture';
 
 export type HarnessSnapshot = {
   events?: PentacleEvent[];
@@ -1096,6 +1098,8 @@ export const FIXTURES: Record<string, HarnessFixture> = {
   'lanes:empty': { snapshot: { ...EMPTY_SNAPSHOT, work_lanes: { type: 'work_lanes.inventory', lanes: [], counts: { open: 0, active: 0, paused: 0, blocked: 0 }, truncated: false, generated_at: T0 } }, opts: SEEDED },
   'assistant:lane_updates': { snapshot: ASSISTANT_LANE_UPDATES_SNAPSHOT, opts: SEEDED, workLaneShows: lanesFlowFixture().shows },
   'lanes:flow_v2': { snapshot: { ...EMPTY_SNAPSHOT, work_lanes: { type: 'work_lanes.inventory', ...lanesFlowFixture().inventory } }, opts: SEEDED, workLaneShows: lanesFlowFixture().shows },
+  'lanes:goals': { snapshot: { ...EMPTY_SNAPSHOT, work_lanes: { type: 'work_lanes.inventory', ...lanesGoalsFixture().inventory } }, opts: SEEDED, workLaneShows: lanesGoalsFixture().shows },
+  'lanes:paging': { snapshot: { ...EMPTY_SNAPSHOT, work_lanes: { type: 'work_lanes.inventory', ...lanesPagingFixture().inventory } }, opts: SEEDED, workLaneShows: lanesPagingFixture().shows },
   'lanes:spec_detail_full': { snapshot: { ...EMPTY_SNAPSHOT, work_lanes: { type: 'work_lanes.inventory', ...lanesFlowFixture().inventory } }, opts: SEEDED, workLaneShows: (() => { const f = lanesFlowFixture(); f.shows[f.zoomLaneId].members[0] = f.detailMember; return f.shows; })() },
   'lanes:spec_detail_sparse': { snapshot: { ...EMPTY_SNAPSHOT, work_lanes: { type: 'work_lanes.inventory', ...lanesFlowFixture(Date.now(), true).inventory } }, opts: SEEDED, workLaneShows: lanesFlowFixture(Date.now(), true).shows },
   'lanes:v1_wire': lanesScene(SHARED_LANES.inventory_frame),

@@ -180,13 +180,14 @@ export default function LaneCard({
   const [expanded, setExpanded] = useState(false),
     [selected, setSelected] = useState<string | null>(null);
   const needsShow = model.membersTotal > model.members.length;
-  const { data, loading, error, retry } = useWorkLaneShow(
+  const { data, loading, error, retry, requestEpoch } = useWorkLaneShow(
     model.lane.lane_id,
     connected,
     expanded && needsShow,
     readShow,
+    model.lane.detail_revision,
   );
-  const members = useLaneMembers(model.members, data),
+  const members = useLaneMembers(model.members, data, requestEpoch),
     total = data?.projection?.members_total ?? model.membersTotal;
   const incomplete = data && members.length < total;
   const current = members.filter(

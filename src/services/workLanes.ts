@@ -5,7 +5,7 @@ import {
   parseLaneUpdateEvent, peekEventsForStream, resolveWorkLaneTap, selectOpenLaneCount, selectWorkLaneCounts,
   selectWorkLanes,
   type PentacleEvent, type PentacleStreamState, type SessionStatusCard, type WorkLane, type WorkLaneState,
-  type WorkLaneTap, type WorkLaneUpdate, type WorkLaneEstimate, type WorkLaneMember,
+  type WorkLaneTap, type WorkLaneUpdate, type WorkLaneEstimate, type WorkLaneMember, type WorkLaneGoalState,
   laneIconFor, LANE_ICON_KEYS, type LaneIconKey,
 } from 'pentacle-chat-core';
 import { firstSummarySentence } from './summaryProse';
@@ -103,6 +103,7 @@ export type LaneCardViewModel = {
   membersPending: boolean;
   waitingOnYou: number;
   waitingOnYouLabel: string | null;
+  questionText?: string | null;
   blockerLabel: string | null;
   lastUpdateText: string | null;
   freshnessLabel: string;
@@ -212,6 +213,7 @@ export function selectLaneCardViewModels(state: PentacleStreamState, now = Date.
       membersPending: !lane.no_spec_reason && lane.members === undefined,
       waitingOnYou,
       waitingOnYouLabel,
+      questionText: questionPrompt?.trim() || null,
       blockerLabel: waitingOnYou === 1
         ? lane.blocker || (questionPrompt?.trim() ? `Waiting on you: ${questionPrompt}` : waitingOnYouLabel)
         : waitingOnYouLabel ?? lane.blocker,
@@ -231,6 +233,62 @@ export const laneNeedsYou = (lane: WorkLane) =>
   (lane.members ?? []).some(
     (member) => (member.open_questions?.count ?? 0) > 0,
   );
+
+export type LaneGoalPart = {
+  goalId: string | null;
+  title: string;
+  state: WorkLaneGoalState;
+  done: number;
+  total: number;
+  fraction: number;
+  tone: 'green' | 'amber' | 'muted';
+  fallback?: boolean;
+};
+const inferredGoalState = (done: number, total: number, members: WorkLaneMember[]): WorkLaneGoalState =>
+  total > 0 && done === total ? 'done'
+    : done > 0 || members.some(m => ['analysis', 'ready_for_dev', 'in_progress', 'blocked', 'needs_qa'].includes(m.status ?? ''))
+      ? 'in_progress' : 'not_started';
+
+/** Named goal progress is an uncapped daemon fact. Only the transitional fallback uses inline rows. */
+export function laneGoalParts(lane: WorkLane): LaneGoalPart[] {
+  const make = (goalId: string | null, title: string, state: WorkLaneGoalState, done: number, total: number, fallback = false): LaneGoalPart => ({
+    goalId, title, state, done, total, fraction: total > 0 ? done / total : 0,
+    tone: lane.state === 'blocked' && state === 'in_progress' ? 'amber'
+      : state === 'not_started' ? 'muted' : 'green',
+    ...(fallback ? { fallback: true } : {}),
+  });
+  const named = [...(lane.goals ?? [])].sort((a, b) => a.rank - b.rank || (a.goal_id < b.goal_id ? -1 : a.goal_id > b.goal_id ? 1 : 0));
+  const members = (lane.members ?? []).filter(m => m.terminal !== 'deprecated' && m.status !== 'deprecated');
+  if (!named.length) {
+    const total = Math.max(0, (lane.items_total ?? lane.members_total ?? (lane.members ?? []).length) - (lane.items_dropped ?? 0));
+    const done = lane.items_completed ?? 0;
+    return total > 0 ? [make(null, lane.title, inferredGoalState(done, total, members), done, total)] : [];
+  }
+  const parts = named.map(g => make(g.goal_id, g.title, g.state, g.done, g.total));
+  const unassigned = members.filter(m => !m.goal_id);
+  const done = unassigned.filter(m => m.terminal === 'completed' || m.status === 'completed').length;
+  const defaultGoal = lane.default_goal ?? { done, total: unassigned.length, state: inferredGoalState(done, unassigned.length, unassigned) };
+  if (defaultGoal.total > 0) parts.push(make(null, lane.title, defaultGoal.state, defaultGoal.done, defaultGoal.total, !lane.default_goal));
+  return parts;
+}
+
+export function laneTopGoals(lane: WorkLane): LaneGoalPart[] {
+  const parts = laneGoalParts(lane), active = parts.filter(g => g.state === 'in_progress');
+  return active.length ? active.slice(0, 2) : parts.slice(0, 1);
+}
+
+export function laneRowMeta(lane: WorkLane) {
+  const top = laneTopGoals(lane)[0];
+  return { title: top?.goalId ? top.title : null, count: `${top?.done ?? 0}/${top?.total ?? 0}` };
+}
+
+export function laneRowDetail(model: LaneCardViewModel): { text: string; tone: 'amber' | 'muted' } {
+  if (model.lane.state === 'blocked') return { text: model.blockerLabel ?? '', tone: 'amber' };
+  if (laneNeedsYou(model.lane) || model.waitingOnYou > 0)
+    return { text: (model.questionText ?? model.blockerLabel ?? model.waitingOnYouLabel ?? '').replace(/^Waiting on you:\s*/i, ''), tone: 'amber' };
+  if (model.lane.state === 'paused') return { text: model.freshnessLabel, tone: 'muted' };
+  return { text: [model.leadHost, formatWorkLaneEstimate(model.lane.open_estimate_h, model.lane.estimate_complete !== false)].filter(Boolean).join(' · '), tone: 'muted' };
+}
 export const laneWorking = (lane: WorkLane) =>
   lane.state === "active" &&
   (lane.lead?.presence.working === true ||

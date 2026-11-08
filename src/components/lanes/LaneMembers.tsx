@@ -33,18 +33,19 @@ export default function LaneMembers({
   bottom?: number;
 }) {
   const needsShow = model.membersTotal > model.members.length;
-  const { data, loading, error, retry } = useWorkLaneShow(
+  const { data, loading, error, retry, complete } = useWorkLaneShow(
     model.lane.lane_id,
     connected,
     needsShow,
     readShow,
+    model.lane.detail_revision,
   );
-  const total = data?.projection?.members_total ?? model.membersTotal;
-  const incomplete = needsShow && data !== null && data.members.length < total;
+  const total = data?.members_total ?? data?.projection?.members_total ?? model.membersTotal;
+  const incomplete = needsShow && data !== null && (!complete || data.members.length !== total);
   const members = needsShow ? (data?.members ?? []) : model.members;
   const ready = !needsShow || (data !== null && !incomplete);
   const failure =
-    error || (incomplete ? "Incomplete member list. Please retry." : null);
+    error || (!loading && incomplete ? "Incomplete member list. Please retry." : null);
   useEffect(() => {
     if (!ready) return;
     emitHarnessUiTrace("work_lanes_members_list", {
@@ -88,7 +89,7 @@ export default function LaneMembers({
               {model.lane.no_spec_reason || "No specs"}
             </Text>
           ) : null}
-          {ready
+          {members.length
             ? members.map((member) => (
                 <Pressable
                   key={member.spec_id}

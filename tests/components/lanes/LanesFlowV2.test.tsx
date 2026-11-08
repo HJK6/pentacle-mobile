@@ -74,7 +74,7 @@ test("AC4 lane nodes contain no MachineSigil (non-vacuous baseline control)", as
     nodes.flatMap((node) => within(node).UNSAFE_queryAllByType(MachineSigil)),
   ).toHaveLength(0);
 });
-test("AC1/4/5 grouped sheet mounts at 40%, rows carry segments and icons without expand controls", async () => {
+test("AC1/4/5 grouped sheet mounts at 40%, rows carry goal parts and icons without expand controls", async () => {
   const view = surface(true);
   await act(async () => {});
   expect(view.getByTestId("lanes-sheet").props.accessibilityValue.text).toBe(
@@ -95,7 +95,7 @@ test("AC1/4/5 grouped sheet mounts at 40%, rows carry segments and icons without
     rows.flatMap((row) => within(row).UNSAFE_queryAllByType(MachineSigil)),
   ).toHaveLength(0);
   expect(
-    within(rows[0]).getAllByTestId(/^lane-segment-/).length,
+    within(rows[0]).getAllByTestId(/^lane-goal-part-/).length,
   ).toBeGreaterThan(0);
   expect(view.readShow).not.toHaveBeenCalled();
   fireEvent.press(view.getByTestId("lanes-sheet-handle"));
@@ -125,7 +125,7 @@ test("AC5/6/7 zoom fetches all 27 specs, done folds, spec select rotates and bac
   });
   fireEvent.press(view.getByTestId("lane-row-" + view.f.zoomLaneId));
   await act(async () => {});
-  expect(view.readShow).toHaveBeenCalledWith(view.f.zoomLaneId);
+  expect(view.readShow).toHaveBeenCalledWith(view.f.zoomLaneId, { members_limit: 32 });
   expect(view.getByTestId("lane-zoom-" + view.f.zoomLaneId)).toBeTruthy();
   expect(
     view.getByTestId("lane-zoom-centre-" + view.f.zoomLaneId),

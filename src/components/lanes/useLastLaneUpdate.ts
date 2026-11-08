@@ -91,7 +91,7 @@ export function useLastLaneUpdate(
     },
     [id, readShow, eligible],
   );
-  const { data } = useWorkLaneShow(model.lane.lane_id, connected, !!id, read);
+  const { data } = useWorkLaneShow(model.lane.lane_id, connected, !!id, read, undefined, undefined, false);
   return {
     text:
       data?.updates.find((update) => update.update_id === id)?.summary ||

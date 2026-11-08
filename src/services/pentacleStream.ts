@@ -5922,10 +5922,14 @@ export const resumeRecurringSchedule = (recurringId: string) => recurringCommand
 export const updateRecurringSchedule = (recurringId: string, edit: RecurringEdit) => recurringCommand('update', recurringId, edit);
 
 /** Read-only full lane projection and audit log; never writes chat or session state. */
-export function requestWorkLaneShow(laneId: string): Promise<import('pentacle-chat-core').WorkLaneShow> {
+export function requestWorkLaneShow(laneId: string, options: import('pentacle-chat-core').WorkLaneShowOptions = {}): Promise<import('pentacle-chat-core').WorkLaneShow> {
   const lane_id = String(laneId || '').trim();
   if (!lane_id) return Promise.reject(Object.assign(new Error('Lane details need a lane id'), { errorCode: 'invalid_lane_id' }));
-  return sendCommand<Record<string, unknown>>({ type: 'work_lanes.show', lane_id }, 'work_lanes_show')
+  return sendCommand<Record<string, unknown>>({ type: 'work_lanes.show', lane_id,
+    ...(options.members_limit !== undefined ? { members_limit: options.members_limit } : {}),
+    ...(options.members_after !== undefined ? { members_after: options.members_after } : {}),
+    ...(options.goal_id !== undefined ? { goal_id: options.goal_id } : {}),
+  }, 'work_lanes_show')
     .then((reply) => {
       const result = parseWorkLaneShow(reply);
       if (!result || result.lane_id !== lane_id) {
