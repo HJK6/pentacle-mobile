@@ -240,3 +240,36 @@ test("AC9 one loop runs for working nodes, stops on blur and never starts under 
   expect(loop).not.toHaveBeenCalled();
   expect(reduced.queryAllByTestId(/^working-pulse-/)).toHaveLength(0);
 });
+test("AC9 working overflow lanes retain an inward spoke and pulse", async () => {
+  jest.mocked(AccessibilityInfo.isReduceMotionEnabled).mockResolvedValue(false);
+  jest
+    .spyOn(Animated, "loop")
+    .mockReturnValue({
+      start: jest.fn(),
+      stop: jest.fn(),
+      reset: jest.fn(),
+    } as any);
+  const f = lanesFlowFixture();
+  f.inventory.lanes = Array.from({ length: 7 }, (_, i) => ({
+    ...f.inventory.lanes[3],
+    lane_id: "overflow-working-" + i,
+    title: "Working lane " + i,
+  }));
+  const s = applyWorkLanesInventory(initialPentacleStreamState, f.inventory);
+  const view = render(
+    <LanesOverlay
+      lanes={selectLaneCardViewModels(s)}
+      inventory={s.workLanes}
+      assistantName="Sample guide"
+      connected
+      updates={[]}
+      top={0}
+      bottom={0}
+      onChat={jest.fn()}
+      onClose={jest.fn()}
+    />,
+  );
+  await act(async () => {});
+  expect(view.getAllByTestId(/^working-spoke-/)).toHaveLength(7);
+  expect(view.getAllByTestId(/^working-pulse-/)).toHaveLength(7);
+});

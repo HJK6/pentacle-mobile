@@ -93,6 +93,9 @@ test("legacy inventory stays navigable with unknown progress and no invented com
   expect(view.getAllByText("—/— specs")).toHaveLength(4);
   expect(view.queryByText("All specs done")).toBeNull();
   expect(props.readShow).not.toHaveBeenCalled();
+  fireEvent.press(view.getByTestId("lane-row-" + props.lanes[0].lane.lane_id));
+  await act(async () => {});
+  expect(view.getByTestId("lane-acceptance")).not.toHaveTextContent(/0%/);
 });
 test("global publication opens its lane log, back preserves the feed and closing it restores the map snap", async () => {
   const props = propsFor(base, { updates: [publication()] }),

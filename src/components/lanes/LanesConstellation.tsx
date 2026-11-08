@@ -27,6 +27,7 @@ export type ConstellationNode = {
 };
 type Motion = { phase: Animated.Value; moving: boolean };
 function Spoke({
+  id,
   point,
   cx,
   cy,
@@ -34,6 +35,7 @@ function Spoke({
   working,
   motion,
 }: {
+  id: string;
   point: RingPoint;
   cx: number;
   cy: number;
@@ -45,6 +47,7 @@ function Spoke({
     angle = Math.atan2(cy - point.y, cx - point.x);
   return (
     <View
+      testID={working ? `working-spoke-${id}` : undefined}
       pointerEvents="none"
       style={{
         position: "absolute",
@@ -306,6 +309,7 @@ export default function LanesConstellation({
       {inner.map((node, i) => (
         <Spoke
           key={node.id}
+          id={node.id}
           point={points[i]}
           cx={cx}
           cy={cy}
@@ -314,6 +318,20 @@ export default function LanesConstellation({
           motion={motion}
         />
       ))}
+      {outer.map((node, i) =>
+        node.working ? (
+          <Spoke
+            key={node.id}
+            id={node.id}
+            point={outerPoints[i]}
+            cx={cx}
+            cy={cy}
+            color={node.color}
+            working
+            motion={motion}
+          />
+        ) : null,
+      )}
       {outer.map((node, i) => (
         <Node
           key={node.id}

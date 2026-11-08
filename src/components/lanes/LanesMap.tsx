@@ -671,15 +671,11 @@ export default function LanesMap({
                       <Text style={{ ...label, flex: 1 }}>Acceptance</Text>
                       <Text style={mono}>
                         {focused.lane.ac_checked ?? "—"}/
-                        {focused.lane.ac_total ?? "—"} ·{" "}
-                        {focused.lane.ac_total
-                          ? Math.round(
-                              ((focused.lane.ac_checked ?? 0) /
-                                focused.lane.ac_total) *
-                                100,
-                            )
-                          : 0}
-                        %
+                        {focused.lane.ac_total ?? "—"}
+                        {focused.lane.ac_total &&
+                        focused.lane.ac_checked != null
+                          ? ` · ${Math.round((focused.lane.ac_checked / focused.lane.ac_total) * 100)}%`
+                          : ""}
                       </Text>
                     </View>
                     <AcceptanceBar
@@ -687,8 +683,11 @@ export default function LanesMap({
                       total={focused.lane.ac_total}
                     />
                     <Text style={mono}>
-                      {focused.completed}/{focused.total} DONE ·{" "}
-                      {groups.inProgress.length} IN PROGRESS · EST{" "}
+                      {focused.lane.items_completed ?? "—"}/
+                      {focused.lane.items_total ??
+                        focused.lane.members_total ??
+                        "—"}{" "}
+                      DONE · {groups.inProgress.length} IN PROGRESS · EST{" "}
                       {formatWorkLaneEstimate(
                         focused.lane.open_estimate_h,
                         focused.lane.estimate_complete !== false,
