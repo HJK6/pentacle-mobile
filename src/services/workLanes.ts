@@ -6,7 +6,9 @@ import {
   selectWorkLanes,
   type PentacleEvent, type PentacleStreamState, type SessionStatusCard, type WorkLane, type WorkLaneState,
   type WorkLaneTap, type WorkLaneUpdate, type WorkLaneEstimate, type WorkLaneMember,
+  laneIconFor, LANE_ICON_KEYS, type LaneIconKey,
 } from 'pentacle-chat-core';
+import { firstSummarySentence } from './summaryProse';
 import { selectQuestionDeck } from '../components/questions/questionSelectors';
 import { ASSISTANT_STREAM_ID } from './assistantIdentity';
 import { formatLaneEta } from './laneEta';
@@ -220,4 +222,136 @@ export function selectLaneCardViewModels(state: PentacleStreamState, now = Date.
       indexSnapshotAt: index?.available === false ? index.snapshot_at ?? '' : null,
     };
   });
+}
+
+export const memberHasLiveSeat = (member: WorkLaneMember) =>
+  member.seats?.some((seat) => seat.activity === "working") === true;
+export const laneNeedsYou = (lane: WorkLane) =>
+  lane.state !== "done" &&
+  (lane.members ?? []).some(
+    (member) => (member.open_questions?.count ?? 0) > 0,
+  );
+export const laneWorking = (lane: WorkLane) =>
+  lane.state === "active" &&
+  (lane.lead?.presence.working === true ||
+    (lane.members ?? []).some(memberHasLiveSeat));
+export type LaneFlowGroup = "needsYou" | "working" | "paused";
+export function laneFlowGroup(lane: WorkLane): LaneFlowGroup {
+  if (lane.state === "blocked" || laneNeedsYou(lane)) return "needsYou";
+  return lane.state === "paused" ? "paused" : "working";
+}
+export function laneFlowRank(lane: WorkLane): number {
+  return lane.state === "blocked"
+    ? 0
+    : laneNeedsYou(lane)
+      ? 1
+      : laneWorking(lane)
+        ? 2
+        : lane.state === "active"
+          ? 3
+          : 4;
+}
+const stamp = (value: string | null | undefined) => {
+  const n = Date.parse(value ?? "");
+  return Number.isFinite(n) ? n : 0;
+};
+export function laneRingOrder(lanes: readonly WorkLane[]): WorkLane[] {
+  return [...lanes].sort(
+    (a, b) =>
+      laneFlowRank(a) - laneFlowRank(b) ||
+      stamp(b.last_update?.ts) - stamp(a.last_update?.ts) ||
+      a.lane_id.localeCompare(b.lane_id),
+  );
+}
+export function lanePausedAge(lane: WorkLane, now: number): number {
+  return Math.max(0, now - stamp(lane.last_update?.ts ?? lane.updated_at));
+}
+export function laneOrbits(lanes: readonly WorkLane[], now: number) {
+  const ordered = laneRingOrder(lanes.filter((lane) => lane.state !== "done"));
+  const active = ordered.filter((lane) => lane.state !== "paused");
+  const paused = ordered.filter((lane) => lane.state === "paused");
+  const dormant = paused.filter(
+    (lane) => lanePausedAge(lane, now) >= 14 * 86400000,
+  );
+  return {
+    inner: active.slice(0, 6),
+    overflow: active.slice(6),
+    paused: paused.filter((lane) => !dormant.includes(lane)),
+    dormant,
+  };
+}
+export function resolveLaneIcon(lane: Pick<WorkLane, "title" | "icon">): {
+  key: LaneIconKey | null;
+  monogram: string;
+} {
+  const key =
+    LANE_ICON_KEYS.find((key) => key === lane.icon) ?? laneIconFor(lane.title);
+  const words = lane.title.trim().split(/\s+/).filter(Boolean);
+  const monogram =
+    words.length > 1
+      ? words
+          .slice(0, 2)
+          .map((word) => Array.from(word)[0])
+          .join("")
+      : Array.from(words[0] ?? "?")
+          .slice(0, 2)
+          .join("");
+  return { key, monogram: monogram.toLocaleUpperCase("en-US") };
+}
+export type SpecGroups = {
+  inProgress: WorkLaneMember[];
+  ready: WorkLaneMember[];
+  backlog: WorkLaneMember[];
+  done: WorkLaneMember[];
+  other: WorkLaneMember[];
+};
+export function specGroups(members: readonly WorkLaneMember[]): SpecGroups {
+  const groups: SpecGroups = {
+    inProgress: [],
+    ready: [],
+    backlog: [],
+    done: [],
+    other: [],
+  };
+  const ordered = [...members].sort(
+    (a, b) =>
+      stamp(b.source_changed_at) - stamp(a.source_changed_at) ||
+      a.spec_id.localeCompare(b.spec_id),
+  );
+  for (const member of ordered) {
+    const status = member.status;
+    const key =
+      status === "completed" || status === "deprecated"
+        ? "done"
+        : ["in_progress", "needs_qa", "blocked"].includes(status ?? "") ||
+            (status === "analysis" && memberHasLiveSeat(member))
+          ? "inProgress"
+          : status === "ready_for_dev" || status === "analysis"
+            ? "ready"
+            : status === "backlog"
+              ? "backlog"
+              : "other";
+    groups[key].push(member);
+  }
+  return groups;
+}
+export function specDetailModel(member: WorkLaneMember) {
+  const present = (
+    key: "status_line" | "next_line",
+    fallback: string | null | undefined,
+  ) =>
+    Object.prototype.hasOwnProperty.call(member, key)
+      ? (member[key] ?? null)
+      : firstSummarySentence(fallback);
+  const criteria = [...(member.criteria ?? [])].sort(
+    (a, b) =>
+      (a.disposition === "done" ? 2 : a.disposition === "open" ? 0 : 1) -
+      (b.disposition === "done" ? 2 : b.disposition === "open" ? 0 : 1),
+  );
+  return {
+    status: present("status_line", member.status_text),
+    next: present("next_line", member.next_action_text),
+    criteria,
+    since: member.transitions?.at(-1)?.at ?? null,
+  };
 }

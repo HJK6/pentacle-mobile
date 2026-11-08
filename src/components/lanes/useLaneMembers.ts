@@ -16,7 +16,17 @@ export function currentMember(
   const a = Date.parse(selected.observation?.observed_at || ""),
     b = Date.parse(inline.observation?.observed_at || "");
   if (Number.isFinite(a) && Number.isFinite(b) && b < a) return selected;
-  return inline;
+  // A newer observation owns its own fields. Projection-only updates at the
+  // same observation retain details that inventory intentionally does not send.
+  if (
+    (Number.isFinite(a) && Number.isFinite(b) && b > a) ||
+    inline.source_changed_at !== selected.source_changed_at
+  ) return inline;
+  return {
+    ...inline,
+    criteria: inline.criteria ?? selected.criteria,
+    transitions: inline.transitions ?? selected.transitions,
+  };
 }
 export function useLaneMembers(
   inline: WorkLaneMember[],

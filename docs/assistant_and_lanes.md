@@ -51,48 +51,56 @@ and shows the default name. Setup is in the README's
 
 ## Work lanes
 
-A work lane is one stream of work the daemon tracks: a title, a state, the
-lead session that drives it and the specs it contains. Lanes, their state and
-their counts come from the daemon's work-lanes inventory. The app does not
-infer lanes from chats. Open the list from the assistant header
-(`/pentacle/lanes`).
+A work lane is one stream of work the daemon tracks: its title, state, lead
+and specs. Open `/pentacle/lanes` from the assistant header. The map is the
+only overview; the grouped list is its bottom sheet. The approved design is
+`mobile/Pentacle Lanes Flow v2.html`, frames 01–04.
 
-<p>
-<img src="images/mobile-lanes-list.png" width="260" alt="Work lanes list: the latest update card, then four invented open lanes, one BLOCKED with its blocker, one WORKING and two PAUSED with LEAD LOST" />
-<img src="images/mobile-lanes-specs.png" width="260" alt="Work lanes list under a DATA AS OF stale-index banner, with the first lane expanded to show its two specs and their acceptance progress, plus est. work ranges and spec progress bars" />
-</p>
+- **Map and sheet.** The first six attention lanes sit clockwise from the top:
+  blocked, needs-you, working, then active-idle, with latest update time and
+  lane ID breaking ties. Further lanes remain reachable on the outer orbit
+  and in the sheet. Drag or tap the sheet handle between 40% and full height.
+  At full height, state dots surround the header lamp.
+- **Paused lanes.** Recent pauses appear as unlabeled outer icons, clear of
+  the bottom arc. Pauses of at least 14 days fold into one `+N` icon and row;
+  the row shows the oldest age and unfolds in place. Age uses the last lane
+  update, falling back to the lane's update timestamp.
+- **Lane rows.** Needs you / Working / Paused groups follow map order. Rows
+  show a lane icon, state, machine text, per-spec segmented acceptance bar,
+  and done/total specs. Icons resolve from the stream, then the shared title
+  keyword table, then a two-letter monogram. Tap a row or node to zoom.
+  Member work keeps the daemon's ACTIVE label; lead presence is separate.
+- **Lane zoom.** The lane is at the centre with its acceptance arc. The app
+  reads `work_lanes.show` for all members; inventory frames inline only eight.
+  In-progress specs carry labels and arcs; ready and backlog specs occupy
+  the outer orbit. Done and deprecated specs fold together as `✓N` and
+  unfold in the grouped sheet. The sheet begins with a plain acceptance bar,
+  fraction, percent, spec counts and estimate.
+- **Spec detail.** Tap a spec to turn it to the top and dim the others.
+  The sheet shows state, title, acceptance, estimate and changed age. When
+  supplied, it also shows lifecycle dates, worked hours, the lead seat's
+  machine/provider/activity/ETA/step, open questions and criteria with open
+  entries first and completed entries last. A matching spec log is shown
+  only when the lane update identifies that spec. Status and Next use the
+  daemon's `status_line` / `next_line`; explicit null stays blank. Older
+  streams use the same public first-sentence guard as the daemon. Missing
+  optional fields stay hidden. The action opens the lane's visible chat.
+- **Back.** First deselect the spec, then return from lane zoom to the map
+  with the previous sheet height and scroll position. Chat targets retain
+  their original semantics: open session, assistant tab, exact-generation
+  read-only history, or Chat unavailable.
+- **Working motion.** One native Animated loop drives inward spoke dashes,
+  node pulses and lamp breathing. Working lanes and live in-progress spec
+  seats participate. Static states stay still; Reduce Motion disables the
+  loop, and leaving the screen stops it.
+- **Updates and stale data.** Latest update opens the full publication log.
+  A publication opens its lane log; a missing lane reports unavailability.
+  An unavailable work index keeps the DATA AS OF snapshot banner visible.
 
-- **Latest update.** The newest lane update, and **All updates · N** for the
-  full update log, newest first. These are the same updates that appear as cards
-  in the assistant's conversation.
-- **Open lanes · N.** One card per open lane. Each card shows the state
-  (**ACTIVE** for daemon-reported member work, **WORKING**, **ACTIVE · IDLE**,
-  **ACTIVE · RECOVERING** while a lost lead is
-  being replaced, **BLOCKED**, **PAUSED** or **PAUSED · LEAD LOST**), the lead's host (or *no lead*) and how long ago the
-  lane last changed. On the right, **EST WORK** gives the open-work range in
-  hours, or a short status such as *All specs done*. A blocked lane shows its
-  blocker. When the daemon reports specs, a segmented bar and
-  **done/total SPECS DONE** with acceptance counts (**AC**) appear. Tap that
-  row to show or hide the lane's specs. Until the daemon sends them, the card
-  reads *Specs arrive when the daemon updates*.
-  Member work stays **ACTIVE** in both list and map even when the old lead is
-  closed, absent or no longer qualifies. It means an eligible member seat is
-  open, not necessarily busy; the lead's own presence remains separate.
-- **Open a lane.** Tap the lane's title row to go to its chat. An open chat
-  opens normally; the assistant's own lane returns to the assistant tab. A closed
-  chat opens as a read-only history. If the chat is gone, the card says
-  **chat unavailable** and does nothing.
-- **Stale data.** If the daemon's work index is unavailable, the header shows
-  **DATA AS OF** with the snapshot time.
-
-<p>
-<img src="images/mobile-lanes-map.png" width="260" alt="Work lanes map view: the assistant at the centre with four invented lanes around it, labelled BLOCKED or PAUSED, a state summary and the latest update" />
-</p>
-
-- **Map view.** The toggle in the lanes header switches between list and map.
-  The map places the assistant at the centre with each lane around it and a
-  count of active, blocked and paused lanes. Tap a lane to focus it and see
-  its specs and a button to its chat; Back returns to all lanes.
+Cut A works with the older stream. Optional `icon`, `worked`, `criteria`,
+`transitions`, `lead_seat`, `status_line` and `next_line` light up when present.
+The shared keyword data lives in vendored `pentacle-chat-core/lane_icons.json`;
+prose rules and cases live in its `tests/fixtures/summary_prose_cases.json`.
 
 ## Capture notes
 
@@ -100,8 +108,9 @@ Captured 2026-10-26 from `81f820e402d49e07e3e7b664794ae85eff31c7b5` under
 react-native-web (the [screenshot harness](SCREENSHOT_HARNESS.md)) in headless
 Chrome at 390×844, 2× scale, UTC. These are web renders of the real screens, not
 native iOS captures, and may differ from iOS in small details. Fixtures:
-`assistant:lane_updates` (assistant tab, lanes list and map),
-`lanes:inc1_cases` (expanded specs) and `session:status_card`. The Sessions
+`assistant:lane_updates` (assistant tab) and `session:status_card`. The lane
+flow described above supersedes those historical lane captures; current flow
+fixtures and the layout driver are documented in the screenshot harness. The Sessions
 drawer and Questions images use the default populated fixture. The server ran
 with `EXPO_PUBLIC_SCREENSHOT_HARNESS=1`, `EXPO_PUBLIC_HARNESS=1`,
 `EXPO_PUBLIC_DISABLE_BIOMETRIC_LOCK=1`, a placeholder `EXPO_PUBLIC_HARNESS_TOKEN`

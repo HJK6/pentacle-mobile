@@ -102,7 +102,7 @@ function normalizeMember(value: unknown): WorkLaneMember | null {
   const specId = str(raw?.spec_id);
   if (!raw || !specId) return null;
   const member: WorkLaneMember = { spec_id: specId };
-  for (const key of ['title', 'status_text', 'next_action_text', 'source_changed_at'] as const) {
+  for (const key of ['title', 'status_text', 'next_action_text', 'source_changed_at', 'status_line', 'next_line'] as const) {
     if (nullableString(raw[key])) member[key] = raw[key];
   }
   if (str(raw.status)) member.status = String(raw.status);
@@ -122,6 +122,26 @@ function normalizeMember(value: unknown): WorkLaneMember | null {
   const questions = obj(raw.open_questions);
   if (questions && count(questions.count)) {
     member.open_questions = { count: questions.count, first_question_id: str(questions.first_question_id) };
+  }
+  const hours = (v: unknown) => v === null || (typeof v === 'number' && Number.isFinite(v) && v >= 0);
+  const worked = obj(raw.worked);
+  if (raw.worked === null) member.worked = null;
+  else if (worked && hours(worked.elapsed_h) && hours(worked.active_h) && typeof worked.censored === 'boolean'
+    && count(worked.seats) && count(worked.qa_rounds) && typeof worked.as_of === 'string') {
+    member.worked = { elapsed_h: worked.elapsed_h as number | null, active_h: worked.active_h as number | null,
+      censored: worked.censored, seats: worked.seats, qa_rounds: worked.qa_rounds, as_of: worked.as_of };
+  }
+  const dispositions = ['open', 'done', 'waived', 'tracked', 'parked'];
+  if (Array.isArray(raw.criteria) && raw.criteria.every(c => obj(c) && typeof c.title === 'string' && dispositions.includes(c.disposition)))
+    member.criteria = raw.criteria.map(c => ({ title: c.title, disposition: c.disposition }));
+  if (Array.isArray(raw.transitions) && raw.transitions.every(t => obj(t) && typeof t.status === 'string' && typeof t.at === 'string'))
+    member.transitions = raw.transitions.map(t => ({ status: t.status, at: t.at }));
+  const lead = obj(raw.lead_seat);
+  if (raw.lead_seat === null) member.lead_seat = null;
+  else if (lead && str(lead.stream_id) && typeof lead.host === 'string' && nullableString(lead.provider)
+    && SEAT_ACTIVITY.includes(lead.activity as WorkLaneSeat['activity']) && nullableString(lead.eta_at) && nullableString(lead.active_step)) {
+    member.lead_seat = { stream_id: String(lead.stream_id), host: lead.host, provider: lead.provider as string | null,
+      activity: lead.activity as WorkLaneSeat['activity'], eta_at: lead.eta_at as string | null, active_step: lead.active_step as string | null };
   }
   return member;
 }
@@ -237,6 +257,7 @@ function normalizeLane(value: unknown): WorkLane | null {
   const unled = state === 'active' && raw.state_reason !== 'members_working' && (!lead || !lead.qualifies);
   return {
     lane_id: String(raw.lane_id),
+    ...(nullableString(raw.icon) ? { icon: raw.icon } : {}),
     title: str(raw.title) ?? '',
     summary: str(raw.summary) ?? '',
     state,
@@ -493,6 +514,7 @@ export function parseWorkLaneShow(value: unknown): WorkLaneShow | null {
       created_at: stamp,
       ts: stamp,
       summary: linked?.summary ?? null,
+      ...(nullableString(update.spec_id) ? { spec_id: update.spec_id } : str(linked?.payload.spec_id) ? { spec_id: String(linked!.payload.spec_id) } : {}),
     });
   }
   const workIndex = normalizeWorkIndex(raw.work_index);

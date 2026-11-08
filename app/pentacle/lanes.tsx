@@ -52,6 +52,7 @@ export default function LanesRoute() {
   return <View style={styles.root}>
     <Starfield />
     <LanesOverlay active={isFocused && !history} lanes={lanes} inventory={state.workLanes} assistantName={identity.name} connected={state.connected} updates={updates}
+      readShow={process.env.EXPO_PUBLIC_SCREENSHOT_HARNESS === '1' ? require('../../src/harness/workLaneShows').readScreenshotWorkLaneShow : undefined}
       top={top} bottom={bottom} onChat={openLane} onClose={close} />
     {history
       ? <View style={StyleSheet.absoluteFill}>

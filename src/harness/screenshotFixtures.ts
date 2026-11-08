@@ -27,8 +27,10 @@ import type {
   PentacleUpdateMessage,
   WorkLane,
   WorkLaneUpdateKind,
+  WorkLaneShow,
 } from "pentacle-chat-core";
 import type { AssetComment, PentacleReport } from "../services/pentacleAssets";
+import { lanesFlowFixture } from './lanesFlowFixture';
 
 export type HarnessSnapshot = {
   events?: PentacleEvent[];
@@ -52,6 +54,7 @@ export type HarnessSeedOpts = {
 export type HarnessFixture = {
   snapshot: HarnessSnapshot;
   opts?: HarnessSeedOpts;
+  workLaneShows?: Record<string, WorkLaneShow>;
   assets?: {
     streamId: string;
     reports: PentacleReport[];
@@ -1026,7 +1029,7 @@ const LANE_UPDATE_SAMPLES: Array<[WorkLaneUpdateKind, string, string]> = [
 // one typed card per update kind.
 const ASSISTANT_LANE_UPDATES_SNAPSHOT: HarnessSnapshot = {
   ...EMPTY_SNAPSHOT,
-  work_lanes: LANES_SNAPSHOT.work_lanes,
+  work_lanes: { type: 'work_lanes.inventory', ...lanesFlowFixture().inventory },
   sessions: [session({ stream_id: ASSISTANT_STREAM_ID, host: 'hostc', provider: 'composite', session_name: 'assistant', title: 'Assistant' })],
   events: LANE_UPDATE_SAMPLES.map(([kind, title, summary], index): PentacleEvent => ({
     daemon_seq: 100 + index, host: 'hostc', provider: 'composite', session_id: ASSISTANT_STREAM_ID, session_name: 'assistant',
@@ -1091,7 +1094,10 @@ export const FIXTURES: Record<string, HarnessFixture> = {
   'chats:empty': { snapshot: EMPTY_SNAPSHOT, opts: SEEDED },
   'lanes:populated': { snapshot: LANES_SNAPSHOT, opts: SEEDED },
   'lanes:empty': { snapshot: { ...EMPTY_SNAPSHOT, work_lanes: { type: 'work_lanes.inventory', lanes: [], counts: { open: 0, active: 0, paused: 0, blocked: 0 }, truncated: false, generated_at: T0 } }, opts: SEEDED },
-  'assistant:lane_updates': { snapshot: ASSISTANT_LANE_UPDATES_SNAPSHOT, opts: SEEDED },
+  'assistant:lane_updates': { snapshot: ASSISTANT_LANE_UPDATES_SNAPSHOT, opts: SEEDED, workLaneShows: lanesFlowFixture().shows },
+  'lanes:flow_v2': { snapshot: { ...EMPTY_SNAPSHOT, work_lanes: { type: 'work_lanes.inventory', ...lanesFlowFixture().inventory } }, opts: SEEDED, workLaneShows: lanesFlowFixture().shows },
+  'lanes:spec_detail_full': { snapshot: { ...EMPTY_SNAPSHOT, work_lanes: { type: 'work_lanes.inventory', ...lanesFlowFixture().inventory } }, opts: SEEDED, workLaneShows: (() => { const f = lanesFlowFixture(); f.shows[f.zoomLaneId].members[0] = f.detailMember; return f.shows; })() },
+  'lanes:spec_detail_sparse': { snapshot: { ...EMPTY_SNAPSHOT, work_lanes: { type: 'work_lanes.inventory', ...lanesFlowFixture(Date.now(), true).inventory } }, opts: SEEDED, workLaneShows: lanesFlowFixture(Date.now(), true).shows },
   'lanes:v1_wire': lanesScene(SHARED_LANES.inventory_frame),
   'lanes:inc1_cases': lanesScene(INC1_CASES_FRAME),
   'lanes:overflow': lanesScene(overflowFrame()),
