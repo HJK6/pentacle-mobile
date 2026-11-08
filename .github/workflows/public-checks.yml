@@ -23,6 +23,8 @@ jobs:
         with:
           ruby-version: '3.3'
       - run: git fetch origin main
+      - name: Validate vendored chat core pin
+        run: node scripts/check-provision-pin.cjs
       - name: Public content boundary
         run: scripts/check-public-boundary.sh origin/main
       - name: Private-terms pre-push check (synthetic dictionaries)
