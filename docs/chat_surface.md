@@ -205,7 +205,7 @@ preview; moving it into the shared core is a tracked follow-up.
 
 ## Shared-core parity
 
-When desktop and mobile use a shared core, keep one decision surface for event
+When Pentacle Web and mobile use a shared core, keep one decision surface for event
 interpretation, transcript selection, optimistic lifecycle, working metadata,
 question projections, and ordering. Consumers should move through reviewed
 public releases together and must not fork these decisions locally. The parity
