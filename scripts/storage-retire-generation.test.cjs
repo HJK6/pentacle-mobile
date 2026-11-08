@@ -32,6 +32,8 @@ function refusal(f,args,pattern,env) {const before=snapshot(f),n=f.commands().le
 
 test('both disk Writable predicates are mandatory',()=>{const v={MountPoint:'/owned',Writable:false,WritableVolume:false};assert.equal(readOnlyMount(v,'/owned'),true);for(const k of ['Writable','WritableVolume']){assert.equal(readOnlyMount({...v,[k]:true},'/owned'),false);const c={...v};delete c[k];assert.equal(readOnlyMount(c,'/owned'),false);}});
 
+test('duplicate top-level launchd state refuses inspection',t=>{const f=fixture(t);f.prepare();const c=f.config();c.duplicateState=true;f.save(c);refusal(f,['inspect'],/RETIREMENT_LAUNCHD_STATE/);});
+
 test('actual utility inspect→digest plan→apply→ordinary current install; genuine wrapper/janitor report and unchanged archive',t=>{
   const f=fixture(t),old=f.prepare(),before=snapshot(f);
   let r=f.utility(['inspect']);assert.equal(r.status,0,r.stderr);const inspected=JSON.parse(r.stdout);assert.equal(inspected.generation,old.authority.generation);assert.equal(inspected.authority_sha256,sha(fs.readFileSync(path.join(f.inner,'authority.json'))));assert.equal(inspected.eligible,true);assert.deepEqual(snapshot(f),before);
