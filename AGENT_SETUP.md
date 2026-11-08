@@ -14,9 +14,9 @@ checkout. Each client vendors its source and installs it automatically with npm.
 ## Set up the daemon first
 
 Follow the daemon repository's [SETUP.md](https://github.com/HJK6/pentacle/blob/main/SETUP.md)
-and [local startup commands](https://github.com/HJK6/pentacle#local-setup).
+and [local startup commands](https://github.com/HJK6/pentacle#quick-start).
 For mobile-only use, install the Python dependencies, tmux and an authenticated
-provider CLI; Electron is optional. Keep the daemon running while using the app.
+provider CLI. Keep the daemon running while using the app.
 
 Start with `--local-host local`. Verify the provider works under the same OS
 user as the daemon. Keep the database, transcripts and credentials outside the
