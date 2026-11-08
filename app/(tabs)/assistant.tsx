@@ -17,6 +17,8 @@ import { selectPendingQuestionCount } from '../../src/components/questions/quest
 import { selectOpenLaneCount, selectWorkLaneCounts } from '../../src/services/workLanes';
 import { usePentacleStreamSelectorWhen } from '../../src/services/pentacleStream';
 import { resetChatOpenNavigationIntents } from '../../src/services/chatOpenNavigationIntent';
+import QuestionDeckCard from '../../src/components/questions/QuestionDeckCard';
+import { questionCardStore } from '../../src/components/questions/questionCardStore';
 import { logFocusedTab } from '../../src/services/mobileTabsTelemetry';
 
 export default function AssistantScreen() {
@@ -25,7 +27,6 @@ export default function AssistantScreen() {
   const insets = useSafeAreaInsets();
   const state = usePentacleStreamSelectorWhen(isFocused, (snapshot) => snapshot);
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const questionsOpening = useRef(false);
   const lanesOpening = useRef(false);
   const groups = useMemo(() => selectDrawerGroups(state), [state]);
   const machines = useMemo(() => selectMachineStatusList(state).filter((machine) => !isIdentityHost(machine.host))
@@ -38,7 +39,6 @@ export default function AssistantScreen() {
   }), [state]);
   useEffect(() => {
     if (isFocused) {
-      questionsOpening.current = false;
       lanesOpening.current = false;
       resetChatOpenNavigationIntents();
       logFocusedTab('assistant');
@@ -54,12 +54,8 @@ export default function AssistantScreen() {
     catch { lanesOpening.current = false; }
   }, [isFocused, router]);
   const openQuestions = useCallback(() => {
-    if (!isFocused || questionsOpening.current) return;
-    questionsOpening.current = true;
-    Keyboard.dismiss();
-    try { router.push('/pentacle/questions'); }
-    catch { questionsOpening.current = false; }
-  }, [isFocused, router]);
+    if (isFocused) questionCardStore.toggle(header.pending);
+  }, [isFocused, header.pending]);
   return <View style={styles.root}>
     <AssistantThread {...header} top={insets.top} onDrawer={openDrawer} onStatus={openLanes} onQuestions={openQuestions} />
     {isFocused ? <AssistantSessions open={drawerOpen} groups={groups} machines={machines} onClose={() => setDrawerOpen(false)} /> : null}
@@ -69,7 +65,7 @@ export default function AssistantScreen() {
 // Unrelated session prose may update the drawer but must not force transcript
 // renders. The real SessionScreen keeps its own narrow live subscriptions.
 const AssistantThread = React.memo(function AssistantThread(props: React.ComponentProps<typeof AssistantHeader>) {
-  return <SessionScreen streamId={ASSISTANT_STREAM_ID} header={<AssistantHeader {...props} />} questionsInHeader />;
+  return <SessionScreen streamId={ASSISTANT_STREAM_ID} header={<AssistantHeader {...props} />} questionsInHeader bottomItem={<QuestionDeckCard embedded />} />;
 });
 
 // Scope the modal flow to this focus visit so a newer route cancels queued

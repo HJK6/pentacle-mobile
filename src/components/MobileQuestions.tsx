@@ -164,8 +164,9 @@ export function serializeMobileQuestionAnswer(
   };
 }
 
-export function useMobileQuestionFlow<T>(entries: readonly MobileQuestionEntry<T>[]) {
-  const [drafts, setDrafts] = useState<Record<string, MobileQuestionDraft>>({});
+export function useMobileQuestionFlow<T>(entries: readonly MobileQuestionEntry<T>[], controlledDrafts?: [Record<string, MobileQuestionDraft>, React.Dispatch<React.SetStateAction<Record<string, MobileQuestionDraft>>>]) {
+  const localDrafts = useState<Record<string, MobileQuestionDraft>>({});
+  const [drafts, setDrafts] = controlledDrafts ?? localDrafts;
   const identity = entries.map((entry) => entry.key).join('|');
 
   useEffect(() => {
