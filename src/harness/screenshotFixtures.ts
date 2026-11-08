@@ -1335,3 +1335,6 @@ export function getFixture(
 ): HarnessFixture | undefined {
   return FIXTURES[`${screen}:${variant}`];
 }
+
+import { questionsEmbeddedFixture } from './questionsEmbeddedFixture';
+FIXTURES['assistant:questions_embedded'] = questionsEmbeddedFixture();

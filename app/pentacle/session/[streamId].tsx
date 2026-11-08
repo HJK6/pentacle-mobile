@@ -1044,9 +1044,11 @@ export type SessionScreenProps = {
   // screen is embedded outside the session route, e.g. the assistant home tab
   // (docs/assistant_home_contracts.md). Embedded screens never redirect away on a missing session.
   header?: React.ReactNode;
-  // The supplied header already carries the questions button (the assistant home header opens
-  // the cross-session overlay), so the in-chat question FAB is not drawn beside it.
+  // The supplied header already carries the questions button (the assistant home header
+  // toggles the embedded card), so the in-chat question FAB is not drawn beside it.
   questionsInHeader?: boolean;
+  // Newest transcript content: ListHeader is the composer edge of this inverted list.
+  bottomItem?: React.ReactNode;
 };
 
 export default function PentacleSessionScreen() {
@@ -1055,7 +1057,7 @@ export default function PentacleSessionScreen() {
 }
 
 export function SessionScreen(props: SessionScreenProps) {
-  const { streamId, header, questionsInHeader = false } = props;
+  const { streamId, header, questionsInHeader = false, bottomItem } = props;
   const embedded = header !== undefined;
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -3567,7 +3569,7 @@ export function SessionScreen(props: SessionScreenProps) {
       </StatusOverlay> : null}
       <View style={styles.screenContent}>
         <View style={styles.sessionBody}>
-          {shouldRenderTranscript ? (
+          {shouldRenderTranscript || (streamId === ASSISTANT_STREAM_ID && bottomItem && emptyStateVisible) ? (
             <FlatList
               ref={transcriptRef}
               testID="transcript-list"
@@ -3576,6 +3578,7 @@ export function SessionScreen(props: SessionScreenProps) {
               keyExtractor={(item) => item.id}
               renderItem={renderTranscriptItem}
               ListFooterComponent={renderTranscriptFooter}
+              ListHeaderComponent={streamId === ASSISTANT_STREAM_ID && bottomItem ? <View testID="transcript-bottom-item">{bottomItem}</View> : undefined}
               inverted
               keyboardShouldPersistTaps="always"
               keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
