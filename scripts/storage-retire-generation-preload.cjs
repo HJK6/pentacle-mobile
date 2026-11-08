@@ -88,7 +88,7 @@ cp.spawnSync = (binary,args,options={}) => {
       if(c.labelError)return {status:5,stdout:'',stderr:'unreadable'};
       if(!c.loaded)return {status:113,stdout:'',stderr:`Could not find service "com.pentacle.mobile.storage-janitor" in domain for user gui: ${process.getuid()}`};
       const p=jsonPlist(fs.readFileSync(path.join(home,'Library/LaunchAgents/com.pentacle.mobile.storage-janitor.plist')));
-      return ok(`path = ${path.join(home,'Library/LaunchAgents/com.pentacle.mobile.storage-janitor.plist')}\nstate = not running\narguments = {\n${(c.foreignArgv?[...p.ProgramArguments.slice(0,3),'apply']:p.ProgramArguments).join('\n')}\n}\nworking directory = ${p.WorkingDirectory}\n${c.running?'pid = 88888\n':''}`);
+      return ok(`${domain} = {\n\tpath = ${path.join(home,'Library/LaunchAgents/com.pentacle.mobile.storage-janitor.plist')}\n\tstate = ${c.running?'running':'not running'}\n${c.running?'\tpid = 88888\n':''}${c.duplicateState?'\tstate = not running\n':''}\targuments = {\n${(c.foreignArgv?[...p.ProgramArguments.slice(0,3),'apply']:p.ProgramArguments).join('\n')}\n\t}\n\tworking directory = ${p.WorkingDirectory}\n\tresource coalition = {\n\t\tstate = active\n\t}\n\tjetsam coalition = {\n\t\tstate = active\n\t}\n}\n`);
     }
     if(args[0]==='bootstrap' && args[1]===`gui/${process.getuid()}` && args[2]===path.join(home,'Library/LaunchAgents/com.pentacle.mobile.storage-janitor.plist') && !c.loaded){c.loaded=true;save(c);return ok();}
     if(args[0]==='bootout' && args[1]===domain && c.loaded){crash('before-bootout');c.loaded=false;save(c);crash('after-bootout');return ok();}

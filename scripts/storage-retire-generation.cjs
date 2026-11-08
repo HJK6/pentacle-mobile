@@ -133,8 +133,19 @@ function hostPlatform(layout) {
       const paths = [...text.matchAll(/^\s*path = (.+)$/gm)].map(m => m[1]);
       const working = [...text.matchAll(/^\s*working directory = (.+)$/gm)].map(m => m[1]);
       if (!expected || paths.length !== 1 || paths[0] !== layout.launchAgent || working.length !== 1 || working[0] !== expected.working_directory || !same(argv, expected.argv)) fail('PLIST_LOADED_IDENTITY');
-      if ([...text.matchAll(/^\s*state = (.+)$/gm)].length !== 1 || !/^\s*state = not running\s*$/m.test(text)) fail('LAUNCHD_STATE');
-      if (/^\s*pid = \d+/m.test(text) || /^\s*state = running\s*$/m.test(text)) fail('LIVE_JANITOR');
+      let depth = 0; const states = []; let pid = false; let malformed = false;
+      for (const line of text.split('\n')) {
+        const field = line.trim();
+        if (depth === 1) {
+          const state = /^state = (.+)$/.exec(field);
+          if (state) states.push(state[1]);
+          if (/^pid = \d+\s*$/.test(field)) pid = true;
+        }
+        if (field.endsWith(' = {')) depth++;
+        else if (field === '}') { depth--; if (depth < 0) malformed = true; }
+      }
+      if (pid || states.includes('running')) fail('LIVE_JANITOR');
+      if (malformed || depth !== 0 || states.length !== 1 || states[0] !== 'not running') fail('LAUNCHD_STATE');
       return { loaded: true, path: paths[0], argv, working_directory: working[0] };
     },
     bootout: () => command('/bin/launchctl', ['bootout', domain]),
