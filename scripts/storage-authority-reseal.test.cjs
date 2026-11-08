@@ -243,6 +243,34 @@ test('live original writer refuses without acquiring a second migration claim', 
     startToken: require('node:child_process').execFileSync('/bin/ps', ['-o', 'lstart=', '-p', String(process.pid)], { encoding: 'utf8' }).trim() };
   fs.writeFileSync(file, bytes(journal)); refusedWithoutWrites(f, undefined, /WRITER_ALIVE/);
 });
+for (const captureTz of ['', undefined]) for (const readerTz of ['', undefined]) {
+  test(`live writer remains protected across TZ capture=${String(captureTz)} reader=${String(readerTz)}`, t => {
+    const f = fixture(t); assert.equal(f.run(undefined, { RESEAL_TEST_CRASH: 'after-prepare' }).status, 91);
+    const file = path.join(f.state, 'authority-reseal.json'), journal = JSON.parse(fs.readFileSync(file));
+    const env = { ...process.env, TZ: captureTz };
+    const token = require('node:child_process').execFileSync('/bin/ps', ['-o', 'lstart=', '-p', String(process.pid)], { encoding: 'utf8', env }).trim();
+    journal.writer = { host: os.hostname(), uid: process.getuid(), pid: process.pid, startToken: token };
+    fs.writeFileSync(file, bytes(journal));
+    refusedWithoutWrites(f, undefined, /WRITER_ALIVE|WRITER_UNCERTAIN/, { TZ: readerTz });
+  });
+}
+test('a single unavailable time-zone probe cannot declare a live writer dead', t => {
+  const f = fixture(t); assert.equal(f.run(undefined, { RESEAL_TEST_CRASH: 'after-prepare' }).status, 91);
+  const file = path.join(f.state, 'authority-reseal.json'), journal = JSON.parse(fs.readFileSync(file));
+  journal.writer = { host: os.hostname(), uid: process.getuid(), pid: process.pid, startToken: 'different start' };
+  fs.writeFileSync(file, bytes(journal));
+  f.config.utc_epoch_unavailable = true; f.saveConfig();
+  refusedWithoutWrites(f, undefined, /WRITER_UNCERTAIN/);
+});
+for (const scenario of ['gone', 'reused']) test(`original ${scenario} PID permits recovery`, t => {
+  const f = fixture(t); assert.equal(f.run(undefined, { RESEAL_TEST_CRASH: 'after-prepare' }).status, 91);
+  const file = path.join(f.state, 'authority-reseal.json'), journal = JSON.parse(fs.readFileSync(file));
+  journal.writer = { host: os.hostname(), uid: process.getuid(), pid: scenario === 'gone' ? 2147483647 : process.pid,
+    startToken: 'different start' };
+  fs.writeFileSync(file, bytes(journal));
+  const result = f.run(); assert.equal(result.status, 0, result.stderr);
+  assert.equal(JSON.parse(result.stdout).state, 'committed');
+});
 test('normal shape-only transition and cleanup cannot bypass a pending journal', t => {
   const f = fixture(t); assert.equal(f.run(undefined, { RESEAL_TEST_CRASH: 'after-prepare' }).status, 91);
   refusedWithoutWrites(f, ['storage:uninstall']);

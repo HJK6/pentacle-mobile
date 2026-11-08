@@ -204,8 +204,8 @@ function quotaAndLayout(j = null) {
   state.validateStateLayout(root, j ? Object.values(j.temporaries) : []);
 }
 function originalWriterDead(writer) {
-  const current = require('./storage-state.cjs').processStartToken(writer.pid);
-  if (current !== null) { if (current === writer.startToken) fail('WRITER_ALIVE'); return; }
+  const matches = require('./storage-state.cjs').processStartMatches(writer.pid, writer.startToken);
+  if (matches !== null) { if (matches) fail('WRITER_ALIVE'); return; }
   try { process.kill(writer.pid, 0); } catch (error) { if (error.code === 'ESRCH') return; }
   fail('WRITER_UNCERTAIN');
 }

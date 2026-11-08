@@ -25,6 +25,7 @@ fs.realpathSync = Object.assign(function realpath(target, ...args) { return targ
 fs.statfsSync = function statfs(target, ...args) { return target === path.join(fixture, 'Library/PentacleMobileStorage/State') ? { blocks: 1n, bsize: 4096n } : originalStatfs.call(this, target, ...args); };
 cp.execFileSync = function exec(binary, args, options) {
   if (configuration.epoch_unavailable && binary === '/bin/ps') return '';
+  if (configuration.utc_epoch_unavailable && binary === '/bin/ps' && options?.env?.TZ === 'UTC') return '';
   if (configuration.probe_unavailable && binary === '/usr/sbin/diskutil') throw new Error('FIXTURE_PROBE_UNAVAILABLE');
   if (binary === '/usr/bin/plutil') return String(options.input);
   if (binary === '/usr/sbin/ioreg') return JSON.stringify([{ IOPlatformUUID: configuration.hardware_uuid }]);

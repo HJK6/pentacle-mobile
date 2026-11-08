@@ -276,8 +276,7 @@ function validateSchedulerUpdateBinding(states, expected, pendingWrite = null) {
   const owner = validateSchedulerLock(readExactJson(target));
   if (owner.schema !== 2 || owner.generation !== authority.generation || owner.host !== authority.host
     || owner.uid !== authority.uid || owner.transaction_id === null) throw new Error('SCHEDULER_SMOKE_OWNER_INVALID');
-  const epoch = processStartToken(owner.pid);
-  if (epoch === null || epoch !== owner.startToken) throw new Error('SCHEDULER_SMOKE_OWNER_EPOCH');
+  if (processStartMatches(owner.pid, owner.startToken) !== true) throw new Error('SCHEDULER_SMOKE_OWNER_EPOCH');
   try { process.kill(owner.pid, 0); } catch { throw new Error('SCHEDULER_SMOKE_OWNER_DEAD'); }
   const active = listRecords('scheduler').filter((entry) => !['committed', 'restored'].includes(entry.state));
   if (active.length !== 1) throw new Error('SCHEDULER_SMOKE_TRANSACTION_CARDINALITY');
@@ -661,16 +660,37 @@ function processStartToken(pid) {
   }
 }
 
+// Fleet writers capture with TZ empty or unset; the host time zone stays fixed.
+// A failed render is uncertain, never evidence that an owner has died.
+function processStartMatches(pid, token) {
+  if (process.platform === 'linux') {
+    const current = processStartToken(pid);
+    return current === null ? null : current === token;
+  }
+  try {
+    const localEnv = { ...process.env };
+    delete localEnv.TZ;
+    const render = env => childProcess.execFileSync('/bin/ps', ['-o', 'lstart=', '-p', String(pid)],
+      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], env }).trim();
+    const utc = render({ ...localEnv, TZ: 'UTC' });
+    const local = render(localEnv);
+    if (!utc || !local) return null;
+    return token === utc || token === local;
+  } catch {
+    return null;
+  }
+}
+
 function leaseHolderAlive(holder) {
   if (!holder || Object.keys(holder).sort().join(',') !== 'host,pid,startToken' || !Number.isSafeInteger(holder.pid) || holder.pid < 1 || typeof holder.startToken !== 'string' || holder.startToken.length === 0) return false;
   if (holder.host !== os.hostname()) return true;
-  const current = processStartToken(holder.pid);
-  if (current !== null) return current === holder.startToken;
+  const matches = processStartMatches(holder.pid, holder.startToken);
+  if (matches !== null) return matches;
   try {
     process.kill(holder.pid, 0);
     return true;
   } catch (error) {
-    return error?.code === 'EPERM';
+    return error?.code !== 'ESRCH';
   }
 }
 
@@ -1006,6 +1026,7 @@ module.exports = {
   validateAuthorityShape,
   validateInstalledAuthority,
   processStartToken,
+  processStartMatches,
   validateSchedulerLock,
   validateUpdateSmokeAuthority,
   validateUpdateCommitAuthority,

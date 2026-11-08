@@ -37,9 +37,9 @@ function reservedRun(id = RUN_ID) {
   };
 }
 
-function run(args) {
+function run(args, env = process.env) {
   return new Promise((resolve) => {
-    const child = spawn(process.execPath, [WORKER, ...args], { stdio: process.env.Q8_DEBUG === '1' ? ['ignore', 'ignore', 'inherit'] : 'ignore' });
+    const child = spawn(process.execPath, [WORKER, ...args], { env, stdio: process.env.Q8_DEBUG === '1' ? ['ignore', 'ignore', 'inherit'] : 'ignore' });
     child.once('exit', (code, signal) => resolve(signal ? 99 : code));
   });
 }
@@ -176,6 +176,20 @@ test('Q8 live lease holder remains untouched under contention', async (t) => {
   assert.equal(await holder, 0);
   assert.equal(await run(['try', root, 'runs', RUN_ID]), 0);
 });
+
+for (const holderTz of ['', undefined]) for (const contenderTz of ['', undefined]) {
+  test(`Q8 live lease survives TZ holder=${String(holderTz)} contender=${String(contenderTz)}`, async t => {
+    const root = fixture(t), ready = path.join(root, 'lease.ready'), release = path.join(root, 'lease.release');
+    const holder = run(['lease-hold', root, 'runs', RUN_ID, ready, release], { ...process.env, TZ: holderTz });
+    try {
+      await waitFor(ready);
+      assert.equal(await run(['try', root, 'runs', RUN_ID], { ...process.env, TZ: contenderTz }), 17);
+    } finally {
+      fs.writeFileSync(release, 'release');
+      assert.equal(await holder, 0);
+    }
+  });
+}
 
 test('Q8 a hard-linked wrong-object claim cannot authorize takeover', async (t) => {
   const root = fixture(t);
