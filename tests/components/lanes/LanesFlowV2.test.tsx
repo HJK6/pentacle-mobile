@@ -18,6 +18,7 @@ import { selectLaneCardViewModels } from "../../../src/services/workLanes";
 import { lanesFlowFixture } from "../../../src/harness/lanesFlowFixture";
 import { innerRingPoints } from "../../../src/components/lanes/lanesRingLayout";
 import { StructuredMemberContent } from "../../../src/components/lanes/LaneMemberDetail";
+import { Bang, p, SpecGlyph } from "../../../src/components/lanes/LaneAtoms";
 const fixture = require("../../../pentacle-chat-core/tests/fixtures/work-lanes-inventory.json");
 const state = applyWorkLanesInventory(
   initialPentacleStreamState,
@@ -272,4 +273,86 @@ test("AC9 working overflow lanes retain an inward spoke and pulse", async () => 
   await act(async () => {});
   expect(view.getAllByTestId(/^working-spoke-/)).toHaveLength(7);
   expect(view.getAllByTestId(/^working-pulse-/)).toHaveLength(7);
+});
+
+test.each([
+  [true, true],
+  [true, false],
+  [false, false],
+  [false, true],
+])("AC9 zoom/header/detail share the motion policy: reduced=%s live=%s", async (reduced, live) => {
+  jest.mocked(AccessibilityInfo.isReduceMotionEnabled).mockResolvedValue(reduced);
+  const running = new Set<object>();
+  jest.spyOn(Animated, "loop").mockImplementation(() => {
+    const animation = {
+      start: jest.fn(() => { running.add(animation); }),
+      stop: jest.fn(() => { running.delete(animation); }),
+      reset: jest.fn(),
+    };
+    return animation as any;
+  });
+  const view = surface(true);
+  if (!live) {
+    view.f.shows[view.f.zoomLaneId].members.forEach((member) => {
+      member.seats = [];
+      member.seats_total = 0;
+    });
+  }
+  await act(async () => {});
+  fireEvent.press(view.getByTestId("lane-row-" + view.f.zoomLaneId));
+  await act(async () => {});
+  expect(running.size).toBe(!reduced && live ? 1 : 0);
+  fireEvent.press(view.getByTestId("spec-node-" + view.f.members[0].spec_id));
+  expect(view.getByTestId("member-detail-" + view.f.members[0].spec_id)).toBeTruthy();
+  expect(running.size).toBe(!reduced && live ? 1 : 0);
+  view.rerender(<LanesOverlay {...view.props} active={false} />);
+  await act(async () => {});
+  expect(running.size).toBe(0);
+  view.unmount();
+  expect(running.size).toBe(0);
+});
+
+test("blocked specs use the amber exclamation glyph", () => {
+  const f = lanesFlowFixture();
+  const view = render(<SpecGlyph member={{ ...f.members[0], status: "blocked" }} />);
+  expect(view.UNSAFE_getByType(Bang).props.color).toBe(p.amber);
+});
+
+test("AC7 projection-only refresh before first selection retains show-only detail, and later show removal wins", async () => {
+  const view = surface(true);
+  await act(async () => {});
+  fireEvent.press(view.getByTestId("lane-row-" + view.f.zoomLaneId));
+  await act(async () => {});
+  const member = view.f.members[0];
+  const lanes = view.props.lanes.map((model) => model.lane.lane_id !== view.f.zoomLaneId ? model : {
+    ...model,
+    members: model.members.map((inline) => inline.spec_id !== member.spec_id ? inline : {
+      ...inline,
+      worked: { ...inline.worked!, elapsed_h: 9.5 },
+      lead_seat: { ...inline.lead_seat!, active_step: "Updated projection step" },
+    }),
+  });
+  view.rerender(<LanesOverlay {...view.props} lanes={lanes} />);
+  await act(async () => {});
+  expect(view.readShow).toHaveBeenCalledTimes(1);
+  fireEvent.press(view.getByTestId("spec-node-" + member.spec_id));
+  expect(view.getByTestId("member-criteria")).toHaveTextContent(/Navigate back without losing position/);
+  expect(view.getByTestId("member-lifecycle")).toBeTruthy();
+  expect(view.getByTestId("member-lead")).toHaveTextContent(/Updated projection step/);
+  const full = view.f.shows[view.f.zoomLaneId];
+  const removed = { ...full, members: full.members.map(({ criteria, transitions, ...row }) => row) };
+  view.readShow.mockResolvedValue(removed);
+  const revised = lanes.map((model) => model.lane.lane_id === view.f.zoomLaneId
+    ? { ...model, lane: { ...model.lane, version: (model.lane.version ?? 0) + 1 } }
+    : model);
+  view.rerender(<LanesOverlay {...view.props} lanes={revised} />);
+  await act(async () => {});
+  expect(view.readShow).toHaveBeenCalledTimes(2);
+  // An authoritative show can remove fields even while the detail stays open.
+  expect(view.queryByTestId("member-criteria")).toBeNull();
+  expect(view.queryByTestId("member-lifecycle")).toBeNull();
+  fireEvent.press(view.getByLabelText("Back"));
+  fireEvent.press(view.getByTestId("spec-node-" + member.spec_id));
+  expect(view.queryByTestId("member-criteria")).toBeNull();
+  expect(view.queryByTestId("member-lifecycle")).toBeNull();
 });

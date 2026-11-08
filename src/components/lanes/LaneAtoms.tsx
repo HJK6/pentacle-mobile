@@ -12,7 +12,6 @@ import Svg, { Circle, Path } from "react-native-svg";
 import { Fonts, Tokens } from "@/constants/Colors";
 import ArcaneRingFrame from "../ArcaneRingFrame";
 import LaneIcon from './LaneIcon';
-import { Spinner } from "../ArcaneAtoms";
 import type { LaneCardViewModel } from "../../services/workLanes";
 import type { WorkLaneMember } from "pentacle-chat-core";
 export const p = Tokens.palette;
@@ -202,12 +201,7 @@ export function LaneGlyph({
   if (model.lane.state === "blocked") return <Bang size={size} />;
   if (model.lane.state === "paused") return <Pause size={size} />;
   return model.lane.lead?.presence.working ? (
-    <Spinner
-      size={size}
-      color={p.green}
-      strokeWidth={2}
-      segmentFraction={0.25}
-    />
+    <WorkingGlyph size={size} />
   ) : (
     <View
       style={{
@@ -221,6 +215,15 @@ export function LaneGlyph({
     />
   );
 }
+/** Status glyphs stay static; constellation motion owns the sole animation loop. */
+function WorkingGlyph({ size }: { size: number }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 12 12">
+      <Circle cx={6} cy={6} r={5} fill="none" stroke={p.green} strokeWidth={2} opacity={0.25} />
+      <Path d="M6 1a5 5 0 0 1 5 5" fill="none" stroke={p.green} strokeWidth={2} />
+    </Svg>
+  );
+}
 export function memberTone(member: WorkLaneMember, model?: LaneCardViewModel) {
   if (
     ["missing", "ambiguous"].includes(member.status || "") ||
@@ -229,6 +232,7 @@ export function memberTone(member: WorkLaneMember, model?: LaneCardViewModel) {
     return p.red;
   if (member.status === "completed") return p.green;
   if (member.status === "needs_qa") return p.text;
+  if (member.status === "blocked") return p.amber;
   if (member.status === "in_progress")
     return model ? p[model.stateTone] : p.green;
   return ["ready_for_dev", "analysis"].includes(member.status || "")
@@ -252,6 +256,7 @@ export function SpecGlyph({
     status === "ambiguous"
   )
     return <Bang color={p.red} size={size} />;
+  if (status === "blocked") return <Bang color={p.amber} size={size} />;
   if (status === "completed")
     return (
       <Svg width={size} height={size} viewBox="0 0 12 12">
@@ -272,14 +277,7 @@ export function SpecGlyph({
       (model.lane.state === "paused" || !model.lane.lead?.presence.working)
     )
       return <Pause size={size} />;
-    return (
-      <Spinner
-        size={size}
-        color={p.green}
-        strokeWidth={2}
-        segmentFraction={0.25}
-      />
-    );
+    return <WorkingGlyph size={size} />;
   }
   return (
     <View

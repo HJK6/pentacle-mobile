@@ -295,13 +295,7 @@ export default function LanesMap({
       : undefined;
   const selected = selectedId
     ? currentSelection
-      ? {
-          ...previousSelection,
-          ...currentSelection,
-          criteria: currentSelection.criteria ?? previousSelection?.criteria,
-          transitions:
-            currentSelection.transitions ?? previousSelection?.transitions,
-        }
+      ? currentSelection
       : previousSelection
     : undefined;
   const now = Date.now(),
