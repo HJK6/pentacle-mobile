@@ -259,6 +259,99 @@ const hostedBoards: Catalog['boards'] = [
   { id: 'modeler-3d', name: 'Modeler 3D', kind: 'hosted-view', hosted: { url: 'https://boards.example.ts.net:8443/' } },
 ];
 
+const mockupsBoard = { id: 'ui-review', name: 'Mockups', kind: 'built-in' as const, visible: true };
+const mockupsUrl = 'https://chat.example.ts.net/designs/';
+test('Mockups opens the exact gallery with no credentials, retries browser failure and stays selected on return', async () => {
+  mockPolicy = hostedPolicy;
+  currentCatalog = { ...catalog(), boards: [...hostedBoards, mockupsBoard] };
+  const open = jest.spyOn(Linking, 'openURL').mockRejectedValueOnce(new Error('synthetic browser refusal')).mockResolvedValue(undefined);
+  try {
+    const rendered = render(<DashboardsScreen />);
+    await screen.findByTestId('dashboard-selector-ui-review');
+    expect(screen.getAllByRole('tab').map(tab => tab.props.testID)).toEqual(['dashboard-selector-project-map', 'dashboard-selector-modeler-3d', 'dashboard-selector-ui-review']);
+    expect(open).not.toHaveBeenCalled();
+    fireEvent.press(screen.getByTestId('dashboard-selector-ui-review'));
+    expect(await screen.findByTestId('dashboard-hosted-error')).toHaveTextContent(/Could not open dashboard/);
+    expect(open.mock.calls).toEqual([[mockupsUrl]]);
+    fireEvent.press(screen.getByTestId('dashboard-hosted-open'));
+    await waitFor(() => expect(screen.queryByTestId('dashboard-hosted-error')).toBeNull());
+    expect(open.mock.calls).toEqual([[mockupsUrl], [mockupsUrl]]);
+    mockFocused = false; rendered.rerender(<DashboardsScreen />);
+    mockFocused = true; rendered.rerender(<DashboardsScreen />);
+    await waitFor(() => expect(catalogLists()).toHaveLength(2));
+    expect(screen.getByTestId('dashboard-selector-ui-review').props.accessibilityState.selected).toBe(true);
+    expect(open).toHaveBeenCalledTimes(2);
+  } finally { open.mockRestore(); }
+});
+
+test('built-in Mockups derives the URL again from the current policy on retry', async () => {
+  mockPolicy = { ...hostedPolicy, pentacleOrigin: 'https://chat.example.ts.net:8443/' };
+  currentCatalog = { ...catalog(), boards: [mockupsBoard] };
+  const open = jest.spyOn(Linking, 'openURL').mockRejectedValueOnce(new Error('synthetic browser refusal')).mockResolvedValue(undefined);
+  try {
+    render(<DashboardsScreen />); await screen.findByTestId('dashboard-selector-ui-review');
+    fireEvent.press(screen.getByTestId('dashboard-selector-ui-review'));
+    await screen.findByTestId('dashboard-hosted-error');
+    expect(open).toHaveBeenLastCalledWith('https://chat.example.ts.net:8443/designs/');
+    mockPolicy = { ...hostedPolicy, pentacleOrigin: 'https://new-chat.example.ts.net' };
+    fireEvent.press(screen.getByTestId('dashboard-hosted-open'));
+    await waitFor(() => expect(open).toHaveBeenLastCalledWith('https://new-chat.example.ts.net/designs/'));
+    expect(open.mock.calls.every(args => args.length === 1)).toBe(true);
+  } finally { open.mockRestore(); }
+});
+
+test.each([
+  null, {}, { ...hostedPolicy, tailnetSuffix: 'other.ts.net' },
+  { ...hostedPolicy, pentacleOrigin: 'http://chat.example.ts.net' },
+  { ...hostedPolicy, pentacleOrigin: 'https://chat.example.ts.net/?token=synthetic' },
+  { ...hostedPolicy, pentacleOrigin: 'https://user:pass@chat.example.ts.net' },
+  { ...hostedPolicy, pentacleOrigin: 'https://chat.example.ts.net/other/../' },
+])('built-in Mockups refuses unavailable or malformed live policy at selection and retry: %j', async policy => {
+  mockPolicy = policy;
+  currentCatalog = { ...catalog(), boards: [mockupsBoard] };
+  const open = jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined);
+  try {
+    render(<DashboardsScreen />); await screen.findByTestId('dashboard-selector-ui-review');
+    fireEvent.press(screen.getByTestId('dashboard-selector-ui-review'));
+    expect(await screen.findByTestId('dashboard-hosted-error')).toHaveTextContent(/configuration/);
+    fireEvent.press(screen.getByTestId('dashboard-hosted-open'));
+    expect(open).not.toHaveBeenCalled();
+    mockPolicy = hostedPolicy;
+    fireEvent.press(screen.getByTestId('dashboard-hosted-open'));
+    await waitFor(() => expect(open).toHaveBeenCalledWith(mockupsUrl));
+  } finally { open.mockRestore(); }
+});
+
+test('other unknown built-ins remain unavailable and never open the browser', async () => {
+  mockPolicy = hostedPolicy;
+  currentCatalog = { ...catalog(), boards: [{ id: 'unknown-board', name: 'Unknown board', kind: 'built-in' }] };
+  const open = jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined);
+  try {
+    render(<DashboardsScreen />); await screen.findByTestId('dashboard-selector-unknown-board');
+    fireEvent.press(screen.getByTestId('dashboard-selector-unknown-board'));
+    expect(screen.getByTestId('dashboard-board-error')).toHaveTextContent(/Dashboard unavailable on this client/);
+    expect(screen.queryByTestId('dashboard-hosted-open')).toBeNull();
+    expect(open).not.toHaveBeenCalled();
+  } finally { open.mockRestore(); }
+});
+
+test.each(['/api/config', '/designs', '/designs/child', '/other/../designs/', '/%64esigns/', '//designs/', ':8443/designs/'])('invalid Mockups route never reaches Linking, including retry: %s', path => {
+  // Colon form exercises an unexpected port rather than a path.
+  const url = `https://chat.example.ts.net${path}`;
+  mockPolicy = hostedPolicy;
+  currentCatalog = { ...catalog(), boards: [{ ...mockupsBoard, kind: 'hosted-view', hosted: { url } }] };
+  const open = jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined);
+  return (async () => {
+    try {
+      render(<DashboardsScreen />); await screen.findByTestId('dashboard-selector-ui-review');
+      fireEvent.press(screen.getByTestId('dashboard-selector-ui-review'));
+      await screen.findByTestId('dashboard-hosted-error');
+      fireEvent.press(screen.getByTestId('dashboard-hosted-open'));
+      expect(open).not.toHaveBeenCalled();
+    } finally { open.mockRestore(); }
+  })();
+});
+
 test('both hosted selections hand only the URL to the browser and retain selection on return', async () => {
   mockPolicy = hostedPolicy;
   currentCatalog = { ...catalog(), boards: hostedBoards };

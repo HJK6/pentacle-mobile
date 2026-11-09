@@ -16,6 +16,10 @@ import { createCatalogLoader, getCatalogSpecId, validateHostedDashboardUrl, type
 import { getParam, useHarnessReady } from '../../src/utils/harnessRuntime';
 
 type CatalogResult = Awaited<ReturnType<ReturnType<typeof createCatalogLoader>['refresh']>>;
+type BrowserBoard = Extract<CatalogBoard, { kind: 'hosted-view' | 'built-in' }>;
+function browserBoard(board?: CatalogBoard): BrowserBoard | null {
+  return board && (board.kind === 'hosted-view' || (board.kind === 'built-in' && board.id === 'ui-review')) ? board : null;
+}
 
 function cacheAge(milliseconds: number) {
   const seconds = Math.max(0, Math.floor(milliseconds / 1000));
@@ -162,14 +166,18 @@ export default function DashboardsScreen() {
     }
   }, [definition, ready, refresh, refreshCatalog]);
 
-  const openHosted = useCallback(async (board: Extract<CatalogBoard, { kind: 'hosted-view' }>) => {
+  const openHosted = useCallback(async (board: BrowserBoard) => {
     const generation = ++handoffGeneration.current;
     setHostedError(null);
     try {
       // No await between live-policy admission and the sole opening side effect.
       // Linking receives only the catalog URL: no app token, headers or session.
       const { getHostedDashboardPolicy } = require('../../src/services/pentacleStream') as typeof import('../../src/services/pentacleStream');
-      const url = validateHostedDashboardUrl(board.hosted.url, getHostedDashboardPolicy());
+      const policy = getHostedDashboardPolicy();
+      const origin = (policy as { pentacleOrigin?: unknown } | null)?.pentacleOrigin;
+      const value = board.kind === 'hosted-view' ? board.hosted.url
+        : typeof origin === 'string' ? `${origin.replace(/\/$/, '')}/designs/` : undefined;
+      const url = validateHostedDashboardUrl(value, policy);
       await Linking.openURL(url);
     } catch (error) {
       if (generation === handoffGeneration.current) {
@@ -183,9 +191,10 @@ export default function DashboardsScreen() {
     setHostedError(null);
     setActiveId(id);
     const board = registry[id].catalogBoard;
-    if (board?.kind === 'hosted-view') void openHosted(board);
+    const target = browserBoard(board);
+    if (target) void openHosted(target);
   }, [registry, openHosted]);
-  const hostedBoard = definition?.catalogBoard?.kind === 'hosted-view' ? definition.catalogBoard : null;
+  const hostedBoard = browserBoard(definition?.catalogBoard);
 
   const selector = useMemo(() => order.map((id) => {
     const item = registry[id];

@@ -16,6 +16,7 @@ import {
 } from "../services/pentacleStream";
 import { DEFAULT_FIXTURE, getFixture } from "./screenshotFixtures";
 import { seedScreenshotWorkLaneShows } from './workLaneShows';
+import { seedDashboardRenderFixture } from './dashboardRenderFixture';
 import { harnessSeedReports } from "../services/pentacleAssets";
 import { ASSISTANT_STREAM_ID, DEFAULT_ASSISTANT_NAME } from "../services/assistantIdentity";
 
@@ -51,6 +52,7 @@ export function installScreenshotHarness() {
       : DEFAULT_FIXTURE;
   harnessSeedSnapshot(defaultFixture.snapshot, defaultFixture.opts);
   seedScreenshotWorkLaneShows(defaultFixture.workLaneShows);
+  seedDashboardRenderFixture(defaultFixture.dashboard);
   harnessSeedReports(
     defaultFixture.assets?.streamId || "",
     defaultFixture.assets?.reports,
@@ -74,6 +76,7 @@ export function installScreenshotHarness() {
       }
       harnessSeedSnapshot(fixture.snapshot, fixture.opts);
       seedScreenshotWorkLaneShows(fixture.workLaneShows);
+      seedDashboardRenderFixture(fixture.dashboard);
       harnessSeedReports(
         fixture.assets?.streamId || "",
         fixture.assets?.reports,

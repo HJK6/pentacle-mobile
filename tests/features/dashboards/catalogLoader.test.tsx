@@ -120,3 +120,72 @@ for (const item of catalogCases.hosted_urls) test(`shared hosted URL: ${item.nam
   if (item.allowed) expect(validateHostedDashboardUrl(item.url, catalogCases.hosted_policy)).toBe(item.url);
   else expect(() => validateHostedDashboardUrl(item.url, catalogCases.hosted_policy)).toThrow();
 });
+
+const galleryPolicy = { tailnetSuffix: 'example.ts.net', pentacleOrigin: 'https://chat.example.ts.net' };
+test.each([
+  'https://chat.example.ts.net/designs/',
+  'https://chat.example.ts.net:443/designs/',
+])('Mockups admits only the exact configured gallery and preserves the URL: %s', url => {
+  expect(validateHostedDashboardUrl(url, galleryPolicy)).toBe(url);
+});
+
+test('Mockups compares the configured HTTPS port as part of the origin', () => {
+  const policy = { ...galleryPolicy, pentacleOrigin: 'https://chat.example.ts.net:8443/' };
+  expect(validateHostedDashboardUrl('https://chat.example.ts.net:8443/designs/', policy)).toBe('https://chat.example.ts.net:8443/designs/');
+  for (const url of ['https://chat.example.ts.net/designs/', 'https://chat.example.ts.net:443/designs/', 'https://chat.example.ts.net:8444/designs/']) {
+    expect(() => validateHostedDashboardUrl(url, policy)).toThrow();
+  }
+});
+
+const refusedGalleryUrls = [
+  'https://chat.example.ts.net/',
+  'https://chat.example.ts.net/api/config',
+  'https://chat.example.ts.net/designs',
+  'https://chat.example.ts.net/designs/child',
+  'https://chat.example.ts.net/./designs/',
+  'https://chat.example.ts.net/other/../designs/',
+  'https://chat.example.ts.net/designs/../designs/',
+  'https://chat.example.ts.net/%64esigns/',
+  'https://chat.example.ts.net/designs%2f',
+  'https://chat.example.ts.net/designs%2F',
+  'https://chat.example.ts.net/%2e/designs/',
+  'https://chat.example.ts.net/other/%2E%2E/designs/',
+  'https://chat.example.ts.net/designs/%2e/',
+  'https://chat.example.ts.net/designs%5c',
+  'https://chat.example.ts.net/designs%252f',
+  'https://chat.example.ts.net//designs/',
+  'https://chat.example.ts.net/designs//',
+  'https://chat.example.ts.net:8443/designs/',
+  'http://chat.example.ts.net/designs/',
+  'https://chat.example.ts.net.evil.test/designs/',
+  'https://chat-example.ts.net/designs/',
+  'https://foreign.test/designs/',
+  'https://chat.other.ts.net/designs/',
+  'https://user:pass@chat.example.ts.net/designs/',
+  'https://@chat.example.ts.net/designs/',
+  'https://chat.example.ts.net/designs/?token=synthetic',
+  'https://chat.example.ts.net/designs/?',
+  'https://chat.example.ts.net/designs/#fragment',
+  'https://chat.example.ts.net/designs/#',
+  'https://chat.example.ts.net\\designs/',
+  'https://chat.example.ts.net/designs/\n',
+];
+test.each(refusedGalleryUrls)('Mockups refuses sibling, ambiguous or unsafe URL: %s', url => {
+  expect(() => validateHostedDashboardUrl(url, galleryPolicy)).toThrow();
+});
+
+test.each([
+  null, {}, { ...galleryPolicy, tailnetSuffix: 'example.test' },
+  { ...galleryPolicy, pentacleOrigin: 'http://chat.example.ts.net' },
+  { ...galleryPolicy, pentacleOrigin: 'https://chat.other.ts.net' },
+  { ...galleryPolicy, pentacleOrigin: 'https://chat.example.ts.net/other/../' },
+  { ...galleryPolicy, pentacleOrigin: 'https://chat.example.ts.net/?' },
+  { ...galleryPolicy, pentacleOrigin: 'https://user@chat.example.ts.net' },
+])('Mockups fails closed with unavailable or malformed policy: %j', policy => {
+  expect(() => validateHostedDashboardUrl('https://chat.example.ts.net/designs/', policy)).toThrow(/configuration/);
+});
+
+test('Mockups retains the existing distinct tailnet hosted dashboard policy', () => {
+  const url = 'https://boards.example.ts.net:8444/project-map/';
+  expect(validateHostedDashboardUrl(url, galleryPolicy)).toBe(url);
+});
