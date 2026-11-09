@@ -33,6 +33,7 @@ import type { AssetComment, PentacleReport } from "../services/pentacleAssets";
 import { lanesFlowFixture } from './lanesFlowFixture';
 import { lanesGoalsFixture } from './lanesGoalsFixture';
 import { lanesPagingFixture } from './lanesPagingFixture';
+import type { DashboardRenderFixture } from './dashboardRenderFixture';
 
 export type HarnessSnapshot = {
   events?: PentacleEvent[];
@@ -57,6 +58,7 @@ export type HarnessFixture = {
   snapshot: HarnessSnapshot;
   opts?: HarnessSeedOpts;
   workLaneShows?: Record<string, WorkLaneShow>;
+  dashboard?: DashboardRenderFixture;
   assets?: {
     streamId: string;
     reports: PentacleReport[];
@@ -1087,6 +1089,8 @@ function overflowFrame(): LaneFrame {
 }
 
 export const FIXTURES: Record<string, HarnessFixture> = {
+  'dashboards:mockups': { snapshot: EMPTY_SNAPSHOT, opts: SEEDED, dashboard: 'mockups' },
+  'dashboards:empty': { snapshot: EMPTY_SNAPSHOT, opts: SEEDED, dashboard: 'empty' },
   "enroll:default": { snapshot: POPULATED_SNAPSHOT, opts: SEEDED },
   'chats:populated': { snapshot: POPULATED_SNAPSHOT, opts: SEEDED },
   'chats:tool_call_latest': { snapshot: TOOL_CALL_LATEST_SNAPSHOT, opts: SEEDED },

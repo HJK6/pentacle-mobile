@@ -75,11 +75,14 @@ export function validateHostedDashboardUrl(value: unknown, input: unknown): stri
     throw new Error('Hosted dashboard configuration unavailable');
   }
   const origin = new URL(policy.pentacleOrigin);
-  if (!dnsHost.test(origin.hostname) || origin.pathname !== '/' || !origin.hostname.toLowerCase().endsWith(`.${policy.tailnetSuffix.toLowerCase()}`)) {
+  if (!/^https:\/\/[^/]+\/?$/.test(policy.pentacleOrigin) || !dnsHost.test(origin.hostname) || origin.pathname !== '/' || !origin.hostname.toLowerCase().endsWith(`.${policy.tailnetSuffix.toLowerCase()}`)) {
     throw new Error('Hosted dashboard configuration unavailable');
   }
   if (!staticHostedUrl(value)) throw new Error('Dashboard URL must be credential-free HTTPS without query or fragment');
   const url = new URL(value);
+  // Check the raw path as well: URL parsing normalizes dot segments and aliases.
+  // The gallery is the only route allowed on the configured Pentacle origin.
+  if (url.origin === origin.origin && url.pathname === '/designs/' && value.slice(value.indexOf('/', 'https://'.length)) === '/designs/') return value;
   if (!dnsHost.test(url.hostname) || !url.hostname.toLowerCase().endsWith(`.${policy.tailnetSuffix.toLowerCase()}`) || url.hostname.toLowerCase() === origin.hostname.toLowerCase()) {
     throw new Error('Dashboard URL is outside the permitted hosted origin policy');
   }
