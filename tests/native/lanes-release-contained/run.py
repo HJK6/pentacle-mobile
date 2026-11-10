@@ -379,6 +379,31 @@ def grouped_lane_ids(lanes: list[dict[str, Any]]) -> list[str]:
             for lane in lanes if lane_group(lane) == group]
 
 
+def expected_map_lanes(lanes: list[dict[str, Any]]) -> tuple[set[str], int]:
+    paused = sorted((lane for lane in lanes if lane.get("state") == "paused"),
+                    key=lambda lane: lane.get("state_at") or "", reverse=True)
+    visible = [lane["lane_id"] for lane in lanes if lane.get("state") != "paused"]
+    visible.extend(lane["lane_id"] for lane in paused[:6])
+    return set(visible), max(0, len(paused) - 6)
+
+
+def assert_map_labels(ui: "Ui", expected: set[str], folded: int, titles: dict[str, str] | None = None) -> None:
+    labels = ui.ids("lanes-map-label-")
+    actual = {Ui.ident(e).removeprefix("lanes-map-label-") for e in labels}
+    wanted = expected | ({"paused-more"} if folded else set())
+    if len(labels) != len(actual) or actual != wanted:
+        raise AssertFail("map labels do not match visible lanes and paused fold")
+    if titles is not None:
+        for element in labels:
+            ident = Ui.ident(element).removeprefix("lanes-map-label-")
+            expected_title = f"+{folded}" if ident == "paused-more" else titles.get(ident, "")
+            if not expected_title or not Ui.label(element).startswith(expected_title):
+                raise AssertFail("map label lacks its expected visible lane title: " + ident)
+    overlaps = overlapping(labels)
+    if overlaps:
+        raise AssertFail(f"overlapping map labels {overlaps[:2]}")
+
+
 def lane_ids(lanes: list[dict[str, Any]]) -> list[str]:
     return [lane["lane_id"] for lane in lanes]
 
@@ -1310,10 +1335,17 @@ class Run:
 
     def run_b_map_pages(self) -> None:
         self.show_view("map")
-        visible = self.visible_order("lanes-map-lane-")
-        expected = set(sd.all_lane_ids())
-        if not visible or not set(visible).issubset(expected) or len(visible) != len(set(visible)):
-            raise AssertFail("map exposes missing, duplicate or unknown lane nodes")
+        visible = self.bracket_order("run B map", lambda: self.visible_order("lanes-map-lane-"),
+            lambda seen, lanes: len(seen) == len(set(seen)) and set(seen) == expected_map_lanes(lanes)[0])
+        lanes = (self.probe()["inventory"] or {}).get("lanes", [])
+        expected, folded = expected_map_lanes(lanes)
+        if set(visible) != expected:
+            raise AssertFail("map changed before label inspection")
+        assert_map_labels(self.ui, expected, folded, {lane["lane_id"]: lane["title"] for lane in lanes})
+        if folded:
+            self.ui.find("lanes-map-fold-paused-more")
+        else:
+            self.ui.absent("lanes-map-fold-paused-more")
         self.ui.screenshot("b-map")
         self.result["checks"]["run_b_map_pages"] = {"visible_lanes": visible}
 
@@ -1345,6 +1377,10 @@ class Run:
         ui, spec = self.ui, sd.BIG[0]
         ui.tap(f"spec-row-{spec}")
         ui.find("lanes-back")
+        ui.absent("spec-row-")
+        ui.find_label("Span 01")
+        ui.find_label("Building")
+        ui.find_label("0/2 checks")
         ui.absent("member-detail-chat")
         ui.absent("lane-log-tab-")
         ui.screenshot("b-spec")
@@ -1382,6 +1418,7 @@ class Run:
     def overflow_assert(self) -> None:
         ui = self.ui
         expected = self.result["overflow_phase"]["inventory_ids"]
+        self.run_b_map_pages()
         def read_list() -> list[str]:
             return [x.removeprefix(LIST_CARD) for x in ui.collect_scrolling(LIST_CARD, len(expected), max_swipes=30)]
         observed = self.bracket_order("overflow grouped list", read_list,
@@ -1425,6 +1462,9 @@ class Run:
             overlaps = overlapping(nodes)
             if overlaps:
                 raise AssertFail(f"overlapping lane targets at large text {overlaps[:2]}")
+            lanes = (self.probe()["inventory"] or {}).get("lanes", [])
+            expected, folded = expected_map_lanes(lanes)
+            assert_map_labels(ui, expected, folded, {lane["lane_id"]: lane["title"] for lane in lanes})
             ui.screenshot("b-large-text-home")
         finally:
             self.simctl("ui", self.udid, "content_size", self.content_size or "large", check=False)

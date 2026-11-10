@@ -87,14 +87,37 @@ def test_overflow_list_must_equal_agreed_grouped_order(tmp_path, monkeypatch):
     expected = sd.all_lane_ids() + sd.overflow_lane_ids()
     r, _ = make_run(tmp_path, monkeypatch, [[]], [lanes(expected)] * 6)
     r.result["overflow_phase"] = {"inventory_ids": expected}
+    r.run_b_map_pages = lambda: None
     r.ui.collect_scrolling = lambda prefix, limit, max_swipes=12: [prefix + x for x in expected[1:] + expected[:1]]
     with pytest.raises(run.AssertFail):
         r.overflow_assert()
     r, _ = make_run(tmp_path, monkeypatch, [[]], [lanes(expected)] * 2)
     r.result["overflow_phase"] = {"inventory_ids": expected}
+    r.run_b_map_pages = lambda: None
     r.ui.collect_scrolling = lambda prefix, limit, max_swipes=12: [prefix + x for x in expected]
     r.overflow_assert()
     assert r.result["overflow_phase"]["observed_ids"] == expected
+
+
+def test_map_requires_six_paused_lanes_and_a_fold_with_nonoverlapping_labels():
+    inventory = [{"lane_id": f"wl-{i:024x}", "state": "paused"} for i in range(8)]
+    expected, folded = run.expected_map_lanes(inventory)
+    assert expected == {lane["lane_id"] for lane in inventory[:6]} and folded == 2
+    class Labels:
+        def __init__(self, ids):
+            self.labels = [card("lanes-map-label-", ident, 40 * i) for i, ident in enumerate(ids)]
+        def ids(self, prefix):
+            return [e for e in self.labels if run.Ui.ident(e).startswith(prefix)]
+    ids = sorted(expected) + ["paused-more"]
+    run.assert_map_labels(Labels(ids), expected, folded)
+    with pytest.raises(run.AssertFail):
+        run.assert_map_labels(Labels(ids[:-1]), expected, folded)
+    with pytest.raises(run.AssertFail):
+        run.assert_map_labels(Labels(ids), expected, folded, {ident: "Named lane" for ident in expected})
+    overlapping = Labels(ids)
+    overlapping.labels[1]["frame"]["y"] = overlapping.labels[0]["frame"]["y"]
+    with pytest.raises(run.AssertFail):
+        run.assert_map_labels(overlapping, expected, folded)
 
 
 # -- (j) wire evidence never keeps an enrollment code ---------------------------------------------------------

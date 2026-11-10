@@ -52,9 +52,17 @@ async function run() {
       await shot(page, `${width}-home-list`);
       await openLane(page, 'sample-lane-4');
       await shot(page, `${width}-lane`);
+      await page.getByText('Review window requested.', { exact: false }).scrollIntoViewIfNeeded();
+      await shot(page, `${width}-lane-recent`);
       await page.locator(tid('goal-head-g_sample_3_0')).click();
       await page.locator(tid('readable-goal')).waitFor();
       await shot(page, `${width}-goal`);
+      await page.locator(tid('spec-row-spec_sample__flow_2')).scrollIntoViewIfNeeded();
+      await page.locator(tid('spec-row-spec_sample__flow_2')).click();
+      await page.getByText('the review window', { exact: true }).waitFor();
+      await page.getByText('Review window requested.', { exact: false }).scrollIntoViewIfNeeded();
+      await shot(page, `${width}-spec-blocked-recent`);
+      await back(page);
       await page.locator(tid('spec-row-spec_sample__flow_1')).click();
       await page.locator(tid('readable-spec')).waitFor();
       await shot(page, `${width}-spec-question`);
@@ -74,7 +82,13 @@ async function run() {
         await seed(page, variant);
         await openLane(page, 'sample-lane-4');
         await shot(page, `${width}-${variant}`);
-        await back(page);
+        await page.locator(tid('goal-head-g_sample_3_0')).click();
+        await page.locator(tid('spec-row-spec_sample__flow_1')).click();
+        await page.locator(tid('readable-spec')).waitFor();
+        assert.equal(await page.getByText('Make the release checks reliable.').count(), 0, `${variant} invented a summary`);
+        assert.equal(await page.getByText('Review window requested.', { exact: false }).count(), 0, `${variant} invented recent data`);
+        await shot(page, `${width}-${variant}-spec`);
+        await back(page); await back(page); await back(page);
       }
       await page.close();
     }

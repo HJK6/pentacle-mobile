@@ -112,6 +112,22 @@ test('spec trouble and checks use the projected fields, not raw status text', as
   expect(view.getByText(/Progress stays visible/)).toBeTruthy();
 });
 
+test('full fixture renders blocked facts and recent entries while ordinary specs have no trouble line', async () => {
+  const view = setup();
+  fireEvent.press(view.getByTestId('lane-row-sample-lane-4'));
+  await act(async () => {});
+  expect(view.getByText(/Review window requested/)).toBeTruthy();
+  fireEvent.press(view.getByTestId('goal-head-g_sample_3_0'));
+  await act(async () => {});
+  fireEvent.press(view.getByTestId('spec-row-spec_sample__flow_2'));
+  expect(view.getByText('the review window')).toBeTruthy();
+  expect(view.getByText(/2 checks passed/)).toBeTruthy();
+  fireEvent.press(view.getByLabelText('Back'));
+  fireEvent.press(view.getByTestId('spec-row-spec_sample__flow_4'));
+  expect(view.queryByText(/review rounds/)).toBeNull();
+  expect(view.queryByText(/over estimate/)).toBeNull();
+});
+
 test('a no-spec lane does not expose contradictory fetched members', async () => {
   const fixture = readableLanesFixture();
   const lane = fixture.inventory.lanes[3];

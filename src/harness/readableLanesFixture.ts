@@ -7,6 +7,9 @@ export function readableLanesFixture(variant: 'full' | 'sparse' | 'old' = 'full'
   for (const [i, lane] of fixture.inventory.lanes.entries()) {
     const show = fixture.shows[lane.lane_id];
     const goals = lane.goals ?? [];
+    if (variant === 'full') for (const member of show.members) {
+      if (member.worked) member.worked = { ...member.worked, qa_rounds: 0 };
+    }
     if (variant !== 'old') {
       lane.goal_classes = `${goals.map((_, j) => i === 1 && j === 0 ? 'b' : j === 0 ? 'w' : 'q').join('')}${lane.default_goal?.total ? 'q' : '-'}`;
       lane.goal_counts = i === 1 ? [0, 1, Math.max(0, goals.length - 1), 0] : [goals.length ? 1 : 0, 0, Math.max(0, goals.length - 1), 0];
@@ -21,6 +24,18 @@ export function readableLanesFixture(variant: 'full' | 'sparse' | 'old' = 'full'
         show.members[0].open_questions = { count: 1, first_question_id: 'q-embedded-1' };
         if (lane.members?.[0]) lane.members[0].open_questions = { count: 1, first_question_id: 'q-embedded-1' };
         if (variant === 'full') Object.assign(show.members[0], { summary_line: 'Make the release checks reliable.', progress_at: stamp, estimate_first: { p25: 1, median: 2, p75: 3 }, blocked_line: null, unblocks: [{ spec_id: 'spec_sample__target', title: 'Ship the build' }] });
+      }
+      if (variant === 'full' && show.members[1]) {
+        show.members[1].blocked_line = 'the review window';
+        const recent = [
+          { at: stamp, spec_id: show.members[1].spec_id, kind: 'note' as const, text: 'Review window requested.' },
+          { at: stamp, spec_id: show.members[1].spec_id, kind: 'checks' as const, count: 2 },
+          { at: stamp, spec_id: show.members[1].spec_id, kind: 'blocked' as const, text: 'the review window' },
+          { at: stamp, spec_id: show.members[1].spec_id, kind: 'done' as const },
+        ];
+        lane.recent = recent;
+        goals[0].recent = recent;
+        show.members[1].recent = recent;
       }
       if (show.members[2] && variant === 'full') Object.assign(show.members[2], { estimate_first: { p25: 1, median: 2, p75: 3 }, worked: { elapsed_h: 5, active_h: 5, censored: false, seats: 1, qa_rounds: 2, as_of: stamp }, transitions: [{ status: 'in_progress', at: new Date(now - 72 * 3600000).toISOString() }] });
     }
