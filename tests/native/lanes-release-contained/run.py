@@ -1981,7 +1981,7 @@ def supplemental(args: argparse.Namespace) -> int:
             ui = Ui(udid, args.idb, lambda *_: None, out, identity["bundle_id"], alerts)
             subprocess.run(["xcrun", "simctl", "openurl", udid, "pentacle://pentacle/lanes"], check=True, timeout=60)
             deadline = time.monotonic() + 60
-            while not ui.ids("lanes-overlay"):
+            while not ui.ids("lanes-close"):
                 ui.clear_system_alerts()
                 if time.monotonic() > deadline:
                     raise SetupFail("lanes did not open after the supplemental deep link")
