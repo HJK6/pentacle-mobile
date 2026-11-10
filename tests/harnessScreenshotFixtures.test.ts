@@ -77,6 +77,17 @@ describe('screenshot harness fixtures', () => {
     expect(selectWorkLanes(state).some((lane) => lane.visible_chat.available === 'history')).toBe(true);
   });
 
+  it.each(['full', 'sparse', 'old'])('readable %s fixture survives the production reducer', (variant) => {
+    const state = seed(`lanes:readable_${variant}`);
+    const lanes = selectWorkLanes(state);
+    expect(lanes).toHaveLength(13);
+    const lane = lanes.find(item => item.lane_id === 'sample-lane-4')!;
+    expect(lane.goals?.length).toBeGreaterThan(0);
+    if (variant === 'old') expect(lane.goal_classes).toBeUndefined();
+    else expect(lane.goal_classes).toBeTruthy();
+    expect(FIXTURES[`lanes:readable_${variant}`].workLaneShows?.[lane.lane_id].members.length).toBeGreaterThan(8);
+  });
+
   it('lanes:empty seeds no lanes', () => {
     expect(selectOpenLaneCount(seed('lanes:empty'))).toBe(0);
   });

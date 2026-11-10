@@ -35,3 +35,5 @@ export {
 } from './services/hostConfig';
 
 export * from "./services/daemonUpdates";
+
+export * from './services/readableLanes';

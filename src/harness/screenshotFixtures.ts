@@ -32,6 +32,8 @@ import type {
 import type { AssetComment, PentacleReport } from "../services/pentacleAssets";
 import { lanesFlowFixture } from './lanesFlowFixture';
 import { lanesGoalsFixture } from './lanesGoalsFixture';
+import { readableLanesFixture } from './readableLanesFixture';
+import { questionsEmbeddedFixture } from './questionsEmbeddedFixture';
 import { lanesPagingFixture } from './lanesPagingFixture';
 import type { DashboardRenderFixture } from './dashboardRenderFixture';
 
@@ -1102,6 +1104,10 @@ export const FIXTURES: Record<string, HarnessFixture> = {
   'lanes:empty': { snapshot: { ...EMPTY_SNAPSHOT, work_lanes: { type: 'work_lanes.inventory', lanes: [], counts: { open: 0, active: 0, paused: 0, blocked: 0 }, truncated: false, generated_at: T0 } }, opts: SEEDED },
   'assistant:lane_updates': { snapshot: ASSISTANT_LANE_UPDATES_SNAPSHOT, opts: SEEDED, workLaneShows: lanesFlowFixture().shows },
   'lanes:flow_v2': { snapshot: { ...EMPTY_SNAPSHOT, work_lanes: { type: 'work_lanes.inventory', ...lanesFlowFixture().inventory } }, opts: SEEDED, workLaneShows: lanesFlowFixture().shows },
+  ...Object.fromEntries((['full', 'sparse', 'old'] as const).map(variant => {
+    const f = readableLanesFixture(variant);
+    return [`lanes:readable_${variant}`, { snapshot: { ...questionsEmbeddedFixture().snapshot, work_lanes: { type: 'work_lanes.inventory', ...f.inventory } }, opts: SEEDED, workLaneShows: f.shows }];
+  })),
   'lanes:goals': { snapshot: { ...EMPTY_SNAPSHOT, work_lanes: { type: 'work_lanes.inventory', ...lanesGoalsFixture().inventory } }, opts: SEEDED, workLaneShows: lanesGoalsFixture().shows },
   'lanes:paging': { snapshot: { ...EMPTY_SNAPSHOT, work_lanes: { type: 'work_lanes.inventory', ...lanesPagingFixture().inventory } }, opts: SEEDED, workLaneShows: lanesPagingFixture().shows },
   'lanes:spec_detail_full': { snapshot: { ...EMPTY_SNAPSHOT, work_lanes: { type: 'work_lanes.inventory', ...lanesFlowFixture().inventory } }, opts: SEEDED, workLaneShows: (() => { const f = lanesFlowFixture(); f.shows[f.zoomLaneId].members[0] = f.detailMember; return f.shows; })() },
@@ -1344,5 +1350,4 @@ export function getFixture(
   return FIXTURES[`${screen}:${variant}`];
 }
 
-import { questionsEmbeddedFixture } from './questionsEmbeddedFixture';
 FIXTURES['assistant:questions_embedded'] = questionsEmbeddedFixture();

@@ -13,6 +13,7 @@ import type {
   WorkLaneLogEvent,
   WorkLaneLogUpdate,
   WorkLaneMember,
+  WorkLaneRecent,
   WorkLaneSeat,
   WorkLaneObservation,
   WorkLaneOwnerKind,
@@ -54,6 +55,10 @@ function count(value: unknown): value is number {
 
 function nullableString(value: unknown): value is string | null {
   return value === null || typeof value === 'string';
+}
+
+function nullableTimestamp(value: unknown): value is string | null {
+  return value === null || (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/.test(value) && Number.isFinite(Date.parse(value)));
 }
 
 function nullableCount(value: unknown): value is number | null {
@@ -100,20 +105,45 @@ function normalizeSeat(value: unknown): WorkLaneSeat | null {
   };
 }
 
+function normalizeRecent(value: unknown): WorkLaneRecent[] | undefined {
+  if (!Array.isArray(value) || value.length > 6) return undefined;
+  const result: WorkLaneRecent[] = [];
+  for (const item of value) {
+    const raw = obj(item);
+    if (!raw || typeof raw.at !== 'string' || !nullableTimestamp(raw.at) || typeof raw.spec_id !== 'string'
+      || !['note', 'checks', 'done', 'blocked'].includes(String(raw.kind))) return undefined;
+    if (raw.text !== undefined && !nullableString(raw.text)) return undefined;
+    if (raw.count !== undefined && !count(raw.count)) return undefined;
+    if (raw.kind === 'note' && typeof raw.text !== 'string') return undefined;
+    if (raw.kind === 'checks' && !count(raw.count)) return undefined;
+    result.push({ at: raw.at, spec_id: raw.spec_id, kind: raw.kind as WorkLaneRecent['kind'],
+      ...(nullableString(raw.text) ? { text: raw.text } : {}),
+      ...(count(raw.count) ? { count: raw.count } : {}) });
+  }
+  return result;
+}
+
 function normalizeMember(value: unknown): WorkLaneMember | null {
   const raw = obj(value);
   const specId = str(raw?.spec_id);
   if (!raw || !specId) return null;
   const member: WorkLaneMember = { spec_id: specId };
   if (nullableString(raw.goal_id)) member.goal_id = raw.goal_id;
-  for (const key of ['title', 'status_text', 'next_action_text', 'source_changed_at', 'status_line', 'next_line'] as const) {
+  for (const key of ['title', 'status_text', 'next_action_text', 'source_changed_at', 'status_line', 'next_line', 'blocked_line', 'summary_line'] as const) {
     if (nullableString(raw[key])) member[key] = raw[key];
   }
+  if (nullableTimestamp(raw.progress_at)) member.progress_at = raw.progress_at;
   if (str(raw.status)) member.status = String(raw.status);
   if (raw.terminal === null || raw.terminal === 'completed' || raw.terminal === 'deprecated') member.terminal = raw.terminal;
   for (const key of ['ac_checked', 'ac_total'] as const) {
     if (nullableCount(raw[key])) member[key] = raw[key];
   }
+  const firstEstimate = normalizeEstimate(raw.estimate_first);
+  if (firstEstimate !== undefined) member.estimate_first = firstEstimate;
+  if (Array.isArray(raw.unblocks) && raw.unblocks.length <= 4 && raw.unblocks.every(v => obj(v) && typeof v.spec_id === 'string' && typeof v.title === 'string'))
+    member.unblocks = raw.unblocks.map(v => ({ spec_id: v.spec_id, title: v.title }));
+  const recent = normalizeRecent(raw.recent);
+  if (recent) member.recent = recent;
   const estimate = normalizeEstimate(raw.estimate);
   if (estimate !== undefined) member.estimate = estimate;
   const observation = normalizeObservation(raw.observation);
@@ -183,7 +213,16 @@ function normalizeDefaultGoal(value: unknown): WorkLaneDefaultGoal | undefined {
   const raw = obj(value);
   if (!raw || !['in_progress', 'not_started', 'done'].includes(String(raw.state))
     || !count(raw.done) || !count(raw.total) || raw.done > raw.total) return undefined;
-  return { state: raw.state as WorkLaneDefaultGoal['state'], done: raw.done, total: raw.total };
+  const goal: WorkLaneDefaultGoal = { state: raw.state as WorkLaneDefaultGoal['state'], done: raw.done, total: raw.total };
+  if (count(raw.moving) && raw.moving <= raw.total) goal.moving = raw.moving;
+  if (count(raw.blocked) && raw.blocked <= raw.total) goal.blocked = raw.blocked;
+  if (typeof raw.working === 'boolean') goal.working = raw.working;
+  if (raw.left_h === null || (typeof raw.left_h === 'number' && Number.isFinite(raw.left_h) && raw.left_h >= 0)) goal.left_h = raw.left_h;
+  if (nullableTimestamp(raw.progress_at)) goal.progress_at = raw.progress_at;
+  if (nullableString(raw.summary_line)) goal.summary_line = raw.summary_line;
+  const recent = normalizeRecent(raw.recent);
+  if (recent) goal.recent = recent;
+  return goal;
 }
 
 function normalizeGoal(value: unknown): WorkLaneGoal | undefined {
@@ -199,6 +238,15 @@ function normalizeGoal(value: unknown): WorkLaneGoal | undefined {
 
 function normalizeProgress(raw: Obj): Partial<WorkLane> {
   const progress: Partial<WorkLane> = {};
+  if (typeof raw.goal_classes === 'string' && Array.isArray(raw.goals)
+    && raw.goal_classes.length === raw.goals.length + 1
+    && /^[dwmbq]*[dwmbq-]$/.test(raw.goal_classes)) progress.goal_classes = raw.goal_classes;
+  if (Array.isArray(raw.goal_counts) && raw.goal_counts.length === 4 && raw.goal_counts.every(count))
+    progress.goal_counts = raw.goal_counts as [number, number, number, number];
+  if (nullableTimestamp(raw.progress_at)) progress.progress_at = raw.progress_at;
+  if (nullableTimestamp(raw.state_at)) progress.state_at = raw.state_at;
+  const recent = normalizeRecent(raw.recent);
+  if (recent) progress.recent = recent;
   if (Array.isArray(raw.goals)) {
     const goals = raw.goals.map(normalizeGoal);
     if (goals.every((goal): goal is WorkLaneGoal => goal !== undefined)
@@ -566,6 +614,7 @@ export function parseWorkLaneShow(value: unknown): WorkLaneShow | null {
     lane_id: laneId,
     projection,
     members,
+    ...(normalizeRecent(raw.recent) ? { recent: normalizeRecent(raw.recent) } : {}),
     ...(paged ? { members_total: raw.members_total as number, members_next: raw.members_next as string | null } : {}),
     ...(typeof revision === 'string' ? { detail_revision: revision } : {}),
     ...(workIndex ? { work_index: workIndex } : {}),

@@ -26,6 +26,12 @@ export function currentMember(
     ...inline,
     criteria: inline.criteria ?? selected.criteria,
     transitions: inline.transitions ?? selected.transitions,
+    summary_line: Object.hasOwn(inline, 'summary_line') ? inline.summary_line : selected.summary_line,
+    blocked_line: Object.hasOwn(inline, 'blocked_line') ? inline.blocked_line : selected.blocked_line,
+    progress_at: Object.hasOwn(inline, 'progress_at') ? inline.progress_at : selected.progress_at,
+    estimate_first: Object.hasOwn(inline, 'estimate_first') ? inline.estimate_first : selected.estimate_first,
+    unblocks: Object.hasOwn(inline, 'unblocks') ? inline.unblocks : selected.unblocks,
+    recent: Object.hasOwn(inline, 'recent') ? inline.recent : selected.recent,
   };
 }
 export function useLaneMembers(

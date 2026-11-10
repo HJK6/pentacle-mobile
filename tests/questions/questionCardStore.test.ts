@@ -39,3 +39,19 @@ test('cold process shows the deck and process fields survive hide/re-show', () =
   cold.observeDeck(['a']);
   expect(cold.getSnapshot().shown).toBe(true);
 });
+
+test('lane cards retain drafts independently from the assistant card and other lanes', () => {
+  const { laneQuestionCardStore, questionCardStore } = require('../../src/components/questions/questionCardStore');
+  const first = laneQuestionCardStore('sample-lane-one');
+  const second = laneQuestionCardStore('sample-lane-two');
+  first.reset(); second.reset(); questionCardStore.reset();
+  first.observeDeck(['question-one']);
+  first.field('drafts', {});
+  first.setField('drafts', { 'question-one': 'answer' });
+  expect(laneQuestionCardStore('sample-lane-one').field('drafts', {})).toEqual({ 'question-one': 'answer' });
+  expect(second.getSnapshot().shown).toBe(false);
+  first.hide();
+  first.show();
+  expect(first.getSnapshot().shown).toBe(true);
+  expect(questionCardStore.getSnapshot().shown).toBe(false);
+});

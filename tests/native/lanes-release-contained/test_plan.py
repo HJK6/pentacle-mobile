@@ -365,12 +365,12 @@ def test_supplemental_scenes_exist_in_the_screenshot_harness():
         assert f"'{scene}'" in source, scene
     # Show failure scenes are stub-driven; their asserted texts must be the client's settled wording.
     settlement = (REPO / "src/components/lanes/useWorkLaneShow.ts").read_text(encoding="utf-8")
-    log = (REPO / "src/components/lanes/LaneLog.tsx").read_text(encoding="utf-8")
+    lanes = (REPO / "src/components/lanes/ReadableLanes.tsx").read_text(encoding="utf-8")
     assert set(run.SHOW_FAILURE_SCENES) == {"lanes:show_error", "lanes:show_timeout"}
     for scene in run.SHOW_FAILURE_SCENES.values():
         assert f"'{scene['expect_text']}'" in settlement, scene
-    assert 'testID="lane-log-retry"' in log
-    assert '<LeafLoading id="lane-log-loading"' in log
+    assert 'testID="lanes-detail-retry"' in lanes
+    assert '<LeafLoading id="lanes-map-members-loading"' in lanes
     atoms = (REPO / "src/components/lanes/LaneAtoms.tsx").read_text(encoding="utf-8")
     assert "export function LeafLoading" in atoms and "testID={id}" in atoms
 
@@ -496,6 +496,16 @@ def test_lane_show_stub_no_reply_leaves_only_liveness():
     assert receipts[0]["request_id"] == "work_lanes_show-1" and receipts[0]["reply"] is None
 
 
+def test_lane_show_stub_pagination_exposes_owned_members_and_question():
+    seen, replies, receipts = _stub_exchange("pagination")
+    [page] = [r for r in replies if r["type"] == "work_lanes.show.ok"]
+    assert len(page["members"]) == 32 and page["members_total"] == 65
+    assert page["members_next"] == "spec_native_page_032"
+    assert page["detail_revision"] == "a" * 64
+    assert receipts[0]["members_after"] is None
+    assert seen["snapshot"]["notifications"][0]["question"]["question_id"] == "native-lane-question"
+
+
 class _FakeSimctl:
     def __init__(self, shutdown_rc=0, delete_rc=0, still_listed=False):
         self.calls, self.rc, self.listed = [], {"shutdown": shutdown_rc, "delete": delete_rc}, still_listed
@@ -530,7 +540,7 @@ def test_incomplete_supplemental_teardown_makes_setup_fail_and_keeps_scene_verdi
 
 
 class _FakeSceneUi:
-    """Modelled lane log: tapping the log or Retry sends a show request through the stub."""
+    """Modelled lane detail: tapping the lane or Retry sends a show request through the stub."""
 
     def __init__(self, stub, spinner=True, retry_id=None):
         self.stub, self.spinner, self.retry_id, self.screenshots = stub, spinner, retry_id, []
@@ -539,7 +549,7 @@ class _FakeSceneUi:
         return {"AXIdentifier": ident}
 
     def ids(self, prefix=""):
-        if prefix == "lane-log-loading" and self.spinner:
+        if prefix == "lanes-map-members-loading" and self.spinner:
             return [{"AXIdentifier": prefix}]
         return []
 
@@ -551,7 +561,7 @@ class _FakeSceneUi:
 
     def tap(self, ident):
         number = len(self.stub.receipts) + 1
-        request_id = self.retry_id if ident == "lane-log-retry" and self.retry_id is not None else f"req-{number}"
+        request_id = self.retry_id if ident == "lanes-detail-retry" and self.retry_id is not None else f"req-{number}"
         self.stub.receipts.append({"at": time.time(), "request_id": request_id, "lane_id": "wl-1", "reply": None})
 
 
@@ -671,8 +681,8 @@ def _supplemental(tmp_path, monkeypatch, scene, app_config, check):
 
 
 def test_every_supplemental_scene_runs_the_shared_path(tmp_path, monkeypatch):
-    assert set(run.SCENES) == set(run.SUPPLEMENTAL_SCENES) | set(run.SHOW_FAILURE_SCENES)
-    assert {spec["check"] for spec in run.SCENES.values()} == {run.check_seeded_scene, run.run_show_failure_scene}
+    assert set(run.SCENES) == set(run.SUPPLEMENTAL_SCENES) | set(run.SHOW_FAILURE_SCENES) | {"lanes:pagination_question"}
+    assert {spec["check"] for spec in run.SCENES.values()} == {run.check_seeded_scene, run.run_show_failure_scene, run.check_paged_scene}
     for name, spec in run.SCENES.items():
         good = _harness_config(name=run.HARNESS_APP_NAME if spec["build"] == run.SHOW_FAILURE_BUILD else "Pentacle")
         checked = []
@@ -942,7 +952,7 @@ def test_open_lanes_without_header_uses_the_route_deep_link_and_fails_closed(tmp
 
 def test_open_lanes_deep_link_waits_for_the_lanes_view(tmp_path, monkeypatch):
     home = [_el("Returning to chats...", "StaticText"), *_TABS]
-    lanes = [{"AXIdentifier": "lanes-view-list", "type": "Button"}]
+    lanes = [{"AXIdentifier": "lanes-close", "type": "Button"}]
     owned, opened, dumps = _lanes_run(tmp_path, monkeypatch, [home, home, lanes])
     monkeypatch.setattr(owned, "show_view", lambda view: None)
     monkeypatch.setattr(owned.ui, "find", lambda *a, **k: {}, raising=False)
@@ -951,16 +961,12 @@ def test_open_lanes_deep_link_waits_for_the_lanes_view(tmp_path, monkeypatch):
 
 
 def _r2_list_screen():
-    # reduced-1 (14:03Z) companion log: the cards' Texts are StaticText without an identifier; only the
-    # role=button pressables (toggle / log / chat, the view toggles) expose their testID.
+    # The new list exposes the lane row itself as the button.
     lanes = ["wl-4abf858209848e516dccde25", "wl-298430ea76b6dc262400bbec", "wl-29130385f0ef26863b99a771"]
-    screen = [{"AXIdentifier": f"lanes-view-{v}", "AXLabel": v.title(), "type": "Button",
-               "frame": {"x": 40 + 140 * i, "y": 266, "width": 90, "height": 80}} for i, v in enumerate(["list", "map"])]
+    screen = [{"AXIdentifier": "lanes-close", "type": "Button"}]
     for i, lane in enumerate(lanes):
         y = 510 + 760 * i
-        screen += [_el("Clay tile batch", "StaticText", 74, y), _el("1 unresolved", "StaticText", 74, y + 330),
-                   {**_el("View log for Clay tile batch", "Button", 74, y + 590), "AXIdentifier": f"lane-card-log-{lane}"},
-                   {**_el("See chat for Clay tile batch", "Button", 282, y + 590), "AXIdentifier": f"lane-card-chat-{lane}"}]
+        screen += [{**_el("Clay tile batch", "Button", 74, y), "AXIdentifier": f"lane-row-{lane}"}]
     return lanes, screen
 
 
@@ -975,9 +981,12 @@ def test_list_view_is_found_by_exposed_card_buttons_not_text_ids(tmp_path, monke
         def ids(self, prefix=""):
             return [e for e in screen if run.Ui.ident(e).startswith(prefix)]
 
+        def find(self, identifier, timeout_s=0):
+            return next(e for e in screen if run.Ui.ident(e) == identifier)
+
     owned.ui = FakeUi()
     monkeypatch.setattr(run.time, "sleep", lambda s: None)
-    owned.show_view("list")   # RED before: waited for lane-card-progress-, which iOS never exposes
+    owned.show_view("list")
     assert owned.visible_order(run.LIST_CARD) == lanes
 
 

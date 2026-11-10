@@ -24,6 +24,7 @@ export type ConstellationNode = {
   member?: WorkLaneMember;
   fold?: string;
   working?: boolean;
+  question?: boolean;
   labelled?: boolean;
   onPress(): void;
 };
@@ -53,8 +54,8 @@ function Spoke({
       pointerEvents="none"
       style={{
         position: "absolute",
-        left: point.x,
-        top: point.y,
+        left: point.x + 24 * Math.cos(angle),
+        top: point.y + 24 * Math.sin(angle),
         width: 0,
         height: 0,
         transform: [{ rotate: `${angle}rad` }],
@@ -64,7 +65,7 @@ function Spoke({
         style={{
           position: "absolute",
           top: -1,
-          width: length,
+          width: Math.max(0, length - 24),
           height: 2,
           overflow: "hidden",
         }}
@@ -109,6 +110,7 @@ function Node({
   dim,
   motion,
   outer,
+  labelOffset,
 }: {
   node: ConstellationNode;
   point: RingPoint;
@@ -116,6 +118,7 @@ function Node({
   dim: boolean;
   motion: Motion;
   outer: boolean;
+  labelOffset?: { left: number; top: number; width: number };
 }) {
   const size = outer ? 27 : 48;
   return (
@@ -140,19 +143,22 @@ function Node({
         accessibilityState={{ selected }}
         accessibilityLabel={`${node.title}, ${node.state}`}
         onPress={node.onPress}
-        hitSlop={outer ? 6 : 2}
+        hitSlop={outer ? 0 : 2}
         style={{
-          width: size,
-          height: size,
+          width: outer ? 44 : size,
+          height: outer ? 44 : size,
+          marginLeft: outer ? (size - 44) / 2 : 0,
+          marginTop: outer ? (size - 44) / 2 : 0,
           alignItems: "center",
           justifyContent: "center",
           backgroundColor: p.ink,
           borderRadius: size / 2,
         }}
       >
-        {node.lane ? <GoalRings lane={node.lane} size={size} color={node.color} />
+        {node.lane ? outer ? <View pointerEvents="none" style={{ position: 'absolute', width: size, height: size, borderRadius: size / 2, borderWidth: 1, borderColor: p.line }} />
+          : <GoalRings lane={node.lane} size={size} color={node.color} />
           : <ProgressRing size={size} fraction={node.fraction} color={node.color} />}
-        {node.lane && laneNeedsYou(node.lane) ? <View testID={`lane-needs-you-${node.id}`}
+        {node.lane && (node.question || laneNeedsYou(node.lane)) ? <View testID={`lane-needs-you-${node.id}`}
           style={{ position: 'absolute', right: -4, top: -4 }}><Bang question /></View> : null}
         {node.working && motion.moving ? (
           <Animated.View
@@ -207,9 +213,9 @@ function Node({
           accessibilityLabel={`${node.title}, ${node.state}`}
           style={{
             position: "absolute",
-            left: size / 2 - 53,
-            top: size + 5,
-            width: 106,
+            left: labelOffset?.left ?? size / 2 - 53,
+            top: labelOffset?.top ?? size + 5,
+            width: labelOffset?.width ?? 106,
             height: 34,
             alignItems: "center",
           }}
@@ -222,21 +228,21 @@ function Node({
               fontFamily: Fonts.rajdhani.bold,
               fontSize: 12.5,
               lineHeight: 15,
-              maxWidth: 106,
+              maxWidth: labelOffset?.width ?? 106,
             }}
           >
             {node.title}
           </Text>
-          {!node.lane ? <Text
+          {node.state ? <Text
             accessible={false}
             numberOfLines={1}
             style={{
               ...mono,
-              color: node.color,
+              color: node.working ? p.green : p.muted,
               fontSize: 8,
               lineHeight: 13,
               letterSpacing: 0.8,
-              maxWidth: 106,
+              maxWidth: labelOffset?.width ?? 106,
             }}
           >
             {node.state}
@@ -245,6 +251,26 @@ function Node({
       ) : null}
     </View>
   );
+}
+// Place labels near their nodes while keeping their hit-free text rectangles apart.
+function labelOffsets(width: number, height: number, points: RingPoint[], sizes: number[], labelled: boolean[]) {
+  const placed: Array<{ x: number; y: number; w: number; h: number }> = [];
+  return points.map((point, i) => {
+    if (!labelled[i]) return undefined;
+    const size = sizes[i], w = size < 40 ? 70 : 94, h = 34;
+    const offsets = [[0, size / 2 + 4], [0, -size / 2 - h - 4], [-w / 2 - size / 2 - 4, -h / 2], [w / 2 + size / 2 + 4, -h / 2], [0, size / 2 + 40], [0, -size / 2 - h - 40]];
+    let best = { x: Math.max(0, Math.min(width - w, point.x - w / 2)), y: Math.max(0, Math.min(height - h, point.y + size / 2 + 4)), w, h };
+    let bestScore = Infinity;
+    for (const [dx, dy] of offsets) {
+      const x = Math.max(0, Math.min(width - w, point.x - w / 2 + dx));
+      const y = Math.max(0, Math.min(height - h, point.y + dy));
+      const overlaps = placed.reduce((sum, r) => sum + Math.max(0, Math.min(x + w, r.x + r.w) - Math.max(x, r.x)) * Math.max(0, Math.min(y + h, r.y + r.h) - Math.max(y, r.y)), 0);
+      const score = overlaps * 1000 + Math.abs(dx) + Math.abs(dy);
+      if (score < bestScore) { bestScore = score; best = { x, y, w, h }; }
+    }
+    placed.push(best);
+    return { left: best.x - (point.x - size / 2), top: best.y - (point.y - size / 2), width: w };
+  });
 }
 export default function LanesConstellation({
   width,
@@ -277,6 +303,8 @@ export default function LanesConstellation({
   );
   const points = innerRingPoints(inner.length, width, height, selectedIndex),
     outerPoints = outerRingPoints(outer.length, width, height);
+  const offsets = labelOffsets(width, height, [...points, ...outerPoints],
+    [...inner.map(() => 48), ...outer.map(() => 27)], [...inner.map(n => !!n.labelled), ...outer.map(n => !!n.labelled)]);
   const cx = width / 2,
     cy = height / 2 - 14;
   const radius = points.length
@@ -346,6 +374,7 @@ export default function LanesConstellation({
           dim={!!selectedId && node.id !== selectedId}
           motion={motion}
           outer
+          labelOffset={offsets[inner.length + i]}
         />
       ))}
       {inner.map((node, i) => (
@@ -357,6 +386,7 @@ export default function LanesConstellation({
           dim={!!selectedId && node.id !== selectedId}
           motion={motion}
           outer={false}
+          labelOffset={offsets[i]}
         />
       ))}
       <Animated.View

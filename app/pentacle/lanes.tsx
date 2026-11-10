@@ -1,5 +1,3 @@
-import { useVoiceSurface } from '../../src/services/voicePresentation';
-import VoiceRecordingOverlay from '../../src/components/voice/VoiceRecordingOverlay';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { useIsFocused } from '@react-navigation/native';
@@ -7,24 +5,18 @@ import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { TOP_INSET, Tokens } from '@/constants/Colors';
 import Starfield from '../../src/components/Starfield';
+import VoiceRecordingOverlay from '../../src/components/voice/VoiceRecordingOverlay';
 import LanesOverlay from '../../src/components/lanes/LanesOverlay';
-import { selectAssistantIdentity, ASSISTANT_STREAM_ID } from '../../src/services/assistantIdentity';
-import LaneHistoryScreen, { type LaneHistoryTarget } from '../../src/components/lanes/LaneHistoryScreen';
-import { performChatOpenNavigation } from '../../src/services/chatOpenNavigation';
-import { HOME_ROUTE } from '../../src/services/homeRoute';
+import { selectAssistantIdentity } from '../../src/services/assistantIdentity';
 import { usePentacleStreamSelectorWhen } from '../../src/services/pentacleStream';
-import { selectLaneCardViewModels, selectLaneUpdates, type LaneCardViewModel } from '../../src/services/workLanes';
+import { selectLaneCardViewModels, selectLaneUpdates } from '../../src/services/workLanes';
 
-// /pentacle/lanes — the daemon's open work lanes (header lanes tap). A tap goes to the lane's
-// visible chat: an open chat, the assistant's own thread, a read-only retained history, or an honest
-// "Chat unavailable" row — never a hidden worker, a new generation, or a silent assistant fallback.
 export default function LanesRoute() {
   const isFocused = useIsFocused();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const state = usePentacleStreamSelectorWhen(isFocused, (snapshot) => snapshot);
+  const state = usePentacleStreamSelectorWhen(isFocused, snapshot => snapshot);
   const [now, setNow] = useState(Date.now);
-  const [history, setHistory] = useState<LaneHistoryTarget | null>(null);
   useEffect(() => {
     if (!isFocused) return;
     setNow(Date.now());
@@ -34,33 +26,13 @@ export default function LanesRoute() {
   const lanes = useMemo(() => selectLaneCardViewModels(state, now), [state, now]);
   const updates = useMemo(() => selectLaneUpdates(state), [state]);
   const identity = selectAssistantIdentity(state);
-  const top = Math.max(insets.top, TOP_INSET);
-  const bottom = Math.max(insets.bottom, 18);
-  useVoiceSurface({ page_id: history ? 'lane_history' : 'lanes', title: history?.title || 'Work lanes' }, isFocused && !!history, { priority: 2, bottom: bottom + 10, top: top + 72 });
-
-  const close = useCallback(() => { router.back(); }, [router]);
-  const openLane = useCallback((model: LaneCardViewModel) => {
-    const tap = model.tap;
-    if (tap.action === 'open_chat') {
-      if (tap.stream_id === ASSISTANT_STREAM_ID) router.replace(HOME_ROUTE as any);
-      else performChatOpenNavigation(tap.stream_id, router);
-    } else if (tap.action === 'history') {
-      setHistory({ streamId: tap.stream_id, generation: tap.generation, title: model.lane.title });
-    }
-  }, [router]);
-
+  const close = useCallback(() => router.back(), [router]);
   return <View style={styles.root}>
     <Starfield />
-    <LanesOverlay active={isFocused && !history} lanes={lanes} inventory={state.workLanes} assistantName={identity.name} connected={state.connected} updates={updates}
+    <LanesOverlay active={isFocused} lanes={lanes} inventory={state.workLanes} assistantName={identity.name} connected={state.connected} updates={updates}
       readShow={process.env.EXPO_PUBLIC_SCREENSHOT_HARNESS === '1' ? require('../../src/harness/workLaneShows').readScreenshotWorkLaneShow : undefined}
-      top={top} bottom={bottom} onChat={openLane} onClose={close} />
-    {history
-      ? <View style={StyleSheet.absoluteFill}>
-        <LaneHistoryScreen target={history} connected={state.connected} onClose={() => setHistory(null)} top={top} bottom={bottom} />
-      </View>
-      : null}
+      top={Math.max(insets.top, TOP_INSET)} bottom={Math.max(insets.bottom, 18)} onChat={() => {}} onClose={close} />
     <VoiceRecordingOverlay visible={isFocused} priority={1} hostName="lanes" />
   </View>;
 }
-
 const styles = StyleSheet.create({ root: { flex: 1, backgroundColor: Tokens.palette.ink } });
