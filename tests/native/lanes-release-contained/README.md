@@ -140,6 +140,10 @@ is pressed, the app must be back in front, or the run stops with SETUP_FAIL (sys
 alert without its exact button stops the run with SETUP_FAIL. Other alerts are never pressed: the step times out with a dump. Every failed step saves a screenshot and an
 accessibility dump (`ax/*-failure-<step>.json`).
 
+The armed supplemental app is named `Pentacle Harness`; its separate alert list accepts only the corresponding
+exact deep-link confirmation and notification prompt, with the same buttons and foreground checks. The normal
+Release journey retains its own alert list.
+
 Taps go to screen points, and the accessibility tree also lists off-screen scroll content. Every tap target whose
 centre is outside the screen (less the status bar and home-indicator margins) is first dragged into view and
 re-found by its id; a target that does not move, or has no id, stops the run with SETUP_FAIL instead of a blind tap.

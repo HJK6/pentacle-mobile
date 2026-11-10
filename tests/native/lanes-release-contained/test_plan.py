@@ -663,7 +663,10 @@ def _supplemental(tmp_path, monkeypatch, scene, app_config, check):
         raise RuntimeError("owned stop incomplete")
 
     monkeypatch.setattr(run.sd, "stop_owned", failing_stop)
-    monkeypatch.setattr(run, "Ui", lambda *a, **k: type("U", (), {"screenshots": []})())
+    monkeypatch.setattr(run, "Ui", lambda *a, **k: type("U", (), {
+        "screenshots": [], "ids": lambda self, prefix: [prefix],
+        "clear_system_alerts": lambda self: [],
+    })())
     monkeypatch.setattr(run, "LaneShowStub", lambda mode, inventory: _FakeStub())
     monkeypatch.setattr(run, "start_stub", lambda stub, port: (lambda: None))
     monkeypatch.setitem(run.SCENES[scene], "check", check)
@@ -858,6 +861,17 @@ def test_known_system_alerts_match_exact_titles_and_buttons():
     assert run.known_system_alert([_el("Cancel", "Button"), _el("Open session status", "Button")]) is None
     with pytest.raises(run.SetupFail, match="exactly one"):
         run.known_system_alert([_el("Open in “Pentacle”?", "StaticText"), _el("Cancel", "Button")])
+
+
+def test_harness_open_alert_is_scoped_and_requires_exact_button():
+    title = "Open in “Pentacle Harness”?"
+    alerts = {title: "Open"}
+    elements = [_el(title, "StaticText"), _el("Cancel", "Button"), _el("Open", "Button")]
+    assert run.known_system_alert(elements) is None
+    assert run.known_system_alert(elements, alerts)[0] == title
+    with pytest.raises(run.SetupFail, match="exactly one"):
+        run.known_system_alert(elements + [_el("Open", "Button")], alerts)
+    assert run.known_system_alert([_el("Open in “Other”?", "StaticText"), _el("Open", "Button")], alerts) is None
 
 
 def _alert_ui(tmp_path, screens):

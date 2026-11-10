@@ -314,10 +314,10 @@ def _norm(text: Any) -> str:
     return " ".join(str(text or "").replace("“", '"').replace("”", '"').replace("’", "'").split())
 
 
-def known_system_alert(elements: list[dict[str, Any]]) -> tuple[str, dict[str, Any]] | None:
+def known_system_alert(elements: list[dict[str, Any]], alerts: dict[str, str] | None = None) -> tuple[str, dict[str, Any]] | None:
     """(title, button to press) for an allow-listed alert on screen; a known title without its exact button fails."""
     labels = {_norm(element.get("AXLabel")) for element in elements}
-    for title, button in SYSTEM_ALERTS.items():
+    for title, button in (SYSTEM_ALERTS if alerts is None else alerts).items():
         if _norm(title) not in labels:
             continue
         matches = [element for element in elements if _norm(element.get("AXLabel")) == _norm(button)
@@ -418,8 +418,9 @@ def lanes_status_button(elements: list[dict[str, Any]]) -> dict[str, Any] | None
 
 class Ui:
     def __init__(self, udid: str, idb: str, trace: Callable[[str, Any], None], shots: Path,
-                 bundle: str | None = None):
+                 bundle: str | None = None, system_alerts: dict[str, str] | None = None):
         self.udid, self.idb, self.trace, self.shots, self.bundle = udid, idb, trace, shots, bundle
+        self.system_alerts = SYSTEM_ALERTS if system_alerts is None else system_alerts
         self.env = {**os.environ, "IDB_COMPANION": f"{sd.HOST}:{sd.COMPANION_PORT}"}
         self.screenshots: list[dict[str, str]] = []
         self.viewport: dict[str, float] | None = None
@@ -528,7 +529,7 @@ class Ui:
         if system_dialog:
             # A different allow-listed alert may follow (Open, then notifications): the caller's loop presses it and
             # checks the app's return when the chain ends. Anything else, including the same alert, is checked now.
-            chained = known_system_alert(self.elements())
+            chained = known_system_alert(self.elements(), getattr(self, "system_alerts", SYSTEM_ALERTS))
             if chained is not None and chained[0] != alert:
                 self.trace("system_alert_chained", {"pressed": alert, "next": chained[0]})
                 return
@@ -639,6 +640,7 @@ class Ui:
     def clear_system_alerts(self, limit: int = 3) -> list[str]:
         """Press the allow-listed button of each known system alert on screen, dumping the screen first."""
         handled: list[str] = []
+        alerts = getattr(self, "system_alerts", SYSTEM_ALERTS)
         for _ in range(limit):
             for attempt in range(3):
                 try:
@@ -650,7 +652,7 @@ class Ui:
                     self.trace("alert_ax_retry", {"at_utc": now_iso(), "attempt": attempt + 1})
                     time.sleep(1)
             try:
-                found = known_system_alert(elements)
+                found = known_system_alert(elements, alerts)
             except SetupFail:
                 self.dump("system-alert-unmatched", elements)
                 raise
@@ -662,12 +664,12 @@ class Ui:
             self.dump("system-alert", elements)
             # A system alert is not the app under test: an untappable target is a setup failure, never a product FAIL.
             if button.get("AXEnabled") is False:
-                raise SetupFail(f"system alert {title!r}: {SYSTEM_ALERTS[title]!r} button is disabled")
+                raise SetupFail(f"system alert {title!r}: {alerts[title]!r} button is disabled")
             try:
-                self.tap_element(button, SYSTEM_ALERTS[title], system_dialog=True, alert=title)
+                self.tap_element(button, alerts[title], system_dialog=True, alert=title)
             except AssertFail as error:
                 raise SetupFail(f"system alert {title!r}: {error}") from error
-            self.trace("system alert", {"title": title, "pressed": SYSTEM_ALERTS[title]})
+            self.trace("system alert", {"title": title, "pressed": alerts[title]})
             handled.append(title)
             time.sleep(1.0)
         self.check_foreground()
@@ -1973,8 +1975,17 @@ def supplemental(args: argparse.Namespace) -> int:
                                    env={k: os.environ[k] for k in ("PATH", "HOME", "TMPDIR", "LANG") if k in os.environ},
                                    cwd=out, log=out / "ui-companion.log", port=sd.COMPANION_PORT)
         try:
-            ui = Ui(udid, args.idb, lambda *_: None, out, identity["bundle_id"])
+            alerts = ({"Open in “Pentacle Harness”?": "Open",
+                       "“Pentacle Harness” Would Like to Send You Notifications": "Don’t Allow"}
+                      if scene["build"] == SHOW_FAILURE_BUILD else SYSTEM_ALERTS)
+            ui = Ui(udid, args.idb, lambda *_: None, out, identity["bundle_id"], alerts)
             subprocess.run(["xcrun", "simctl", "openurl", udid, "pentacle://pentacle/lanes"], check=True, timeout=60)
+            deadline = time.monotonic() + 60
+            while not ui.ids("lanes-overlay"):
+                ui.clear_system_alerts()
+                if time.monotonic() > deadline:
+                    raise SetupFail("lanes did not open after the supplemental deep link")
+                time.sleep(0.3)
             scene["check"](scene, ui, stub, record, lane_id)
             record.update(scene_verdict="PASS", screenshots=ui.screenshots)
         finally:
