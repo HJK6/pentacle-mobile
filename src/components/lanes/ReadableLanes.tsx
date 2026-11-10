@@ -158,6 +158,7 @@ export default function ReadableLanes({ lanes, inventory, assistantName, connect
     <ScrollView ref={scroll} testID="readable-lanes-scroll" contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: bottom + 24 }}>
       {!selected ? <View testID="readable-home">
         <LanesConstellation width={Math.min(width - 32, 440)} height={390} inner={inner} outer={outer} assistantName={assistantName} motion={motion} lampWorking={working} />
+        {connected && lanes.length === 0 ? <Text style={body}>No open lanes</Text> : null}
         {showPaused ? paused.slice(6).map(m => <Pressable key={m.lane.lane_id} onPress={() => setLaneId(m.lane.lane_id)}><Text style={body}>{m.lane.title}</Text></Pressable>) : null}
         {(['moving', 'stalled', 'idle', 'paused'] as const).map(group => laneGroups[group].length ? <Section key={group} name={group} count={laneGroups[group].length}>{laneGroups[group].map(model => {
           const lead = readableLeadGoals(model.lane), limit = group === 'stalled' ? 2 : 3, age = readableAge(group === 'paused' ? model.lane.state_at : model.lane.progress_at);

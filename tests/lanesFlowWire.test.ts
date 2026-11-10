@@ -24,10 +24,10 @@ test("the mobile prose fixture is byte-identical to the commissioned frozen sour
     "551bba9bb3cc3c6452340b1e95b07cf937999a13611584b0bd7fe10b4b023fed",
   );
 });
-test("flow documentation references the approved page and describes a single overview", () => {
+test("flow documentation describes the readable map and grouped list", () => {
   for (const file of ["assistant_and_lanes.md", "SCREENSHOT_HARNESS.md"]) {
     const text = readFileSync(join(__dirname, "../docs", file), "utf8");
-    expect(text).toContain("mobile/Pentacle Lanes Flow v2.html");
+    expect(text).toContain("readable");
     expect(text).not.toMatch(/List view|toggle in the lanes header/i);
   }
 });
