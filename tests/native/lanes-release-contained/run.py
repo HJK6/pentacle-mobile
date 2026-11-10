@@ -1433,14 +1433,15 @@ class Run:
         try:
             sd.wait_for(lambda: (self.probe()["inventory"] or {}).get("work_index", {}).get("available") is False,
                         90, "work_index unavailable", interval=3)
-            self.ui.find("lanes-index-banner", 60)
+            # iOS exposes this static Text by its visible label but may omit its testID.
+            self.ui.find_label("DATA AS OF", 60)
             self.ui.screenshot("b-index-unavailable")
         finally:
             sd.restore_memory_root(memory)
         sd.wait_for(lambda: (self.probe()["inventory"] or {}).get("work_index", {}).get("available") is True,
                     90, "work_index restored", interval=3)
         deadline = time.monotonic() + 60
-        while self.ui.ids("lanes-index-banner"):
+        while any("data as of" in Ui.label(element).lower() for element in self.ui.elements()):
             if time.monotonic() > deadline:
                 raise AssertFail("index banner persists after the work root returned")
             time.sleep(1)
