@@ -51,69 +51,30 @@ and shows the default name. Setup is in the README's
 
 ## Work lanes
 
-A work lane is one stream of work the daemon tracks: its title, state, lead
-and specs. Open `/pentacle/lanes` from the assistant header. The map is the
-only overview; the grouped list is its bottom sheet. The approved design is
-`mobile/Pentacle Lanes Goals.html`, frames 01–02, on the geometry from
-`mobile/Pentacle Lanes Flow v2.html`, frames 01–04.
+Open `/pentacle/lanes` from the assistant header. The overview combines the
+lane map with a list grouped into Moving, Stalled, Idle and Paused. The first
+two lead goals supply the map rings. A stalled lane is amber, an open question
+has a badge, and paused lanes appear on the outer orbit. Ages come from progress
+or the time the lane entered its paused state; an unknown age is omitted.
 
-- **Map and sheet.** The first six attention lanes sit clockwise from the top:
-  blocked, needs-you, working, then active-idle, with latest update time and
-  lane ID breaking ties. Further lanes remain reachable on the outer orbit
-  and in the sheet. Drag or tap the sheet handle between 40% and full height.
-  At full height, state dots surround the header lamp.
-- **Paused lanes.** Recent pauses appear as unlabeled outer icons, clear of
-  the bottom arc. Pauses of at least 14 days fold into one `+N` icon and row;
-  the row shows the oldest age and unfolds in place. Age uses the last lane
-  update, falling back to the lane's update timestamp.
-- **Lane rows.** Needs you / Working / Paused groups follow map order. Rows
-  show a lane icon, goal title and done/total count, machine/estimate or
-  question/blocker text, and a bar split into equal-width goal parts.
-  The first two in-progress goals supply the map rings; otherwise the first
-  goal supplies one ring. Goals sort by rank then ID, with the transitional
-  unassigned part last. Blocked in-progress parts are amber; other started/done
-  parts are green. Needs-you lanes retain the question badge and amber rings.
-  Node labels show only the lane title; state stays accessible to screen readers. Icons resolve from the stream, then the shared title
-  keyword table, then a two-letter monogram. Tap a row or node to zoom.
-- **Lane zoom.** The lane is at the centre with its acceptance arc. The app
-  reads `work_lanes.show` sequentially in pages of 32 until `members_next` is
-  null; inventory frames inline only eight. Rows appear as pages arrive, with
-  loaded-subset counts until the final page. A failed page retains fetched rows
-  and offers Retry from page one. `detail_revision` invalidates open details
-  when source content changes, including work outside the preview; presence
-  and no-op scans do not. Mixed revisions restart once, then offer Retry.
-  In-progress specs carry labels and arcs; ready and backlog specs occupy
-  the outer orbit. Done and deprecated specs fold together as `✓N` and
-  unfold in the grouped sheet. The sheet begins with a plain acceptance bar,
-  fraction, percent, spec counts and estimate.
-- **Spec detail.** Tap a spec to turn it to the top and dim the others.
-  The sheet shows state, title, acceptance, estimate and changed age. When
-  supplied, it also shows lifecycle dates, worked hours, the lead seat's
-  machine/provider/activity/ETA/step, open questions and criteria with open
-  entries first and completed entries last. A matching spec log is shown
-  only when the lane update identifies that spec. Status and Next use the
-  daemon's `status_line` / `next_line`; explicit null stays blank. Older
-  streams use the same public first-sentence guard as the daemon. Missing
-  optional fields stay hidden. The action opens the lane's visible chat.
-- **Back.** First deselect the spec, then return from lane zoom to the map
-  with the previous sheet height and scroll position. Chat targets retain
-  their original semantics: open session, assistant tab, exact-generation
-  read-only history, or Chat unavailable.
-- **Working motion.** One native Animated loop drives inward spoke dashes,
-  node pulses and lamp breathing. Working lanes and live in-progress spec
-  seats participate. Static states stay still; Reduce Motion disables the
-  loop, and leaving the screen stops it.
-- **Updates and stale data.** Latest update opens the full publication log.
-  A publication opens its lane log; a missing lane reports unavailability.
-  An unavailable work index keeps the DATA AS OF snapshot banner visible.
+Open a lane to see its goals and the existing question card. The app pages
+`work_lanes.show` until membership is complete, and groups goals by their
+projected class. Open a goal to see its specs, then open a spec for its stage,
+criteria, readable status and next lines, trouble signals and recent progress.
+Back returns through the same hierarchy. A question on a spec returns to the
+lane card. Raw status text, host/provider details, lane history and chat links
+are not shown on these screens.
 
-When goals are absent, a single whole-lane part uses the uncapped completed
-and nondeprecated counts. The inline fallback for an older partial goal contract
-is transitional. Legacy nonpaged show replies still work; known incomplete
-replies retain their warning. Optional `icon`, `worked`, `criteria`,
-`transitions`, `lead_seat`, `status_line` and `next_line` light up when present.
-The shared keyword data lives in vendored `pentacle-chat-core/lane_icons.json`;
-prose rules and cases live in its `tests/fixtures/summary_prose_cases.json`.
+The shared core owns classification, lead-goal selection, sentence selection,
+age and hour formatting, and trouble signals. New projection fields are
+optional: older daemons use the goal-state fallback, while absent ages,
+summaries and other optional facts are omitted. Working animation respects
+Reduce Motion and stops when the screen is inactive.
+
+The synthetic `lanes:readable_full`, `lanes:readable_sparse` and
+`lanes:readable_old` fixtures exercise the complete, missing-field and older
+wire shapes. The [screenshot harness](SCREENSHOT_HARNESS.md) captures the real
+components; native release validation remains separate.
 
 ## Capture notes
 

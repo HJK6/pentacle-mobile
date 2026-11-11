@@ -52,130 +52,72 @@ def make_run(tmp_path, monkeypatch, screens, inventories):
     return r, state
 
 
-# -- (f) captured compact list --------------------------------------------------------------------------------
+# The captured compact-list fixture documents the retired screen; the new grouped
+# list is tested with synthetic accessibility rows until native capture exists.
 
-def test_captured_compact_list_renders_every_lane(tmp_path, monkeypatch):
-    elements = json.loads(FIXTURE.read_text(encoding="utf-8"))
-    r = run.Run.__new__(run.Run)
-    r.ui = run.Ui("SIM", "idb", lambda *_a: None, tmp_path, "com.example.pentacle")
-    r.ui.elements = lambda: elements
-    r.ui.tap = lambda *_a, **_k: None
-    clock = iter(range(0, 10_000, 5))
-    monkeypatch.setattr(run.time, "monotonic", lambda: next(clock))
-    monkeypatch.setattr(run.time, "sleep", lambda _: None)
-    r.show_view("list")
-    visible = r.visible_order(run.LIST_CARD)
-    assert visible == SCREEN
-    assert sorted(visible) == sorted(sd.v1_lane_ids())
-    assert not any(run.Ui.ident(e).startswith("lane-card-log-") for e in elements)
+def test_grouped_lane_order_uses_classes_and_preserves_order_within_a_group():
+    rows = [
+        {"lane_id": "paused", "state": "paused"},
+        {"lane_id": "idle", "state": "active"},
+        {"lane_id": "stalled", "state": "active", "goal_classes": "b-", "goal_counts": [0, 1, 0, 0]},
+        {"lane_id": "moving", "state": "active", "goal_classes": "m-", "goal_counts": [1, 0, 0, 0]},
+        {"lane_id": "legacy", "state": "active", "goals": [{"total": 2, "state": "in_progress"}]},
+    ]
+    assert run.grouped_lane_ids(rows) == ["moving", "legacy", "stalled", "idle", "paused"]
 
 
-# -- (i) list bracket -----------------------------------------------------------------------------------------
-
-def test_run_a_list_compares_with_fresh_daemon_order_not_stale_snapshot(tmp_path, monkeypatch):
+def test_list_bracket_uses_fresh_agreed_grouped_order(tmp_path, monkeypatch):
     r, state = make_run(tmp_path, monkeypatch, [list_screen(SCREEN)], [lanes(SCREEN), lanes(SCREEN)])
-    r.inventory_order = STALE  # the window's probe_a snapshot
     r.run_a_list()
     assert r.result["checks"]["run_a_list"]["visible_lanes"] == SCREEN and state["probes"] == 2
 
 
-def test_list_bracket_rereads_when_probes_disagree(tmp_path, monkeypatch):
+def test_list_bracket_retries_changed_inventory_and_rejects_wrong_order(tmp_path, monkeypatch):
     r, state = make_run(tmp_path, monkeypatch, [list_screen(SCREEN)] * 2,
                         [lanes(STALE), lanes(SCREEN), lanes(SCREEN), lanes(SCREEN)])
-    r.inventory_order = STALE
-    r.run_a_list()
-    assert state["probes"] == 4 and len(r.result["checks"]["order_brackets"]["run A list"]) == 2
-
-
-def test_list_bracket_rereads_a_lagging_screen(tmp_path, monkeypatch):
-    r, state = make_run(tmp_path, monkeypatch, [list_screen(STALE), list_screen(SCREEN)],
-                        [lanes(SCREEN)] * 4)
-    r.inventory_order = STALE
     r.run_a_list()
     assert state["probes"] == 4
-
-
-def test_list_bracket_fails_closed_when_probes_never_agree(tmp_path, monkeypatch):
-    r, state = make_run(tmp_path, monkeypatch, [list_screen(SCREEN)], [lanes(STALE), lanes(SCREEN)] * 3)
-    r.inventory_order = SCREEN
-    with pytest.raises(run.AssertFail):
-        r.run_a_list()
-    assert state["probes"] == 6 and len(r.result["checks"]["order_brackets"]["run A list"]) == 3
-
-
-def test_list_bracket_rejects_correct_set_in_wrong_order(tmp_path, monkeypatch):
     r, state = make_run(tmp_path, monkeypatch, [list_screen(STALE)], [lanes(SCREEN)] * 6)
-    r.inventory_order = STALE  # even the stale snapshot cannot rescue a screen that differs from the daemon now
     with pytest.raises(run.AssertFail):
         r.run_a_list()
     assert state["probes"] == 6
 
 
-# -- (i) map attention bracket --------------------------------------------------------------------------------
-
-def map_run(tmp_path, monkeypatch, rings, inventories):
-    ids = sd.all_lane_ids()
-    nodes = [card("lanes-map-lane-", lane, 100 + 10 * i) for i, lane in enumerate(ids)]
-    nodes.append({"AXUniqueId": "lanes-map-assistant", "type": "Button",
-                  "frame": {"x": 150, "y": 400, "width": 60, "height": 60}})
-    r, state = make_run(tmp_path, monkeypatch, [nodes], inventories)
-    r.show_view = lambda _v: None
-    r.focus_lane = lambda _lane: None
-    r.unfocus_to_page_one = lambda: None
-    order = iter(rings)
-    monkeypatch.setattr(run, "two_ring_order", lambda _e, _c: next(order))
-    return r, state
-
-
-def test_map_attention_order_uses_fresh_agreed_probes(tmp_path, monkeypatch):
-    fresh = sd.all_lane_ids()
-    stale = fresh[1:2] + fresh[:1] + fresh[2:]
-    inventory = lanes(fresh[:1], "blocked") + lanes(fresh[1:])
-    r, state = map_run(tmp_path, monkeypatch, [fresh], [inventory, inventory])
-    r.attention_order = stale  # probe_b snapshot taken before updated_at moved
-    r.run_b_map_pages()
-    assert r.result["checks"]["run_b_map_pages"]["lanes"] == fresh and state["probes"] == 2
-
-
-def test_map_attention_order_applies_rank_to_agreed_order(tmp_path, monkeypatch):
-    ids = sd.all_lane_ids()
-    inventory = lanes(ids[:3]) + lanes(ids[3:4], "blocked") + lanes(ids[4:])
-    ranked = ids[3:4] + ids[:3] + ids[4:]
-    r, _state = map_run(tmp_path, monkeypatch, [ids] * 3, [inventory] * 6)
-    r.attention_order = ids
-    with pytest.raises(run.AssertFail):
-        r.run_b_map_pages()
-    r, _state = map_run(tmp_path, monkeypatch, [ranked], [inventory] * 2)
-    r.attention_order = ids
-    r.run_b_map_pages()
-
-
-# -- (i) overflow list order ----------------------------------------------------------------------------------
-
-def overflow_run(tmp_path, monkeypatch, observed, inventories):
+def test_overflow_list_must_equal_agreed_grouped_order(tmp_path, monkeypatch):
     expected = sd.all_lane_ids() + sd.overflow_lane_ids()
-    nodes = [card("lanes-map-lane-", f"wl-{i:024x}", 10 * i) for i in range(16)]
-    r, state = make_run(tmp_path, monkeypatch, [nodes], inventories)
-    r.result["overflow_phase"] = {"inventory_ids": sorted(expected)}
-    r.ui.dump = lambda *_a: Path(tmp_path) / "dump"
-    r.ui.tap_element = lambda *_a, **_k: None
-    r.ui.find = lambda *_a, **_k: {}
-    r.show_view = lambda _v: None
-    reads = iter(observed)
-    r.ui.collect_scrolling = lambda prefix, limit, max_swipes=12: [run.LIST_CARD + x for x in next(reads)]
-    monkeypatch.setattr(run, "overflow_control", lambda _e, _n: {"AXLabel": "Show all lanes"})
-    return r, state, expected
-
-
-def test_overflow_list_must_equal_agreed_daemon_order(tmp_path, monkeypatch):
-    expected = sd.all_lane_ids() + sd.overflow_lane_ids()
-    shuffled = expected[1:] + expected[:1]
-    r, state, _ = overflow_run(tmp_path, monkeypatch, [shuffled] * 3, [lanes(expected)] * 6)
+    r, _ = make_run(tmp_path, monkeypatch, [[]], [lanes(expected)] * 6)
+    r.result["overflow_phase"] = {"inventory_ids": expected}
+    r.run_b_map_pages = lambda: None
+    r.ui.collect_scrolling = lambda prefix, limit, max_swipes=12: [prefix + x for x in expected[1:] + expected[:1]]
     with pytest.raises(run.AssertFail):
         r.overflow_assert()
-    r, state, _ = overflow_run(tmp_path, monkeypatch, [expected], [lanes(expected)] * 2)
+    r, _ = make_run(tmp_path, monkeypatch, [[]], [lanes(expected)] * 2)
+    r.result["overflow_phase"] = {"inventory_ids": expected}
+    r.run_b_map_pages = lambda: None
+    r.ui.collect_scrolling = lambda prefix, limit, max_swipes=12: [prefix + x for x in expected]
     r.overflow_assert()
     assert r.result["overflow_phase"]["observed_ids"] == expected
+
+
+def test_map_requires_six_paused_lanes_and_a_fold_with_nonoverlapping_labels():
+    inventory = [{"lane_id": f"wl-{i:024x}", "state": "paused"} for i in range(8)]
+    expected, folded = run.expected_map_lanes(inventory)
+    assert expected == {lane["lane_id"] for lane in inventory[:6]} and folded == 2
+    class Labels:
+        def __init__(self, ids):
+            self.labels = [card("lanes-map-label-", ident, 40 * i) for i, ident in enumerate(ids)]
+        def ids(self, prefix):
+            return [e for e in self.labels if run.Ui.ident(e).startswith(prefix)]
+    ids = sorted(expected) + ["paused-more"]
+    run.assert_map_labels(Labels(ids), expected, folded)
+    with pytest.raises(run.AssertFail):
+        run.assert_map_labels(Labels(ids[:-1]), expected, folded)
+    with pytest.raises(run.AssertFail):
+        run.assert_map_labels(Labels(ids), expected, folded, {ident: "Named lane" for ident in expected})
+    overlapping = Labels(ids)
+    overlapping.labels[1]["frame"]["y"] = overlapping.labels[0]["frame"]["y"]
+    with pytest.raises(run.AssertFail):
+        run.assert_map_labels(overlapping, expected, folded)
 
 
 # -- (j) wire evidence never keeps an enrollment code ---------------------------------------------------------

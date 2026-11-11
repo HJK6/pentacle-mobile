@@ -1,17 +1,22 @@
 # `lanes-release-contained` — contained native proof of the work lanes overlay
 
-**2026-10-28 matrix candidate:** the full `run` path uses the current two-ring map and Pending/Done stacks, not the paged-orbit and show-all map descriptions below. After A → C → B completes, a final scratch-daemon phase expands to 17 lanes and verifies the source-derived `Show all 17 lanes` AX control and list reachability. The first captured AX tree must expose exactly one matching control or the run stops as SETUP_FAIL. Native lane-card progress/precedence is excluded by Nexus ruling `aa5f39ac`; the historical update logs, per-lane logs, index-unavailable and show error/timeout are also excluded from this matrix run. Existing supplemental descriptions remain historical and are not part of the matrix verdict.
+The readable-lanes candidate adapts the existing A → C → B journey to the
+accepted home, lane, goal and spec screens. The original lane zoom, log tabs,
+and map/list toggle are retired; the spec records each assertion disposition.
+The overflow phase checks every lane in the grouped list against a stable
+inventory. No admission, endpoint, credential, ownership or teardown check is
+relaxed by this adaptation.
 
-One cold launch of the **normal Release simulator build** against **real**
+One cold launch of the **normal Release simulator build** uses real
 chat-stream-v2 daemons on an owned scratch store, behind an owned numeric
-loopback proxy. Nothing reaches a production daemon, endpoint, store, memory
-tree or credential.
+loopback proxy. It never contacts a production daemon, endpoint, store,
+memory tree or credential.
 
 | Run | Daemon | Proves |
 |---|---|---|
-| A | public `HJK6/pentacle` `3dc10e240a163ca4a36a0886326af0b2da09f595` (last main commit before the increment-1 merge; v1 lanes wire) | graceful list and map without members (pending note), real `work_lanes.show` lane log |
-| C | A stopped → same store upgraded offline by the increment-1 code (the daemon's own forward migration) → B on the same port | the running app (same app process PID) reconnects through the unchanged `ws://127.0.0.1:17896` proxy, no reinstall; the daemon is a new process on the same owned store and port; members appear |
-| B | `56ca05bc27fac2faf7cf369974cad785ca4129be` (increment 1) | list → expand → map (two rings, 9 lanes) → focus (live nodes and Pending/Done stacks) → all 32 members via a real `work_lanes.show` → member detail → lane log Updates / Spec changes (real `item_change` after a scratch spec edit) / Events → back; missing, ambiguous, no-spec and index-unavailable on real data; accessibility extra-extra-extra-large text recheck |
+| A | public `HJK6/pentacle` `3dc10e240a163ca4a36a0886326af0b2da09f595` (v1 lanes wire) | Home map and grouped list, and a real lane show on the older wire. |
+| C | A stopped → same store upgraded by the increment-1 code → B on the same port | Visible offline state and reconnect through the unchanged proxy with the same app process PID and no reinstall. |
+| B | `56ca05bc27fac2faf7cf369974cad785ca4129be` (increment 1) | Lane → default goal → all 30 non-deprecated fixture specs → spec → back, real show pairing, map selection, unavailable index, large text and overflow list. The pinned daemon predates pagination. |
 
 Assertions use the native accessibility tree (`idb ui describe-all`, testIDs
 from the lanes client contract), the loopback proxy's frame log
@@ -31,7 +36,7 @@ of the daemon. The normal Release build has no harness telemetry.
    `EXPO_PUBLIC_SCREENSHOT_HARNESS_DEFAULT=lanes:<scene>` (one build per scene:
    `lanes:v1_wire`, `lanes:inc1_cases`, `lanes:overflow`, all replayed from the
    shared fixture). Its output is labelled `harness_rendered_state`; it covers
-   fixture-only inputs and the offline lane-log state (seeded "connected" with
+   fixture-only inputs and the offline lane-detail state (seeded "connected" with
    no socket, so the real request path rejects at once: "Lane details
    unavailable") and is never evidence of a real daemon request/reply.
 3. **Show failure build** (`harness_release_loopback_stub`): Release with
@@ -42,12 +47,16 @@ of the daemon. The normal Release build has no harness telemetry.
    with the shared fixture's v1 inventory. Scenes:
    - `lanes:show_error`: the app's real `work_lanes.show` gets a typed
      `work_lanes.show.error`; asserts "Lane details unavailable" and
-     `lane-log-retry`, then that Retry sends a fresh request id for the lane.
+     `lanes-detail-retry`, then that Retry sends a fresh request id for the lane.
    - `lanes:show_timeout`: the request is never answered while pings are
      (so the connection stays live); the client's own 30 s RPC timeout settles
-     it; asserts the pending state first (`lane-log-loading`, no Retry), "Request
-     timed out" no earlier than the timeout, `lane-log-retry`, and a Retry
+     it; asserts the pending state first (`lanes-map-members-loading`, no Retry), "Request
+     timed out" no earlier than the timeout, `lanes-detail-retry`, and a Retry
      request with a fresh, non-empty request id for the same lane.
+   - `lanes:pagination_question`: an owned 65-member loopback fixture serves
+     three pages with distinct cursors and an owned synthetic question. The app
+     must show all 65 specs and settle that question through its card. This is
+     stub evidence, separate from the pinned real-daemon run.
    Product settlement is not altered and no component state is injected. Each
    scene writes its own `supplemental.json` (stub receipts: request ids,
    replies, settle time) and screenshots, labelled `harness_rendered_state`.
@@ -119,14 +128,10 @@ Reduced modes (the production path only; same admission, daemon, proxy and teard
   - open the lanes view: the assistant header status button (`<name> status, N open lanes`) when rendered,
     otherwise the `pentacle://pentacle/lanes` deep link through the exact-match `Open` confirmation. No lanes
     view within 30 s stops the run with SETUP_FAIL and a dump;
-  - the list in daemon order (big lane expanded). Cards are found by their `lane-card-chat-<lane>` button, which
-    every list variant renders (the compact default has no `lane-card-log-` row): on iOS only accessible pressables
-    expose a testID, so Text ids such as `lane-card-progress-` are not in the tree. Each order check in the run
-    (lists, map attention order, overflow) reads the inventory just before and just after the screen and needs
-    both reads to agree and the screen to match exactly; up to 3 attempts, then FAIL;
-  - one real `work_lanes.show` round-trip: "show all" opens the 32-member list, paired by `request_id` on
-    the proxy;
-  - map orbit page 1 in daemon order.
+  - the grouped list, using the accessible `lane-row-<lane>` buttons and a
+    fresh inventory bracket for stable ordering;
+  - a real `work_lanes.show` round-trip paired by request ID, lane → goal →
+    spec → back, and the home map.
 
 iOS system alerts are pressed only when they match exactly: `Open in “Pentacle”?` → **Open** (the deep-link
 confirmation) and `“Pentacle” Would Like to Send You Notifications` → **Don’t Allow**. Each press saves an
@@ -134,6 +139,10 @@ accessibility dump under `evidence/ax/`. The two can chain (Open, then the notif
 is pressed, the app must be back in front, or the run stops with SETUP_FAIL (system UI interception). A known
 alert without its exact button stops the run with SETUP_FAIL. Other alerts are never pressed: the step times out with a dump. Every failed step saves a screenshot and an
 accessibility dump (`ax/*-failure-<step>.json`).
+
+The armed supplemental app is named `Pentacle Harness`; its separate alert list accepts only the corresponding
+exact deep-link confirmation and notification prompt, with the same buttons and foreground checks. The normal
+Release journey retains its own alert list.
 
 Taps go to screen points, and the accessibility tree also lists off-screen scroll content. Every tap target whose
 centre is outside the screen (less the status bar and home-indicator margins) is first dragged into view and
@@ -216,15 +225,14 @@ scratch root. Any teardown failure makes the verdict `SETUP_FAIL`.
   daemon run (the daemon offers no fault-free show error for a listed lane, and
   a stalled daemon would race the 30 s no-frame watchdog). They are proved by
   the show failure scenes above against a loopback stub, plus device-free
-  tests. Run C records the real disconnected log state ("Waiting for
-  connection", no request sent) as a non-blocking supplemental check.
+  tests. Run C checks the real disconnected lane state ("Waiting for
+  connection", no request sent) before reconnect.
 - Supplemental teardown is checked: simulator shutdown and delete results are
   recorded, the owned UDID must be absent afterwards, and an incomplete
   teardown (a stub still listening or a failed companion stop included) makes
   the verdict `SETUP_FAIL` with the scene's own frozen result kept as
   `scene_verdict`.
 - Assertions use only accessibility elements (buttons, text). Plain container
-  views (`lane-card-<id>`, `lane-log-<id>`, `lane-members-<id>`,
-  `member-detail-<id>`, `lanes-overlay`, `lanes-map`) are not read.
+  views such as `lanes-overlay` are not read; accessible controls carry the selectors.
 - Narrow-width (320 pt) layout is covered by device-free tests; the simulator
   width is fixed by the chosen device type.

@@ -33,7 +33,8 @@ import DeckDots from './DeckDots';
 import { selectQuestionDeck, type QuestionDeckEntry } from './questionSelectors';
 import { useAssistantIdentity } from '../../services/assistantIdentity';
 import QuestionSourceMark from './QuestionSourceMark';
-import { questionCardStore, useQuestionCardField, useQuestionCardVisibility } from './questionCardStore';
+import { questionSourceLane } from './questionSourceLane';
+import { questionCardStore, laneQuestionCardStore, useQuestionCardField, useQuestionCardVisibility } from './questionCardStore';
 import { sendableKeys, submitDeckAnswers } from './submitDeckAnswers';
 import VoiceAnswerBar, { VoicePageLabel } from './voice/VoiceAnswerBar';
 import { useVoiceAnswers, type RemovalGuardNavigation } from './voice/useVoiceAnswers';
@@ -60,7 +61,7 @@ function initialPageKey(deck: readonly QuestionDeckEntry[], notificationId?: str
 
 // P4 Questions overlay (README §5 / AssistantQuestionsOverlay): one pending question per page over
 // every open durable question (the assistant and sessions), with partial submit.
-type CardProps = { notificationId?: string; navigation?: RemovalGuardNavigation; embedded?: boolean };
+type CardProps = { notificationId?: string; navigation?: RemovalGuardNavigation; embedded?: boolean; laneId?: string; laneStreams?: string[]; laneQuestionIds?: string[] };
 const useNoAnswerVoice = (): ReturnType<typeof useVoiceAnswers> => ({
   available: false, phase: 'idle', recording: false, confirming: false, finishing: false,
   progress: { k: 0, n: 0 }, pageState: () => null,
@@ -74,8 +75,9 @@ export default function QuestionDeckCard(props: CardProps) {
 }
 function EmbeddedDeck(props: CardProps) { return <DeckContent {...props} useAnswerVoice={useNoAnswerVoice} />; }
 function OverlayDeck(props: CardProps) { return <DeckContent {...props} useAnswerVoice={useVoiceAnswers} />; }
-function DeckContent({ notificationId, navigation, embedded = false, useAnswerVoice }: CardProps & { useAnswerVoice: typeof useVoiceAnswers }) {
-  const visibility = useQuestionCardVisibility();
+function DeckContent({ notificationId, navigation, embedded = false, laneId, laneStreams, laneQuestionIds, useAnswerVoice }: CardProps & { useAnswerVoice: typeof useVoiceAnswers }) {
+  const cardStore = laneId ? laneQuestionCardStore(laneId) : questionCardStore;
+  const visibility = useQuestionCardVisibility(cardStore);
   const router = useRouter();
   const isFocused = useIsFocused();
   const insets = useSafeAreaInsets();
@@ -87,12 +89,23 @@ function DeckContent({ notificationId, navigation, embedded = false, useAnswerVo
   });
   const actions = usePentacleStreamActions();
   const assistant = useAssistantIdentity();
-  const liveDeck = usePentacleStreamSelector(selectQuestionDeck);
+  const allQuestions = usePentacleStreamSelector(selectQuestionDeck);
+  const laneQuestionKeys = usePentacleStreamSelector((state) => laneId
+    ? selectQuestionDeck(state).filter((entry) => {
+      const source = questionSourceLane(state, entry.streamId);
+      return (typeof source === 'object' && source.lane_id === laneId)
+        || (source === 'unknown' && !laneQuestionIds?.length && (laneStreams?.includes(entry.streamId) ?? false))
+        || (entry.questionId != null && (laneQuestionIds?.includes(entry.questionId) ?? false))
+        || (laneQuestionIds?.includes(entry.action.id) ?? false);
+    }).map((entry) => entry.key).join('\n') : '');
+  const liveDeck = useMemo(() => laneId
+    ? allQuestions.filter((entry) => laneQuestionKeys.split('\n').includes(entry.key)) : allQuestions,
+  [allQuestions, laneId, laneQuestionKeys]);
   // While a send is in flight its submitted items stay pinned: each leaves the live deck the moment
   // its optimistic answer begins, and the flow would drop its draft. A failed item returns on discard
   // with its draft intact because it stayed pinned. Everything else stays live, so a question that
   // arrives during the send shows at once.
-  const [inFlight, setInFlight] = useQuestionCardField<{ snapshot: QuestionDeckEntry[]; pinned: Set<string> } | null>('inFlight', null, embedded);
+  const [inFlight, setInFlight] = useQuestionCardField<{ snapshot: QuestionDeckEntry[]; pinned: Set<string> } | null>('inFlight', null, embedded, cardStore);
   const deck = useMemo(() => {
     if (!inFlight) return liveDeck;
     const live = new Set(liveDeck.map((entry) => entry.key));
@@ -111,14 +124,14 @@ function DeckContent({ notificationId, navigation, embedded = false, useAnswerVo
     source: entry,
     locked: entry.locked,
   })), [deck]);
-  const drafts = useQuestionCardField<Record<string, MobileQuestionDraft>>('drafts', {}, embedded);
+  const drafts = useQuestionCardField<Record<string, MobileQuestionDraft>>('drafts', {}, embedded, cardStore);
   const flow = useMobileQuestionFlow(flowEntries, embedded ? drafts : undefined);
 
   // The current page is tracked by key so a question vanishing or arriving elsewhere never moves it.
   const [localPageKey, setLocalPageKey] = useState<string | null>(() => initialPageKey(deck, notificationId));
   const pageKey = embedded ? visibility.pageKey : localPageKey;
-  const setPageKey = embedded ? questionCardStore.setPageKey : setLocalPageKey;
-  useEffect(() => { if (embedded) questionCardStore.observeDeck(liveDeck.map((entry) => entry.key)); }, [embedded, liveDeck]);
+  const setPageKey = embedded ? cardStore.setPageKey : setLocalPageKey;
+  useEffect(() => { if (embedded) cardStore.observeDeck(liveDeck.map((entry) => entry.key)); }, [embedded, cardStore, liveDeck]);
   const lastIndexRef = useRef(0);
   const seededRef = useRef(deck.length > 0);
   const found = pageKey ? deck.findIndex((entry) => entry.key === pageKey) : -1;
@@ -137,13 +150,13 @@ function DeckContent({ notificationId, navigation, embedded = false, useAnswerVo
     if (found < 0 && current) setPageKey(current.key);
   }, [deck, found, current, notificationId]);
 
-  const [sending, setSending] = useQuestionCardField('sending', false, embedded);
+  const [sending, setSending] = useQuestionCardField('sending', false, embedded, cardStore);
   // The send result is applied once the pins are released, against the live deck at that render, so
   // "m left" and the send-all close see arrivals and failed items that came back.
-  const [outcome, setOutcome] = useQuestionCardField<{ sent: number; clean: boolean; firstFailedKey: string | null } | null>('outcome', null, embedded);
+  const [outcome, setOutcome] = useQuestionCardField<{ sent: number; clean: boolean; firstFailedKey: string | null } | null>('outcome', null, embedded, cardStore);
   const sendingRef = useRef(false);
-  const [itemErrors, setItemErrors] = useQuestionCardField<Record<string, string>>('itemErrors', {}, embedded);
-  const [legacyErrors, setLegacyErrors] = useQuestionCardField<LegacyError[]>('legacyErrors', [], embedded);
+  const [itemErrors, setItemErrors] = useQuestionCardField<Record<string, string>>('itemErrors', {}, embedded, cardStore);
+  const [legacyErrors, setLegacyErrors] = useQuestionCardField<LegacyError[]>('legacyErrors', [], embedded, cardStore);
   const [toast, setToast] = useState<string | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const mounted = useRef(true);
@@ -184,7 +197,7 @@ function DeckContent({ notificationId, navigation, embedded = false, useAnswerVo
   const allDone = flow.allAnswered;
   const isLast = index === total - 1;
 
-  const close = () => embedded ? questionCardStore.hide() : router.back();
+  const close = () => embedded ? cardStore.hide() : router.back();
   const seeChat = (streamId: string) => performChatOpenNavigation(streamId, router);
   // P6 voice answers (docs/QUESTIONS_OVERLAY.md § Voice answers): one take across the durable
   // pages. Done and a confirmed discard both leave the overlay; neither answers anything.
@@ -265,7 +278,7 @@ function DeckContent({ notificationId, navigation, embedded = false, useAnswerVo
   }, [outcome, inFlight, liveDeck]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    if (embedded && deck.length === 0 && !sending && !inFlight && !outcome && legacyErrors.length === 0) questionCardStore.hide();
+    if (embedded && deck.length === 0 && !sending && !inFlight && !outcome && legacyErrors.length === 0) cardStore.hide();
   }, [embedded, deck.length, sending, inFlight, outcome, legacyErrors.length]);
 
   const topPad = embedded ? 12 : Math.max(insets.top, 12) + 8;

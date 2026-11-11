@@ -16,3 +16,15 @@ test('observation baseline survives appends but resets on a new load even when n
   rerender({ inline: [live], data: show(refreshed), epoch: 2 });
   expect(result.current[0].transitions).toEqual(full.transitions);
 });
+
+test('same-observation presence refresh retains detail-only readable fields and honors explicit null', () => {
+  const { currentMember } = require('../../../src/components/lanes/useLaneMembers');
+  const base = { spec_id: 'spec_sample', obs_rev: 2, source_changed_at: '2026-11-01T00:00:00Z' };
+  const detail = { ...base, summary_line: 'Outcome', blocked_line: 'Approval', progress_at: '2026-11-01T00:00:00Z', unblocks: [{ spec_id: 'spec_next', title: 'Next' }] };
+  const opening = { ...base, seats: [] };
+  const update = { ...base, seats: [{ stream_id: 'sample', activity: 'working' }], blocked_line: null };
+  const merged = currentMember(detail, update, opening);
+  expect(merged.summary_line).toBe('Outcome');
+  expect(merged.unblocks).toEqual(detail.unblocks);
+  expect(merged.blocked_line).toBeNull();
+});

@@ -50,39 +50,23 @@ not hit on the seeded path.
 
 The `screen:variant` list is the `FIXTURES` registry in `src/harness/screenshotFixtures.ts`.
 
-### Lanes flow v2
+### Readable lanes
 
-The flow follows the approved `mobile/Pentacle Lanes Flow v2.html`, frames
-01–04. `assistant:lane_updates` and `lanes:flow_v2` provide 13 synthetic lanes:
-two blocked, one needs-you, three working, three recent pauses and four
-dormant pauses. One lane contains 27 specs: six in progress, two ready,
-seven backlog and twelve done (including one deprecated). Its inventory
-inlines eight members; zoom reads all 27 through the screenshot counterpart
-of `work_lanes.show`, using the production wire normalizer.
+`lanes:readable_full`, `lanes:readable_sparse`, and `lanes:readable_old` seed
+the current home, lane, goal and spec screens through production reducers and
+the normal show response path. The sparse fixture leaves optional fields out;
+the old fixture omits the new projection keys. The full fixture supplies a
+lane question, trouble signals and the other design states.
 
-`lanes:spec_detail_full` supplies worked time, lead seat, criteria, transitions,
-validated Status/Next and an open question. `lanes:spec_detail_sparse` omits
-the optional fields to exercise the older daemon path. Seed either fixture,
-open the Test infrastructure lane and select its first spec. The full sheet
-shows the structured detail; Back deselects, then restores the overview's
-snap and scroll position. Done and dormant folds expand in place.
-
-The scoped Playwright driver `scripts/lanes-flow-v2-render.cjs` checks actual
-`lanes-map-label-*` rectangles for pairwise overlap at 390 and 375 px and
-captures map, full list, lane zoom, done fold and full/sparse spec detail.
-It requires an already admitted screenshot server via `PENTACLE_RENDER_URL`
-and an external output directory via `PENTACLE_RENDER_OUTPUT`. These are web
-render checks, separate from configured Release simulator gesture proof. The
-driver receipt labels these supplemental fixture evidence. It hides the
-unrelated web voice-recording overlay under the FD-approved accommodation for
-its observed storage-unavailable banner; native Release proof hides nothing.
-
-The `lanes:goals` fixture adds one-, two-, three- and eight-goal lanes, a
-whole-lane compatibility case and blocked progress for the approved
-`mobile/Pentacle Lanes Goals.html` design. Goal arcs use `lane-goal-arc-*`;
-equal-width row parts use `lane-goal-part-*`. Capture these at 390 and 375 px
-and retain the existing label-rectangle check. Paging proof additionally needs
-a 65-member transport journey; seeded screenshots alone do not prove it.
+The scoped Playwright driver `scripts/lanes-flow-v2-render.cjs` captures the
+eight full design states and sparse and old inputs at 390×844, and checks map
+label rectangles at 390 and 375 pixels. Supply an admitted screenshot server
+with `PENTACLE_RENDER_URL` and an external output directory with
+`PENTACLE_RENDER_OUTPUT`. These web captures are supplemental: pagination,
+Release navigation, native controls and configured-runtime behavior require
+the separate native and live journeys. The driver hides the unrelated web
+voice-recording overlay under the approved accommodation for its observed
+storage-unavailable banner; native Release proof hides nothing.
 
 ## Adding a screen or variant
 

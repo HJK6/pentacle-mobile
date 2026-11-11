@@ -10,6 +10,7 @@ export function createQuestionCardStore() {
   return {
     subscribe(listener: () => void) { listeners.add(listener); return () => { listeners.delete(listener); }; },
     getSnapshot: () => snapshot,
+    show() { if (!snapshot.shown) { snapshot = { ...snapshot, shown: true }; emit(); } },
     hide() { if (snapshot.shown) { snapshot = { ...snapshot, shown: false }; emit(); } },
     toggle(count: number) { if (count > 0) { snapshot = { ...snapshot, shown: !snapshot.shown }; emit(); } },
     observeDeck(keys: readonly string[]) {
@@ -34,11 +35,16 @@ export function createQuestionCardStore() {
 }
 
 export const questionCardStore = createQuestionCardStore();
-export const useQuestionCardVisibility = () => useSyncExternalStore(questionCardStore.subscribe, questionCardStore.getSnapshot);
+const laneStores = new Map<string, ReturnType<typeof createQuestionCardStore>>();
+export function laneQuestionCardStore(laneId: string) {
+  if (!laneStores.has(laneId)) laneStores.set(laneId, createQuestionCardStore());
+  return laneStores.get(laneId)!;
+}
+export const useQuestionCardVisibility = (store = questionCardStore) => useSyncExternalStore(store.subscribe, store.getSnapshot);
 
 /** Overlay retains its local lifecycle; the embedded controller uses process-owned fields. */
-export function useQuestionCardField<T>(name: string, initial: T | (() => T), persistent: boolean): [T, Dispatch<SetStateAction<T>>] {
+export function useQuestionCardField<T>(name: string, initial: T | (() => T), persistent: boolean, store = questionCardStore): [T, Dispatch<SetStateAction<T>>] {
   const local = useState(initial);
-  const value = useSyncExternalStore(questionCardStore.subscribe, () => questionCardStore.field(name, initial));
-  return persistent ? [value, (next) => questionCardStore.setField(name, next)] : local;
+  const value = useSyncExternalStore(store.subscribe, () => store.field(name, initial));
+  return persistent ? [value, (next) => store.setField(name, next)] : local;
 }

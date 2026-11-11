@@ -152,82 +152,21 @@ is kept, unmounted from the header. Any API change is an integration request, no
 
 ## Work lanes
 
-The daemon owns lane identity, state, counts and order. The client does not infer these from
-sessions. Contract fixture: `pentacle-chat-core/tests/fixtures/work-lanes-inventory.json`,
-fixture version 2 (SHA256 `2be3dd8d99046c3c8dc293ae4d90a187ab72cb082ef36153d957037a39ddcce1`).
-The v1.2 sections remain unchanged. All additional test cases are derived inline.
+The daemon owns lane identity and membership. The client normalizes optional
+projection fields independently and keeps older daemon responses usable. The
+readable map, lane, goal and spec hierarchy, question card and missing-data
+fallbacks are described in [Work lanes](assistant_and_lanes.md#work-lanes).
+The shared pure classification and presentation rules live in
+`pentacle-chat-core/src/services/readableLanes.ts`.
 
-- **Capability and compatibility.** `hello` sends `capabilities.work_lanes_v1: true`.
-  `snapshot.work_lanes` and `work_lanes.inventory` replace the projection in daemon order;
-  identical inventory keeps state identity. Absent snapshot inventory keeps the prior value.
-  Progress fields, members, observations, estimates and `work_index` are optional. A malformed
-  optional field is omitted, never grounds for rejecting a valid v1 inventory. Unknown keys are
-  ignored. A v1 connection renders lanes with a specs-pending note; the same mounted view gains
-  members on the next valid increment-1 inventory, including after reconnect.
-- **Defensive presentation.** `done` lanes are omitted. An active lane without a qualifying lead
-  presents as paused with `lead_lost_unreconciled`. Invalid chat pointers fail closed. Counts remain
-  the daemon's counts. Header count, header tap, and the thread's `LaneUpdateCard` are unchanged.
-- **Shared selector.** `selectLaneCardViewModels(state, now)` in `src/services/workLanes.ts`
-  supplies both views: state, member segments, estimates, freshness, update summary and questions.
-  State labels are WORKING, ACTIVE · IDLE, BLOCKED, PAUSED and PAUSED · LEAD LOST (both
-  `lead_lost` and `lead_lost_unreconciled`). Waiting-on-you is the number of entries in
-  `selectQuestionDeck(state)` with the lane's `visible_chat.stream_id`; durable answers and
-  composite routing follow the same selector as the Questions overlay.
-- **Progress precedence.** First show the overlay's “Data as of <snapshot_at>” marker when
-  `work_index.available` is false. Then, first match wins: `no_spec_reason`; N unresolved;
-  total zero → No specs; open positive → est. open work; open zero and positive total with all
-  completed → All specs done, all dropped → All specs dropped, or mixed completed/dropped →
-  No open work. Absent optional counts never imply completion. The coarse range uses
-  `open_estimate_h`, `—` for null and `+` for incomplete estimation; no remaining-time countdown.
-  Segments represent each inline member: completed full, in-progress/QA AC fraction, unresolved
-  red, blocked amber and paused muted. Observations disclose non-fresh quality, observation time
-  and errors; the UI does not relabel stale/error data as fresh.
-- **Overlay.** `/pentacle/lanes` renders `LanesOverlay` with a list/map toggle, default list.
-  Last-view persistence is intentionally omitted. The compact list starts collapsed, expands
-  members inline and omits the per-card last-update row; the shared Latest update card opens
-  the update log. Chat navigation remains a separate affordance.
-- **Map and overflow.** Up to six open lanes keep projection order on one ring. Above six,
-  the map stably orders blocked, working, active-idle and paused lanes into two rings,
-  showing at most sixteen; the +N control opens the list for the rest. Focusing a lane
-  fetches `work_lanes.show` when inline members are incomplete. Up to six members appear
-  individually. Larger sets keep live members individual, group backlog/analysis/ready items
-  in Pending and completed/deprecated items in Done, and expand a selected stack. More than
-  eight displayed nodes use dense sizing. Back unwinds detail, stack, lane and root;
-  switching views preserves the focused lane. The list remains the all-member alternative.
-- **Read-only show RPC.** `requestWorkLaneShow(laneId)` uses the existing `sendCommand` transport
-  for `{type: 'work_lanes.show', lane_id}` with the normal RPC timeout. Typed `.ok` and `.error`
-  frames settle by `request_id`; no separate connection, daemon or replay path is introduced.
-  `parseWorkLaneShow` normalizes all members and three newest-first row sets. Missing update prose
-  is enriched by `selectLaneUpdates(state)` using `update_id`, then falls back to kind and time.
-  Update-linked audit summaries take precedence. Item-change prior/next snapshots create one
-  Spec changes row per changed status, AC or estimate field. Other events are the Events tab.
-  Rows sort by created time, then event id. Each tab renders at most 50 rows; Older replaces the
-  current page. Errors/timeouts are explicit and retryable; obsolete replies after Back, target
-  changes or reconnect cannot replace the current view.
-- **Chat navigation.** See chat uses `resolveWorkLaneTap`: open → `performChatOpenNavigation`
-  (assistant composite goes home); history → read-only `LaneHistoryScreen` using the exact
-  generation and existing `requestLaneHistory`; unavailable → explicit disabled Chat unavailable.
-  The chat-history screen is separate from the lane log. No hidden session or guessed fallback.
-- **Publications.** Typed `publish_kind: 'lane_update'` events in the assistant timeline keep
-  `LaneUpdateCard` behavior and message-id deduplication. Supported kinds remain `major_decision`,
-  `lane_started`, `lane_completed`, `lane_blocked`, `lane_unblocked` and `milestone`.
-- **Automation contract.** Stable entry points include `lanes-overlay`, `lanes-view-toggle`,
-  `lanes-view-list`, `lanes-view-map`, `lane-card-<lane_id>`, `lanes-map-lane-<lane_id>`,
-  `lanes-map-member-<spec_id>`, `lanes-map-overflow`, `lanes-map-back`,
-  `lanes-map-stack-close` and `lanes-latest-update`. Current detail/log/stack control IDs live
-  beside their handlers in `src/components/lanes/`; the native scene harness under
-  `tests/native/lanes-release-contained/` binds the visual journeys to those controls.
-- **Harness traces.** Only armed harness builds emit `work_lanes_inventory_applied`,
-  `work_lanes_view`, `work_lanes_map_render`, `work_lanes_show`, `work_lanes_members_list`
-  and `work_lanes_log_rendered`. Payloads contain IDs and counts, never titles or prose.
-  `spec_ids_sha256` hashes the UTF-8 JSON array of member IDs in daemon order. Map member-node
-  count includes the overflow control. Inventory trace emits when the overlay consumes a new
-  inventory; production builds do not emit these traces.
+`requestWorkLaneShow` uses the existing request/reply transport. The client
+pages the lane detail, restarts once if the revision changes between pages,
+and offers retry on an error. The default goal uses the unassigned members of
+the complete lane detail. Named goal detail uses the existing goal filter.
 
-Source checks: focused lane Jest tests, full unit suite, typecheck, chat-core tests, committed-tree
-pin, public boundary, and iOS JavaScript export with the ignored example-config stand-in.
-These device-free checks do not certify a native build, signing, live-daemon protocol journey or
-installation. `src/components/status/*` remains unchanged.
+Typed `lane_update` publications in the assistant timeline continue to use
+`LaneUpdateCard`; the lanes screens have no history or chat entry point. Source
+checks and fixture renders do not certify a signed app or a live-daemon journey.
 
 ## Assistant home mounts the session screen
 

@@ -6,17 +6,18 @@ compiled configuration points only at numeric loopback `ws://127.0.0.1:17896`.
 One cold launch drives three runs against REAL chat-stream-v2 daemons on an
 owned scratch store:
 
-  A  v1 daemon (no increment-1 fields): graceful list/map, no members, real
-     `work_lanes.show` lane log.
+  A  v1 daemon (no increment-1 fields): home map and grouped list, real
+     `work_lanes.show` lane detail.
   C  stop A, upgrade the SAME store offline with the increment-1 code (the
      daemon's own forward migration), start B on the same port; the running
      app reconnects through the unchanged loopback proxy (same app process
      PID, no reinstall; the daemon is a new process on the same store and
      port) and members appear.
-  B  increment-1 daemon: list -> expand -> map (paged orbit) -> focus ->
-     `+N` -> all 32 members via a real `work_lanes.show` -> member detail ->
-     lane log (Updates / Spec changes / Events) -> back; missing, ambiguous,
-     no-spec and index-unavailable cases on real data; large-text recheck.
+  B  increment-1 daemon: lane -> default goal -> 30 non-deprecated members
+     via a real `work_lanes.show` -> spec -> back, map, index-unavailable,
+     large-text and grouped overflow checks. The pin predates pagination;
+     the separate loopback scene checks a 65-member paged response and an
+     owned synthetic question.
 
 Assertions read the native accessibility tree (idb) and the loopback proxy's
 frame log (request/reply pairing by request_id); loopback probes read the
@@ -135,10 +136,10 @@ def sha256_bytes(data: bytes) -> str:
 
 STEPS = [
     "admission", "seed_v1", "proxy_start", "daemon_a_start", "probe_a", "simulator_activate", "app_launch",
-    "enroll", "open_lanes", "run_a_list", "run_a_map",
-    "daemon_a_stop", "seed_inc1_upgrade", "daemon_b_start", "probe_b",
-    "run_c_reconnect", "run_b_list", "run_b_map_pages", "run_b_focus_overflow",
-    "run_b_all_members", "run_b_member_detail", "run_b_final",
+    "enroll", "open_lanes", "run_a_list", "run_a_map", "run_a_log",
+    "daemon_a_stop", "transport_unavailable_probe", "seed_inc1_upgrade", "daemon_b_start", "probe_b",
+    "run_c_reconnect", "run_b_list", "run_b_all_members", "run_b_member_detail",
+    "run_b_map_pages", "run_b_focus_overflow", "run_b_index_unavailable", "run_b_large_text", "run_b_final",
     "overflow_phase_boundary", "overflow_add_lanes", "overflow_assert",
 ]
 # Reduced proof (production path only): the release app enrolls to an increment-1 daemon on a fresh scratch.
@@ -158,35 +159,6 @@ def plan() -> dict[str, Any]:
             "v1_lane_ids": sd.v1_lane_ids(), "all_lane_ids": sd.all_lane_ids(), "big_lane_id": sd.big_lane_id(),
             "fixture_timing_delta": sd.FIXTURE_TIMING, "proxy_deltas": sd.PROXY_DELTAS}
 
-
-
-def two_ring_order(elements: list[dict[str, Any]], center: dict[str, float]) -> list[str]:
-    """Read inner then outer clockwise positions relative to the assistant."""
-    import math
-    cx, cy = center["x"] + center["width"]/2, center["y"] + center["height"]/2
-    positioned = []
-    for e in elements:
-        f = Ui.frame(e)
-        dx, dy = f["x"] + f["width"]/2-cx, f["y"] + f["height"]/2-cy
-        positioned.append((dx*dx + dy*dy, dx, dy, Ui.ident(e).removeprefix("lanes-map-lane-")))
-    if len(positioned) != 9:
-        raise AssertFail("expected nine lane nodes for two-ring ordering")
-    positioned.sort()
-    rings = (positioned[:6], positioned[6:])
-    def angle(row, rx, ry):
-        return (math.atan2(row[2]/ry, row[1]/rx) + math.pi/2 + 0.02) % (2*math.pi)
-    return [row[3] for ring, rx, ry in ((rings[0],100,140),(rings[1],182,240))
-            for row in sorted(ring, key=lambda row: angle(row,rx,ry))]
-
-
-def overflow_control(elements: list[dict[str, Any]], count: int) -> dict[str, Any]:
-    if count < 17:
-        raise SetupFail("overflow requires at least 17 open lanes")
-    hits = [e for e in elements if Ui.ident(e) == "lanes-map-overflow" and
-            str(e.get("AXLabel") or "") == f"Show all {count} lanes"]
-    if len(hits) != 1:
-        raise SetupFail(f"overflow AX label missing or ambiguous: {len(hits)} matches")
-    return hits[0]
 
 
 def validate_overflow_list(observed: list[str], expected: list[str]) -> list[str]:
@@ -342,10 +314,10 @@ def _norm(text: Any) -> str:
     return " ".join(str(text or "").replace("“", '"').replace("”", '"').replace("’", "'").split())
 
 
-def known_system_alert(elements: list[dict[str, Any]]) -> tuple[str, dict[str, Any]] | None:
+def known_system_alert(elements: list[dict[str, Any]], alerts: dict[str, str] | None = None) -> tuple[str, dict[str, Any]] | None:
     """(title, button to press) for an allow-listed alert on screen; a known title without its exact button fails."""
     labels = {_norm(element.get("AXLabel")) for element in elements}
-    for title, button in SYSTEM_ALERTS.items():
+    for title, button in (SYSTEM_ALERTS if alerts is None else alerts).items():
         if _norm(title) not in labels:
             continue
         matches = [element for element in elements if _norm(element.get("AXLabel")) == _norm(button)
@@ -383,20 +355,53 @@ def home_state(elements: list[dict[str, Any]]) -> dict[str, Any] | None:
     return None
 
 
-# A list card is found by its "See chat for <title>" button: one per card in every list variant, carrying the lane
-# id. The compact default renders no "Lane log" row. On iOS only accessible elements (pressables with a role) expose
-# their testID; the card's Text ids (e.g. `lane-card-progress-`) are not.
-LIST_CARD = "lane-card-chat-"
+# The grouped list exposes each lane as an accessible row button.
+LIST_CARD = "lane-row-"
 # Daemon order can move between reads (state, then updated_at desc, then id), so each order check reads the
 # inventory immediately before and after the screen; a disagreement or a lagging screen uses one attempt.
 ORDER_ATTEMPTS = 3
 
 
-def attention_rank(lane: dict[str, Any]) -> int:
-    """The map's attention rank (`laneAttentionRank`, LanesMap.tsx), applied as a stable sort to daemon order."""
-    state = lane.get("state")
-    working = ((lane.get("lead") or {}).get("presence") or {}).get("working")
-    return 0 if state == "blocked" else 1 if state == "active" and working else 2 if state == "active" else 3
+def lane_group(lane: dict[str, Any]) -> str:
+    if lane.get("state") == "paused":
+        return "paused"
+    counts = lane.get("goal_counts")
+    if lane.get("goal_classes") and isinstance(counts, list) and len(counts) == 4:
+        return "moving" if counts[0] else "stalled" if counts[1] else "idle"
+    goals = list(lane.get("goals") or [])
+    if lane.get("default_goal"):
+        goals.append(lane["default_goal"])
+    return "moving" if any(g.get("total", 0) > 0 and g.get("state") == "in_progress" for g in goals) else "idle"
+
+
+def grouped_lane_ids(lanes: list[dict[str, Any]]) -> list[str]:
+    return [lane["lane_id"] for group in ("moving", "stalled", "idle", "paused")
+            for lane in lanes if lane_group(lane) == group]
+
+
+def expected_map_lanes(lanes: list[dict[str, Any]]) -> tuple[set[str], int]:
+    paused = sorted((lane for lane in lanes if lane.get("state") == "paused"),
+                    key=lambda lane: lane.get("state_at") or "", reverse=True)
+    visible = [lane["lane_id"] for lane in lanes if lane.get("state") != "paused"]
+    visible.extend(lane["lane_id"] for lane in paused[:6])
+    return set(visible), max(0, len(paused) - 6)
+
+
+def assert_map_labels(ui: "Ui", expected: set[str], folded: int, titles: dict[str, str] | None = None) -> None:
+    labels = ui.ids("lanes-map-label-")
+    actual = {Ui.ident(e).removeprefix("lanes-map-label-") for e in labels}
+    wanted = expected | ({"paused-more"} if folded else set())
+    if len(labels) != len(actual) or actual != wanted:
+        raise AssertFail("map labels do not match visible lanes and paused fold")
+    if titles is not None:
+        for element in labels:
+            ident = Ui.ident(element).removeprefix("lanes-map-label-")
+            expected_title = f"+{folded}" if ident == "paused-more" else titles.get(ident, "")
+            if not expected_title or not Ui.label(element).startswith(expected_title):
+                raise AssertFail("map label lacks its expected visible lane title: " + ident)
+    overlaps = overlapping(labels)
+    if overlaps:
+        raise AssertFail(f"overlapping map labels {overlaps[:2]}")
 
 
 def lane_ids(lanes: list[dict[str, Any]]) -> list[str]:
@@ -413,8 +418,9 @@ def lanes_status_button(elements: list[dict[str, Any]]) -> dict[str, Any] | None
 
 class Ui:
     def __init__(self, udid: str, idb: str, trace: Callable[[str, Any], None], shots: Path,
-                 bundle: str | None = None):
+                 bundle: str | None = None, system_alerts: dict[str, str] | None = None):
         self.udid, self.idb, self.trace, self.shots, self.bundle = udid, idb, trace, shots, bundle
+        self.system_alerts = SYSTEM_ALERTS if system_alerts is None else system_alerts
         self.env = {**os.environ, "IDB_COMPANION": f"{sd.HOST}:{sd.COMPANION_PORT}"}
         self.screenshots: list[dict[str, str]] = []
         self.viewport: dict[str, float] | None = None
@@ -523,7 +529,7 @@ class Ui:
         if system_dialog:
             # A different allow-listed alert may follow (Open, then notifications): the caller's loop presses it and
             # checks the app's return when the chain ends. Anything else, including the same alert, is checked now.
-            chained = known_system_alert(self.elements())
+            chained = known_system_alert(self.elements(), getattr(self, "system_alerts", SYSTEM_ALERTS))
             if chained is not None and chained[0] != alert:
                 self.trace("system_alert_chained", {"pressed": alert, "next": chained[0]})
                 return
@@ -634,6 +640,7 @@ class Ui:
     def clear_system_alerts(self, limit: int = 3) -> list[str]:
         """Press the allow-listed button of each known system alert on screen, dumping the screen first."""
         handled: list[str] = []
+        alerts = getattr(self, "system_alerts", SYSTEM_ALERTS)
         for _ in range(limit):
             for attempt in range(3):
                 try:
@@ -645,7 +652,7 @@ class Ui:
                     self.trace("alert_ax_retry", {"at_utc": now_iso(), "attempt": attempt + 1})
                     time.sleep(1)
             try:
-                found = known_system_alert(elements)
+                found = known_system_alert(elements, alerts)
             except SetupFail:
                 self.dump("system-alert-unmatched", elements)
                 raise
@@ -657,12 +664,12 @@ class Ui:
             self.dump("system-alert", elements)
             # A system alert is not the app under test: an untappable target is a setup failure, never a product FAIL.
             if button.get("AXEnabled") is False:
-                raise SetupFail(f"system alert {title!r}: {SYSTEM_ALERTS[title]!r} button is disabled")
+                raise SetupFail(f"system alert {title!r}: {alerts[title]!r} button is disabled")
             try:
-                self.tap_element(button, SYSTEM_ALERTS[title], system_dialog=True, alert=title)
+                self.tap_element(button, alerts[title], system_dialog=True, alert=title)
             except AssertFail as error:
                 raise SetupFail(f"system alert {title!r}: {error}") from error
-            self.trace("system alert", {"title": title, "pressed": SYSTEM_ALERTS[title]})
+            self.trace("system alert", {"title": title, "pressed": alerts[title]})
             handled.append(title)
             time.sleep(1.0)
         self.check_foreground()
@@ -1006,7 +1013,6 @@ class Run:
         self.result["checks"]["probe_b"] = {"inventory": sd.summarize_frame(got["inventory"]),
                                             "show": sd.summarize_frame(got["show"])}
         self.inventory_order = [lane["lane_id"] for lane in got["inventory"]["lanes"]]
-        self.attention_order = lane_ids(sorted(got["inventory"]["lanes"], key=attention_rank))
 
     # -- simulator side ----------------------------------------------------
     def configure_cfu(self) -> None:
@@ -1147,8 +1153,7 @@ class Run:
         self.result["checks"]["home_enrolled"] = {**state, "system_alerts": list(alerts)}
 
     def open_lanes(self) -> None:
-        """The assistant header status button when rendered; otherwise the route's deep link through the exact-match
-        `Open` confirmation. Either entry must reach the lanes view within 30 s, or the run stops with a dump."""
+        """Enter through the header or the guarded deep link, then find the new home."""
         alerts = self.result.setdefault("system_alerts", [])
         alerts.extend(self.ui.clear_system_alerts())
         button = lanes_status_button(self.ui.elements())
@@ -1165,41 +1170,32 @@ class Run:
         while True:
             alerts.extend(self.ui.clear_system_alerts())
             elements = self.ui.elements()
-            if any(Ui.ident(element) == "lanes-view-list" for element in elements):
+            if any(Ui.ident(element) == "lanes-close" for element in elements):
                 break
             if time.monotonic() > deadline:
                 self.ui.dump("lanes-not-open", elements)
                 raise SetupFail("lanes view did not open from the " + self.result["lanes_entry"])
             time.sleep(1)
-        self.ui.find("lanes-view-map")
-        self.show_view("list")
+        self.ui.find("lanes-close")
 
-    # -- journey -----------------------------------------------------------
-    # The overlay's `lanes-view-list` / `lanes-view-map` are the two toggle buttons
-    # (selected state); container views carry no accessibility element, so the
-    # current view is read from what it renders: list = card progress labels,
-    # map orbit = the centre assistant node (`lanes-map-assistant`).
     def show_view(self, view: str) -> None:
-        self.ui.tap(f"lanes-view-{view}")
+        """The map and grouped list now share the home scroll surface."""
+        if view not in ("map", "list"):
+            raise ValueError(view)
+        self.ui.find("lanes-close")
+        if self.ui.ids("lanes-back"):
+            raise AssertFail("expected lanes home before reading the " + view)
         if view == "map":
-            deadline = time.monotonic() + 20
-            while not (self.ui.ids("lanes-map-assistant") or self.ui.ids("lanes-map-back")):
-                if time.monotonic() > deadline:
-                    raise AssertFail("map view did not render")
-                time.sleep(0.3)
-        else:
-            deadline = time.monotonic() + 20
-            while not self.ui.ids(LIST_CARD):
-                if time.monotonic() > deadline:
-                    raise AssertFail("list view did not render")
-                time.sleep(0.3)
+            self.ui.find("lanes-map-assistant")
+        elif not self.ui.ids(LIST_CARD):
+            raise AssertFail("grouped lane list did not render")
 
     def focus_lane(self, lane: str) -> None:
         self.ui.tap(f"lanes-map-lane-{lane}")
-        self.ui.find("lanes-map-back")
+        self.ui.find("lanes-back")
 
     def unfocus_to_page_one(self) -> None:
-        self.ui.tap("lanes-map-back")
+        self.ui.tap("lanes-back")
         self.ui.find("lanes-map-assistant")
 
     def visible_order(self, prefix: str) -> list[str]:
@@ -1218,7 +1214,8 @@ class Run:
             before = list((self.probe()["inventory"] or {}).get("lanes", []))
             screen = read_screen()
             after = list((self.probe()["inventory"] or {}).get("lanes", []))
-            ok = lane_ids(before) == lane_ids(after) and matches(screen, before)
+            ok = (lane_ids(before) == lane_ids(after) and grouped_lane_ids(before) == grouped_lane_ids(after)
+                  and matches(screen, before))
             attempts.append({"before": lane_ids(before), "after": lane_ids(after), "screen": screen, "ok": ok})
             if ok:
                 self.inventory_order = lane_ids(before)
@@ -1227,8 +1224,8 @@ class Run:
 
     def bracket_list(self, label: str) -> list[str]:
         def matches(visible: list[str], lanes: list[dict[str, Any]]) -> bool:
-            order = lane_ids(lanes)
-            return bool(visible) and visible == [lane for lane in order if lane in visible] and visible[0] == order[0]
+            expected = grouped_lane_ids(lanes)
+            return bool(visible) and len(visible) == len(set(visible)) and visible == [x for x in expected if x in visible]
         return self.bracket_order(label, lambda: self.visible_order(LIST_CARD), matches)
 
     def show_after(self, since: float, timeout_s: float = 35) -> dict[str, Any]:
@@ -1246,82 +1243,45 @@ class Run:
             raise AssertFail("no native work_lanes.show request/reply pair on the loopback proxy") from None
         return holder["pair"]
 
-    def log_tabs(self, lane_id: str, tag: str, need_spec_change: bool) -> dict[str, Any]:
-        rows: dict[str, Any] = {}
-        for tab in ("updates", "spec-changes", "events"):
-            self.ui.tap(f"lane-log-tab-{tab}")
-            deadline = time.monotonic() + 15
-            while True:
-                count = len([e for e in self.ui.ids("lane-log-row-") if re.fullmatch(r"lane-log-row-\d+", Ui.ident(e))])
-                empty = bool(self.ui.ids("lane-log-empty"))
-                if count or empty or time.monotonic() > deadline:
-                    break
-                time.sleep(0.5)
-            if not count and not empty:
-                raise AssertFail(f"log tab {tab} rendered neither rows nor an empty state")
-            if self.ui.ids("lane-log-retry"):
-                raise AssertFail(f"log tab {tab} shows an error on a live daemon")
-            rows[tab] = count
-            self.ui.screenshot(f"{tag}-log-{tab}")
-        if rows["events"] < 1:
-            raise AssertFail("Events tab has no rows for a seeded lane")
-        if need_spec_change and rows["spec-changes"] < 1:
-            raise AssertFail("Spec changes tab has no item_change row after the daemon's sweep")
-        return rows
-
     def run_a_list(self) -> None:
-        ui = self.ui
         visible = self.bracket_list("run A list")
-        for lane in visible:
-            ui.find(f"lane-card-members-pending-{lane}", 5)
-        ui.absent(f"lane-card-member-{sd.big_lane_id()}-")
-        ui.screenshot("a-list")
+        self.ui.absent("lane-card-chat-")
+        self.ui.absent("lane-card-log-")
+        self.ui.screenshot("a-list")
         self.result["checks"]["run_a_list"] = {"visible_lanes": visible}
 
     def run_a_map(self) -> None:
-        ui = self.ui
         self.show_view("map")
         visible = self.visible_order("lanes-map-lane-")
-        if sorted(visible) != sorted(sd.v1_lane_ids()):
+        if set(visible) != set(sd.v1_lane_ids()):
             raise AssertFail("run A map does not show exactly the v1 lanes")
-        ui.absent("lanes-map-member-")
-        ui.screenshot("a-map")
-        self.focus_lane(sd.big_lane_id())
-        ui.find(f"lanes-map-members-pending-{sd.big_lane_id()}")
-        ui.absent("lanes-map-member-")
-        ui.absent("lanes-map-more-")
-        ui.screenshot("a-map-focus")
-        self.unfocus_to_page_one()
-        self.show_view("list")
+        self.ui.absent("lanes-map-member-")
+        self.ui.screenshot("a-map")
         self.result["checks"]["run_a_map"] = {"lanes": visible, "member_nodes": 0}
 
     def run_a_log(self) -> None:
         since = time.time()
-        self.ui.tap(f"lane-card-log-{sd.big_lane_id()}")
-        self.ui.find("lane-log-tab-updates")
+        self.ui.tap(f"lane-row-{sd.big_lane_id()}")
         pair = self.show_after(since)
         if pair["reply_type"] != "work_lanes.show.ok":
-            raise AssertFail("run A lane log show did not succeed on the v1 daemon")
-        rows = self.log_tabs(sd.big_lane_id(), "a", need_spec_change=False)
-        self.ui.tap("lane-log-back")
-        self.ui.find(f"lane-card-log-{sd.big_lane_id()}")
-        self.result["checks"]["run_a_log"] = {"show": pair, "rows": rows}
+            raise AssertFail("v1 lane detail show did not succeed")
+        self.ui.find("lanes-back")
+        self.ui.absent("lane-log-tab-")
+        self.ui.screenshot("a-legacy-lane")
+        self.ui.tap("lanes-back")
+        self.result["checks"]["run_a_log"] = {"show": pair, "legacy_lane_opened": True}
 
     def transport_unavailable_probe(self) -> None:
-        """Supplemental real state: lane log requested while no daemon listens (not a daemon error)."""
+        """Open the lane after the owned daemon is stopped and prove offline visibility."""
         since = time.time()
-        record: dict[str, Any] = {"label": "transport_unavailable_real", "blocking": False,
-                                  "expected": "log waits for the connection and sends no request"}
-        try:
-            self.ui.tap(f"lane-card-log-{sd.big_lane_id()}", 10)
-            self.ui.find_label("Waiting for connection", 10)
-            record["observed"] = True
-            record["requests_sent"] = len(show_pairs(self.wire(), since))
-            self.ui.screenshot("c-transport-unavailable")
-            self.ui.tap("lane-log-back", 10)
-        except (AssertFail, SetupFail) as exc:
-            record.update(observed=False, note=str(exc)[:200])
-        self.result["supplemental_real_checks"]["transport_unavailable_real"] = record
+        self.ui.tap(f"lane-row-{sd.big_lane_id()}")
+        self.ui.find_label("Waiting for connection", 30)
+        requests = len(show_pairs(self.wire(), since))
+        if requests:
+            raise AssertFail("offline lane sent a show request while the daemon was stopped")
+        self.ui.screenshot("c-transport-unavailable")
+        self.ui.tap("lanes-back")
+        self.result["checks"]["transport_unavailable"] = {"waiting_visible": True, "requests_sent": requests}
 
     def run_c_reconnect(self) -> None:
         since = self.processes["daemon"]["started_at"]
@@ -1331,19 +1291,10 @@ class Run:
             raise AssertFail("app did not reconnect to the upgraded daemon through the unchanged proxy") from None
         if self.app_pids() != [self.app_pid]:
             raise AssertFail("app process changed across the upgrade (restart or reinstall)")
-        ui = self.ui
-        if ui.ids("lane-log-back"):
-            ui.tap("lane-log-back")
-        self.show_view("list")
-        deadline = time.monotonic() + 60
-        while ui.ids("lane-card-members-pending-"):
-            if time.monotonic() > deadline:
-                raise AssertFail("v1 pending notes remain after the increment-1 inventory arrived")
-            time.sleep(1)
-        ui.screenshot("c-reconnected-list")
+        self.ui.find("lanes-close")
+        self.ui.screenshot("c-reconnected-list")
         self.result["checks"]["run_c_reconnect"] = {"app_pid_unchanged": self.app_pid,
-                                                    "daemon_b_pid": self.processes["daemon"]["pid"],
-                                                    "connections": connections_with_snapshot(self.wire(), since)}
+            "daemon_b_pid": self.processes["daemon"]["pid"], "connections": connections_with_snapshot(self.wire(), since)}
 
     def spec_edit(self) -> None:
         sd.tick_edited_spec(self.scratch / "memory")
@@ -1360,165 +1311,94 @@ class Run:
                                               "timing": "fixture timing delta " + json.dumps(sd.FIXTURE_TIMING)}
 
     def run_b_list(self) -> None:
-        ui, big = self.ui, sd.big_lane_id()
         visible = self.bracket_list("run B list")
         since = time.time()
-        ui.tap(f"lane-card-show-all-{big}")
+        self.ui.tap(f"lane-row-{sd.big_lane_id()}")
+        self.ui.find("lanes-back")
         pair = self.show_after(since)
         if pair["reply_type"] != "work_lanes.show.ok":
-            raise AssertFail("expanded list show did not succeed")
-        prefix = f"lane-card-member-{big}-"
-        got = [x.removeprefix(prefix) for x in ui.collect_scrolling(prefix, 32, max_swipes=30)]
-        if got != sd.BIG:
-            raise AssertFail(f"expanded list exposes {len(got)} members, expected 32 in order")
-        ui.screenshot("b-list-expanded")
-        ui.tap(f"lane-card-toggle-{big}")
-        self.result["checks"]["run_b_list"] = {"visible_lanes": visible, "show": pair, "members": got}
+            raise AssertFail("lane detail show did not succeed")
+        self.ui.find("goal-head-default", 30)
+        self.ui.screenshot("b-lane")
+        self.result["checks"]["run_b_list"] = {"visible_lanes": visible, "show": pair}
 
     def reduced_list(self) -> None:
         self.run_b_list()
         self.result["checks"]["reduced_list"] = self.result["checks"].pop("run_b_list")
 
     def reduced_members(self) -> None:
-        """One real work_lanes.show round-trip from the list: the big lane's full member list."""
-        ui, big = self.ui, sd.big_lane_id()
-        ui.tap(f"lane-card-toggle-{big}")
-        since = time.time()
-        ui.tap(f"lane-card-show-all-{big}")
-        ui.find("lane-members-back", 30)
-        pair = self.show_after(since)
-        if pair["reply_type"] != "work_lanes.show.ok":
-            raise AssertFail("member list show did not succeed")
-        order = ui.collect_scrolling("lane-members-row-", 32)
-        got = [identifier[len("lane-members-row-"):] for identifier in order]
-        if got != sd.BIG:
-            raise AssertFail(f"member list shows {len(got)} rows, not all 32 in membership order")
-        ui.screenshot("reduced-members")
-        ui.tap("lane-members-back")
-        ui.find("lanes-view-list", 30)
-        self.result["checks"]["reduced_members"] = {"show": pair, "rows": len(got),
-                                                    "spec_ids_sha256": sha256_bytes("\n".join(got).encode())}
+        self.run_b_all_members()
+        self.run_b_member_detail()
+        self.result["checks"]["reduced_members"] = self.result["checks"]["run_b_all_members"]
 
     def reduced_map(self) -> None:
-        """The map renders orbit page 1 in daemon order."""
-        self.show_view("map")
-        page = self.visible_order("lanes-map-lane-")
-        expected = self.inventory_order[:min(8, len(self.inventory_order))]
-        if page != expected:
-            raise AssertFail(f"map page 1 shows {page}, not the first daemon lanes {expected}")
-        self.ui.screenshot("reduced-map")
-        self.result["checks"]["reduced_map"] = {"page_1": page}
-
-    def run_b_precedence(self) -> None:
-        ui, out = self.ui, {}
-        cases = {"missing": sd.lane_id_for(sd.LANES[1]["key"]), "ambiguous": sd.lane_id_for(sd.LANES[2]["key"]),
-                 "no_spec": sd.lane_id_for(sd.LANES[4]["key"])}
-        for name, lane in cases.items():
-            element = self.find_card_progress(lane)
-            text = Ui.label(element).lower()
-            if re.search(r"\bdone\b", text):
-                raise AssertFail(f"{name} lane shows terminal done wording")
-            if name in ("missing", "ambiguous") and "unresolved" not in text:
-                raise AssertFail(f"{name} lane progress does not read unresolved")
-            if name == "no_spec" and "planning conversation" not in text:
-                raise AssertFail("no-spec lane does not show its reason")
-            out[name] = {"lane_id": lane, "label_sha256": sha256_bytes(text.encode())}
-        ui.screenshot("b-precedence")
-        self.result["checks"]["run_b_precedence"] = out
-
-    def find_card_progress(self, lane: str) -> dict[str, Any]:
-        identifier = f"lane-card-progress-{lane}"
-        box = self.ui.screen()
-        for _ in range(8):
-            hits = [e for e in self.ui.ids(identifier) if Ui.ident(e) == identifier]
-            if hits:
-                return hits[0]
-            self.ui.swipe_up(box)
-        raise AssertFail("card progress not reachable: " + lane)
-
-    def map_pages(self) -> list[list[str]]:
-        ui = self.ui
-        self.show_view("map")
-        pages = [self.visible_order("lanes-map-lane-")]
-        page, count = self.page_position()
-        if page != 1 or count < 2:
-            raise AssertFail("map pager is not page 1 of N>1 with more than 8 lanes")
-        for _ in range(count - 1):
-            ui.tap("lanes-map-page-next")
-            pages.append(self.visible_order("lanes-map-lane-"))
-        ui.screenshot("b-map-last-page")
-        for _ in range(count - 1):
-            ui.tap("lanes-map-page-prev")
-        return pages
+        self.run_b_map_pages()
+        self.result["checks"]["reduced_map"] = self.result["checks"].pop("run_b_map_pages")
 
     def run_b_map_pages(self) -> None:
         self.show_view("map")
-
-        def read_rings() -> list[str]:
-            elements = self.ui.ids("lanes-map-lane-")
-            ids = [Ui.ident(e).removeprefix("lanes-map-lane-") for e in elements]
-            if len(ids) != 9 or set(ids) != set(sd.all_lane_ids()):
-                raise AssertFail("nine-lane map does not expose all nine lane nodes")
-            return two_ring_order(elements, Ui.frame(self.ui.find("lanes-map-assistant")))
-
-        def matches(order: list[str], lanes: list[dict[str, Any]]) -> bool:
-            return order == lane_ids(sorted(lanes, key=attention_rank))
-
-        order = self.bracket_order("run B map attention", read_rings, matches)
-        self.attention_order = order
-        for lane in (order[0], order[6]):
-            self.focus_lane(lane)
-            self.unfocus_to_page_one()
-        self.ui.screenshot("b-map-rings")
-        self.result["checks"]["run_b_map_pages"] = {"lanes": order, "ring_selections": [order[0], order[6]]}
+        visible = self.bracket_order("run B map", lambda: self.visible_order("lanes-map-lane-"),
+            lambda seen, lanes: len(seen) == len(set(seen)) and set(seen) == expected_map_lanes(lanes)[0])
+        lanes = (self.probe()["inventory"] or {}).get("lanes", [])
+        expected, folded = expected_map_lanes(lanes)
+        if set(visible) != expected:
+            raise AssertFail("map changed before label inspection")
+        assert_map_labels(self.ui, expected, folded, {lane["lane_id"]: lane["title"] for lane in lanes})
+        if folded:
+            self.ui.find("lanes-map-fold-paused-more")
+        else:
+            self.ui.absent("lanes-map-fold-paused-more")
+        self.ui.screenshot("b-map")
+        self.result["checks"]["run_b_map_pages"] = {"visible_lanes": visible}
 
     def run_b_focus_overflow(self) -> None:
         self.focus_lane(sd.big_lane_id())
-        pair = self.result["checks"]["run_b_list"]["show"]
-        self.ui.find(f"lanes-map-more-{sd.big_lane_id()}")
-        self.ui.find(f"lanes-map-done-stack-{sd.big_lane_id()}")
-        self.ui.screenshot("b-map-stacks")
+        pair = self.show_after(time.time() - 10)
+        if pair["reply_type"] != "work_lanes.show.ok":
+            raise AssertFail("map lane selection did not load its details")
+        self.ui.find("goal-head-default", 30)
+        self.unfocus_to_page_one()
         self.result["checks"]["run_b_focus_overflow"] = {"show": pair}
 
     def run_b_all_members(self) -> None:
-        ui, big = self.ui, sd.big_lane_id()
-        order = ui.collect_scrolling("lane-members-row-", 18)
-        got = [x.removeprefix("lane-members-row-") for x in order]
-        if got != sd.BIG[:18]:
-            raise AssertFail(f"dense sheet exposes {len(got)} live members, expected 18 in order")
-        seen = []
-        for kind, ident, expected in (("pending", f"lanes-map-more-{big}", sd.BIG[18:24]),
-                                     ("done", f"lanes-map-done-stack-{big}", sd.BIG[24:])):
-            ui.tap(ident)
-            ui.find("lanes-map-stack-close")
-            rows = ui.collect_scrolling("lane-members-row-", len(expected))
-            members = [x.removeprefix("lane-members-row-") for x in rows]
-            if members != expected:
-                raise AssertFail(f"{kind} stack does not expose its members in order")
-            ui.screenshot("b-stack-" + kind)
-            seen.append({"kind": kind, "members": members})
-            ui.tap("lanes-map-stack-close")
-        self.result["checks"]["run_b_all_members"] = {"rows": len(got), "stacks": seen}
+        ui = self.ui
+        ui.tap("goal-head-default")
+        ui.find("lanes-back")
+        # Reveal the two folded groups before collecting all non-deprecated specs.
+        if ui.ids("goal-next-expand"):
+            ui.tap("goal-next-expand")
+        if ui.ids("goal-done-fold"):
+            ui.tap("goal-done-fold")
+        got = [x.removeprefix("spec-row-") for x in ui.collect_scrolling("spec-row-", 30, max_swipes=30)]
+        if len(got) != 30 or set(got) != set(sd.BIG[:30]):
+            raise AssertFail(f"goal exposes {len(got)} members, expected the 30 non-deprecated specs")
+        ui.screenshot("b-goal-members")
+        self.result["checks"]["run_b_all_members"] = {"members": got, "source": "pinned increment-one daemon; unpaged"}
 
     def run_b_member_detail(self) -> None:
         ui, spec = self.ui, sd.BIG[0]
-        ui.tap(f"lane-members-row-{spec}")
-        ui.find("member-detail-back")
-        ui.screenshot("b-member-detail")
-        ui.tap("member-detail-back")
-        ui.find(f"lane-members-row-{spec}")
-        self.unfocus_to_page_one()
-        self.show_view("list")
-        self.result["checks"]["run_b_member_detail"] = {"spec_id": spec}
+        ui.tap(f"spec-row-{spec}")
+        ui.find("lanes-back")
+        ui.absent("spec-row-")
+        ui.find_label("Span 01")
+        ui.find_label("Building")
+        ui.find_label("0/2 checks")
+        ui.absent("member-detail-chat")
+        ui.absent("lane-log-tab-")
+        ui.screenshot("b-spec")
+        ui.tap("lanes-back")
+        ui.find(f"spec-row-{spec}")
+        ui.tap("lanes-back")
+        ui.find("goal-head-default")
+        ui.tap("lanes-back")
+        ui.find("lanes-close")
+        self.result["checks"]["run_b_member_detail"] = {"spec_id": spec, "back": "spec -> goal -> lane -> home"}
 
     def overflow_phase_boundary(self) -> None:
         if not self.result["checks"].get("run_c_reconnect", {}).get("app_pid_unchanged"):
             raise SetupFail("C evidence missing before overflow")
         self.show_view("map")
-        self.ui.find("lanes-map-assistant")
-        self.ui.absent("lanes-map-back")
-        self.result["overflow_phase"] = {"started_at": now_iso(), "prior_checks": sorted(self.result["checks"]),
-                                         "app_pid": self.app_pid}
+        self.result["overflow_phase"] = {"started_at": now_iso(), "prior_checks": sorted(self.result["checks"]), "app_pid": self.app_pid}
         self.write("pre-overflow-result.json", self.result)
 
     def overflow_add_lanes(self) -> None:
@@ -1540,43 +1420,14 @@ class Run:
     def overflow_assert(self) -> None:
         ui = self.ui
         expected = self.result["overflow_phase"]["inventory_ids"]
-        elements = ui.elements()
-        ui.dump("overflow-first-ax", elements)
-        control = overflow_control(elements, len(expected))
-        nodes = [e for e in elements if Ui.ident(e).startswith("lanes-map-lane-")]
-        if len(nodes) != 16 or len({Ui.ident(e) for e in nodes}) != 16:
-            raise AssertFail("overflow map does not expose exactly 16 unique lane nodes")
-        ui.screenshot("overflow-map")
-        reads = {"count": 0}
-
+        self.run_b_map_pages()
         def read_list() -> list[str]:
-            if reads["count"]:  # re-enter the destination from the map's overflow control
-                self.show_view("map")
-                ui.tap_element(overflow_control(ui.elements(), len(expected)), "overflow")
-            else:
-                ui.tap_element(control, "overflow")
-            reads["count"] += 1
-            ui.find("lanes-view-list")
             return [x.removeprefix(LIST_CARD) for x in ui.collect_scrolling(LIST_CARD, len(expected), max_swipes=30)]
-
-        observed = self.bracket_order("overflow list", read_list, lambda seen, lanes: seen == lane_ids(lanes))
+        observed = self.bracket_order("overflow grouped list", read_list,
+            lambda seen, lanes: seen == grouped_lane_ids(lanes))
         validate_overflow_list(observed, expected)
         ui.screenshot("overflow-list")
-        self.result["overflow_phase"].update(map_nodes=16, observed_ids=observed, completed_at=now_iso())
-
-    def run_b_log(self) -> None:
-        ui, big = self.ui, sd.big_lane_id()
-        since = time.time()
-        ui.tap(f"lanes-map-log-{big}")
-        ui.find("lane-log-tab-updates")
-        pair = self.show_after(since)
-        if pair["reply_type"] != "work_lanes.show.ok":
-            raise AssertFail("lane log show did not succeed on the increment-1 daemon")
-        rows = self.log_tabs(big, "b", need_spec_change=True)
-        ui.tap("lane-log-back")
-        self.unfocus_to_page_one()
-        self.show_view("list")
-        self.result["checks"]["run_b_log"] = {"show": pair, "rows": rows}
+        self.result["overflow_phase"].update(observed_ids=observed, completed_at=now_iso())
 
     def run_b_index_unavailable(self) -> None:
         memory = self.scratch / "memory"
@@ -1584,42 +1435,43 @@ class Run:
         try:
             sd.wait_for(lambda: (self.probe()["inventory"] or {}).get("work_index", {}).get("available") is False,
                         90, "work_index unavailable", interval=3)
-            self.ui.find("lanes-index-banner", 60)
+            # iOS exposes this static Text by its visible label but may omit its testID.
+            self.ui.find_label("DATA AS OF", 60)
             self.ui.screenshot("b-index-unavailable")
         finally:
             sd.restore_memory_root(memory)
         sd.wait_for(lambda: (self.probe()["inventory"] or {}).get("work_index", {}).get("available") is True,
                     90, "work_index restored", interval=3)
         deadline = time.monotonic() + 60
-        while self.ui.ids("lanes-index-banner"):
+        while any("data as of" in Ui.label(element).lower() for element in self.ui.elements()):
             if time.monotonic() > deadline:
                 raise AssertFail("index banner persists after the work root returned")
             time.sleep(1)
         self.result["checks"]["run_b_index_unavailable"] = {"banner": True, "restored": True}
 
     def run_b_large_text(self) -> None:
-        ui, big = self.ui, sd.big_lane_id()
+        ui = self.ui
         self.simctl("ui", self.udid, "content_size", LARGE_TEXT)
         time.sleep(2)
         try:
             self.show_view("map")
             screen = ui.screen()
-            assert_target(ui.find("lanes-map-page-next"), screen)
-            self.focus_lane(big)
-            more = ui.find(f"lanes-map-more-{big}")
-            if Ui.frame(more)["y"] + Ui.frame(more)["height"] > screen["height"]:
-                ui.swipe_up(screen)  # the focused map scrolls; the +N action must be reachable, then usable
-                more = ui.find(f"lanes-map-more-{big}")
-            assert_target(more, screen)
-            overlaps = overlapping(ui.ids("lanes-map-member-") + [more])
+            assert_target(ui.find("lanes-close"), screen)
+            nodes = ui.ids("lanes-map-lane-")
+            if not nodes:
+                raise AssertFail("large-text map contains no lane targets")
+            for node in nodes:
+                assert_target(node)
+            overlaps = overlapping(nodes)
             if overlaps:
-                raise AssertFail(f"overlapping targets at large text {overlaps[:2]}")
-            ui.screenshot("b-large-text-focus")
-            self.unfocus_to_page_one()
-            self.show_view("list")
+                raise AssertFail(f"overlapping lane targets at large text {overlaps[:2]}")
+            lanes = (self.probe()["inventory"] or {}).get("lanes", [])
+            expected, folded = expected_map_lanes(lanes)
+            assert_map_labels(ui, expected, folded, {lane["lane_id"]: lane["title"] for lane in lanes})
+            ui.screenshot("b-large-text-home")
         finally:
             self.simctl("ui", self.udid, "content_size", self.content_size or "large", check=False)
-        self.result["checks"]["run_b_large_text"] = {"content_size": LARGE_TEXT}
+        self.result["checks"]["run_b_large_text"] = {"content_size": LARGE_TEXT, "lane_targets": len(nodes)}
 
     def run_b_final(self) -> None:
         self.ui.find(LIST_CARD + sd.big_lane_id())
@@ -1665,14 +1517,14 @@ class Run:
                 self.step(name, fn)
             self.journey_started = True
             for name, fn in [
-                ("run_a_list", self.run_a_list), ("run_a_map", self.run_a_map),
-                ("daemon_a_stop", self.stop_daemon),
+                ("run_a_list", self.run_a_list), ("run_a_map", self.run_a_map), ("run_a_log", self.run_a_log),
+                ("daemon_a_stop", self.stop_daemon), ("transport_unavailable_probe", self.transport_unavailable_probe),
                 ("seed_inc1_upgrade", lambda: self.seed("inc1", self.inc1_checkout)),
                 ("daemon_b_start", lambda: self.start_daemon("daemon-b-inc1", self.inc1_checkout)),
                 ("probe_b", self.probe_b), ("run_c_reconnect", self.run_c_reconnect),
-                ("run_b_list", self.run_b_list),
-                ("run_b_map_pages", self.run_b_map_pages), ("run_b_focus_overflow", self.run_b_focus_overflow),
-                ("run_b_all_members", self.run_b_all_members), ("run_b_member_detail", self.run_b_member_detail),
+                ("run_b_list", self.run_b_list), ("run_b_all_members", self.run_b_all_members),
+                ("run_b_member_detail", self.run_b_member_detail), ("run_b_map_pages", self.run_b_map_pages), ("run_b_focus_overflow", self.run_b_focus_overflow),
+                ("run_b_index_unavailable", self.run_b_index_unavailable), ("run_b_large_text", self.run_b_large_text),
                 ("run_b_final", self.run_b_final), ("overflow_phase_boundary", self.overflow_phase_boundary),
                 ("overflow_add_lanes", self.overflow_add_lanes), ("overflow_assert", self.overflow_assert),
             ]:
@@ -1791,9 +1643,9 @@ class Run:
 # ---------------------------------------------------------------------------
 
 SUPPLEMENTAL_SCENES = {
-    "lanes:v1_wire": {"expect": ["lanes-view-list"], "prefix_present": "lane-card-members-pending-"},
-    "lanes:inc1_cases": {"expect": ["lanes-view-list", "lanes-index-banner"], "prefix_present": LIST_CARD},
-    "lanes:overflow": {"expect": ["lanes-view-list"], "prefix_present": LIST_CARD},
+    "lanes:v1_wire": {"expect": ["lanes-close"], "prefix_present": "lane-row-"},
+    "lanes:inc1_cases": {"expect": ["lanes-close", "lanes-index-banner"], "prefix_present": "lane-row-"},
+    "lanes:overflow": {"expect": ["lanes-close"], "prefix_present": "lane-row-"},
 }
 
 
@@ -1808,6 +1660,8 @@ SHOW_FAILURE_SCENES = {
     "lanes:show_timeout": {"mode": "no_reply", "expect_text": "Request timed out", "min_wait_s": 30},
 }
 
+PAGED_SCENE = {"mode": "pagination", "build": SHOW_FAILURE_BUILD}
+
 
 def _mock_daemon_class():
     tools = Path(__file__).resolve().parents[3] / "test" / "e2e" / "tools"
@@ -1821,7 +1675,7 @@ class LaneShowStub:
     """Loopback stub for the show failure scenes; records every show request."""
 
     def __init__(self, mode: str, inventory: dict[str, Any]):
-        if mode not in ("typed_error", "no_reply"):
+        if mode not in ("typed_error", "no_reply", "pagination"):
             raise ValueError("unknown stub mode")
         base = _mock_daemon_class()
         stub = self
@@ -1842,15 +1696,46 @@ class LaneShowStub:
 
         self.mode, self.receipts = mode, []
         self.daemon = _Daemon(argparse.Namespace(host="supplemental-host", recent_limit=100, credential_registry=""))
+        self.inventory = inventory
+        if mode == "pagination":
+            lane = inventory["lanes"][0]
+            lane.update(members_total=65, detail_revision="a" * 64,
+                        goals=[{"goal_id": "g-native-page", "title": "Paged fixture", "state": "in_progress",
+                                "rank": 1, "done": 0, "total": 65}], goals_total=1)
+            self.members = [{"spec_id": f"spec_native_page_{i:03d}", "title": f"Paged item {i:03d}",
+                             "status": "in_progress", "goal_id": "g-native-page"} for i in range(1, 66)]
+            lane["members"] = self.members[:8]
+            now = now_iso()
+            self.daemon.notifications["native-lane-question"] = {
+                "notification_id": "native-lane-question", "created_at": now, "updated_at": now,
+                "producer": "agent_question.v1", "answer_to_stream_id": lane["lead"]["stream_id"],
+                "severity": "info", "title": "Fixture question", "body": "Which fixture option?",
+                "dedup_key": "native-lane-question", "state": "open",
+                "actions": [{"kind": "ack", "action_id": "answer"}],
+                "question": {"question_id": "native-lane-question", "producer_stream_id": lane["lead"]["stream_id"],
+                             "state": "open", "response_mode": "single_choice",
+                             "options": [{"label": "Use fixture", "value": "yes"}]}}
         self.handler = self.daemon.handler
 
     async def _on_show(self, daemon, ws, msg) -> None:
-        receipt = {"at": time.time(), "request_id": msg.get("request_id"), "lane_id": msg.get("lane_id"), "reply": None}
+        receipt = {"at": time.time(), "request_id": msg.get("request_id"), "lane_id": msg.get("lane_id"),
+                   "members_after": msg.get("members_after"), "reply": None}
         self.receipts.append(receipt)
         if self.mode == "typed_error":
             await daemon._send(ws, {"type": "work_lanes.show.error", "request_id": msg.get("request_id"),
                                     "error_code": "work_lanes_show_failed", "error": "synthetic supplemental failure"})
             receipt["reply"] = "work_lanes.show.error"
+        elif self.mode == "pagination":
+            lane = self.inventory["lanes"][0]
+            cursor = msg.get("members_after")
+            start = next((i + 1 for i, member in enumerate(self.members) if member["spec_id"] == cursor), 0) if cursor else 0
+            page = self.members[start:start + 32]
+            next_cursor = page[-1]["spec_id"] if start + len(page) < len(self.members) else None
+            await daemon._send(ws, {"type": "work_lanes.show.ok", "request_id": msg.get("request_id"),
+                                    "lane": {"lane_id": lane["lane_id"]}, "projection": lane,
+                                    "members": page, "members_total": len(self.members), "members_next": next_cursor,
+                                    "detail_revision": "a" * 64, "events": [], "updates": []})
+            receipt["reply"] = "work_lanes.show.ok"
 
 
 def start_stub(stub: LaneShowStub, port: int) -> Callable[[], None]:
@@ -1892,10 +1777,10 @@ def start_stub(stub: LaneShowStub, port: int) -> Callable[[], None]:
 
 def run_show_failure_scene(scene: dict[str, Any], ui: "Ui", stub: LaneShowStub, record: dict[str, Any],
                            lane_id: str) -> None:
-    """Open one lane log and assert the settled failure state plus a real Retry request."""
-    ui.find(f"lane-card-log-{lane_id}", 60)
+    """Open a lane and assert the settled failure state plus a real Retry request."""
+    ui.find(f"lane-row-{lane_id}", 60)
     tapped = time.time()
-    ui.tap(f"lane-card-log-{lane_id}")
+    ui.tap(f"lane-row-{lane_id}")
     deadline = time.monotonic() + 20
     while not stub.receipts:
         if time.monotonic() > deadline:
@@ -1903,22 +1788,22 @@ def run_show_failure_scene(scene: dict[str, Any], ui: "Ui", stub: LaneShowStub, 
         time.sleep(0.3)
     pending_visible = None
     if scene["mode"] == "no_reply":
-        if ui.ids("lane-log-retry"):
+        if ui.ids("lanes-detail-retry"):
             raise AssertFail("the unanswered request settled before the client timeout")
-        if not ui.ids("lane-log-loading"):
-            raise AssertFail("no pending state (lane-log-loading) while the request is unanswered")
+        if not ui.ids("lanes-map-members-loading"):
+            raise AssertFail("no pending state (lanes-map-members-loading) while the request is unanswered")
         pending_visible = True
         ui.screenshot("show-pending")
     ui.find_label(scene["expect_text"], scene["min_wait_s"] + 30)
     settled = time.time()
-    ui.find("lane-log-retry", 5)
+    ui.find("lanes-detail-retry", 5)
     waited = settled - stub.receipts[0]["at"]
     if waited < scene["min_wait_s"] - 1:
         raise AssertFail(f"{scene['expect_text']} appeared after {waited:.1f}s, before the client timeout")
     ui.screenshot("show-settled")
     before = len(stub.receipts)
     earlier = {receipt["request_id"] for receipt in stub.receipts}
-    ui.tap("lane-log-retry")
+    ui.tap("lanes-detail-retry")
     deadline = time.monotonic() + 20
     while len(stub.receipts) == before:
         if time.monotonic() > deadline:
@@ -1993,13 +1878,13 @@ def admit_supplemental_app(bundle: bytes, app_config: dict[str, Any], production
 
 
 def check_seeded_scene(scene: dict[str, Any], ui: "Ui", stub: Any, record: dict[str, Any], lane_id: str | None) -> None:
-    """Screenshot-harness scene: the overlay renders the seeded frame; the lane log shows its offline state."""
+    """Screenshot-harness scene: the overlay renders the seeded frame and lane details settle offline."""
     for identifier in scene["expect"]:
         ui.find(identifier, 30)
     if not ui.ids(scene["prefix_present"]):
         raise AssertFail("scene lacks " + scene["prefix_present"])
     ui.screenshot("scene")
-    first = sorted((e for e in ui.ids("lane-card-log-")), key=lambda e: Ui.frame(e)["y"])
+    first = sorted((e for e in ui.ids("lane-row-")), key=lambda e: Ui.frame(e)["y"])
     if first:
         ui.tap(Ui.ident(first[0]))
         # Seeded scenes report connected with no socket: the real request path rejects at once.
@@ -2013,6 +1898,35 @@ def check_seeded_scene(scene: dict[str, Any], ui: "Ui", stub: Any, record: dict[
         ui.screenshot("offline-log")
 
 
+def check_paged_scene(scene: dict[str, Any], ui: "Ui", stub: LaneShowStub, record: dict[str, Any], lane_id: str) -> None:
+    """Drive the existing loopback stub through all pages and a synthetic question."""
+    ui.tap(f"lane-row-{lane_id}", 60)
+    ui.find("goal-head-g-native-page", 60)
+    try:
+        sd.wait_for(lambda: len([r for r in stub.receipts if r["reply"] == "work_lanes.show.ok"]) >= 3,
+                    60, "three paged show replies")
+    except TimeoutError:
+        raise AssertFail("pagination did not settle all three pages") from None
+    cursors = [r["members_after"] for r in stub.receipts if r["reply"] == "work_lanes.show.ok"]
+    if cursors[:3] != [None, "spec_native_page_032", "spec_native_page_064"]:
+        raise AssertFail(f"pagination did not request all three pages in order: {cursors}")
+    ui.find("questions-skip", 30)
+    ui.screenshot("paged-lane-question")
+    ui.tap("questions-skip")
+    deadline = time.monotonic() + 30
+    while stub.daemon.notifications["native-lane-question"]["question"]["state"] == "open":
+        if time.monotonic() > deadline:
+            raise AssertFail("synthetic question did not settle after skip")
+        time.sleep(0.3)
+    ui.tap("goal-head-g-native-page")
+    rows = [x.removeprefix("spec-row-") for x in ui.collect_scrolling("spec-row-", 65, max_swipes=60)]
+    expected = {m["spec_id"] for m in stub.members}
+    if len(rows) != 65 or set(rows) != expected:
+        raise AssertFail(f"paged goal exposes {len(rows)} of 65 fixture members")
+    ui.screenshot("paged-goal")
+    record["pagination"] = {"cursors": cursors, "members": len(rows), "question": "synthetic skip settled"}
+
+
 # Every supplemental scene, with its build identity and its own check. supplemental() is the one path all of
 # them take: shared admission -> simulator -> check -> verdict frozen -> companion stop -> checked teardown.
 SCENES: dict[str, dict[str, Any]] = {
@@ -2020,6 +1934,7 @@ SCENES: dict[str, dict[str, Any]] = {
        for name, spec in SUPPLEMENTAL_SCENES.items()},
     **{name: {**spec, "build": SHOW_FAILURE_BUILD, "check": run_show_failure_scene}
        for name, spec in SHOW_FAILURE_SCENES.items()},
+    "lanes:pagination_question": {**PAGED_SCENE, "check": check_paged_scene},
 }
 
 
@@ -2060,8 +1975,17 @@ def supplemental(args: argparse.Namespace) -> int:
                                    env={k: os.environ[k] for k in ("PATH", "HOME", "TMPDIR", "LANG") if k in os.environ},
                                    cwd=out, log=out / "ui-companion.log", port=sd.COMPANION_PORT)
         try:
-            ui = Ui(udid, args.idb, lambda *_: None, out, identity["bundle_id"])
+            alerts = ({"Open in “Pentacle Harness”?": "Open",
+                       "“Pentacle Harness” Would Like to Send You Notifications": "Don’t Allow"}
+                      if scene["build"] == SHOW_FAILURE_BUILD else SYSTEM_ALERTS)
+            ui = Ui(udid, args.idb, lambda *_: None, out, identity["bundle_id"], alerts)
             subprocess.run(["xcrun", "simctl", "openurl", udid, "pentacle://pentacle/lanes"], check=True, timeout=60)
+            deadline = time.monotonic() + 60
+            while not ui.ids("lanes-close"):
+                ui.clear_system_alerts()
+                if time.monotonic() > deadline:
+                    raise SetupFail("lanes did not open after the supplemental deep link")
+                time.sleep(0.3)
             scene["check"](scene, ui, stub, record, lane_id)
             record.update(scene_verdict="PASS", screenshots=ui.screenshots)
         finally:

@@ -723,6 +723,14 @@ export interface WorkLaneObservation {
   error?: string | null;
 }
 
+export interface WorkLaneRecent {
+  at: string;
+  spec_id: string;
+  kind: 'note' | 'checks' | 'done' | 'blocked';
+  text?: string | null;
+  count?: number;
+}
+
 /** Optional facts stay absent when an older or malformed projection omits them. */
 export interface WorkLaneMember {
   spec_id: string;
@@ -748,6 +756,12 @@ export interface WorkLaneMember {
   lead_seat?: { stream_id: string; host: string; provider: string | null; activity: WorkLaneSeat['activity']; eta_at: string | null; active_step: string | null } | null;
   status_line?: string | null;
   next_line?: string | null;
+  blocked_line?: string | null;
+  summary_line?: string | null;
+  progress_at?: string | null;
+  estimate_first?: WorkLaneEstimate | null;
+  unblocks?: Array<{ spec_id: string; title: string }>;
+  recent?: WorkLaneRecent[];
 }
 
 export interface WorkLaneSeat {
@@ -786,6 +800,13 @@ export interface WorkLaneDefaultGoal {
   state: WorkLaneGoalState;
   done: number;
   total: number;
+  moving?: number;
+  blocked?: number;
+  working?: boolean;
+  left_h?: number | null;
+  progress_at?: string | null;
+  summary_line?: string | null;
+  recent?: WorkLaneRecent[];
 }
 export interface WorkLaneGoal extends WorkLaneDefaultGoal {
   goal_id: string;
@@ -820,6 +841,11 @@ export interface WorkLane extends WorkLaneAggregates {
   detail_revision?: string;
   no_spec_reason?: string | null;
   freshness_at?: string | null;
+  goal_classes?: string;
+  goal_counts?: [number, number, number, number];
+  progress_at?: string | null;
+  state_at?: string | null;
+  recent?: WorkLaneRecent[];
 }
 
 export interface WorkLanesInventory {
@@ -865,6 +891,7 @@ export interface WorkLaneShow {
   members: WorkLaneMember[];
   members_total?: number;
   members_next?: string | null;
+  recent?: WorkLaneRecent[];
   detail_revision?: string;
   work_index?: WorkIndex;
   updates: WorkLaneLogUpdate[];

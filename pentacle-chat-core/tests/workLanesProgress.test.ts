@@ -308,3 +308,52 @@ test('show equal-time numeric event IDs sort numerically, and update publication
   assert.deepEqual(shown.events.map((row) => row.event_id), ['10', '9']);
   assert.deepEqual(shown.updates.map((row) => row.summary), ['Summary 10', 'Summary 9']);
 });
+
+test('readable fields survive individually and malformed additions do not drop the lane or member', () => {
+  const valid = normalizePatch({
+    goal_classes: 'w-', goal_counts: [1, 0, 0, 0], progress_at: '2026-11-10T00:00:00Z', state_at: null,
+    goals: [{ goal_id: 'g', title: 'Goal', state: 'in_progress', rank: 1, done: 1, total: 2, moving: 1, blocked: 0, working: true, left_h: 3, progress_at: null }],
+    members: [{ spec_id: 's', summary_line: 'Summary', blocked_line: 'Approval', progress_at: null, estimate_first: { p25: 1, median: 2, p75: 3 }, unblocks: [{ spec_id: 't', title: 'Target' }], recent: [{ at: '2026-11-10T00:00:00Z', spec_id: 's', kind: 'checks', count: 1 }] }],
+  });
+  assert.equal(valid.lanes[0].goal_classes, 'w-');
+  assert.deepEqual(valid.lanes[0].goal_counts, [1, 0, 0, 0]);
+  assert.equal(valid.lanes[0].goals?.[0].moving, 1);
+  assert.equal(valid.lanes[0].members?.[0].blocked_line, 'Approval');
+  assert.equal(valid.lanes[0].members?.[0].recent?.[0].count, 1);
+  const malformed = normalizePatch({ goal_classes: 4, goal_counts: [1, -1, 0, 0], progress_at: {}, state_at: 4,
+    goals: [{ goal_id: 'g', title: 'Goal', state: 'in_progress', rank: 1, done: 1, total: 2, moving: -1, left_h: 'bad' }],
+    members: [{ spec_id: 's', summary_line: {}, blocked_line: 4, estimate_first: 'bad', unblocks: 'bad', recent: [{ kind: 'bad' }] }] });
+  const result = malformed.lanes[0];
+  assert.ok(result);
+  assert.ok(result.goals?.[0]);
+  assert.ok(result.members?.[0]);
+  for (const key of ['goal_classes', 'goal_counts', 'progress_at', 'state_at']) absent(result, key);
+  for (const key of ['summary_line', 'blocked_line', 'estimate_first', 'unblocks', 'recent']) absent(result.members![0], key);
+});
+
+test('each optional readable projection field can be absent or malformed without rejecting its parent', () => {
+  const goalBase = { goal_id: 'g', title: 'Goal', state: 'in_progress', rank: 1, done: 1, total: 2 };
+  const cases: Array<[string, unknown]> = [
+    ['moving', -1], ['blocked', 'bad'], ['working', 1], ['left_h', -1],
+    ['progress_at', 'not-a-time'], ['summary_line', 7], ['recent', 'bad'],
+  ];
+  for (const [key, value] of cases) {
+    for (const patch of [{}, { [key]: value }]) {
+      const normalized = normalizePatch({ goals: [{ ...goalBase, ...patch }] });
+      assert.ok(normalized.lanes[0].goals?.[0], key);
+      absent(normalized.lanes[0].goals![0], key);
+    }
+  }
+  const memberCases: Array<[string, unknown]> = [
+    ['progress_at', 'not-a-time'], ['summary_line', {}], ['blocked_line', []],
+    ['estimate_first', { p25: 4, median: 2, p75: 1 }], ['unblocks', [{ spec_id: 4 }]],
+    ['recent', [{ at: 'not-a-time', spec_id: 's', kind: 'done' }]],
+  ];
+  for (const [key, value] of memberCases) {
+    for (const patch of [{}, { [key]: value }]) {
+      const normalized = normalizePatch({ members: [{ spec_id: 's', ...patch }] });
+      assert.ok(normalized.lanes[0].members?.[0], key);
+      absent(normalized.lanes[0].members![0], key);
+    }
+  }
+});
