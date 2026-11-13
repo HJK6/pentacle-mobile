@@ -140,9 +140,9 @@ test('pending row renders waveform, cancellation removes it and prevents late se
 });
 
 
-test('a take stuck checking delivery leaves the composer, its mic and Remove local copy usable in every chat', async () => {
+test('a stuck checking take owns recovery on its message while every chat composer stays usable', async () => {
   const alert = jest.spyOn(require('react-native').Alert, 'alert');
-  const view = render(<ComposerBar {...props} streamId="hosta:origin" />);
+  const view = render(<><VoiceRecordingOverlay /><ComposerBar {...props} streamId="hosta:origin" /></>);
   await act(async () => fireEvent.press(view.getByTestId('composer-mic-button')));
   await act(async () => fireEvent.press(view.getByLabelText('Stop and send')));
   // Passive progress belongs to the destination transcript; its composer stays usable.
@@ -155,16 +155,17 @@ test('a take stuck checking delivery leaves the composer, its mic and Remove loc
   const take = voiceDelivery.snapshot().takes[0];
   expect(take).toMatchObject({ status: 'checking' });
   for (const streamId of ['hosta:origin', 'hosta:other']) {
-    view.rerender(<ComposerBar {...props} streamId={streamId} />);
+    view.rerender(<><VoiceRecordingOverlay /><ComposerBar {...props} streamId={streamId} /></>);
     expect(view.getByTestId('composer-input').props.editable).toBe(true);
     expect(view.getByTestId('composer-mic-button').props.accessibilityState.disabled).toBe(false);
-    expect(view.getByText(/CHECKING DELIVERY/)).toBeTruthy();
-    expect(view.getByLabelText('Check delivery again')).toBeTruthy();
-    expect(view.getByLabelText('Remove local copy')).toBeTruthy();
+    expect(view.queryByTestId('global-voice-bar')).toBeNull();
   }
   fireEvent.changeText(view.getByTestId('composer-input'), 'typed while waiting');
   expect(view.getByTestId('composer-input').props.value).toBe('typed while waiting');
   fireEvent.changeText(view.getByTestId('composer-input'), '');
+  view.rerender(<><VoiceRecordingOverlay /><ComposerBar {...props} streamId="hosta:origin" /><TranscriptRow item={voiceTakeRow(take)} chrome={props.chrome} /></>);
+  expect(view.getByText('DELIVERY UNCONFIRMED')).toBeTruthy();
+  expect(view.getByLabelText('Check delivery again')).toBeTruthy();
   await act(async () => fireEvent.press(view.getByLabelText('Remove local copy')));
   expect(alert).toHaveBeenCalledWith('Remove local copy?', 'Remove local copy; delivery may already have happened', expect.any(Array));
   const remove = (alert.mock.calls.at(-1)![2] as { text: string; onPress?: () => void }[]).find(button => button.text === 'Remove local copy')!;
@@ -174,9 +175,9 @@ test('a take stuck checking delivery leaves the composer, its mic and Remove loc
   alert.mockRestore();
 });
 
-test('when the daemon has no receipt the chat bar offers Send again, which resends the identical take once', async () => {
+test('when the daemon has no receipt the message offers Send again, which resends the identical take once', async () => {
   const stream = require('../src/services/pentacleStream');
-  const view = render(<ComposerBar {...props} streamId="hosta:origin" />);
+  const view = render(<><VoiceRecordingOverlay /><ComposerBar {...props} streamId="hosta:origin" /></>);
   try {
     await act(async () => fireEvent.press(view.getByTestId('composer-mic-button')));
     await act(async () => fireEvent.press(view.getByLabelText('Stop and send')));
@@ -184,6 +185,7 @@ test('when the daemon has no receipt the chat bar offers Send again, which resen
     await act(async () => { resolveTranscript({ text: 'resend me', model: 'synthetic', duration_s: 3 }); await voiceDelivery.drain(); });
     const take = voiceDelivery.snapshot().takes[0];
     expect(take).toMatchObject({ status: 'checking', receiptAbsent: false });
+    view.rerender(<><VoiceRecordingOverlay /><ComposerBar {...props} streamId="hosta:origin" /><TranscriptRow item={voiceTakeRow(take)} chrome={props.chrome} /></>);
     expect(view.getByLabelText('Check delivery again')).toBeTruthy();
     stream.setVoiceReceiptAbsentForTests(true);
     await act(async () => fireEvent.press(view.getByLabelText('Check delivery again')));
@@ -459,7 +461,7 @@ test('visible detail label freezes before permission and remains frozen after a 
   } finally { mockState.sessions[0] = original; }
 });
 
-test('a docked bar beside the live composer never duplicates composer test IDs or shows an inert mic', async () => {
+test('destination checking status leaves exactly one live composer and mic', async () => {
   const view = render(<ComposerBar {...props} streamId="hosta:origin" />);
   await act(async () => fireEvent.press(view.getByTestId('composer-mic-button')));
   await act(async () => fireEvent.press(view.getByLabelText('Stop and send')));
@@ -468,7 +470,7 @@ test('a docked bar beside the live composer never duplicates composer test IDs o
   expect(voiceDelivery.snapshot().takes[0]).toMatchObject({ status: 'checking' });
   expect(view.getAllByTestId('composer-mic-button')).toHaveLength(1);
   expect(view.getAllByTestId('composer-capsule')).toHaveLength(1);
-  expect(view.getByTestId('global-voice-field')).toBeTruthy();
+  expect(view.queryByTestId('global-voice-field')).toBeNull();
 });
 
 describe('M1 voice diagnostic callbacks in the real composer', () => {

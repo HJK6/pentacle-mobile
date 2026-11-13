@@ -7,6 +7,7 @@ import { voiceTakeStore } from './voiceTakeStore';
 import { ASSISTANT_STREAM_ID, selectAssistantIdentity } from './assistantIdentity';
 import { getPentacleStreamState, subscribeVoiceTransport, voiceTransportSnapshot, voiceOriginStatus } from './pentacleStream';
 import { setVoiceContextPage } from './voiceContext';
+import { useVoiceSendTime, voiceSendNeedsAttention } from './voiceSendStatus';
 
 export type VoiceSurfacePage = { page_id: string; title: string; entity_id?: string; question_id?: string };
 export type VoiceSurfaceOptions = { chat?: boolean; priority?: number; bottom?: number; top?: number };
@@ -149,7 +150,6 @@ function destinationOwnsPresentation(streamId: string, value: typeof state) {
   return page.page_id === 'assistant' ? streamId === ASSISTANT_STREAM_ID
     : page.page_id === 'chat' && !!page.entity_id && page.entity_id === streamId;
 }
-const PASSIVE_DELIVERY_PHASES = new Set(['queued', 'uploading', 'transcribing', 'checking']);
 export function useVoicePresentation() {
   const presentation = useVoicePresentationState();
   const [capture, setCapture] = useState<RecordingSnapshot | null>(() => voiceRecorder.snapshot());
@@ -158,12 +158,15 @@ export function useVoicePresentation() {
   const delivery = useVoiceDelivery();
   const recording = capture && voiceTakeStore.get(capture.recordingId) && voiceRecorder.isOwnedByCurrentScope(capture.recordingId) ? capture : null;
   const takes = delivery.takes.filter(take => voiceRecorder.isOwnedByCurrentScope(take.recordingId));
-  const take = !recording && !presentation.receipt ? takes.find(item => item.recordingId === presentation.recordingId) ?? takes[0] : undefined;
+  const now = useVoiceSendTime(takes);
+  // A retained failure must not mask a newer active send's off-chat progress.
+  const active = takes.filter(item => !voiceSendNeedsAttention(item, now));
+  const take = !recording && !presentation.receipt ? active.find(item => item.recordingId === presentation.recordingId)
+    ?? active[0] ?? takes.find(item => item.recordingId === presentation.recordingId) ?? takes[0] : undefined;
   const visible = lifecycle.foreground && lifecycle.unlocked && !!(recording || take || presentation.receipt);
-  // Dispatched/uncertain takes retain their Check again/local-copy recovery actions.
-  const suppressTakeProgress = !!take && PASSIVE_DELIVERY_PHASES.has(take.status)
-    && !take.manifest.dispatchIntent && !take.error && !take.manifest.delivery?.error && !delivery.storageError
-    && destinationOwnsPresentation(take.streamId, presentation);
+  // Sent work and its recovery belong to the message. Unsent capture still needs Send/Discard.
+  const suppressTakeProgress = !!take && take.status !== 'unsent'
+    && (destinationOwnsPresentation(take.streamId, presentation) || voiceSendNeedsAttention(take, now));
   // Presentation never clears a receipt or changes its proof-derived deadline.
   const suppressBar = !recording && (presentation.receipt
     ? destinationOwnsPresentation(presentation.receipt.streamId, presentation) : suppressTakeProgress);

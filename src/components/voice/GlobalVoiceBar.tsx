@@ -6,12 +6,11 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Fonts, Tokens } from '../../../constants/Colors';
 import { ASSISTANT_STREAM_ID } from '../../services/assistantIdentity';
 import { clearVoiceReceipt, clampVoiceDy, setVoiceBarDy, useVoicePresentation, voiceKeyboardBottom } from '../../services/voicePresentation';
-import { discardVoiceTake, sendVoiceTake } from '../../services/voiceRecordingEngine';
-import { voiceDelivery } from '../../services/voiceDelivery';
+import { discardVoiceTake, sendVoiceTake, voiceRecorder } from '../../services/voiceRecordingEngine';
 import { formatDuration } from '../../services/voiceRecording';
 import { performChatOpenNavigation } from '../../services/chatOpenNavigation';
 import RecordingStrip from './RecordingStrip';
-import { discardRetainedVoiceTake } from './VoiceTakeControls';
+import { discardRetainedVoiceTake, VoiceControlButton } from './VoiceTakeControls';
 import { DiscardGlyph, MicGlyph, VoiceCheckGlyph, VoiceRecordFace, VoiceSendGlyph, VoiceSpinner } from './VoiceGlyphs';
 
 const G = Tokens.palette.green;
@@ -46,27 +45,21 @@ export default function GlobalVoiceBar({ anchored = false, docked = false, surfa
   const isRecording = recording?.status === 'recording';
   const interrupted = recording?.status === 'paused';
   const failed = !!take && ['failed', 'auth_needed', 'origin_unavailable', 'not_landed'].includes(take.status);
-  const dispatched = !!take?.manifest.dispatchIntent && take.status !== 'not_landed';
   const canSend = !!recording && !['starting','stopping'].includes(recording.status) || take?.status === 'unsent';
-  const canRetry = failed && !dispatched;
-  // In a chat the bar sits where the composer was, so a dispatched take keeps its own exits there.
-  // Off-chat the overlay recovery card above the floating bar owns them.
-  const canDiscard = !!target && (anchored || !take?.manifest.dispatchIntent);
-  const checking = anchored && take?.status === 'checking' && (!!take.manifest.dispatchIntent || !!take.manifest.serverMandate);
-  const absent = checking && take.receiptAbsent;
+  const canDiscard = !!recording || take?.status === 'unsent';
   const discard = () => take ? discardRetainedVoiceTake(take) : run(() => discardVoiceTake(id));
   const connectionFailure = take?.status === 'failed' && /^(?:disconnected|not_connected|not connected|no connection|offline|network error)$/i.test(take.manifest.delivery?.error ?? take.error ?? '');
   const tone = interrupted ? Tokens.palette.amber : failed ? Tokens.palette.red : G;
   const fieldBorder = { borderColor: `${tone}66` };
   const originLabel = recording?.originLabel || take?.draft?.originLabel || receipt?.originLabel || '';
   const stateLabel = recording
-    ? recording.status === 'starting' ? 'STARTING…' : recording.status === 'stopping' ? 'SAVING…' : interrupted ? `INTERRUPTED · ${formatDuration(recording.durationS)} KEPT` : `UNSENT · ${formatDuration(recording.durationS)} KEPT`
-    : take ? `${connectionFailure ? 'NO CONNECTION' : absent ? 'NOT RECEIVED' : labels[take.status]}${failed || take.status === 'unsent' ? ` · ${formatDuration(take.durationS)} KEPT` : ''}` : `SENT TO ${originLabel.toUpperCase()}`;
-  const busy = !!recording && ['starting','stopping'].includes(recording.status) || !!take && ['queued','uploading','transcribing','server_owned','checking'].includes(take.status) && !absent;
+    ? recording.error || (recording.status === 'starting' ? 'STARTING…' : recording.status === 'stopping' ? 'SAVING…' : interrupted ? `INTERRUPTED · ${formatDuration(recording.durationS)} KEPT` : `UNSENT · ${formatDuration(recording.durationS)} KEPT`)
+    : take ? `${connectionFailure ? 'NO CONNECTION' : labels[take.status]}${take.status === 'unsent' ? ` · ${formatDuration(take.durationS)} KEPT` : ''}` : `SENT TO ${originLabel.toUpperCase()}`;
+  const busy = !!recording && ['starting','stopping'].includes(recording.status) || !!take && ['queued','uploading','transcribing','server_owned'].includes(take.status);
   const open = (streamId: string) => { if (onReturn) onReturn(streamId); else performChatOpenNavigation(streamId, router as unknown as Parameters<typeof performChatOpenNavigation>[1]); };
   const content = isRecording ? <RecordingStrip displayLevels={recording.displayLevels} sampleCount={recording.levels.length} durationS={recording.durationS} onDiscard={() => {}} showDiscard={false}
     destinationLabel={recording.streamId !== ASSISTANT_STREAM_ID ? originLabel : undefined} testID="voice-recording-strip" />
-    : <View style={styles.status}>{receipt && !target ? <VoiceCheckGlyph /> : busy ? <VoiceSpinner size={12} color={tone} /> : null}<Text numberOfLines={1} style={[styles.state, { color: tone }]}>{stateLabel}</Text></View>;
+    : <View style={styles.status}>{receipt && !target ? <VoiceCheckGlyph /> : busy ? <VoiceSpinner size={12} color={tone} /> : null}<View style={styles.stateCopy}>{interrupted ? <Text numberOfLines={1} style={styles.origin}>{originLabel}</Text> : null}<Text numberOfLines={1} style={[styles.state, { color: tone }]}>{stateLabel}</Text></View></View>;
   return <View pointerEvents="box-none" testID="global-voice-bar" accessibilityLabel={anchored ? 'Voice recording in chat' : 'Floating voice recording'}
     style={[styles.bar, anchored ? styles.anchored : { position: 'absolute', left: 16, right: 16, bottom: base + dy }, docked && styles.docked]}>
     <View testID={anchored && !docked ? 'composer-capsule' : 'global-voice-field'} style={[styles.field, fieldBorder]} onLayout={event => setWidth(Math.max(1, event.nativeEvent.layout.width))}>
@@ -76,17 +69,13 @@ export default function GlobalVoiceBar({ anchored = false, docked = false, surfa
       </Svg>
       {canDiscard ? <Pressable accessibilityRole="button" accessibilityState={{ disabled: false }} accessibilityLabel={take?.manifest.dispatchIntent ? 'Remove local copy' : 'Discard recording'} testID="voice-recording-strip-discard" onPress={discard} style={styles.discard}><DiscardGlyph /></Pressable> : null}
       <View {...(!anchored ? pan.panHandlers : {})} testID={!anchored ? 'voice-bar-drag-region' : undefined} style={styles.drag}>{content}</View>
-      {receipt && !target && receipt.streamId === ASSISTANT_STREAM_ID ? <Pressable accessibilityRole="button" accessibilityState={{ disabled: false }} accessibilityLabel="View sent recording" onPress={() => { clearVoiceReceipt(receipt.recordingId); open(ASSISTANT_STREAM_ID); }} style={styles.view}><Text style={styles.viewText}>View</Text></Pressable> : null}
+      {(interrupted || !recording && (take || receipt)) ? <Pressable accessibilityRole="button" accessibilityState={{ disabled: false }} accessibilityLabel={interrupted ? 'Return to original chat' : receipt ? 'View sent recording' : 'View voice message'} onPress={() => { if (receipt) clearVoiceReceipt(receipt.recordingId); open((recording ?? take ?? receipt)!.streamId); }} style={styles.view}><Text style={styles.viewText}>View</Text></Pressable> : null}
     </View>
-    {canSend || canRetry ? <Pressable accessibilityRole="button" accessibilityState={{ disabled: false }} accessibilityLabel={isRecording ? 'Stop and send' : canRetry ? 'Retry recording delivery' : 'Send recording'}
-      testID={anchored && !docked ? 'composer-mic-button' : 'global-voice-send'} onPress={() => run(() => canRetry ? voiceDelivery.retry(id) : sendVoiceTake(id))}
+    {interrupted ? <VoiceControlButton label="Resume recording" disabled={recording.pauseReason === 'origin'} onPress={() => run(() => voiceRecorder.resume())}>Resume</VoiceControlButton> : null}
+    {canSend ? <Pressable accessibilityRole="button" accessibilityState={{ disabled: false }} accessibilityLabel={isRecording ? 'Stop and send' : 'Send recording'}
+      testID={anchored && !docked ? 'composer-mic-button' : 'global-voice-send'} onPress={() => run(() => sendVoiceTake(id))}
       style={[styles.circle, { borderColor: tone, backgroundColor: tone }]}>
-      {isRecording ? <VoiceRecordFace recording size={44} /> : <VoiceSendGlyph retry={canRetry} />}
-    </Pressable> : checking ? <Pressable accessibilityRole="button" accessibilityState={{ disabled: false }}
-      accessibilityLabel={absent ? 'Send again' : 'Check delivery again'} testID={absent ? 'voice-send-again' : 'voice-check-again'}
-      onPress={() => run(() => absent ? voiceDelivery.sendAgain(id) : voiceDelivery.checkAgain(id))}
-      style={[styles.circle, { borderColor: tone, backgroundColor: absent ? tone : `${tone}14` }]}>
-      <VoiceSendGlyph retry />
+      {isRecording ? <VoiceRecordFace recording size={44} /> : <VoiceSendGlyph />}
     </Pressable> : docked ? null : <View style={[styles.circle, { borderColor: `${G}55`, backgroundColor: `${G}14` }]}><MicGlyph color={G} /></View>}
   </View>;
 }
@@ -98,7 +87,9 @@ const styles = StyleSheet.create({
   drag: { flex: 1, minWidth: 0, height: 44, justifyContent: 'center' },
   discard: { minWidth: 44, minHeight: 44, marginHorizontal: -15, justifyContent: 'center', alignItems: 'center' },
   status: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 10 },
-  state: { flex: 1, minWidth: 0, fontFamily: Fonts.jetBrainsMono.regular, fontSize: 12, letterSpacing: 1, fontVariant: ['tabular-nums'] },
+  stateCopy: { flex: 1, justifyContent: 'center' },
+  origin: { color: Tokens.palette.text, fontFamily: Fonts.rajdhani.bold, fontSize: 12 },
+  state: { minWidth: 0, fontFamily: Fonts.jetBrainsMono.regular, fontSize: 12, letterSpacing: 1, fontVariant: ['tabular-nums'] },
   circle: { width: 44, height: 44, minWidth: 44, minHeight: 44, borderRadius: 22, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
   view: { minWidth: 44, minHeight: 44, marginRight: -10, alignItems: 'center', justifyContent: 'center' },
   viewText: { color: Tokens.palette.text, fontFamily: Fonts.rajdhani.bold, fontSize: 14 },

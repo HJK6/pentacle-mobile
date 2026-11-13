@@ -6,6 +6,7 @@ import { VoiceDelivery, type VoiceDeliveryIO } from '../src/services/voiceDelive
 import { VoiceTakeStore, type VoiceTakeIO, type VoiceTakeManifest } from '../src/services/voiceTakeStore';
 import type { VoiceDispatchIntent, VoiceSendEvidence } from '../src/services/pentacleStream';
 import VoiceRecordingOverlay from '../src/components/voice/VoiceRecordingOverlay';
+import VoiceMessageStatus from '../src/components/voice/VoiceMessageStatus';
 import { resetVoicePresentationForTests, useVoiceSurface } from '../src/services/voicePresentation';
 import { StyleSheet, View } from 'react-native';
 let mockDelivery: VoiceDelivery;
@@ -268,25 +269,27 @@ test('authoritative landed completion shows a transient receipt without retainin
   await act(async () => { result.resolve(h.proofs(intent)); await pending; });
   expect(view.getByText('SENT TO SYNTHETIC ORIGIN')).toBeTruthy();
   expect(view.queryByLabelText('Return to original chat')).toBeNull();
-  expect(view.queryByLabelText('View sent recording')).toBeNull();
+  expect(view.getByLabelText('View sent recording')).toBeTruthy();
   expect(h.store.get(take.recordingId)).toBeUndefined();
   act(() => jest.advanceTimersByTime(2800));
   expect(view.queryByTestId('voice-recording-overlay')).toBeNull(); h.delivery.dispose();
 });
-test('R4 paired ambiguous send failure remains visible and actionable away from origin', async () => {
+test('R4 ambiguous send failure is actionable on its message with the overlay mounted', async () => {
   const h = install(); await h.ready(); const take = await h.take();
   (h.io.dispatch as jest.Mock).mockRejectedValue(new Error('synthetic send failure'));
   const view = render(<VoiceRecordingOverlay />);
   await act(async () => { await h.delivery.send(take.recordingId); });
-  expect(view.getByTestId('voice-recording-overlay')).toBeTruthy(); expect(view.getByLabelText('Check recording delivery again')).toBeTruthy();
+  expect(view.queryByTestId('global-voice-bar')).toBeNull();
+  const row = render(<VoiceMessageStatus take={h.delivery.snapshot().takes[0]} />);
+  expect(row.getByLabelText('Check delivery again')).toBeTruthy();
   expect(view.queryByLabelText('Send recording')).toBeNull(); h.delivery.dispose();
 });
-test('retained takes expose an accessible list and discard removes only the chosen take', async () => {
+test('retained messages expose separate recovery and discard removes only the chosen take', async () => {
   const h = install(); await h.ready(); const first = await h.take(); const second = await h.take();
-  const view = render(<VoiceRecordingOverlay />);
-  fireEvent.press(view.getByLabelText('Show retained recordings'));
-  expect(view.getByTestId('voice-take-list')).toBeTruthy(); expect(view.getAllByLabelText('Discard recording')).toHaveLength(2);
-  await act(async () => { fireEvent.press(view.getAllByLabelText('Discard recording')[1]); await flush(); });
+  const view = render(<><VoiceRecordingOverlay />{h.delivery.snapshot().takes.map(take => <VoiceMessageStatus key={take.recordingId} take={take} />)}</>);
+  expect(view.queryByTestId('voice-take-list')).toBeNull();
+  expect(view.getAllByLabelText('Discard voice message')).toHaveLength(2);
+  await act(async () => { fireEvent.press(view.getAllByLabelText('Discard voice message')[1]); await flush(); });
   expect(h.store.get(first.recordingId)).toBeDefined(); expect(h.store.get(second.recordingId)).toBeUndefined(); h.delivery.dispose();
 });
 function CoveringSurface({ top }: { top?: number }) {

@@ -208,3 +208,67 @@ test('U8 terminal server handoff respects the attempt limit before rotating', as
     expect(j.socket.frames('upload_blob_init')).toHaveLength(1);
   } finally { j.cleanup(); }
 });
+
+test.each(['server_owned', 'checking'] as const)('manual check reconciles %s mandate without a client dispatch intent', async phase => {
+  const j = await connect(undefined, true), take = await retain(j);
+  try {
+    await j.voiceDelivery.send(take.recordingId);
+    await flush();
+    const retained = j.store.get(take.recordingId)!;
+    const mandate = retained.serverMandate;
+    // Install the valid pre-proof shape through the store writer, not a frozen snapshot.
+    await (j.store as any).mutate(take.recordingId, (value: any) => ({
+      ...value, dispatchIntent: undefined, delivery: { ...value.delivery, phase },
+    }));
+    expect(j.store.get(take.recordingId)?.dispatchIntent).toBeUndefined();
+    const before = j.socket.frames('outbound.get').length;
+    await Promise.all([j.voiceDelivery.checkAgain(take.recordingId), j.voiceDelivery.checkAgain(take.recordingId)]);
+    await flush();
+    expect(j.socket.frames('outbound.get').length).toBeGreaterThan(before);
+    expect(j.store.get(take.recordingId)?.serverMandate).toEqual(mandate);
+    expect(j.store.get(take.recordingId)?.dispatchIntent).toBeUndefined();
+    j.socket.outboundState = 'proved'; j.socket.receiptState = 'landed';
+    await j.voiceDelivery.checkAgain(take.recordingId); await flush();
+    expect(j.store.get(take.recordingId)).toBeUndefined();
+    expect(j.socket.frames('upload_blob_init')).toHaveLength(1);
+    expect(j.socket.frames('transcribe_blob')).toEqual([]);
+    expect(j.socket.sends()).toEqual([]);
+  } finally { j.cleanup(); }
+});
+
+test.each(['server_owned', 'checking'] as const)('manual %s lookup exposes authoritative failure without creating a client intent', async phase => {
+  const j = await connect(undefined, true), take = await retain(j);
+  try {
+    await j.voiceDelivery.send(take.recordingId); await flush();
+    await (j.store as any).mutate(take.recordingId, (value: any) => ({
+      ...value, dispatchIntent: undefined, delivery: { ...value.delivery, phase },
+    }));
+    const original = j.store.get(take.recordingId)!;
+    await j.voiceDelivery.checkAgain(take.recordingId);
+    expect(j.store.get(take.recordingId)?.serverMandateFailed).toBeFalsy();
+    j.socket.outboundState = 'failed'; j.socket.outboundCode = 'transcribe_unavailable';
+    await j.voiceDelivery.checkAgain(take.recordingId); await flush();
+    expect(j.voiceDelivery.snapshot().takes[0]).toMatchObject({ status: 'failed' });
+    expect(j.store.get(take.recordingId)).toMatchObject({ serverMandateFailed: true, audio: original.audio, serverMandate: original.serverMandate });
+    expect(j.store.get(take.recordingId)?.dispatchIntent).toBeUndefined();
+    expect(j.socket.frames('upload_blob_init')).toHaveLength(1);
+    expect(j.socket.frames('transcribe_blob')).toEqual([]); expect(j.socket.sends()).toEqual([]);
+  } finally { j.cleanup(); }
+});
+test('manual checking after in-flight cancel without client intent accepts late proof and never dispatches', async () => {
+  const j = await connect(undefined, true), take = await retain(j);
+  try {
+    await j.voiceDelivery.send(take.recordingId); await flush();
+    await (j.store as any).mutate(take.recordingId, (value: any) => ({ ...value, dispatchIntent: undefined }));
+    j.socket.outboundState = 'in_flight';
+    await j.voiceDelivery.discard(take.recordingId);
+    expect(j.store.get(take.recordingId)?.delivery.phase).toBe('checking');
+    await Promise.all([j.voiceDelivery.checkAgain(take.recordingId), j.voiceDelivery.checkAgain(take.recordingId)]);
+    expect(j.store.get(take.recordingId)?.audio).toEqual(take.audio);
+    j.socket.outboundState = 'proved'; j.socket.receiptState = 'landed';
+    await j.voiceDelivery.checkAgain(take.recordingId); await flush();
+    expect(j.store.get(take.recordingId)).toBeUndefined();
+    expect(j.socket.frames('upload_blob_init')).toHaveLength(1);
+    expect(j.socket.frames('transcribe_blob')).toEqual([]); expect(j.socket.sends()).toEqual([]);
+  } finally { j.cleanup(); }
+});
