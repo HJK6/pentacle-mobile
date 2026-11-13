@@ -5,6 +5,7 @@ import { initialPentacleStreamState } from 'pentacle-chat-core';
 import HeaderVoiceMic from '../src/components/voice/HeaderVoiceMic';
 import GlobalVoiceBar from '../src/components/voice/GlobalVoiceBar';
 import VoiceTakeControls from '../src/components/voice/VoiceTakeControls';
+import VoiceMessageStatus from '../src/components/voice/VoiceMessageStatus';
 import VoiceRecordingOverlay from '../src/components/voice/VoiceRecordingOverlay';
 import RenameChatModal from '../src/components/RenameChatModal';
 import {
@@ -174,7 +175,7 @@ test.each(['hosta:original', ASSISTANT_STREAM_ID])('destination %s suppresses pa
   expect(view.getByText('Draft stays')).toBeTruthy();
   view.rerender(tree(false));
   expect(view.getByText('TRANSCRIBING…')).toBeTruthy();
-  expect(view.getByLabelText('Return to original chat')).toBeTruthy();
+  expect(view.getByLabelText('View voice message')).toBeTruthy();
   view.rerender(tree(true, true));
   expect(view.getByTestId('global-voice-bar').props.accessibilityLabel).toBe('Floating voice recording');
   view.rerender(tree(true));
@@ -202,7 +203,7 @@ test.each([
   mockDelivery = { ...mockDelivery, takes: [take('transcribing')] };
   const view = render(<><VoiceRecordingOverlay /><Page {...page} title="Original chat" /></>);
   expect(view.getByTestId('global-voice-bar')).toBeTruthy();
-  expect(view.getByTestId('voice-take-controls-take-1')).toBeTruthy();
+  expect(view.queryByTestId('voice-take-controls-take-1')).toBeNull();
 });
 test.each(['hosta:original', ASSISTANT_STREAM_ID])('destination %s filters a receipt without consuming or extending its original deadline', streamId => {
   const tree = (destination: boolean, cover = false) => <><VoiceRecordingOverlay /><Page chat={destination}
@@ -244,44 +245,41 @@ test('a receipt landing away is hidden on entry and expires there without a new 
   view.rerender(tree(false));
   expect(view.queryByText(/SENT TO/)).toBeNull();
 });
-test.each(['unsent', 'failed', 'auth_needed', 'origin_unavailable', 'not_landed', 'checking'])('destination retains actionable %s controls', status => {
+test.each(['unsent', 'failed', 'auth_needed', 'origin_unavailable', 'not_landed', 'checking'])('destination keeps only pre-send %s controls in the bar', status => {
   mockDelivery = { ...mockDelivery, takes: [take(status, status === 'checking')] };
   const view = render(<><VoiceRecordingOverlay /><Page chat entityId="hosta:original" /></>);
-  expect(view.getByTestId('global-voice-bar')).toBeTruthy();
-  expect(view.getByTestId('voice-take-controls-take-1')).toBeTruthy();
-  if (status === 'checking') {
-    expect(view.getByLabelText('Check recording delivery again')).toBeTruthy();
-    expect(view.getByLabelText('Remove local recording copy')).toBeTruthy();
-  }
+  expect(!!view.queryByTestId('global-voice-bar')).toBe(status === 'unsent');
+  expect(view.queryByTestId('voice-take-controls-take-1')).toBeNull();
+  if (status === 'unsent') expect(view.getByLabelText('Send recording')).toBeTruthy();
 });
 test.each(['starting', 'recording', 'stopping', 'paused', 'finalized'] as const)('destination retains %s capture', status => {
   mockCapture = capture('take-1', status);
   const view = render(<><VoiceRecordingOverlay /><Page chat entityId="hosta:original" /></>);
   expect(view.getByTestId('global-voice-bar')).toBeTruthy();
 });
-test('storage/error recovery and another retained take remain available when passive progress matches', () => {
+test('storage recovery stays visible beside retained messages without delivery cards', () => {
   mockDelivery = { ...mockDelivery, takes: [take('transcribing'), { ...take('failed'), recordingId: 'other', streamId: 'hosta:other' }] };
   const view = render(<><VoiceRecordingOverlay /><Page chat entityId="hosta:original" /></>);
   expect(view.queryByTestId('global-voice-bar')).toBeNull();
-  fireEvent.press(view.getByLabelText('Show retained recordings'));
-  expect(view.getByTestId('voice-take-controls-other')).toBeTruthy();
+  expect(view.queryByLabelText('Show retained recordings')).toBeNull();
   act(() => { mockDelivery = { ...mockDelivery, storageError: 'Could not save recording' }; mockDeliveryListeners.forEach(fn => fn()); });
-  expect(view.getByTestId('global-voice-bar')).toBeTruthy();
-  expect(view.getAllByText('Could not save recording').length).toBeGreaterThan(0);
+  expect(view.queryByTestId('global-voice-bar')).toBeNull();
+  expect(view.getByText('Could not save recording')).toBeTruthy();
+  expect(view.getByLabelText('Retry loading recordings')).toBeTruthy();
+  expect(mockDelivery.takes).toHaveLength(2);
 });
 test.each([
   ['queued','QUEUED'], ['uploading','UPLOADING…'], ['transcribing','TRANSCRIBING…'], ['checking','CHECKING DELIVERY'],
-])('actual %s state is visible; unknown receipts never become Sent', (status, label) => {
+])('off-chat %s uses only bounded progress, never fake Sent', (status, label) => {
   mockDelivery = { ...mockDelivery, takes: [take(status, status === 'checking')] };
   const view = render(<><VoiceRecordingOverlay /><Page /></>);
-  expect(view.getByText(label)).toBeTruthy();
+  if (status === 'checking') expect(view.queryByTestId('global-voice-bar')).toBeNull();
+  else {
+    expect(view.getByText(label)).toBeTruthy();
+    expect(view.getByLabelText('View voice message')).toBeTruthy();
+  }
+  expect(view.queryByLabelText('Discard recording')).toBeNull();
   expect(view.queryByText(/SENT TO/)).toBeNull();
-  if (status === 'checking') {
-    expect(view.queryByLabelText('Discard recording')).toBeNull();
-    expect(view.getByLabelText('Check recording delivery again')).toBeTruthy();
-    expect(view.getByLabelText('Remove local recording copy')).toBeTruthy();
-  } else expect(view.getByLabelText('Discard recording')).toBeTruthy();
-  // A queued/delivering take does not monopolize capture admission.
   expect(view.getByLabelText('Talk to Guide').props.accessibilityState.disabled).toBe(false);
 });
 test('a modal owns the single floating bar over a focused chat; dismissal restores the exact anchored owner', () => {
@@ -302,8 +300,7 @@ test('landed receipt is shown ahead of other retained takes and does not remove 
   const view = render(<><VoiceRecordingOverlay /><Page /></>);
   act(() => mockLandedListeners.forEach(fn => fn({ recordingId: 'finished', streamId: ASSISTANT_STREAM_ID, originLabel: 'Guide', landedAt: Date.now() })));
   expect(view.getByText('SENT TO GUIDE')).toBeTruthy();
-  fireEvent.press(view.getByLabelText('Show retained recordings'));
-  expect(view.getByTestId('voice-take-list')).toBeTruthy();
+  expect(view.queryByTestId('voice-take-list')).toBeNull();
   expect(mockDelivery.takes).toHaveLength(1);
   act(() => jest.advanceTimersByTime(2800));
   expect(view.getByText('UNSENT · 0:12 KEPT')).toBeTruthy();
@@ -434,7 +431,7 @@ test.each(['0', '1'])('assistant header recorder origin is gated (harness=%s)', 
 });
 
 
-test.each(['bar', 'retained card'] as const)('%s offers explicit local removal after an in-flight server cancel', async surface => {
+test.each(['message', 'retained card'] as const)('%s offers explicit local removal after an in-flight server cancel', async surface => {
   const owned = take('server_owned');
   owned.manifest = { ...owned.manifest, serverMandate: { intent: {} } } as any;
   mockDelivery = { ...mockDelivery, takes: [owned] };
@@ -446,9 +443,9 @@ test.each(['bar', 'retained card'] as const)('%s offers explicit local removal a
     }
   });
   try {
-    const view = render(surface === 'bar' ? <><VoiceRecordingOverlay /><Page /></>
+    const view = render(surface === 'message' ? <><VoiceRecordingOverlay /><Page /><VoiceMessageStatus take={owned as any} /></>
       : <VoiceTakeControls take={owned as any} onReturn={() => {}} />);
-    await act(async () => { fireEvent.press(view.getByLabelText('Discard recording')); });
+    await act(async () => { fireEvent.press(view.getByLabelText(surface === 'message' ? 'Remove local copy' : 'Discard recording')); });
     expect(mockDiscard).toHaveBeenCalledWith('take-1');
     expect(mockDelivery.takes).toHaveLength(1);
     expect(alert).toHaveBeenCalledWith('Remove local copy?',
@@ -460,4 +457,42 @@ test.each(['bar', 'retained card'] as const)('%s offers explicit local removal a
     alert.mockRestore();
     mockDiscard.mockImplementation(async () => undefined);
   }
+});
+
+test.each(['server_owned', 'checking', 'failed', 'auth_needed', 'origin_unavailable', 'not_landed'])('send status %s has no destination bar or top delivery card', status => {
+  mockDelivery = { ...mockDelivery, takes: [{ ...take(status, true), sendRequestedAt: Date.now() }] };
+  const view = render(<><VoiceRecordingOverlay /><Page chat entityId="hosta:original" /></>);
+  expect(view.queryByTestId('voice-take-controls-take-1')).toBeNull();
+  expect(view.queryByTestId('global-voice-bar')).toBeNull();
+});
+
+test('off-chat progress expires at the original deadline across navigation and remount', () => {
+  const retained = { ...take('server_owned'), sendRequestedAt: Date.now() };
+  mockDelivery = { ...mockDelivery, takes: [retained] };
+  const tree = (chat: boolean) => <><VoiceRecordingOverlay /><Page chat={chat} entityId="hosta:original" /></>;
+  let view = render(tree(false));
+  expect(view.getByText('SENDING')).toBeTruthy();
+  act(() => jest.advanceTimersByTime(129999));
+  view.rerender(tree(true));
+  expect(view.queryByTestId('global-voice-bar')).toBeNull();
+  view.rerender(tree(false));
+  expect(view.getByText('SENDING')).toBeTruthy();
+  act(() => jest.advanceTimersByTime(1));
+  expect(view.queryByTestId('global-voice-bar')).toBeNull();
+  view.unmount(); view = render(tree(false));
+  expect(view.queryByTestId('global-voice-bar')).toBeNull();
+  expect(mockDelivery.takes[0]).toBe(retained);
+  expect(mockSend).not.toHaveBeenCalled(); expect(mockDiscard).not.toHaveBeenCalled();
+  act(() => mockLandedListeners.forEach(fn => fn({ recordingId: retained.recordingId, streamId: retained.streamId, originLabel: 'Original chat', landedAt: Date.now() })));
+  expect(view.getByText('SENT TO ORIGINAL CHAT')).toBeTruthy();
+});
+test('an older failed or overdue take cannot hide a newer active send elsewhere', () => {
+  mockDelivery = { ...mockDelivery, takes: [
+    { ...take('server_owned'), sendRequestedAt: Date.now() - 130000 },
+    { ...take('failed'), recordingId: 'failed' },
+    { ...take('uploading'), recordingId: 'active', sendRequestedAt: Date.now() },
+  ] };
+  const view = render(<><VoiceRecordingOverlay /><Page /></>);
+  expect(view.getByText('UPLOADING…')).toBeTruthy();
+  expect(mockDelivery.takes).toHaveLength(3);
 });

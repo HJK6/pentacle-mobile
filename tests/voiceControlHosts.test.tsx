@@ -205,7 +205,7 @@ function assertControlSet(view: ReturnType<typeof render>, host: string) {
   expect(view.getAllByTestId('voice-recording-overlay', { includeHiddenElements: true })).toHaveLength(1);
   expect(view.getByLabelText(`Recording controls, ${host}`)).toBeTruthy();
   expect(view.getByText(ORIGIN_LABEL)).toBeTruthy();
-  expect(view.getByText('Paused · 1:05')).toBeTruthy();
+  expect(view.getByText('INTERRUPTED · 1:05 KEPT')).toBeTruthy();
   for (const name of ACTIONS) {
     expect(view.getAllByRole('button', { name, includeHiddenElements: true })).toHaveLength(1);
     const button = view.getByRole('button', { name });

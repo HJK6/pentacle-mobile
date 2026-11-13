@@ -114,7 +114,7 @@ describe('pending TRANSCRIBING row (mock VoiceBubble + caption)', () => {
     expect(flat(view.getByTestId('voice-bubble')).alignSelf).toBe('flex-end');
   });
 
-  test('caption is a muted spinner + TRANSCRIBING in 9pt mono, not the amber send indicator', async () => {
+  test('active message caption uses dim 10pt mono with a spinner', async () => {
     const composer = render(<ComposerBar {...props} streamId="hoste:origin" />);
     await act(async () => fireEvent.press(composer.getByTestId('composer-mic-button')));
     await act(async () => fireEvent.press(composer.getByTestId('composer-mic-button')));
@@ -123,9 +123,8 @@ describe('pending TRANSCRIBING row (mock VoiceBubble + caption)', () => {
     const row = render(<TranscriptRow item={voiceTakeRow(pending)} chrome={props.chrome} />);
     expect(row.getByTestId('voice-transcribing-spinner')).toBeTruthy();
     const label = flat(row.getByText('TRANSCRIBING'));
-    expect(label.color).toBe(Tokens.palette.muted);
-    expect(label.fontSize).toBe(9);
-    expect(label.letterSpacing).toBe(1);
+    expect(label.color).toBe(Tokens.palette.dim);
+    expect(label.fontSize).toBe(10);
   });
 });
 

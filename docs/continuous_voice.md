@@ -31,8 +31,11 @@ acquires a question binding by navigating to questions.
 Global controls appear on the root and covering app-owned modal/route surfaces, with
 one accessible active host. They retain the original label/time, Return, Send,
 Discard, and explicit Resume when paused. Locked UI hides these labels and actions.
-Multiple retained takes are accessible through the take list. A proved successful
-send removes its control immediately; no Sent/Return banner, timer, or toast remains.
+Multiple retained takes expose independent controls on their destination messages;
+there is no top delivery card or retained-send list. A proved successful send removes
+its retained row and may show the bounded off-target receipt described in
+[voice presentation](voice_everywhere.md#destination-and-presentation). The target
+chat never shows a bottom send-status pill.
 
 ## Native capture contract (CAP-01)
 
@@ -212,6 +215,14 @@ covering the backend's existing 120-second bound. The existing one transport-onl
 retry and 15-second reconnect-readiness bound remain. A phase timeout is an actionable
 retained failure requiring explicit Retry. Receipt delay never causes another upload
 or transcription.
+
+Separately, presentation stops unresolved progress 130 seconds after persisted
+`sendRequestedAt`, including queued and server-owned work. Checking is immediately
+shown as Delivery unconfirmed. The message retains safe recovery controls; route
+changes, relaunch and retry do not reset this display deadline. It changes neither
+stored delivery state nor receipt truth. Check again also reconciles an active
+server mandate without a client dispatch intent through existing outbound lookup,
+without creating an intent, uploading, transcribing or dispatching.
 
 Before the first possible send frame, the transport validates fresh authenticated
 origin inventory and prepares an exact immutable intent. The store commits the

@@ -1,4 +1,3 @@
-import { discardRetainedVoiceTake } from '../../../src/components/voice/VoiceTakeControls';
 import PhotoDiscardControl from '../../../src/components/PhotoDiscardControl';
 import { QUESTION_SKIP_TEXT } from 'pentacle-chat-core';
 import React, { memo, useCallback, useEffect, useLayoutEffect, useMemo, useId, useRef, useState } from 'react';
@@ -60,10 +59,11 @@ import { compactHeaderLayout } from '../../../src/components/headerLayout';
 import { useVoiceSurface, useVoiceBarVisible, useVoiceBarOccupiesComposer, useVoiceChatStart } from '../../../src/services/voicePresentation';
 import { ASSISTANT_STREAM_ID, selectAssistantIdentity } from '../../../src/services/assistantIdentity';
 import VoiceBubble from '../../../src/components/voice/VoiceBubble';
+import VoiceMessageStatus from '../../../src/components/voice/VoiceMessageStatus';
 import { VoiceAnswersStatusNote, voiceAnswersItemCount } from '../../../src/components/questions/voice';
-import { DiscardGlyph, MicGlyph, VoiceRecordFace, VoiceSpinner, recordButtonStyle } from '../../../src/components/voice/VoiceGlyphs';
+import { DiscardGlyph, MicGlyph, VoiceRecordFace, recordButtonStyle } from '../../../src/components/voice/VoiceGlyphs';
 import { voiceRecorder } from '../../../src/services/voiceRecordingEngine';
-import VoiceRecordingOverlay, { useSharedVoiceControlsActive } from '../../../src/components/voice/VoiceRecordingOverlay';
+import VoiceRecordingOverlay from '../../../src/components/voice/VoiceRecordingOverlay';
 import { formatDuration, PermissionDeniedError, CaptureUnsupportedError, type RecordingSnapshot } from '../../../src/services/voiceRecording';
 import { voiceDelivery, useVoiceDelivery, voiceTakeRow, retryVoiceMessage } from '../../../src/services/voiceDelivery';
 
@@ -4093,7 +4093,6 @@ export const TranscriptRow = memo(function TranscriptRow({
   onOpenDirectChildThread?: (child: ChildAgent) => void;
 }) {
   const voiceState = useVoiceDelivery();
-  const sharedVoiceControls = useSharedVoiceControlsActive();
   const voiceTake = voiceState.takes.find(t => `voice:${t.recordingId}` === item.id);
   const hidesTurnDuration = !showTurnDuration &&
     (item.displayRule === 'terminal:divider' || item.displayRule === 'activity:turn-summary');
@@ -4205,16 +4204,7 @@ export const TranscriptRow = memo(function TranscriptRow({
         ) : null}
         {voiceTake ? (
           <>
-            <View style={styles.voiceCaptionRow} testID="voice-transcription-status">
-              {voiceTake.status === 'transcribing' ? <VoiceSpinner testID="voice-transcribing-spinner" /> : null}
-              <Text style={[styles.voiceCaptionText, voiceTake.error ? styles.voiceCaptionError : null]}>{voiceTake.error || ({ unsent: 'UNSENT', queued: 'QUEUED', uploading: 'UPLOADING', transcribing: 'TRANSCRIBING', server_owned: 'SENDING', checking: 'CHECKING DELIVERY', auth_needed: 'SIGN IN REQUIRED', origin_unavailable: 'ORIGINAL CHAT UNAVAILABLE', not_landed: 'NOT DELIVERED', failed: 'FAILED' }[voiceTake.status])}</Text>
-              {(voiceTake.manifest.frozenAnswers?.length ?? voiceAnswersItemCount(voiceTake.recordingId)) > 0 ? <><Text style={styles.voiceCaptionText}>·</Text><Text testID="voice-answers-label" style={styles.voiceCaptionText}>{`ANSWERS ${(voiceTake.manifest.frozenAnswers?.length ?? voiceAnswersItemCount(voiceTake.recordingId))} QUESTION${(voiceTake.manifest.frozenAnswers?.length ?? voiceAnswersItemCount(voiceTake.recordingId)) === 1 ? '' : 'S'}`}</Text></> : null}
-              {voiceTake.interrupted ? <><Text style={styles.voiceCaptionText}>·</Text><Text style={styles.voiceCaptionText}>INTERRUPTED AT {formatDuration(voiceTake.durationS)}</Text></> : null}
-              {!sharedVoiceControls && voiceTake.status === 'failed' ? <Pressable accessibilityLabel="Retry transcription" testID="voice-transcription-retry" hitSlop={8} onPress={() => { void voiceDelivery.retry(voiceTake.recordingId); }}><Text style={[styles.voiceCaptionText, styles.voiceCaptionAction]}>RETRY</Text></Pressable> : null}
-              {!sharedVoiceControls ? <Pressable accessibilityLabel="Discard voice message" testID="voice-transcription-discard" style={{ minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' }} onPress={() => {
-                discardRetainedVoiceTake(voiceTake);
-              }}><DiscardGlyph size={10} /></Pressable> : null}
-            </View>
+            <VoiceMessageStatus take={voiceTake} answerCount={voiceTake.manifest.frozenAnswers?.length ?? voiceAnswersItemCount(voiceTake.recordingId)} />
             <VoiceBubble levels={voiceTake.levels} durationS={voiceTake.durationS} />
           </>
         ) : item.voice ? <View style={styles.voiceCaptionRow} testID="voice-message-caption" accessibilityLabel="Transcribed from voice"><View style={styles.voiceDurationTag}><MicGlyph color={Tokens.palette.green} size={10} /><Text style={[styles.voiceCaptionText, styles.voiceDurationText]}>{formatDuration(item.voice.duration_s)}</Text></View></View> : null}

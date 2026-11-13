@@ -15,25 +15,30 @@ admission, account/origin, upload, cancellation and receipt-proof fences.
   text or images, guesses a host assistant seat, or falls back to the last chat.
 - All eligible headers operate on the same active take. Busy transitions cannot
   dispatch a second send. Retained delivery work does not prevent a new capture.
-- On a take's selected, uncovered destination chat, passive queued/uploading/
-  transcribing/checking progress and its global Transcribing/Return card are
-  hidden; the existing transcript row owns progress and the ordinary composer
-  is visible. Exact chat stream IDs and the assistant protocol identity determine
-  the destination. Another chat, unknown identity, or a covering modal retains
-  the global presentation. Capture, unsent takes, errors/storage recovery and
-  uncertain dispatched takes keep their actions, including Check again and
-  Remove local copy. Other retained takes remain available in the take list.
-- A focused chat projects the bar in its existing measured composer slot. The
-  draft owner stays mounted as invisible, inaccessible, non-editable measurement
-  content while the bar owns that slot, including on a fresh chat handoff. Keyboard offsets and transcript clearance remain owned by the
-  existing `composerWrap` measurement.
-- The bar owns the composer slot only while a decision or bounded operation is
-  pending: capture, an Unsent take, Uploading, Transcribing, or the Sent receipt.
-  A Queued, Checking delivery or failed take docks the bar directly above the
-  composer instead, so typing, sending and a new recording stay available. In a
-  chat the bar carries that take's exits: Retry and Discard, or for a dispatched
-  take Remove local copy (with the delivery warning) and Check delivery again,
-  replaced by Send again when the daemon has no receipt for the request.
+- No route or covering surface renders a top delivery card or retained-send list.
+  Each retained message owns its status and recovery controls in its destination
+  transcript, including while the global overlay host is mounted.
+- In the selected, uncovered destination chat, all send progress, failures and
+  proof-derived Sent receipts are hidden from the bottom bar. Exact ordinary
+  stream IDs and the assistant composite identity determine the destination.
+  Capture and unsent controls remain available before Send.
+- Other chats, lists and covering surfaces show active send progress with View
+  to open its original destination. Failed and checking states use only the
+  message row. Progress expires 130 seconds after persisted `sendRequestedAt`;
+  navigation, relaunch and overdue retries never renew that display budget.
+  Expiry shows Delivery unconfirmed without changing delivery truth or sending
+  anything. An older failed/overdue take cannot hide a newer active send.
+- A focused chat uses its existing measured composer slot for capture, unsent
+  work and off-target bounded Uploading/Transcribing/Sent presentation. Queued
+  and server-owned off-target progress docks above the live composer. Its draft
+  owner stays mounted while capture owns the slot; the existing `composerWrap`
+  measurement owns keyboard offsets and transcript clearance.
+- Message actions use the existing guarded commands: Retry for definite failure,
+  Check again for uncertain dispatch or server ownership, and Send again only
+  for authoritative absence of the exact client intent. Server-owned checking
+  without a client intent queries the existing outbound operation. Discard uses
+  server cancellation where available, then explicit local-copy removal if
+  cancellation cannot be confirmed. Multiple messages retain independent exits.
 - Outside chat, the selected root/modal host projects one 44-pixel field and
   circular microphone. Only the field's non-control region accepts vertical
   dragging. Horizontal placement is fixed. Position is process-only, keyed by
@@ -42,17 +47,17 @@ admission, account/origin, upload, cancellation and receipt-proof fences.
 
 The displayed phases come from capture and durable delivery: Starting, Saving,
 Queued, Uploading, Transcribing and Checking delivery. A paused take remains
-interrupted/kept until an explicit Send or Resume. The existing recovery surface
-retains Resume, retained takes, storage/auth recovery, Check again, and the
-ambiguous-delivery local-copy removal warning. Removing a local copy does not
+interrupted/kept until an explicit Send or Resume. The bottom capture surface
+retains Resume, Send and Discard. Held-account, unrecoverable-recording and storage
+recovery notices remain available; delivery recovery belongs to each message. Removing a local copy does not
 claim to unsend anything.
 
 Only matching authoritative landed proof, followed by owned cleanup, produces
 the process-only Sent receipt. It expires 2800 ms after proof; a new capture
 replaces it. The destination chat hides that receipt without consuming it. Leaving
 before its original deadline reveals only the remaining time; navigation cannot
-renew it, and nothing reappears after expiry. Assistant View opens the protected assistant thread and clears only
-that receipt. Optimistic acceptance, unknown receipts, discard, auth changes and
+renew it, and nothing reappears after expiry. View opens the original destination
+(the protected assistant thread for a composite send) and clears only that receipt. Optimistic acceptance, unknown receipts, discard, auth changes and
 take disappearance cannot create Sent. Locked/background UI exposes no bar.
 
 ## Additive metadata contract

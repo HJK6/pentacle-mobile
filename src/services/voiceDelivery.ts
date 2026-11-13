@@ -502,8 +502,11 @@ export class VoiceDelivery {
   };
   checkAgain = async (id: string): Promise<void> => {
     const t = this.store.get(id);
-    if (!t?.dispatchIntent) return;
-    this.seenReconciliation.delete(this.reconcileKey(t));
+    if (!t) return;
+    const serverChecking = t.serverMandate && !t.serverMandateFailed
+      && ['server_owned', 'checking'].includes(t.delivery.phase);
+    if (!t.dispatchIntent && !serverChecking) return;
+    if (t.dispatchIntent) this.seenReconciliation.delete(this.reconcileKey(t));
     await this.store.setDelivery(id, {
       phase: t.serverMandate && !t.serverMandateFailed ? 'server_owned' : 'checking',
       retryAt: null,
