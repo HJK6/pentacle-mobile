@@ -23,7 +23,7 @@ jest.mock('../src/services/voiceTakeStore', () => {
   const io = {
     root: 'file:///documents/voice-takes-v1/',
     cacheRoot: 'file:///cache/',
-    now: () => 1000,
+    now: () => Date.now(),
     uuid: () => `123e4567-e89b-42d3-a456-${String(++serial).padStart(12, '0')}`,
     stat: async (p: string) => ({
       exists: files.has(p) || dirs.has(p),
