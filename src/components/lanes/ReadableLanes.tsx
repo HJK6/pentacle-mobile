@@ -365,21 +365,21 @@ export default function ReadableLanes({ lanes, inventory, assistantName, connect
   useEffect(() => { if (expanded && (!expandedModel || !laneNeedsYou(expandedModel.lane) || classes.get(expanded) === 'parked')) setExpandedState(null); }, [expanded, expandedModel, classes]);
   useEffect(() => { if (laneId && !selected) stack.reset({ kind: 'home' }); }, [laneId, selected]);
   useEffect(() => {
-    if (current.kind === 'item' && show.complete && !(data?.members ?? []).some(m => m.spec_id === current.memberId)) stack.pop();
+    if (current.kind === 'item' && show.complete && !(data?.members ?? []).some(m => m.spec_id === current.memberId)) stack.back();
   }, [current, show.complete, data]);
   const member = current.kind === 'item' ? data?.members.find(m => m.spec_id === current.memberId) : undefined;
   const stopFor = (id: string | null) => data?.road.find(s => s.goal.goal_id === id);
   const headerTitle = member ? memberTitle(member) : current.kind === 'goal' ? stopFor(current.goalId)?.goal.title ?? '' : current.kind === 'parked' ? 'Parked' : selected && current.kind === 'lane' ? selected.lane.title : assistantName;
   useVoiceSurface({ page_id: current.kind === 'item' ? 'spec' : current.kind === 'home' ? 'lanes' : current.kind, title: headerTitle,
     ...(member ? { entity_id: member.spec_id } : selected && current.kind !== 'home' ? { entity_id: selected.lane.lane_id } : {}) }, active, { priority: 1.5, bottom: bottom + 10, top: top + 72 });
-  const open: Open = (entry, event, hero) => stack.push(entry, event, hero);
+  const open: Open = (entry, event, hero) => stack.open(entry, event, hero);
   const questionCard = (model: LaneCardViewModel) => {
     const members = expandShow.data?.lane_id === model.lane.lane_id ? expandShow.data.members : model.members;
     return <QuestionDeckCard key={model.lane.lane_id} embedded laneId={model.lane.lane_id} laneStreams={[...(model.lane.lead ? [model.lane.lead.stream_id] : []), ...members.flatMap(m => (m.seats ?? []).map(s => s.stream_id))]}
       laneQuestionIds={members.flatMap(m => m.open_questions?.first_question_id ? [m.open_questions.first_question_id] : [])} />;
   };
   const render = (layer: { key: number; value: Entry; animateIn: boolean }, state: { top: boolean; heroHidden: boolean }) => {
-    const entry = layer.value, live = active && state.top, chrome = { onBack: stack.pop, onClose, onHero: (b: Box) => stack.heroAt(layer.key, { ...b, x: b.x + stack.offset.current.x, y: b.y + stack.offset.current.y }), heroHidden: state.heroHidden };
+    const entry = layer.value, live = active && state.top, chrome = { onBack: stack.back, onClose, onHero: (b: Box) => stack.heroAt(layer.key, { ...b, x: b.x + stack.offset.current.x, y: b.y + stack.offset.current.y }), heroHidden: state.heroHidden };
     if (entry.kind === 'home') return <Home lanes={lanes} classes={classes} inventory={inventory} assistantName={assistantName} connected={connected} active={live}
       expanded={expanded} setExpanded={setExpanded} questionCard={questionCard} onOpen={open} onClose={onClose} />;
     if (entry.kind === 'parked') return <ParkedScreen lanes={lanes.filter(m => classes.get(m.lane.lane_id) === 'parked')} onOpen={open} {...chrome} />;
@@ -391,7 +391,7 @@ export default function ReadableLanes({ lanes, inventory, assistantName, connect
     const item = data?.members.find(m => m.spec_id === entry.memberId);
     if (!item) return null;
     return <ItemScreen member={item} members={data!.members} crumb={stop?.goal.title ?? selected.lane.title} {...chrome}
-      onQuestion={() => { laneQuestionCardStore(selected.lane.lane_id).show(); stack.popTo(stack.layers.findIndex(l => l.value.kind === 'lane') + 1); }} />;
+      onQuestion={() => { laneQuestionCardStore(selected.lane.lane_id).show(); stack.backTo(stack.layers.findIndex(l => l.value.kind === 'lane') + 1); }} />;
   };
   return <View testID="lanes-overlay" style={{ flex: 1, backgroundColor: p.ink }}><Starfield />
     <View style={{ flex: 1, marginTop: top, marginBottom: bottom }}><StackView stack={stack} render={render} /></View>

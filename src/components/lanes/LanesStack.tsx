@@ -36,7 +36,7 @@ export function useScreenStack<T>(root: T, reduceMotion: boolean | null) {
   const commit = (next: Layer<T>[]) => { layersRef.current = next; setLayers(next); };
   const settle = () => { token.current += 1; progress.stopAnimation(); progress.setValue(1); flight.stopAnimation(); setLeaving(null); setTransition(null); setGhost(null); };
   const local = (point: Point | null) => point && { x: point.x - offset.current.x, y: point.y - offset.current.y };
-  const push = (value: T, event?: GestureResponderEvent, hero?: { node: React.ReactNode; ref: React.RefObject<View | null> }) => {
+  const open = (value: T, event?: GestureResponderEvent, hero?: { node: React.ReactNode; ref: React.RefObject<View | null> }) => {
     settle();
     const under = layersRef.current[layersRef.current.length - 1];
     const layer: Layer<T> = { key: nextKey.current++, value, origin: local(tapPoint(event)), animateIn: animate };
@@ -49,7 +49,7 @@ export function useScreenStack<T>(root: T, reduceMotion: boolean | null) {
       .start(() => { if (token.current === mine) setTransition(null); });
     if (hero) measureBox(hero.ref, from => { if (from && token.current === mine) setGhost({ key: layer.key, node: hero.node, from }); });
   };
-  const popTo = (keep: number) => {
+  const backTo = (keep: number) => {
     const current = layersRef.current;
     if (keep < 1 || keep >= current.length) return;
     settle();
@@ -63,7 +63,7 @@ export function useScreenStack<T>(root: T, reduceMotion: boolean | null) {
     Animated.timing(progress, { toValue: 0, duration: 340, easing: EASE, useNativeDriver: true })
       .start(() => { if (token.current === mine) { setLeaving(null); setTransition(null); } });
   };
-  const pop = () => popTo(layersRef.current.length - 1);
+  const back = () => backTo(layersRef.current.length - 1);
   const reset = (value: T) => { settle(); commit([{ key: nextKey.current++, value, origin: null, animateIn: false }]); };
   /** The new header reports where its hero sits; the tapped icon then flies there. */
   const heroAt = (key: number, to: Box) => {
@@ -76,7 +76,7 @@ export function useScreenStack<T>(root: T, reduceMotion: boolean | null) {
       .start(() => { if (token.current === mine) setGhost(null); });
   };
   const top = layers[layers.length - 1];
-  return { layers, leaving, transition, ghost, progress, flight, top, push, pop, popTo, reset, heroAt, offset };
+  return { layers, leaving, transition, ghost, progress, flight, top, open, back, backTo, reset, heroAt, offset };
 }
 
 export function StackView<T>({ stack, render }: {
