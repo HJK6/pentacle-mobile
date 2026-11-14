@@ -90,7 +90,8 @@ describe('screenshot harness fixtures', () => {
 
   it('roadmap fixtures seed the final daemon contract through the production reducer', () => {
     const views = selectWorkLanes(seed('lanes:roadmap_views'));
-    expect(views).toHaveLength(13);
+    expect(views).toHaveLength(22);
+    expect(views.filter(lane => !lane.parked && lane.state === 'paused')).toHaveLength(10);
     expect(views.filter(lane => lane.parked)).toHaveLength(2);
     const road = views.find(lane => lane.title === 'Pentacle')!;
     expect(road.goal_road).toHaveLength(10);

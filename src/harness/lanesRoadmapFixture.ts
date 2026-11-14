@@ -8,7 +8,7 @@ type LanePlan = {
   title: string; icon: string; state?: 'active' | 'paused'; progressH: number; stateH?: number; question?: boolean;
   parked?: { at: string | null; reason: string | null } | unknown; goals: GoalPlan[]; loose?: Item[]; road?: boolean; classes?: boolean;
 };
-export type RoadmapVariant = 'views' | 'overflow' | 'loose' | 'loose_done' | 'no_classes' | 'malformed';
+export type RoadmapVariant = 'views' | 'busy' | 'overflow' | 'loose' | 'loose_done' | 'no_classes' | 'malformed';
 
 const sentences: Record<string, string> = {
   in_progress: 'Building the screen against the fixtures.', needs_qa: 'Waiting for the final review.', analysis: 'Writing the plan.',
@@ -32,6 +32,11 @@ function plans(variant: RoadmapVariant, at: (hours: number) => string): LanePlan
     { title: 'Faster lane detail', items: q(2) },
     { title: 'Lane history', items: q(4) },
   ];
+  if (variant === 'busy') return [
+    ...Array.from({ length: 13 }, (_, i): LanePlan => ({ title: `Active lane ${i + 1}`, icon: 'book', progressH: i + 1,
+      goals: [{ title: `Current goal ${i + 1}`, items: [['in_progress', i % 2 ? '' : 'w'], ['backlog']] }] })),
+    { title: 'Parked project', icon: 'camera', state: 'paused', progressH: 200, parked: { at: at(200), reason: 'On hold.' }, goals: [{ title: 'Later', items: q(2) }] },
+  ];
   if (variant === 'overflow') return [{ title: 'Long road', icon: 'columns', progressH: 3, road: false,
     goals: Array.from({ length: 11 }, (_, i) => ({ title: `Stage ${i + 1}`, items: i === 9 ? [['in_progress'], ['backlog']] : q(2) })) }];
   if (variant === 'loose' || variant === 'loose_done') return [{ title: 'Unplaced work', icon: 'wrench', progressH: 2,
@@ -44,7 +49,7 @@ function plans(variant: RoadmapVariant, at: (hours: number) => string): LanePlan
     { title: 'Bad goal road', icon: 'shield', progressH: 1, road: false, goals: [{ title: 'Still listed', items: [['in_progress']] }] },
   ];
   return [
-    { title: 'Pentacle', icon: 'pentacle', progressH: 0.2, goals: road },
+    { title: 'Pentacle', icon: 'pentacle', progressH: 0.2, goals: road, loose: q(8, 'completed') },
     { title: 'Mobile app', icon: 'phone', progressH: 1, question: true, goals: [
       { title: 'Signed builds', items: [['in_progress', '?'], ['in_progress'], ['completed'], ['completed'], ['backlog']] },
       { title: 'Voice capture', items: [['needs_qa'], ['completed'], ['ready_for_dev']] },
@@ -61,6 +66,7 @@ function plans(variant: RoadmapVariant, at: (hours: number) => string): LanePlan
     { title: 'Garden', icon: 'leaf', progressH: 96, goals: [{ title: 'Watering schedule', items: [['blocked'], ['backlog']] }, { title: 'Seed order', items: q(2) }] },
     { title: 'Home', icon: 'home', progressH: 120, goals: [{ title: 'Light timers', items: [['completed'], ['ready_for_dev']] }] },
     { title: 'Docs', icon: 'book', progressH: 200, goals: [{ title: 'Setup guide', items: q(3) }] },
+    ...Array.from({ length: 9 }, (_, i): LanePlan => ({ title: `Paused project ${i + 1}`, icon: 'book', state: 'paused', progressH: 200 + i * 24, stateH: 180 + i * 24, goals: [{ title: `Next step ${i + 1}`, items: q(2) }] })),
     { title: 'Camera rig', icon: 'camera', state: 'paused', progressH: 400, stateH: 300, parked: { at: at(13 * 24), reason: 'Waiting for the new lens to arrive.' },
       goals: [{ title: 'Calibrate', items: q(3) }, { title: 'Mount', items: q(2) }] },
     { title: 'Market review', icon: 'chart', state: 'paused', progressH: 600, stateH: 500, parked: { at: null, reason: null }, goals: [{ title: 'Weekly notes', items: q(2) }] },
@@ -139,7 +145,7 @@ export function lanesRoadmapFixture(variant: RoadmapVariant = 'views', now = Dat
     // The open question's member is inline so the home card sees it, as the list frame does for open questions.
     const asking = members.find(m => m.open_questions?.count);
     if (asking && !lane.members!.some(m => m.spec_id === asking.spec_id)) lane.members = [...lane.members!.slice(0, 7), asking];
-    shows[laneId] = { lane_id: laneId, projection: { ...lane, goals } as WorkLane, members, updates: [], spec_changes: [], events: [] };
+    shows[laneId] = { lane_id: laneId, projection: { ...lane, goals, ...(plan.classes === false ? {} : { goal_classes: `${letters.join('')}${loose.length ? letter(loose) : '-'}` }) } as WorkLane, members, updates: [], spec_changes: [], events: [] };
     if (questionId) {
       sessions.push({ stream_id: lead, host: 'hosta', provider: 'codex', session_name: `road-lead-${li + 1}`, title: plan.title, online: true, working: false,
         draft: '', pending: false, last_event_at: at(0), last_kind: 'ASSIST_TEXT', last_text: 'Ready for review.' } as PentacleSessionSummary);

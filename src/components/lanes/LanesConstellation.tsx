@@ -71,9 +71,9 @@ function Node({ node, point, size, quiet, many }: { node: ConstellationNode; poi
     </View>
   );
 }
-/** The map: working and in-progress lanes on the inner ring, quiet lanes at the corners, the hub in the centre. */
-export default function LanesConstellation({ width, inner, outer, more, assistantName, assistantSigil = "djinni", motion }: {
-  width: number; inner: ConstellationNode[]; outer: ConstellationNode[]; more: number; assistantName: string; assistantSigil?: MachineSigilKind; motion: Motion;
+/** The map: working and in-progress lanes on the inner ring, quiet lanes in expanding corner rows, the hub in the centre. */
+export default function LanesConstellation({ width, inner, outer, assistantName, assistantSigil = "djinni", motion }: {
+  width: number; inner: ConstellationNode[]; outer: ConstellationNode[]; assistantName: string; assistantSigil?: MachineSigilKind; motion: Motion;
 }) {
   const layout = mapLayout(inner.length, outer.length, width);
   const { cx, cy, radius, size, hub, height, many } = layout;
@@ -92,7 +92,6 @@ export default function LanesConstellation({ width, inner, outer, more, assistan
       </View>
       {inner.map((node, i) => <Node key={node.id} node={node} point={layout.inner[i]} size={size} quiet={false} many={many} />)}
       {outer.map((node, i) => <Node key={node.id} node={node} point={layout.outer[i]} size={30} quiet many={many} />)}
-      {more > 0 ? <Text testID="lanes-map-more" style={{ ...mono, position: "absolute", right: 14, bottom: 8 }}>+{more}</Text> : null}
     </View>
   );
 }

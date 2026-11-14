@@ -100,6 +100,15 @@ export function readableLeadGoals(lane: WorkLane, road = readableRoad(lane, { le
   return [...road.filter(s => s.goalClass === 'working'), ...road.filter(s => s.goalClass === 'moving')].slice(0, 2);
 }
 
+/** Home cards: started goals are equal; choose at most two in lane goal order, never done goals. */
+export function readableCardGoals(lane: WorkLane, road = readableRoad(lane, { legacy: true })): RoadStop[] {
+  const unfinished = road.filter(stop => stop.goalClass !== 'done');
+  const started = unfinished.filter(stop => ['working', 'moving', 'blocked'].includes(stop.goalClass));
+  if (started.length >= 2) return started.slice(0, 2);
+  if (!started.length || started[0] === unfinished[0]) return unfinished.slice(0, 1);
+  return [unfinished[0], started[0]];
+}
+
 export function readableDeprecated(member: WorkLaneMember) {
   return member.status === 'deprecated' || member.terminal === 'deprecated';
 }
