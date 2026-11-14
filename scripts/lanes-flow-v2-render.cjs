@@ -43,6 +43,9 @@ async function checkLabels(page, width) {
 async function checkMap(page, width) {
   const hub = await rect(page.locator(tid('lanes-map-assistant'))), hc = centre(hub);
   const nodes = await page.locator('[data-testid^="lanes-map-lane-"]:visible').evaluateAll(list => list.map(n => n.dataset.testid));
+  assert.equal(nodes.length, 20, 'Every non-parked lane, including all thirteen quiet lanes, is drawn');
+  assert.equal(await page.locator(tid('lanes-map-more')).count(), 0);
+  assert(!(await page.locator(tid('lanes-constellation')).innerText()).split('\n').some(line => /^paused(?: ·|$)/i.test(line)));
   const inner = [];
   for (const id of nodes) {
     const laneId = id.slice('lanes-map-lane-'.length);
@@ -89,6 +92,13 @@ async function run() {
         await checkLabel(page, 'spec-bar-label', width);
       }
       if (width !== 390) { await page.close(); continue; }
+      await seed(page, 'roadmap_busy');
+      assert.equal(await page.locator('[data-testid^="lanes-map-lane-"]:visible').count(), 13);
+      assert.equal(await page.locator(tid('lanes-map-lane-road-lane-busy-14')).count(), 0);
+      await checkLabels(page, width);
+      await open(page, 'lanes-map-lane-road-lane-busy-13', 'readable-lane');
+      await back(page);
+      await seed(page, 'roadmap_views');
       await shot(page, 'home');
       await page.locator(tid('readable-section-working-now')).evaluate(node => node.scrollIntoView());
       await shot(page, 'home-list');
@@ -125,7 +135,7 @@ async function run() {
       await back(page);
       await open(page, 'parked-button', 'readable-parked');
       await shot(page, 'parked');
-      await open(page, `parked-lane-${lane(12)}`, 'readable-lane');
+      await open(page, `parked-lane-${lane(21)}`, 'readable-lane');
       await shot(page, 'lane-parked');
       await back(page); await back(page);
       for (const [variant, laneId] of [['roadmap_overflow', 'road-lane-overflow-1'], ['roadmap_loose', 'road-lane-loose-1'], ['roadmap_loose_done', 'road-lane-loose_done-1'], ['roadmap_no_classes', 'road-lane-no_classes-1']]) {

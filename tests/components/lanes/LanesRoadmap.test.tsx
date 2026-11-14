@@ -20,12 +20,12 @@ import { lanesRoadmapFixture, type RoadmapVariant } from '../../../src/harness/l
 
 afterEach(() => { jest.restoreAllMocks(); jest.useRealTimers(); });
 const hidden = { includeHiddenElements: true };
-function setup(variant: RoadmapVariant = 'views', { reduce = true, edit }: { reduce?: boolean; edit?(inventory: WorkLanesInventory): void } = {}) {
+function setup(variant: RoadmapVariant = 'views', { reduce = true, edit, rejectDetail = false }: { reduce?: boolean; edit?(inventory: WorkLanesInventory, shows: ReturnType<typeof lanesRoadmapFixture>['shows']): void; rejectDetail?: boolean } = {}) {
   jest.spyOn(AccessibilityInfo, 'isReduceMotionEnabled').mockResolvedValue(reduce);
   const fixture = lanesRoadmapFixture(variant, Date.parse('2026-11-14T18:00:00Z'));
-  edit?.(fixture.inventory);
+  edit?.(fixture.inventory, fixture.shows);
   const models = (inventory: WorkLanesInventory) => selectLaneCardViewModels(applyWorkLanesInventory(initialPentacleStreamState, inventory));
-  const readShow = jest.fn(async (id: string) => fixture.shows[id]);
+  const readShow = jest.fn(async (id: string) => { if (rejectDetail) throw new Error('network failure'); return fixture.shows[id]; });
   const props = { inventory: null, assistantName: 'Assistant', connected: true, updates: [], top: 0, bottom: 0, onChat: jest.fn(), onClose: jest.fn(), readShow };
   const view = render(<LanesOverlay lanes={models(fixture.inventory)} {...props} />);
   const rerender = (inventory: WorkLanesInventory) => view.rerender(<LanesOverlay lanes={models(inventory)} {...props} />);
@@ -103,31 +103,31 @@ test('home: sections, counts, lines and dots follow the spec; no word "working",
   expect(view.getByTestId(`lane-goal-line-${lane(1)}-g_road_views_1_3`)).toBeTruthy();
 }, 15_000);
 
-test('more goals than the frame sends: eight dots, +N, and +N more in progress', async () => {
+test('more goals than the frame sends: detail fills all dots and the omitted in-progress goal', async () => {
   const view = setup('overflow');
   await settle();
   const id = lane(1, 'overflow');
-  expect(view.queryAllByTestId(new RegExp(`^lane-dots-${id}-\\d+-`))).toHaveLength(8);
-  expect(view.getByText('+3')).toBeTruthy();
-  expect(view.getByText('+1 more in progress')).toBeTruthy();
+  expect(view.queryAllByTestId(new RegExp(`^lane-dots-${id}-\\d+-`))).toHaveLength(11);
+  expect(view.queryByText('+3')).toBeNull();
+  expect(view.queryByText('+1 more in progress')).toBeNull();
   expect(view.getByTestId('readable-section-in-progress')).toBeTruthy();
 }, 15_000);
 
 test('parked: off the map and the sections, behind the button with reason and date; muted lane shows the reason', async () => {
   const view = setup();
   await settle();
-  for (const n of [12, 13]) {
+  for (const n of [21, 22]) {
     expect(view.queryByTestId(`lane-row-${lane(n)}`)).toBeNull();
     expect(view.queryByTestId(`lanes-map-lane-${lane(n)}`)).toBeNull();
   }
-  expect(view.getByText('1 working · 6 in progress · 4 quiet')).toBeTruthy();
+  expect(view.getByText('1 working · 6 in progress · 13 quiet')).toBeTruthy();
   fireEvent.press(view.getByTestId('parked-button'));
   await settle();
   expect(view.getByText('2 lanes on hold')).toBeTruthy();
   expect(view.getByText('Waiting for the new lens to arrive.')).toBeTruthy();
   expect(view.getByText(/^parked Nov 1 · 2 goals · 5 items$/)).toBeTruthy();
   expect(view.getByText(/^1 goal · 2 items$/)).toBeTruthy();
-  fireEvent.press(view.getByTestId(`parked-lane-${lane(12)}`));
+  fireEvent.press(view.getByTestId(`parked-lane-${lane(21)}`));
   await settle();
   expect(view.getByTestId('lane-parked-reason')).toHaveTextContent('Waiting for the new lens to arrive.');
 }, 15_000);
@@ -136,7 +136,7 @@ test('without a parked key there is no Parked button; malformed keys never rejec
   const plain = setup('views', { edit: inventory => { for (const l of inventory.lanes) delete (l as { parked?: unknown }).parked; } });
   await settle();
   expect(plain.queryByTestId('parked-button')).toBeNull();
-  expect(plain.queryAllByTestId(/^lane-row-/)).toHaveLength(13);
+  expect(plain.queryAllByTestId(/^lane-row-/)).toHaveLength(22);
   plain.unmount();
   const malformed = setup('malformed');
   await settle();
@@ -289,7 +289,7 @@ test('hero: the tapped lane icon flies into the lane header from a card, the map
     fireEvent.press(within(view.getByTestId('lanes-layer-top')).getByTestId('lanes-back'));
     fireEvent.press(view.getByTestId('parked-button'));
     await settle();
-    await flies(`parked-lane-${lane(12)}`);
+    await flies(`parked-lane-${lane(21)}`);
     await act(async () => { await new Promise(r => setTimeout(r, 600)); });
     view.unmount();
   } finally { measure.mockReset(); }
@@ -326,4 +326,116 @@ test('hatch patterns draw their own diagonal instead of rotating the tile', () =
   // iOS clips a rotated pattern tile to its unrotated bounds, which turned the stripes into triangles.
   const src = fs.readFileSync(path.join(__dirname, '../../../src/components/lanes/RoadMarks.tsx'), 'utf8');
   expect(src).not.toMatch(/patternTransform/);
+});
+
+
+test('graph shows every non-parked lane with thirteen quiet lanes, no overflow or paused label', async () => {
+  const view = setup();
+  await settle();
+  const graph = within(view.getByTestId('lanes-constellation'));
+  expect(graph.queryAllByTestId(/^lanes-map-lane-/)).toHaveLength(view.fixture.inventory.lanes.filter(l => !l.parked).length);
+  expect(graph.queryByTestId('lanes-map-more')).toBeNull();
+  expect(graph.queryAllByText(/^paused(?: ·|$)/i)).toHaveLength(0);
+  fireEvent.press(graph.getByTestId(`lanes-map-lane-${lane(20)}`));
+  await settle();
+  expect(view.readShow).toHaveBeenCalledWith(lane(20), expect.anything());
+}, 15_000);
+
+test('Finished earlier keeps the section rule without a second rule above the fold', async () => {
+  const view = setup('loose_done');
+  fireEvent.press(view.getByTestId(`lane-row-${lane(1, 'loose_done')}`));
+  await settle();
+  expect(view.getByTestId('finished-earlier-open')).toHaveStyle({ borderTopWidth: 0 });
+  fireEvent.press(view.getByTestId('finished-earlier-open'));
+  expect(view.getByTestId('finished-earlier-more')).toHaveStyle({ borderTopWidth: 1 });
+});
+
+
+test('home fills a working goal omitted from the bounded inventory using one detail page', async () => {
+  const view = setup('overflow');
+  await settle();
+  expect(view.getByTestId('lane-goal-line-road-lane-overflow-1-g_road_overflow_1_10')).toHaveTextContent(/Stage 10/);
+  expect(view.readShow).toHaveBeenCalledTimes(1);
+});
+
+
+test.each(['empty', 'completed'])('home preserves existing %s lane presentation', async state => {
+  const view = setup('views', { edit: inventory => {
+    const l = inventory.lanes[7];
+    if (state === 'empty') { l.goals = []; l.goals_total = 0; l.goal_classes = '-'; l.goal_road = ''; l.goal_counts = [0, 0, 0, 0]; }
+    else { l.goals = l.goals!.map(g => ({ ...g, state: 'done' as const, done: g.total })); l.goal_classes = 'd-'; l.goal_road = 'd'; l.goal_counts = [0, 0, 0, 1]; }
+  } });
+  await settle();
+  expect(view.queryByTestId(`lane-goals-state-${lane(8)}`)).toBeNull();
+  expect(view.queryAllByTestId(new RegExp(`^lane-goal-line-${lane(8)}-`))).toHaveLength(0);
+});
+
+
+test('home does not load historical member pages just to fill missing goals', async () => {
+  const view = setup('overflow', { edit: (inventory, shows) => {
+    const show = shows['road-lane-overflow-1'];
+    show.members_next = 'more-members'; show.members_total = 1000;
+    show.detail_revision = 'a'.repeat(64); inventory.lanes[0].detail_revision = show.detail_revision;
+  } });
+  await settle();
+  expect(view.readShow).toHaveBeenCalledTimes(1);
+  expect(view.getByTestId('lane-goal-line-road-lane-overflow-1-g_road_overflow_1_10')).toBeTruthy();
+});
+
+test('failed goal hydration tells the truth and keeps the lane available', async () => {
+  const view = setup('overflow', { rejectDetail: true });
+  await settle();
+  expect(view.getByTestId('lane-goals-state-road-lane-overflow-1')).toHaveTextContent(/Goals unavailable/);
+  fireEvent.press(view.getByTestId('lane-row-road-lane-overflow-1'));
+  await settle();
+  expect(view.getByTestId('lanes-detail-retry')).toBeTruthy();
+});
+
+test('a new inventory revision cannot display stale hydrated goals', async () => {
+  const view = setup('overflow', { edit: (inventory, shows) => {
+    inventory.lanes[0].detail_revision = 'a'.repeat(64);
+    shows['road-lane-overflow-1'].detail_revision = 'a'.repeat(64);
+  } });
+  await settle();
+  expect(view.getByTestId('lane-goal-line-road-lane-overflow-1-g_road_overflow_1_10')).toBeTruthy();
+  const changed = structuredClone(view.fixture.inventory);
+  changed.lanes[0].detail_revision = 'b'.repeat(64);
+  view.rerender(changed);
+  await settle();
+  expect(view.queryByTestId('lane-goal-line-road-lane-overflow-1-g_road_overflow_1_10')).toBeNull();
+  expect(view.getByTestId('lane-goals-state-road-lane-overflow-1')).toHaveTextContent(/Goals unavailable/);
+});
+
+
+test.each([
+  ['qqq', [1]], ['dqq', [2]], ['mqq', [1]], ['wqq', [1]], ['bqq', [1]],
+  ['qmq', [1, 2]], ['qbw', [2, 3]], ['bmw', [1, 2]], ['mwq', [1, 2]], ['ddd', []],
+])('home card follows lane priority for %s even when paused', async (letters, expected) => {
+  const view = setup('views', { edit: inventory => {
+    const l = inventory.lanes[7], base = l.goals![0];
+    l.goals = [...letters].map((letter, i) => ({ ...base, goal_id: `choice-${i + 1}`, title: `Choice ${i + 1}`, pos: i, rank: i, done: letter === 'd' ? base.total : 0 }));
+    l.goals_total = letters.length; l.goal_classes = `${letters}-`; l.goal_road = letters; l.goal_counts = [[...letters].filter(c => /[wm]/.test(c)).length, [...letters].filter(c => c === 'b').length, [...letters].filter(c => c === 'q').length, [...letters].filter(c => c === 'd').length];
+  } });
+  await settle();
+  expect(view.queryAllByTestId(new RegExp(`^lane-goal-line-${lane(8)}-`)).map(n => n.props.testID)).toEqual(expected.map(n => `lane-goal-line-${lane(8)}-choice-${n}`));
+});
+
+
+test('every busy lane beyond the eight inner slots remains on the graph', async () => {
+  const view = setup('views', { edit: inventory => {
+    for (const l of inventory.lanes) if (!l.parked) {
+      l.state = 'active'; l.goal_counts = [1, 0, 0, 0];
+      l.goal_classes = `${'m'.repeat(l.goals?.length ?? 0)}-`;
+      l.goal_road = 'm'.repeat(l.goals_total ?? 0);
+    }
+  } });
+  await settle();
+  const graph = within(view.getByTestId('lanes-constellation'));
+  const expected = view.fixture.inventory.lanes.filter(l => !l.parked);
+  expect(expected.length).toBeGreaterThanOrEqual(13);
+  expect(graph.queryAllByTestId(/^lanes-map-lane-/)).toHaveLength(expected.length);
+  for (const lane of expected) expect(graph.getByTestId(`lanes-map-lane-${lane.lane_id}`)).toBeTruthy();
+  fireEvent.press(graph.getByTestId(`lanes-map-lane-${expected.at(-1)!.lane_id}`));
+  await settle();
+  expect(view.readShow).toHaveBeenCalledWith(expected.at(-1)!.lane_id, expect.anything());
 });
