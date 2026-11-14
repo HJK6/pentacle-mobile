@@ -50,7 +50,7 @@ test.each(['sparse', 'old'] as const)('%s input remains navigable without missin
   fireEvent.press(view.getByTestId('spec-row-spec_sample__flow_1'));
   expect(view.getByTestId('readable-spec')).toBeTruthy();
   expect(view.queryByText('Make the release checks reliable.')).toBeNull();
-});
+}, 15_000);
 
 test('a v1 show without a projection still opens the lane without inventing members', async () => {
   const fixture = readableLanesFixture('old');

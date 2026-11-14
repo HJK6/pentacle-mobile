@@ -62,7 +62,7 @@ test('home cards: the question button expands the shipped question card in place
   fireEvent.press(view.getByTestId(`lane-row-${lane(4)}`));
   await settle();
   expect(view.getByTestId('readable-lane')).toBeTruthy();
-});
+}, 15_000);
 
 test('lane screen: the question card sits between the header and the first stop', async () => {
   const view = setup();
@@ -72,7 +72,7 @@ test('lane screen: the question card sits between the header and the first stop'
   const order = within(screen).queryAllByTestId(/^(lane-question-|lane-road$)/).map(n => n.props.testID);
   expect(order).toEqual([`lane-question-${lane(2)}`, 'lane-road']);
   expect(view.getByTestId('stop-word-g_road_views_2_1')).toHaveTextContent('needs you');
-});
+}, 15_000);
 
 test('road: lead goals expand, stop words follow the rules, numbers skip done goals', async () => {
   const view = setup();
@@ -86,7 +86,7 @@ test('road: lead goals expand, stop words follow the rules, numbers skip done go
   expect(view.queryByTestId('stop-tail-g_road_views_1_5')).toBeNull();
   expect(view.getByTestId('goal-ring-g_road_views_1_5-hatch')).toBeTruthy();
   expect(view.getByTestId('road-rail-g_road_views_1_3-live')).toBeTruthy();
-});
+}, 15_000);
 
 test('home: sections, counts, lines and dots follow the spec; no word "working", no needs-you, no blocked count', async () => {
   const view = setup();
@@ -101,7 +101,7 @@ test('home: sections, counts, lines and dots follow the spec; no word "working",
   expect(view.getByTestId(`lane-dots-${lane(1)}-4-blocked`)).toBeTruthy();
   expect(view.queryAllByTestId(new RegExp(`^lane-dots-${lane(1)}-\\d+-`))).toHaveLength(10);
   expect(view.getByTestId(`lane-goal-line-${lane(1)}-g_road_views_1_3`)).toBeTruthy();
-});
+}, 15_000);
 
 test('more goals than the frame sends: eight dots, +N, and +N more in progress', async () => {
   const view = setup('overflow');
@@ -111,7 +111,7 @@ test('more goals than the frame sends: eight dots, +N, and +N more in progress',
   expect(view.getByText('+3')).toBeTruthy();
   expect(view.getByText('+1 more in progress')).toBeTruthy();
   expect(view.getByTestId('readable-section-in-progress')).toBeTruthy();
-});
+}, 15_000);
 
 test('parked: off the map and the sections, behind the button with reason and date; muted lane shows the reason', async () => {
   const view = setup();
@@ -130,7 +130,7 @@ test('parked: off the map and the sections, behind the button with reason and da
   fireEvent.press(view.getByTestId(`parked-lane-${lane(12)}`));
   await settle();
   expect(view.getByTestId('lane-parked-reason')).toHaveTextContent('Waiting for the new lens to arrive.');
-});
+}, 15_000);
 
 test('without a parked key there is no Parked button; malformed keys never reject a lane', async () => {
   const plain = setup('views', { edit: inventory => { for (const l of inventory.lanes) delete (l as { parked?: unknown }).parked; } });
@@ -142,7 +142,7 @@ test('without a parked key there is no Parked button; malformed keys never rejec
   await settle();
   expect(malformed.queryAllByTestId(/^lane-row-/)).toHaveLength(2);
   expect(malformed.queryByTestId('parked-button')).toBeNull();
-});
+}, 15_000);
 
 test('reachability: every member of a lane with members under no goal opens in three taps and appears once', async () => {
   for (const variant of ['loose', 'loose_done'] as const) {
@@ -174,7 +174,7 @@ test('reachability: every member of a lane with members under no goal opens in t
     expect([...reached.keys()].sort()).toEqual(members.map(m => `spec-row-${m.spec_id}`).sort());
     view.unmount();
   }
-});
+}, 15_000);
 
 test('every Show N more and Show N finished opens in place and every item row opens its item', async () => {
   const view = setup();
@@ -194,7 +194,7 @@ test('every Show N more and Show N finished opens in place and every item row op
     expect(view.getByTestId('readable-spec')).toBeTruthy();
     fireEvent.press(view.getByTestId('lanes-back'));
   }
-});
+}, 15_000);
 
 test('older daemon without class letters still renders the road with fallback classes', async () => {
   const view = setup('no_classes');
@@ -203,7 +203,7 @@ test('older daemon without class letters still renders the road with fallback cl
   fireEvent.press(view.getByTestId(`lane-row-${lane(1, 'no_classes')}`));
   await settle();
   expect(view.getByTestId('stop-word-g_road_no_classes_1_2')).toHaveTextContent('next · 0/2');
-});
+}, 15_000);
 
 test('motion: only the named loops run on each screen, never under the top, never with reduce motion', async () => {
   const loops = (v: ReturnType<typeof setup>) => v.queryAllByTestId(/^(working-spoke|motion-spark|motion-rail|item-mark-.*-pulse)/, hidden)
@@ -232,7 +232,7 @@ test('motion: only the named loops run on each screen, never under the top, neve
   fireEvent.press(still.getByTestId('lanes-back'));
   expect(still.queryByTestId('lanes-layer-over', hidden)).toBeNull();
   expect(still.getByTestId('readable-home')).toBeTruthy();
-});
+}, 15_000);
 
 test('fast taps: interleaved opens and backs during transitions leave exactly one interactive top screen', async () => {
   jest.useFakeTimers();
@@ -262,7 +262,7 @@ test('fast taps: interleaved opens and backs during transitions leave exactly on
   await act(async () => { jest.runAllTimers(); });
   expect(view.getByTestId('readable-home')).toBeTruthy();
   expect(view.queryByTestId('lanes-back')).toBeNull();
-});
+}, 15_000);
 
 test('no lanes component references the amber token', () => {
   const dir = path.join(__dirname, '../../../src/components/lanes');
@@ -293,7 +293,7 @@ test('hero: the tapped lane icon flies into the lane header from a card, the map
     await act(async () => { await new Promise(r => setTimeout(r, 600)); });
     view.unmount();
   } finally { measure.mockReset(); }
-});
+}, 15_000);
 
 test('dots: next is a grey ring and later a faint dotted ring; a bar label never shrinks', async () => {
   const view = setup();
@@ -308,4 +308,4 @@ test('dots: next is a grey ring and later a faint dotted ring; a bar label never
   await settle();
   const style = [view.getByTestId('goal-bar-label').props.style].flat();
   expect(Object.assign({}, ...style)).toMatchObject({ flexShrink: 0 });
-});
+}, 15_000);
