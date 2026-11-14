@@ -20,6 +20,10 @@
     {"key": "key", "keywords": ["credential", "auth", "key"]},
     {"key": "leaf", "keywords": ["garden", "plant", "leaf"]},
     {"key": "wrench", "keywords": ["tool", "fleet", "infrastructure"]},
-    {"key": "pentacle", "keywords": ["pentacle"]}
+    {"key": "pentacle", "keywords": ["pentacle"]},
+    {"key": "briefcase", "keywords": []},
+    {"key": "headset", "keywords": []},
+    {"key": "film", "keywords": []},
+    {"key": "server", "keywords": []}
   ]
 }

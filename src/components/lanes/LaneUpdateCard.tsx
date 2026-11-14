@@ -18,7 +18,7 @@ export function laneUpdateKindLabel(kind: WorkLaneUpdateKind): string {
 }
 
 function accentFor(kind: WorkLaneUpdateKind): string {
-  if (kind === 'lane_blocked') return Tokens.palette.amber;
+  if (kind === 'lane_blocked') return Tokens.palette.yellow;
   if (kind === 'lane_completed' || kind === 'lane_started' || kind === 'lane_unblocked') return Tokens.palette.green;
   return Tokens.palette.dim;
 }

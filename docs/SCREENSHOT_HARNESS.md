@@ -52,15 +52,21 @@ The `screen:variant` list is the `FIXTURES` registry in `src/harness/screenshotF
 
 ### Readable lanes
 
-`lanes:readable_full`, `lanes:readable_sparse`, and `lanes:readable_old` seed
-the current home, lane, goal and spec screens through production reducers and
-the normal show response path. The sparse fixture leaves optional fields out;
-the old fixture omits the new projection keys. The full fixture supplies a
-lane question, trouble signals and the other design states.
+`lanes:roadmap_views` seeds thirteen lanes in the daemon's final wire shape:
+seven in progress (one working with ten goals and a valid `goal_road`), a paused
+lane, three idle lanes, two parked lanes and two lanes with an open question and
+a matching question. `lanes:roadmap_overflow`, `_loose`, `_loose_done`,
+`_no_classes` and `_malformed` cover more goals than the frame sends, members
+under no goal, older daemons and malformed keys. `lanes:readable_sparse` and
+`lanes:readable_old` still cover missing optional fields.
 
-The scoped Playwright driver `scripts/lanes-flow-v2-render.cjs` captures the
-eight full design states and sparse and old inputs at 390×844, and checks map
-label rectangles at 390 and 375 pixels. Supply an admitted screenshot server
+The scoped Playwright driver `scripts/lanes-flow-v2-render.cjs` captures home,
+the expanded question card, lane, goal, item, Parked and a parked lane at
+390×844, plus the other roadmap fixtures and one capture with motion on. It
+checks that no map labels overlap at 390 and 375 points and, at 375, 390 and 430,
+that the hub is the centre of the lane ring circle and every link ends on the
+hub's edge and the ring's edge. Screens under the top one stay mounted, so its
+locators use `:visible`. Supply an admitted screenshot server
 with `PENTACLE_RENDER_URL` and an external output directory with
 `PENTACLE_RENDER_OUTPUT`. These web captures are supplemental: pagination,
 Release navigation, native controls and configured-runtime behavior require

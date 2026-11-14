@@ -33,6 +33,7 @@ import type { AssetComment, PentacleReport } from "../services/pentacleAssets";
 import { lanesFlowFixture } from './lanesFlowFixture';
 import { lanesGoalsFixture } from './lanesGoalsFixture';
 import { readableLanesFixture } from './readableLanesFixture';
+import { lanesRoadmapFixture, type RoadmapVariant } from './lanesRoadmapFixture';
 import { questionsEmbeddedFixture } from './questionsEmbeddedFixture';
 import { lanesPagingFixture } from './lanesPagingFixture';
 import type { DashboardRenderFixture } from './dashboardRenderFixture';
@@ -1107,6 +1108,11 @@ export const FIXTURES: Record<string, HarnessFixture> = {
   ...Object.fromEntries((['full', 'sparse', 'old'] as const).map(variant => {
     const f = readableLanesFixture(variant);
     return [`lanes:readable_${variant}`, { snapshot: { ...questionsEmbeddedFixture().snapshot, work_lanes: { type: 'work_lanes.inventory', ...f.inventory } }, opts: SEEDED, workLaneShows: f.shows }];
+  })),
+  ...Object.fromEntries((['views', 'overflow', 'loose', 'loose_done', 'no_classes', 'malformed'] as RoadmapVariant[]).map(variant => {
+    const f = lanesRoadmapFixture(variant);
+    return [`lanes:roadmap_${variant}`, { snapshot: { ...EMPTY_SNAPSHOT, sessions: f.sessions, notifications: f.notifications,
+      work_lanes: { type: 'work_lanes.inventory', ...f.inventory } }, opts: SEEDED, workLaneShows: f.shows }];
   })),
   'lanes:goals': { snapshot: { ...EMPTY_SNAPSHOT, work_lanes: { type: 'work_lanes.inventory', ...lanesGoalsFixture().inventory } }, opts: SEEDED, workLaneShows: lanesGoalsFixture().shows },
   'lanes:paging': { snapshot: { ...EMPTY_SNAPSHOT, work_lanes: { type: 'work_lanes.inventory', ...lanesPagingFixture().inventory } }, opts: SEEDED, workLaneShows: lanesPagingFixture().shows },

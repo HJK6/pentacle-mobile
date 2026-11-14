@@ -1,39 +1,23 @@
-export type RingPoint = { x: number; y: number; angle: number };
-/** Clockwise from the top. Fixed single-line label boxes are disjoint at six. */
-export function innerRingPoints(
-  count: number,
-  width: number,
-  height: number,
-  selected = 0,
-): RingPoint[] {
-  const radius = Math.max(36, Math.min((width - 112) / 2, (height - 108) / 2));
-  const cx = width / 2,
-    cy = height / 2 - 14;
-  return Array.from({ length: count }, (_, i) => {
-    const angle =
-      -Math.PI / 2 + (2 * Math.PI * (i - selected)) / Math.max(1, count);
-    return {
-      x: cx + radius * Math.cos(angle),
-      y: cy + radius * Math.sin(angle),
-      angle,
-    };
+export type MapPoint = { x: number; y: number };
+export const MAP_HEIGHT = 404;
+const CENTRE_Y = 190;
+
+/**
+ * One fixed drawing so links and icons always line up. Up to six inner lanes use 52 point rings on a 108 point
+ * circle, seven or eight use 46 on 116. The hub is the size of an inner ring; links run edge to edge.
+ */
+export function mapLayout(innerCount: number, outerCount: number, width: number) {
+  const many = innerCount > 6, radius = many ? 116 : 108, size = many ? 46 : 52, hub = size;
+  const cx = width / 2, cy = CENTRE_Y;
+  const inner = Array.from({ length: innerCount }, (_, i): MapPoint => {
+    const angle = -Math.PI / 2 + (2 * Math.PI * i) / innerCount;
+    return { x: cx + radius * Math.cos(angle), y: cy + radius * Math.sin(angle) };
   });
-}
-/** The bottom 90 degrees stays clear of the sheet and lower labels. */
-export function outerRingPoints(
-  count: number,
-  width: number,
-  height: number,
-): RingPoint[] {
-  const radiusX = Math.max(24, width / 2 - 22),
-    radiusY = Math.max(24, height / 2 - 24);
-  return Array.from({ length: count }, (_, i) => {
-    const angle =
-      Math.PI * 0.75 + (Math.PI * 1.5 * (i + 0.5)) / Math.max(1, count);
-    return {
-      x: width / 2 + radiusX * Math.cos(angle),
-      y: height / 2 - 14 + radiusY * Math.sin(angle),
-      angle,
-    };
+  // Corners keep the mock's 390 point drawing, centred, so spacing is the same at every width.
+  const slots: MapPoint[] = [{ x: cx - 143, y: 40 }, { x: cx + 143, y: 40 }, { x: cx - 143, y: 334 }, { x: cx + 143, y: 334 }];
+  const links = inner.map(point => {
+    const d = Math.hypot(point.x - cx, point.y - cy), ux = (point.x - cx) / d, uy = (point.y - cy) / d;
+    return { from: { x: cx + ux * hub / 2, y: cy + uy * hub / 2 }, to: { x: point.x - ux * size / 2, y: point.y - uy * size / 2 } };
   });
+  return { cx, cy, radius, size, hub, many, height: MAP_HEIGHT, inner, outer: slots.slice(0, outerCount), links };
 }

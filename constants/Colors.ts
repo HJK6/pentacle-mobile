@@ -119,6 +119,9 @@ export const Tokens = {
     line: 'rgba(120,255,160,0.16)',
     green: '#3dff66',
     amber: '#ffb53d',
+    /** Blocked on lanes screens: bright yellow, always with a pattern (operator is colour-blind). */
+    yellow: '#ffe93d',
+    faint: '#557567',
     red: '#ff2e3e',
     star: '#bdffe0',
     codePanel: '#04100a',

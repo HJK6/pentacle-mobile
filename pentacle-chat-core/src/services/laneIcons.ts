@@ -20,11 +20,15 @@ export type LaneIconKey =
   | "chart"
   | "shield"
   | "key"
-  | "leaf";
+  | "leaf"
+  | "briefcase"
+  | "headset"
+  | "film"
+  | "server";
 export const LANE_ICON_KEYS: readonly LaneIconKey[] = table.icons.map(
   (row) => row.key as LaneIconKey,
 );
-/** The daemon and older clients share this ordered keyword data. */
+/** The daemon and older clients share this ordered keyword data. Keys without keywords are drawn only when sent. */
 export function laneIconFor(title: string): LaneIconKey | null {
   const text = title.toLocaleLowerCase("en-US");
   return (

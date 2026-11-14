@@ -5,7 +5,7 @@ import type { WorkLane, LaneIconKey } from "pentacle-chat-core";
 import { resolveLaneIcon } from "../../services/workLanes";
 import { Fonts, Tokens } from "@/constants/Colors";
 const p = Tokens.palette;
-// 24-unit approved design glyphs; the five additional contract keys use the same stroke grid.
+// 24-unit approved design glyphs; the additional contract keys use the same stroke grid.
 const GLYPHS: Record<LaneIconKey, React.ReactNode> = {
   pentacle: (
     <>
@@ -108,6 +108,26 @@ const GLYPHS: Record<LaneIconKey, React.ReactNode> = {
     <>
       <Circle cx="8" cy="8" r="5" />
       <Path d="M11.5 11.5L21 21M16 16l3-3M18 18l3-3" />
+    </>
+  ),
+  briefcase: (
+    <>
+      <Path d="M3 8h18v11H3zM9 8V5.5A1.5 1.5 0 0 1 10.5 4h3A1.5 1.5 0 0 1 15 5.5V8M3 13h18" />
+    </>
+  ),
+  headset: (
+    <>
+      <Path d="M4 14v-2a8 8 0 0 1 16 0v2M4 14h3v5H5a1 1 0 0 1-1-1zM20 14h-3v5h2a1 1 0 0 0 1-1zM17 19c0 1.5-2 2.5-5 2.5" />
+    </>
+  ),
+  film: (
+    <>
+      <Path d="M4 4h16v16H4zM8 4v16M16 4v16M4 9h4M4 15h4M16 9h4M16 15h4" />
+    </>
+  ),
+  server: (
+    <>
+      <Path d="M4 4h16v6H4zM4 14h16v6H4zM7.5 7h.01M7.5 17h.01" />
     </>
   ),
   leaf: (

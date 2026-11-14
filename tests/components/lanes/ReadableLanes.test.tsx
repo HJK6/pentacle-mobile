@@ -116,7 +116,7 @@ test('full fixture renders blocked facts and recent entries while ordinary specs
   const view = setup();
   fireEvent.press(view.getByTestId('lane-row-sample-lane-4'));
   await act(async () => {});
-  expect(view.getByText(/Review window requested/)).toBeTruthy();
+  expect(view.getByTestId('lane-road')).toBeTruthy();
   fireEvent.press(view.getByTestId('goal-head-g_sample_3_0'));
   await act(async () => {});
   fireEvent.press(view.getByTestId('spec-row-spec_sample__flow_2'));

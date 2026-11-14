@@ -1,9 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { AccessibilityInfo, Animated, Easing } from "react-native";
 
-/** One native loop for the entire constellation; static until OS preference is known. */
-export function useWorkingMotion(active: boolean, hasWorking: boolean) {
-  const phase = useRef(new Animated.Value(0)).current;
+/** Null until the OS preference is known, so nothing moves before it is read. */
+export function useReduceMotion() {
   const [reduceMotion, setReduceMotion] = useState<boolean | null>(null);
   useEffect(() => {
     let current = true;
@@ -23,6 +22,13 @@ export function useWorkingMotion(active: boolean, hasWorking: boolean) {
       listener?.remove();
     };
   }, []);
+  return reduceMotion;
+}
+
+/** One native loop per screen; every working mark on that screen reads the same phase. */
+export function useWorkingMotion(active: boolean, hasWorking: boolean, duration = 2000) {
+  const phase = useRef(new Animated.Value(0)).current;
+  const reduceMotion = useReduceMotion();
   const moving = active && hasWorking && reduceMotion === false;
   useEffect(() => {
     if (!moving) {
@@ -32,7 +38,7 @@ export function useWorkingMotion(active: boolean, hasWorking: boolean) {
     const animation = Animated.loop(
       Animated.timing(phase, {
         toValue: 1,
-        duration: 2000,
+        duration,
         easing: Easing.linear,
         useNativeDriver: true,
         isInteraction: false,
@@ -40,6 +46,6 @@ export function useWorkingMotion(active: boolean, hasWorking: boolean) {
     );
     animation.start();
     return () => animation.stop();
-  }, [phase, moving]);
+  }, [phase, moving, duration]);
   return { phase, moving };
 }

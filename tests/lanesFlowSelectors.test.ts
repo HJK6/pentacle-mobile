@@ -143,7 +143,7 @@ test("27 specs group by source state; deprecated folds with done", () => {
   );
 });
 test("stream icon wins; ordered keyword fallback; final two-letter monogram", () => {
-  expect(LANE_ICON_KEYS).toHaveLength(20);
+  expect(LANE_ICON_KEYS).toHaveLength(24);
   expect(laneIconFor("Mobile test infrastructure")).toBe("phone");
   expect(resolveLaneIcon(lane("a", { title: "Phone", icon: "leaf" }))).toEqual({
     key: "leaf",
