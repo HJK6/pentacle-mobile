@@ -321,3 +321,9 @@ test('the question button is also an accessibility action on its lane row', asyn
   expect(view.getByTestId(`lane-question-expanded-${lane(2)}`)).toBeTruthy();
   expect(view.getByTestId(`lane-row-${lane(2)}`).props.accessibilityActions).toEqual([{ name: 'question', label: 'Hide question' }]);
 }, 15_000);
+
+test('hatch patterns draw their own diagonal instead of rotating the tile', () => {
+  // iOS clips a rotated pattern tile to its unrotated bounds, which turned the stripes into triangles.
+  const src = fs.readFileSync(path.join(__dirname, '../../../src/components/lanes/RoadMarks.tsx'), 'utf8');
+  expect(src).not.toMatch(/patternTransform/);
+});

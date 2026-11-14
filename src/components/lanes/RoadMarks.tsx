@@ -8,9 +8,11 @@ import { mono, p } from './LaneAtoms';
 // Locked 2026-11-14: blocked is bright yellow and always carries a pattern, a hatch in rings and bars and a
 // strike in item marks and home dots, so meaning never rests on hue alone.
 const patternId = (id: string) => `hatch${id.replace(/[^a-zA-Z0-9]/g, '')}`;
+/** Diagonal stripes `gap` apart. The tile draws the diagonal itself: iOS clips a rotated pattern tile to slivers. */
 function Hatch({ id, gap, width, opacity = 1 }: { id: string; gap: number; width: number; opacity?: number }) {
-  return <Defs><Pattern id={id} patternUnits="userSpaceOnUse" width={gap} height={gap} patternTransform="rotate(45)">
-    <Rect x={0} y={0} width={width} height={gap} fill={p.yellow} opacity={opacity} />
+  const t = gap * Math.SQRT2, q = t / 4;
+  return <Defs><Pattern id={id} patternUnits="userSpaceOnUse" width={t} height={t}>
+    <Path d={`M${-q} ${q}L${q} ${-q}M0 ${t}L${t} 0M${t - q} ${t + q}L${t + q} ${t - q}`} stroke={p.yellow} strokeWidth={width} opacity={opacity} />
   </Pattern></Defs>;
 }
 
