@@ -90,7 +90,7 @@ export function GoalDots({ dots, more, testID }: { dots: GoalDot[]; more: number
         : <Svg width={dot === 'working' || dot === 'moving' ? 10 : 8} height={dot === 'working' || dot === 'moving' ? 10 : 8} viewBox="0 0 10 10">
           <Circle cx={5} cy={5} r={dot === 'done' || dot === 'working' ? 5 : 4.25}
             fill={dot === 'done' || dot === 'working' ? p.green : 'none'} fillOpacity={dot === 'done' ? 0.55 : 1}
-            stroke={dot === 'done' || dot === 'working' ? 'none' : dot === 'moving' ? p.green : p.faint} strokeWidth={1.5}
+            stroke={dot === 'done' || dot === 'working' ? 'none' : dot === 'moving' ? p.green : dot === 'next' ? p.muted : p.faint} strokeWidth={1.5}
             strokeDasharray={dot === 'later' ? '1.4 2' : undefined} />
         </Svg>}</View>
     </React.Fragment>)}
@@ -102,7 +102,7 @@ export function GoalDots({ dots, more, testID }: { dots: GoalDot[]; more: number
 export function RoadBar({ done, total, label, hatch = false, testID }: { done: number; total: number; label: string; hatch?: boolean; testID?: string }) {
   const id = patternId(useId()), fill = total ? Math.max(0, Math.min(1, done / total)) : 0, h = hatch ? 6 : 4;
   return <View testID={testID} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 7 }}>
-    <View style={{ flex: 1, height: h }}>
+    <View style={{ flex: 1, minWidth: 48, height: h }}>
       {hatch ? <Svg width="100%" height={h}>
         <Hatch id={`${id}a`} gap={7} width={2.8} opacity={0.3} /><Hatch id={`${id}b`} gap={7} width={3.5} />
         <Rect testID={testID ? `${testID}-hatch` : undefined} x={0} y={0} width="100%" height={h} rx={3} fill={`url(#${id}a)`} />
@@ -110,6 +110,6 @@ export function RoadBar({ done, total, label, hatch = false, testID }: { done: n
       </Svg> : <View style={{ flex: 1, borderRadius: 2, backgroundColor: `${p.green}1f`, overflow: 'hidden' }}>
         <View style={{ width: `${fill * 100}%`, height: '100%', backgroundColor: p.green }} /></View>}
     </View>
-    <Text style={mono}><Text style={{ color: p.dim }}>{done}/{total}</Text>{label}</Text>
+    <Text testID={testID ? `${testID}-label` : undefined} numberOfLines={1} style={{ ...mono, flexShrink: 0 }}><Text style={{ color: p.dim }}>{done}/{total}</Text>{label}</Text>
   </View>;
 }

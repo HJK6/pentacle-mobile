@@ -39,7 +39,7 @@ function Header({ hero, title, crumb, sub, subTone, onBack, onClose, onHero, her
 }) {
   return <View style={{ paddingHorizontal: 14, paddingBottom: 12, borderBottomWidth: 1, borderColor: p.line, flexDirection: 'row', alignItems: 'center', gap: 9 }}>
     {onBack ? <Pressable testID="lanes-back" accessibilityRole="button" accessibilityLabel="Back" onPress={onBack} style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}><View style={{ width: 32, height: 32, borderRadius: 16, borderWidth: 1, borderColor: p.line, alignItems: 'center', justifyContent: 'center' }}><Icon kind="back" /></View></Pressable> : null}
-    <View onLayout={e => onHero?.(e.nativeEvent.layout)} style={{ opacity: heroHidden ? 0 : 1 }}>{hero}</View>
+    <View testID="lanes-header-hero" onLayout={e => onHero?.(e.nativeEvent.layout)} style={{ opacity: heroHidden ? 0 : 1 }}>{hero}</View>
     <View style={{ flex: 1, minWidth: 0 }}>
       <Text testID="readable-header-title" numberOfLines={2} style={{ ...titleStyle, fontSize: 18, lineHeight: 21 }}>{title}</Text>
       {crumb || sub ? <Text numberOfLines={1} style={{ ...mono, letterSpacing: 0.3, marginTop: 2 }}>{crumb ? <Text>{crumb}</Text> : null}{crumb && sub ? ' · ' : null}{sub ? <Text style={{ color: subTone ?? p.muted }}>{sub}</Text> : null}</Text> : null}
@@ -155,7 +155,8 @@ function Home({ lanes, classes, inventory, assistantName, connected, active, exp
     const age = readableAge(cls === 'paused' ? model.lane.state_at : model.lane.progress_at);
     return { id: model.lane.lane_id, title: model.lane.title, lane: model.lane, kind: cls === 'working' ? 'working' : inner ? 'moving' : 'quiet',
       state: inner ? (age ? `${age} ago` : '') : [cls === 'paused' ? 'paused' : 'idle', age].filter(Boolean).join(' · '),
-      question: model.waitingOnYou > 0 || laneNeedsYou(model.lane), onPress: e => onOpen({ kind: 'lane', laneId: model.lane.lane_id }, e) };
+      question: model.waitingOnYou > 0 || laneNeedsYou(model.lane),
+      onPress: (e, ring) => onOpen({ kind: 'lane', laneId: model.lane.lane_id }, e, { ref: ring, node: <LaneMark lane={model.lane} quiet={quietClass(cls)} size={34} /> }) };
   };
   const cards = (group: LaneCardViewModel[]) => group.map((model, i) => <LaneCard key={model.lane.lane_id} first={i === 0} model={model} cls={classes.get(model.lane.lane_id)!} spark={spark}
     expanded={expanded === model.lane.lane_id} onOpen={onOpen} questionCard={expanded === model.lane.lane_id ? questionCard(model) : null}
@@ -316,21 +317,23 @@ function ParkedScreen({ lanes, onOpen, onBack, onClose, onHero, heroHidden }: { 
   return <>
     <Header hero={<Badge kind="parked" tone={p.muted} />} title="Parked" sub={`${lanes.length} ${lanes.length === 1 ? 'lane' : 'lanes'} on hold`} onBack={onBack} onClose={onClose} onHero={onHero} heroHidden={heroHidden} />
     <ScrollView contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 56 }}>
-      <View testID="readable-parked">{lanes.map(({ lane }, i) => {
-        const facts = [lane.parked?.at && readableDay(lane.parked.at) ? `parked ${readableDay(lane.parked.at)}` : null, lane.goals_total != null ? `${lane.goals_total} ${lane.goals_total === 1 ? 'goal' : 'goals'}` : null,
-          lane.items_open != null ? `${lane.items_open} ${lane.items_open === 1 ? 'item' : 'items'}` : null].filter(Boolean).join(' · ');
-        return <Pressable key={lane.lane_id} testID={`parked-lane-${lane.lane_id}`} accessibilityRole="button" onPress={e => onOpen({ kind: 'lane', laneId: lane.lane_id }, e)}
-          style={{ flexDirection: 'row', gap: 12, paddingVertical: 15, borderTopWidth: i ? 1 : 0, borderColor: p.line }}>
-          <LaneMark lane={lane} quiet size={36} />
-          <View style={{ flex: 1, minWidth: 0 }}>
-            <Text style={{ ...titleStyle, fontSize: 18 }}>{lane.title}</Text>
-            {lane.parked?.reason ? <Text style={{ ...body, marginTop: 4 }}>{lane.parked.reason}</Text> : null}
-            {facts ? <Text style={{ ...mono, marginTop: 8 }}>{facts}</Text> : null}
-          </View>
-        </Pressable>;
-      })}</View>
+      <View testID="readable-parked">{lanes.map(({ lane }, i) => <ParkedRow key={lane.lane_id} lane={lane} first={i === 0} onOpen={onOpen} />)}</View>
     </ScrollView>
   </>;
+}
+function ParkedRow({ lane, first, onOpen }: { lane: WorkLane; first: boolean; onOpen: Open }) {
+  const mark = useRef<View>(null);
+  const facts = [lane.parked?.at && readableDay(lane.parked.at) ? `parked ${readableDay(lane.parked.at)}` : null, lane.goals_total != null ? `${lane.goals_total} ${lane.goals_total === 1 ? 'goal' : 'goals'}` : null,
+    lane.items_open != null ? `${lane.items_open} ${lane.items_open === 1 ? 'item' : 'items'}` : null].filter(Boolean).join(' · ');
+  return <Pressable testID={`parked-lane-${lane.lane_id}`} accessibilityRole="button" onPress={e => onOpen({ kind: 'lane', laneId: lane.lane_id }, e, { ref: mark, node: <LaneMark lane={lane} quiet size={34} /> })}
+    style={{ flexDirection: 'row', gap: 12, paddingVertical: 15, borderTopWidth: first ? 0 : 1, borderColor: p.line }}>
+    <View ref={mark} collapsable={false}><LaneMark lane={lane} quiet size={36} /></View>
+    <View style={{ flex: 1, minWidth: 0 }}>
+      <Text style={{ ...titleStyle, fontSize: 18 }}>{lane.title}</Text>
+      {lane.parked?.reason ? <Text style={{ ...body, marginTop: 4 }}>{lane.parked.reason}</Text> : null}
+      {facts ? <Text style={{ ...mono, marginTop: 8 }}>{facts}</Text> : null}
+    </View>
+  </Pressable>;
 }
 
 export default function ReadableLanes({ lanes, inventory, assistantName, connected, top, bottom, onClose, readShow, active = true }: {

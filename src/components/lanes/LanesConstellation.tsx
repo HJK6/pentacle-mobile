@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useRef } from "react";
 import { Animated, Pressable, Text, View, type GestureResponderEvent } from "react-native";
 import Svg, { Circle, Ellipse } from "react-native-svg";
 import type { WorkLane } from "pentacle-chat-core";
@@ -17,7 +17,8 @@ export type ConstellationNode = {
   /** working: moving dashes on the link; moving: solid link at half strength. */
   kind: 'working' | 'moving' | 'quiet';
   question?: boolean;
-  onPress(event: GestureResponderEvent): void;
+  /** The ring is handed back so the tapped icon can fly into the lane header. */
+  onPress(event: GestureResponderEvent, ring: React.RefObject<View | null>): void;
 };
 type Motion = { phase: Animated.Value; moving: boolean };
 /** A link from the hub's edge to the lane ring's edge; the end markers let the render check measure both ends. */
@@ -52,11 +53,11 @@ function Label({ id, title, state, width, quiet, many, green }: { id: string; ti
   );
 }
 function Node({ node, point, size, quiet, many }: { node: ConstellationNode; point: MapPoint; size: number; quiet: boolean; many: boolean }) {
-  const width = quiet ? (many ? 84 : 92) : many ? 98 : 124;
+  const width = quiet ? (many ? 84 : 92) : many ? 98 : 124, ring = useRef<View>(null);
   return (
     <View style={{ position: "absolute", left: point.x - width / 2, top: point.y - size / 2, width, alignItems: "center" }}>
       <Pressable testID={`lanes-map-lane-${node.id}`} accessibilityRole="button" accessibilityLabel={`${node.title}, ${node.state}`}
-        onPress={node.onPress} hitSlop={quiet ? 7 : 2}
+        ref={ring} onPress={e => node.onPress(e, ring)} hitSlop={quiet ? 7 : 2}
         style={{ width: size, height: size, borderRadius: size / 2, alignItems: "center", justifyContent: "center", backgroundColor: p.ink }}>
         {quiet ? <View pointerEvents="none" style={{ position: 'absolute', width: size, height: size, borderRadius: size / 2, borderWidth: 1, borderColor: `${p.muted}55` }} />
           : <GoalRings lane={node.lane} size={size} color={p.green} />}

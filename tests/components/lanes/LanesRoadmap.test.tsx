@@ -268,3 +268,44 @@ test('no lanes component references the amber token', () => {
   const dir = path.join(__dirname, '../../../src/components/lanes');
   for (const file of fs.readdirSync(dir)) expect([file, /\bamber\b/.test(fs.readFileSync(path.join(dir, file), 'utf8'))]).toEqual([file, false]);
 });
+
+test('hero: the tapped lane icon flies into the lane header from a card, the map and the Parked list', async () => {
+  const MockNativeMethods = jest.requireActual('react-native/jest/MockNativeMethods').default;
+  const measure = MockNativeMethods.measureInWindow as jest.Mock;
+  measure.mockImplementation((done: (x: number, y: number, w: number, h: number) => void) => done(30, 300, 36, 36));
+  try {
+    const view = setup('views', { reduce: false });
+    await settle();
+    const flies = async (tap: string) => {
+      fireEvent.press(view.getByTestId(tap));
+      await settle();
+      expect(view.queryByTestId('lanes-hero-flight')).toBeNull();
+      fireEvent(within(view.getByTestId('lanes-layer-top')).getByTestId('lanes-header-hero'), 'layout', { nativeEvent: { layout: { x: 60, y: 8, width: 34, height: 34 } } });
+      expect(view.getByTestId('lanes-hero-flight')).toBeTruthy();
+    };
+    await flies(`lane-row-${lane(1)}`);
+    fireEvent.press(within(view.getByTestId('lanes-layer-top')).getByTestId('lanes-back'));
+    await flies(`lanes-map-lane-${lane(2)}`);
+    fireEvent.press(within(view.getByTestId('lanes-layer-top')).getByTestId('lanes-back'));
+    fireEvent.press(view.getByTestId('parked-button'));
+    await settle();
+    await flies(`parked-lane-${lane(12)}`);
+    await act(async () => { await new Promise(r => setTimeout(r, 600)); });
+    view.unmount();
+  } finally { measure.mockReset(); }
+});
+
+test('dots: next is a grey ring and later a faint dotted ring; a bar label never shrinks', async () => {
+  const view = setup();
+  await settle();
+  const circle = (id: RegExp) => view.UNSAFE_root.findAll(n => typeof n.props.testID === 'string' && id.test(n.props.testID))[0]
+    .findAll(n => n.props.r != null && n.props.stroke != null)[0].props;
+  expect(circle(/^lane-dots-.*-next$/).stroke).toBe('#7fa896');
+  expect(circle(/^lane-dots-.*-later$/)).toMatchObject({ stroke: '#557567', strokeDasharray: '1.4 2' });
+  fireEvent.press(view.getByTestId(`lane-row-${lane(1)}`));
+  await settle();
+  fireEvent.press(view.getByTestId('goal-head-g_road_views_1_5'));
+  await settle();
+  const style = [view.getByTestId('goal-bar-label').props.style].flat();
+  expect(Object.assign({}, ...style)).toMatchObject({ flexShrink: 0 });
+});

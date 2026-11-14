@@ -60,6 +60,12 @@ async function checkMap(page, width) {
   for (const d of inner) near(d, inner[0], 1, `${width} hub is not the centre of the lane ring circle`);
   receipt.maps.push({ width, hub: hub.width, inner: inner.length, radius: inner[0] });
 }
+/** A bar label stays whole and inside the screen's side gutter. */
+async function checkLabel(page, id, width) {
+  const box = await page.locator(tid(id)).evaluate(node => { const r = node.getBoundingClientRect(); return { right: r.right, clipped: node.scrollWidth > node.clientWidth + 0.5 }; });
+  assert(!box.clipped && box.right <= width - 16 + 0.5, `${id} clipped at ${width}: ${JSON.stringify(box)}`);
+  receipt.labels = [...(receipt.labels || []), { id, width, right: box.right }];
+}
 async function open(page, id, screen) { const target = page.locator(tid(id)); await target.scrollIntoViewIfNeeded(); await target.click(); await page.locator(tid(screen)).waitFor(); }
 async function back(page) { await page.locator(tid('lanes-back')).click(); await page.waitForTimeout(50); }
 async function run() {
@@ -75,6 +81,13 @@ async function run() {
       await page.evaluate(() => document.fonts.ready);
       await checkMap(page, width);
       if (width !== 430) await checkLabels(page, width);
+      if (width === 375) {
+        await open(page, `lane-row-${lane(1)}`, 'readable-lane');
+        await open(page, 'goal-head-g_road_views_1_5', 'readable-goal');
+        await checkLabel(page, 'goal-bar-label', width);
+        await open(page, 'spec-row-spec_road__views_1_23', 'readable-spec');
+        await checkLabel(page, 'spec-bar-label', width);
+      }
       if (width !== 390) { await page.close(); continue; }
       await shot(page, 'home');
       await page.locator(tid('readable-section-working-now')).evaluate(node => node.scrollIntoView());
@@ -92,6 +105,7 @@ async function run() {
       await shot(page, 'lane-blocked');
       await open(page, 'goal-head-g_road_views_1_3', 'readable-goal');
       await shot(page, 'goal');
+      await checkLabel(page, 'goal-bar-label', width);
       await page.locator(tid('goal-done-open')).click();
       await page.locator(tid('readable-section-later')).evaluate(node => node.scrollIntoView());
       await shot(page, 'goal-later-done');
@@ -104,6 +118,7 @@ async function run() {
       await open(page, 'goal-head-g_road_views_1_5', 'readable-goal');
       await open(page, 'spec-row-spec_road__views_1_23', 'readable-spec');
       await shot(page, 'item-blocked');
+      await checkLabel(page, 'spec-bar-label', width);
       await back(page); await back(page); await back(page);
       await open(page, `lane-row-${lane(2)}`, 'readable-lane');
       await shot(page, 'lane-question');
