@@ -118,7 +118,10 @@ function LaneCard({ model, cls, spark, expanded, first, onToggle, onOpen, questi
   </View>; };
   const open = (e: GestureResponderEvent) => onOpen({ kind: 'lane', laneId: lane.lane_id }, e, { ref: mark, node: <LaneMark lane={lane} quiet={quiet} size={34} /> });
   return <View style={{ borderTopWidth: first ? 0 : 1, borderColor: p.line }}>
-    <Pressable testID={`lane-row-${lane.lane_id}`} accessibilityRole="button" onPress={open} style={{ flexDirection: 'row', gap: 12, paddingVertical: 15 }}>
+    {/* iOS folds the question button into this row for VoiceOver, so the row also carries it as an action. */}
+    <Pressable testID={`lane-row-${lane.lane_id}`} accessibilityRole="button" onPress={open} style={{ flexDirection: 'row', gap: 12, paddingVertical: 15 }}
+      accessibilityActions={question ? [{ name: 'question', label: expanded ? 'Hide question' : 'Show question' }] : undefined}
+      onAccessibilityAction={e => { if (e.nativeEvent.actionName === 'question') onToggle(); }}>
       <View ref={mark} collapsable={false}><LaneMark lane={lane} quiet={quiet} size={36} /></View>
       <View style={{ flex: 1, minWidth: 0 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>

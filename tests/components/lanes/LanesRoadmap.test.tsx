@@ -309,3 +309,15 @@ test('dots: next is a grey ring and later a faint dotted ring; a bar label never
   const style = [view.getByTestId('goal-bar-label').props.style].flat();
   expect(Object.assign({}, ...style)).toMatchObject({ flexShrink: 0 });
 }, 15_000);
+
+test('the question button is also an accessibility action on its lane row', async () => {
+  const view = setup();
+  await settle();
+  const row = view.getByTestId(`lane-row-${lane(2)}`);
+  expect(row.props.accessibilityActions).toEqual([{ name: 'question', label: 'Show question' }]);
+  expect(view.getByTestId(`lane-row-${lane(3)}`).props.accessibilityActions).toBeUndefined();
+  fireEvent(row, 'accessibilityAction', { nativeEvent: { actionName: 'question' } });
+  await settle();
+  expect(view.getByTestId(`lane-question-expanded-${lane(2)}`)).toBeTruthy();
+  expect(view.getByTestId(`lane-row-${lane(2)}`).props.accessibilityActions).toEqual([{ name: 'question', label: 'Hide question' }]);
+}, 15_000);
