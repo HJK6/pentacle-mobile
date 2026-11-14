@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, LayoutAnimation, Pressable, ScrollView, Text, View, useWindowDimensions, type GestureResponderEvent } from 'react-native';
 import {
   derivedDefaultGoal, readableAge, readableDay, readableDots, readableHomeCounts, readableHours, readableItemKind, readableItemOrder, readableLaneClass,
-  readableLeadGoals, readableRoad, readableSeatCount, readableSentence, readableStopWord, readableTrouble,
+  readableCardGoals, readableLeadGoals, readableRoad, readableSeatCount, readableSentence, readableStopWord, readableTrouble,
   type ItemKind, type LaneClass, type RoadStop, type WorkLane, type WorkLaneMember, type WorkLaneRecent, type WorkLanesInventory,
 } from 'pentacle-chat-core';
 import { Fonts } from '@/constants/Colors';
@@ -58,8 +58,8 @@ function Section({ name, count, tone = p.muted }: { name: string; count?: number
     <View style={{ flex: 1, height: 1, backgroundColor: p.line }} />
   </View>;
 }
-function Fold({ id, text, onPress }: { id: string; text: string; onPress(): void }) {
-  return <Pressable testID={id} accessibilityRole="button" onPress={onPress} style={{ minHeight: 44, flexDirection: 'row', alignItems: 'center', borderTopWidth: 1, borderColor: p.line }}>
+function Fold({ id, text, onPress, divider = true }: { id: string; text: string; onPress(): void; divider?: boolean }) {
+  return <Pressable testID={id} accessibilityRole="button" onPress={onPress} style={{ minHeight: 44, flexDirection: 'row', alignItems: 'center', borderTopWidth: divider ? 1 : 0, borderColor: p.line }}>
     <Text style={{ ...body, fontSize: 14.5, color: p.muted, flex: 1 }}>{text}</Text><Icon kind="chevron" size={13} color={p.muted} />
   </Pressable>;
 }
@@ -82,7 +82,7 @@ function ItemRow({ member, small = false, pulse, first, onPress }: { member: Wor
 /** A list that really opens: the first `cap` rows, then the rest in place; a closed list opens on tap. */
 function ItemList({ id, members, cap, small, closed, pulse, onItem }: { id: string; members: WorkLaneMember[]; cap: number; small?: boolean; closed?: string; pulse: Motion; onItem(m: WorkLaneMember, e: GestureResponderEvent): void }) {
   const [all, setAll] = useState(false), [shut, setShut] = useState(!!closed);
-  if (shut) return <Fold id={`${id}-open`} text={`Show ${members.length} ${closed}`} onPress={() => setShut(false)} />;
+  if (shut) return <Fold id={`${id}-open`} text={`Show ${members.length} ${closed}`} divider={false} onPress={() => setShut(false)} />;
   return <>{(all ? members : members.slice(0, cap)).map((m, i) => <ItemRow key={m.spec_id} first={i === 0} member={m} small={small} pulse={pulse} onPress={e => onItem(m, e)} />)}
     {members.length > cap && !all ? <Fold id={`${id}-more`} text={`Show ${members.length - cap} more`} onPress={() => setAll(true)} /> : null}</>;
 }
@@ -104,13 +104,22 @@ function GoalRing({ stop, size, yellow, muted, spark }: { stop: RoadStop; size: 
 }
 
 /* ---------- home ---------- */
-function LaneCard({ model, cls, spark, expanded, first, onToggle, onOpen, questionCard }: {
-  model: LaneCardViewModel; first: boolean; cls: LaneClass; spark: Motion; expanded: boolean; onToggle(): void; onOpen: Open; questionCard: React.ReactNode;
+function LaneCard({ model, cls, spark, expanded, first, onToggle, onOpen, questionCard, connected, active, readShow }: {
+  connected: boolean; active: boolean; readShow?: ReadWorkLaneShow; model: LaneCardViewModel; first: boolean; cls: LaneClass; spark: Motion; expanded: boolean; onToggle(): void; onOpen: Open; questionCard: React.ReactNode;
 }) {
-  const { lane } = model, road = readableRoad(lane, { legacy: true }), lead = readableLeadGoals(lane, road), dots = readableDots(lane, road);
+  const listed = model.lane;
+  const missingGoals = (listed.goals_total ?? 0) > (listed.goals?.length ?? 0);
+  const detail = useWorkLaneShow(listed.lane_id, connected, active && missingGoals, readShow, listed.detail_revision, undefined, false);
+  const projection = detail.data?.lane_id === listed.lane_id
+    && (!listed.detail_revision || detail.data.detail_revision === listed.detail_revision) ? detail.data?.projection : undefined;
+  const lane = projection ? { ...listed, goals: projection.goals, goals_total: projection.goals_total, goal_classes: projection.goal_classes,
+    goal_counts: projection.goal_counts, goal_road: projection.goal_road, default_goal: projection.default_goal } : listed;
+  const road = readableRoad(lane, { legacy: !projection }), lead = missingGoals && !projection ? [] : readableCardGoals(lane, road), dots = readableDots(lane, road);
   const quiet = quietClass(cls), age = readableAge(cls === 'paused' ? lane.state_at : lane.progress_at);
-  const next = quiet ? road.find(stop => stop.position === 'next') : undefined;
-  const more = (lane.goal_counts?.[0] ?? 0) - lead.length, question = laneNeedsYou(lane), mark = useRef<View>(null);
+  const empty = missingGoals && !projection ? !connected ? 'Waiting for connection' : detail.error || detail.complete ? 'Goals unavailable · Open lane to retry' : 'Loading goals…'
+    : !road.length ? (lane.goals_total ?? 0) > 0 || (lane.default_goal?.total ?? 0) > 0 ? 'All goals finished' : 'No goals yet'
+      : road.every(stop => stop.goalClass === 'done') ? 'All goals finished' : 'No goal in progress';
+  const more = (lane.goal_counts?.[0] ?? 0) - lead.filter(stop => stop.goalClass === 'working' || stop.goalClass === 'moving').length, question = laneNeedsYou(lane), mark = useRef<View>(null);
   const line = (stop: RoadStop) => { const blocked = stop.goalClass === 'blocked'; return <View key={goalKey(stop.goal.goal_id)} testID={`lane-goal-line-${lane.lane_id}-${goalKey(stop.goal.goal_id)}`} style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 7 }}>
     <GoalRing stop={stop} size={18} spark={stop.goalClass === 'working' ? spark : null} />
     <Text numberOfLines={1} style={{ ...body, fontSize: 15, flex: 1, color: stop.goalClass === 'working' ? p.text : p.dim }}>{stop.goal.title}</Text>
@@ -134,15 +143,15 @@ function LaneCard({ model, cls, spark, expanded, first, onToggle, onOpen, questi
           {age ? <Text style={{ ...mono, letterSpacing: 0.6, color: cls === 'working' ? p.green : p.muted }}>{age}</Text> : null}
         </View>
         <GoalDots dots={dots.dots} more={dots.more} testID={`lane-dots-${lane.lane_id}`} />
-        {quiet ? next ? line(next) : null : lead.map(line)}
-        {!quiet && more > 0 ? <Text style={{ ...mono, marginTop: 8 }}>+{more} more in progress</Text> : null}
+        {lead.length ? lead.map(line) : <Text testID={`lane-goals-state-${lane.lane_id}`} style={{ ...body, color: p.muted, marginTop: 7 }}>{empty}</Text>}
+        {!quiet && !(missingGoals && !projection) && more > 0 ? <Text style={{ ...mono, marginTop: 8 }}>+{more} more in progress</Text> : null}
       </View>
     </Pressable>
     {expanded ? <View testID={`lane-question-expanded-${lane.lane_id}`} style={{ marginTop: -6, paddingBottom: 12 }}>{questionCard}</View> : null}
   </View>;
 }
-function Home({ lanes, classes, inventory, assistantName, connected, active, expanded, setExpanded, questionCard, onOpen, onClose }: {
-  lanes: LaneCardViewModel[]; classes: Map<string, LaneClass>; inventory?: WorkLanesInventory | null; assistantName: string; connected: boolean; active: boolean;
+function Home({ lanes, classes, inventory, assistantName, connected, active, expanded, setExpanded, questionCard, onOpen, onClose, readShow }: {
+  readShow?: ReadWorkLaneShow; lanes: LaneCardViewModel[]; classes: Map<string, LaneClass>; inventory?: WorkLanesInventory | null; assistantName: string; connected: boolean; active: boolean;
   expanded: string | null; setExpanded(id: string | null): void; questionCard(model: LaneCardViewModel): React.ReactNode; onOpen: Open; onClose(): void;
 }) {
   const { width } = useWindowDimensions();
@@ -157,11 +166,11 @@ function Home({ lanes, classes, inventory, assistantName, connected, active, exp
     const cls = classes.get(model.lane.lane_id)!, inner = cls === 'working' || cls === 'moving';
     const age = readableAge(cls === 'paused' ? model.lane.state_at : model.lane.progress_at);
     return { id: model.lane.lane_id, title: model.lane.title, lane: model.lane, kind: cls === 'working' ? 'working' : inner ? 'moving' : 'quiet',
-      state: inner ? (age ? `${age} ago` : '') : [cls === 'paused' ? 'paused' : 'idle', age].filter(Boolean).join(' · '),
+      state: inner ? (age ? `${age} ago` : '') : [cls === 'paused' ? null : 'idle', age].filter(Boolean).join(' · '),
       question: model.waitingOnYou > 0 || laneNeedsYou(model.lane),
       onPress: (e, ring) => onOpen({ kind: 'lane', laneId: model.lane.lane_id }, e, { ref: ring, node: <LaneMark lane={model.lane} quiet={quietClass(cls)} size={34} /> }) };
   };
-  const cards = (group: LaneCardViewModel[]) => group.map((model, i) => <LaneCard key={model.lane.lane_id} first={i === 0} model={model} cls={classes.get(model.lane.lane_id)!} spark={spark}
+  const cards = (group: LaneCardViewModel[]) => group.map((model, i) => <LaneCard key={model.lane.lane_id} first={i === 0} model={model} cls={classes.get(model.lane.lane_id)!} spark={spark} connected={connected} active={active} readShow={readShow}
     expanded={expanded === model.lane.lane_id} onOpen={onOpen} questionCard={expanded === model.lane.lane_id ? questionCard(model) : null}
     onToggle={() => setExpanded(expanded === model.lane.lane_id ? null : model.lane.lane_id)} />);
   return <>
@@ -170,7 +179,7 @@ function Home({ lanes, classes, inventory, assistantName, connected, active, exp
     <ScrollView testID="readable-lanes-scroll" contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 56 }}>
       <View testID="readable-home">
         <View style={{ marginHorizontal: -16, alignItems: 'center', borderBottomWidth: 1, borderColor: p.line }}>
-          <LanesConstellation width={Math.min(width, 430)} inner={busy.slice(0, 8).map(node)} outer={quiet.slice(0, 4).map(node)} more={Math.max(0, quiet.length - 4)} assistantName={assistantName} motion={mapMotion} />
+          <LanesConstellation width={Math.min(width, 430)} inner={busy.slice(0, 8).map(node)} outer={quiet.map(node)} assistantName={assistantName} motion={mapMotion} />
         </View>
         {connected && lanes.length === 0 ? <Text style={{ ...body, marginTop: 16 }}>No open lanes</Text> : null}
         {([['Working now', working, p.green], ['In progress', moving, p.muted], ['Idle', by('idle'), p.muted], ['Paused', by('paused'), p.muted]] as const)
@@ -387,7 +396,7 @@ export default function ReadableLanes({ lanes, inventory, assistantName, connect
   const render = (layer: { key: number; value: Entry; animateIn: boolean }, state: { top: boolean; heroHidden: boolean }) => {
     const entry = layer.value, live = active && state.top, chrome = { onBack: stack.back, onClose, onHero: (b: Box) => stack.heroAt(layer.key, { ...b, x: b.x + stack.offset.current.x, y: b.y + stack.offset.current.y }), heroHidden: state.heroHidden };
     if (entry.kind === 'home') return <Home lanes={lanes} classes={classes} inventory={inventory} assistantName={assistantName} connected={connected} active={live}
-      expanded={expanded} setExpanded={setExpanded} questionCard={questionCard} onOpen={open} onClose={onClose} />;
+      expanded={expanded} setExpanded={setExpanded} questionCard={questionCard} onOpen={open} onClose={onClose} readShow={readShow} />;
     if (entry.kind === 'parked') return <ParkedScreen lanes={lanes.filter(m => classes.get(m.lane.lane_id) === 'parked')} onOpen={open} {...chrome} />;
     if (!selected) return null;
     if (entry.kind === 'lane') return <LaneScreen model={selected} data={data} show={show} connected={connected} active={live} rise={layer.animateIn} onOpen={open} {...chrome} />;

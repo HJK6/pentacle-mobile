@@ -3,7 +3,7 @@ import test from 'node:test';
 import { readFileSync } from 'node:fs';
 import {
   normalizeWorkLanesInventory, parseWorkLaneShow, readableDots, readableHomeCounts, readableItemKind, readableItemOrder,
-  readableLaneClass, readableLeadGoals, readableRoad, readableStopWord, type RoadStop, type WorkLane, type WorkLaneGoal, type WorkLaneMember,
+  readableCardGoals, readableLaneClass, readableLeadGoals, readableRoad, readableStopWord, type RoadStop, type WorkLane, type WorkLaneGoal, type WorkLaneMember,
 } from '../src/index.ts';
 
 const fixture = JSON.parse(readFileSync(new URL('./fixtures/work-lanes-inventory.json', import.meta.url), 'utf8'));
@@ -163,4 +163,18 @@ test('goal_road reader is valid only as a whole and never rejects a lane', () =>
     assert.equal(lanes[0].goals?.length, 2, name);
     assert.ok(lanes[0].goals?.every(x => x.pos === undefined), name);
   }
+});
+
+
+test('home card priority differs from working-first lane expansion', () => {
+  for (const [letters, expected] of [
+    ['qqq', ['g0']], ['dqq', ['g1']], ['mqq', ['g0']], ['wqq', ['g0']], ['bqq', ['g0']],
+    ['qmq', ['g0', 'g1']], ['qbw', ['g1', 'g2']], ['bmw', ['g0', 'g1']], ['mwq', ['g0', 'g1']], ['ddd', []],
+  ] as const) {
+    const item = lane({ goals: [...letters].map((c, i) => g(`g${i}`, i)), goal_classes: `${letters}-` });
+    assert.deepEqual(ids(readableCardGoals(item)), expected, letters);
+  }
+  assert.deepEqual(readableCardGoals(lane()), []);
+  const item = lane({ goals: [g('queued', 1)], goal_classes: 'qm', default_goal: { state: 'in_progress', done: 0, total: 3 } });
+  assert.deepEqual(ids(readableCardGoals(item)), ['queued', 'default']);
 });

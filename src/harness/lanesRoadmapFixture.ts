@@ -44,7 +44,7 @@ function plans(variant: RoadmapVariant, at: (hours: number) => string): LanePlan
     { title: 'Bad goal road', icon: 'shield', progressH: 1, road: false, goals: [{ title: 'Still listed', items: [['in_progress']] }] },
   ];
   return [
-    { title: 'Pentacle', icon: 'pentacle', progressH: 0.2, goals: road },
+    { title: 'Pentacle', icon: 'pentacle', progressH: 0.2, goals: road, loose: q(8, 'completed') },
     { title: 'Mobile app', icon: 'phone', progressH: 1, question: true, goals: [
       { title: 'Signed builds', items: [['in_progress', '?'], ['in_progress'], ['completed'], ['completed'], ['backlog']] },
       { title: 'Voice capture', items: [['needs_qa'], ['completed'], ['ready_for_dev']] },
@@ -61,6 +61,7 @@ function plans(variant: RoadmapVariant, at: (hours: number) => string): LanePlan
     { title: 'Garden', icon: 'leaf', progressH: 96, goals: [{ title: 'Watering schedule', items: [['blocked'], ['backlog']] }, { title: 'Seed order', items: q(2) }] },
     { title: 'Home', icon: 'home', progressH: 120, goals: [{ title: 'Light timers', items: [['completed'], ['ready_for_dev']] }] },
     { title: 'Docs', icon: 'book', progressH: 200, goals: [{ title: 'Setup guide', items: q(3) }] },
+    ...Array.from({ length: 9 }, (_, i): LanePlan => ({ title: `Paused project ${i + 1}`, icon: 'book', state: 'paused', progressH: 200 + i * 24, stateH: 180 + i * 24, goals: [{ title: `Next step ${i + 1}`, items: q(2) }] })),
     { title: 'Camera rig', icon: 'camera', state: 'paused', progressH: 400, stateH: 300, parked: { at: at(13 * 24), reason: 'Waiting for the new lens to arrive.' },
       goals: [{ title: 'Calibrate', items: q(3) }, { title: 'Mount', items: q(2) }] },
     { title: 'Market review', icon: 'chart', state: 'paused', progressH: 600, stateH: 500, parked: { at: null, reason: null }, goals: [{ title: 'Weekly notes', items: q(2) }] },
@@ -139,7 +140,7 @@ export function lanesRoadmapFixture(variant: RoadmapVariant = 'views', now = Dat
     // The open question's member is inline so the home card sees it, as the list frame does for open questions.
     const asking = members.find(m => m.open_questions?.count);
     if (asking && !lane.members!.some(m => m.spec_id === asking.spec_id)) lane.members = [...lane.members!.slice(0, 7), asking];
-    shows[laneId] = { lane_id: laneId, projection: { ...lane, goals } as WorkLane, members, updates: [], spec_changes: [], events: [] };
+    shows[laneId] = { lane_id: laneId, projection: { ...lane, goals, ...(plan.classes === false ? {} : { goal_classes: `${letters.join('')}${loose.length ? letter(loose) : '-'}` }) } as WorkLane, members, updates: [], spec_changes: [], events: [] };
     if (questionId) {
       sessions.push({ stream_id: lead, host: 'hosta', provider: 'codex', session_name: `road-lead-${li + 1}`, title: plan.title, online: true, working: false,
         draft: '', pending: false, last_event_at: at(0), last_kind: 'ASSIST_TEXT', last_text: 'Ready for review.' } as PentacleSessionSummary);

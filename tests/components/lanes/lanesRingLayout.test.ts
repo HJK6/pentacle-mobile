@@ -11,6 +11,24 @@ test.each([375, 390, 430])('map at %i wide: hub is an inner ring, centred on the
       expect(Math.hypot(from.x - map.cx, from.y - map.cy)).toBeCloseTo(map.hub / 2, 6);
       expect(Math.hypot(to.x - point.x, to.y - point.y)).toBeCloseTo(map.size / 2, 6);
     }
-    expect(map.outer.map(p => p.x)).toEqual([width / 2 - 143, width / 2 + 143, width / 2 - 143, width / 2 + 143]);
+    expect(map.outer).toHaveLength(4);
+    expect(map.outer[0].x).toBe(map.outer[2].x);
+    expect(map.outer[1].x).toBe(map.outer[3].x);
+    expect(map.outer[0].x + map.outer[1].x).toBe(width);
+  }
+});
+
+
+test.each([320, 375, 390, 430])('every outer lane has a distinct in-bounds position at %i', width => {
+  for (const count of [5, 9, 13, 20]) {
+    const map = mapLayout(8, count, width);
+    expect(map.outer).toHaveLength(count);
+    expect(new Set(map.outer.map(p => `${p.x},${p.y}`)).size).toBe(count);
+    for (const p of map.outer) {
+      expect(p.x - 42).toBeGreaterThanOrEqual(0);
+      expect(p.x + 42).toBeLessThanOrEqual(width);
+      expect(p.y - 15).toBeGreaterThanOrEqual(0);
+      expect(p.y + 46).toBeLessThan(map.height);
+    }
   }
 });

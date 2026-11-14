@@ -51,6 +51,24 @@ and shows the default name. Setup is in the README's
 
 ## Work lanes
 
+The graph draws every non-parked lane, including all paused lanes, without an
+overflow badge. Quiet rows expand above and below the central ring as needed;
+the graph scrolls with the page. Paused nodes use their muted appearance and age
+without repeating a state label. Parked lanes remain behind the Parked button.
+
+Home cards show at most two unfinished goals. Working, in-progress and blocked
+goals all count as started. If none has started, show the first unfinished goal.
+If exactly one has started, show it alone when it is first in lane order;
+otherwise show the first unstarted goal followed by that started goal. With two
+or more started goals, show the first two started goals in lane order. Paused
+cards follow the same rule. Lane-detail expansion keeps its existing behavior.
+
+Home cards fill missing goals from one lane-detail response when the bounded
+inventory omits goals. This does not page through historical members. A failed
+or stale response keeps an explicit unavailable state with lane navigation for
+retry; lanes with no goals or only finished goals have explicit empty states.
+The collapsed Finished earlier list shares its section's single divider.
+
 Open `/pentacle/lanes` from the assistant header. The header counts lanes
 working, in progress and quiet (idle plus paused). The map puts every working or
 in-progress lane on the inner ring, up to eight; the hub is the size of an inner
