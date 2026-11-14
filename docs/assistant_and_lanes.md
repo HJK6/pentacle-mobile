@@ -66,7 +66,7 @@ cards follow the same rule. Lane-detail expansion keeps its existing behavior.
 Home cards fill missing goals from one lane-detail response when the bounded
 inventory omits goals. This does not page through historical members. A failed
 or stale response keeps an explicit unavailable state with lane navigation for
-retry; lanes with no goals or only finished goals have explicit empty states.
+retry. This change leaves empty and completed lane presentation unchanged.
 The collapsed Finished earlier list shares its section's single divider.
 
 Open `/pentacle/lanes` from the assistant header. The header counts lanes

@@ -359,14 +359,15 @@ test('home fills a working goal omitted from the bounded inventory using one det
 });
 
 
-test.each(['empty', 'completed'])('home gives an honest %s state', async state => {
+test.each(['empty', 'completed'])('home preserves existing %s lane presentation', async state => {
   const view = setup('views', { edit: inventory => {
     const l = inventory.lanes[7];
     if (state === 'empty') { l.goals = []; l.goals_total = 0; l.goal_classes = '-'; l.goal_road = ''; l.goal_counts = [0, 0, 0, 0]; }
     else { l.goals = l.goals!.map(g => ({ ...g, state: 'done' as const, done: g.total })); l.goal_classes = 'd-'; l.goal_road = 'd'; l.goal_counts = [0, 0, 0, 1]; }
   } });
   await settle();
-  expect(view.getByTestId(`lane-goals-state-${lane(8)}`)).toHaveTextContent(state === 'empty' ? /No goals yet/ : /All goals finished/);
+  expect(view.queryByTestId(`lane-goals-state-${lane(8)}`)).toBeNull();
+  expect(view.queryAllByTestId(new RegExp(`^lane-goal-line-${lane(8)}-`))).toHaveLength(0);
 });
 
 

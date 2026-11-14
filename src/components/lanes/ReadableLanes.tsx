@@ -116,9 +116,8 @@ function LaneCard({ model, cls, spark, expanded, first, onToggle, onOpen, questi
     goal_counts: projection.goal_counts, goal_road: projection.goal_road, default_goal: projection.default_goal } : listed;
   const road = readableRoad(lane, { legacy: !projection }), lead = missingGoals && !projection ? [] : readableCardGoals(lane, road), dots = readableDots(lane, road);
   const quiet = quietClass(cls), age = readableAge(cls === 'paused' ? lane.state_at : lane.progress_at);
-  const empty = missingGoals && !projection ? !connected ? 'Waiting for connection' : detail.error || detail.complete ? 'Goals unavailable · Open lane to retry' : 'Loading goals…'
-    : !road.length ? (lane.goals_total ?? 0) > 0 || (lane.default_goal?.total ?? 0) > 0 ? 'All goals finished' : 'No goals yet'
-      : road.every(stop => stop.goalClass === 'done') ? 'All goals finished' : 'No goal in progress';
+  const goalLoadState = missingGoals && !projection
+    ? !connected ? 'Waiting for connection' : detail.error || detail.complete ? 'Goals unavailable · Open lane to retry' : 'Loading goals…' : null;
   const more = (lane.goal_counts?.[0] ?? 0) - lead.filter(stop => stop.goalClass === 'working' || stop.goalClass === 'moving').length, question = laneNeedsYou(lane), mark = useRef<View>(null);
   const line = (stop: RoadStop) => { const blocked = stop.goalClass === 'blocked'; return <View key={goalKey(stop.goal.goal_id)} testID={`lane-goal-line-${lane.lane_id}-${goalKey(stop.goal.goal_id)}`} style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 7 }}>
     <GoalRing stop={stop} size={18} spark={stop.goalClass === 'working' ? spark : null} />
@@ -143,7 +142,7 @@ function LaneCard({ model, cls, spark, expanded, first, onToggle, onOpen, questi
           {age ? <Text style={{ ...mono, letterSpacing: 0.6, color: cls === 'working' ? p.green : p.muted }}>{age}</Text> : null}
         </View>
         <GoalDots dots={dots.dots} more={dots.more} testID={`lane-dots-${lane.lane_id}`} />
-        {lead.length ? lead.map(line) : <Text testID={`lane-goals-state-${lane.lane_id}`} style={{ ...body, color: p.muted, marginTop: 7 }}>{empty}</Text>}
+        {lead.length ? lead.map(line) : goalLoadState ? <Text testID={`lane-goals-state-${lane.lane_id}`} style={{ ...body, color: p.muted, marginTop: 7 }}>{goalLoadState}</Text> : null}
         {!quiet && !(missingGoals && !projection) && more > 0 ? <Text style={{ ...mono, marginTop: 8 }}>+{more} more in progress</Text> : null}
       </View>
     </Pressable>
