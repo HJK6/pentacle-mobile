@@ -51,30 +51,39 @@ and shows the default name. Setup is in the README's
 
 ## Work lanes
 
-Open `/pentacle/lanes` from the assistant header. The overview combines the
-lane map with a list grouped into Moving, Stalled, Idle and Paused. The first
-two lead goals supply the map rings. A stalled lane is amber, an open question
-has a badge, and paused lanes appear on the outer orbit. Ages come from progress
-or the time the lane entered its paused state; an unknown age is omitted.
+Open `/pentacle/lanes` from the assistant header. The header counts lanes
+working, in progress and quiet (idle plus paused). The map puts every working or
+in-progress lane on the inner ring, up to eight; the hub is the size of an inner
+lane ring and links run from edge to edge. Idle and paused lanes sit at the four
+corners, then `+N`. The list below has Working now, In progress, Idle and Paused,
+then a `Parked · N` button. A lane card shows a dot per goal in goal order, up to
+two lead goals (working first, then in progress) and `+N more in progress`; an
+idle or paused lane shows its next goal instead. A lane with an open question has
+a yellow `?` button that expands the shipped question card inside the card.
 
-Open a lane to see its goals and the existing question card. The app pages
-`work_lanes.show` until membership is complete, and groups goals by their
-projected class. Open a goal to see its specs, then open a spec for its stage,
-criteria, readable status and next lines, trouble signals and recent progress.
-Back returns through the same hierarchy. A question on a spec returns to the
-lane card. Raw status text, host/provider details, lane history and chat links
-are not shown on these screens.
+A lane screen draws the lane's goals as a road, one stop per goal in goal order.
+The two lead goals are expanded with their bar and up to three item rows; every
+other stop is one line with a state word. Done members under no goal appear
+under Finished earlier. A goal lists every item in Working now, Needs you, In
+progress, Blocked, Next up, Later and Done. The item screen is the shipped spec
+screen. Parked lanes are never on the map or in the sections.
 
-The shared core owns classification, lead-goal selection, sentence selection,
-age and hour formatting, and trouble signals. New projection fields are
-optional: older daemons use the goal-state fallback, while absent ages,
-summaries and other optional facts are omitted. Working animation respects
-Reduce Motion and stops when the screen is inactive.
+Blocked is bright yellow and always carries a pattern: a hatched ring, a striped
+bar, or a struck circle for an item mark and a home dot. Something moves only
+where an agent is working now: the map link, a spark on the home goal ring, the
+dashed rail and the item mark on a lane, the header spark and item mark on a
+goal. Only the top screen animates. Screens open from the tapped point and back;
+with Reduce Motion they replace each other and nothing loops.
 
-The synthetic `lanes:readable_full`, `lanes:readable_sparse` and
-`lanes:readable_old` fixtures exercise the complete, missing-field and older
-wire shapes. The [screenshot harness](SCREENSHOT_HARNESS.md) captures the real
-components; native release validation remains separate.
+The shared core (`readableLanes.ts`) owns goal order and numbers, next and
+later, lane class, lead goals, dots, item kind and the stop state word. The
+normalizer reads the daemon's `parked` and `goal_road` lane keys; a missing or
+malformed value hides only the element that needs it.
+
+The `lanes:roadmap_*` fixtures follow the daemon wire contract. The older
+`lanes:readable_*` fixtures still cover sparse and older wire shapes. The
+[screenshot harness](SCREENSHOT_HARNESS.md) captures the real components; native
+release validation remains separate.
 
 ## Capture notes
 

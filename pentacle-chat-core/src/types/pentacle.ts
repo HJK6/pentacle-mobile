@@ -814,6 +814,14 @@ export interface WorkLaneGoal extends WorkLaneDefaultGoal {
   rank: number;
   target_date?: string;
   icon?: import('../services/laneIcons').LaneIconKey | null;
+  /** Zero-based index in the lane's `goal_road`; present only while that road is valid. */
+  pos?: number;
+}
+
+/** An on-hold lane. Absent means not parked; the lane state stays one of the accepted values. */
+export interface WorkLaneParked {
+  at: string | null;
+  reason: string | null;
 }
 
 export interface WorkLane extends WorkLaneAggregates {
@@ -843,6 +851,9 @@ export interface WorkLane extends WorkLaneAggregates {
   freshness_at?: string | null;
   goal_classes?: string;
   goal_counts?: [number, number, number, number];
+  /** One class letter per named goal of the lane, in goal order, excluding the default goal. */
+  goal_road?: string;
+  parked?: WorkLaneParked;
   progress_at?: string | null;
   state_at?: string | null;
   recent?: WorkLaneRecent[];

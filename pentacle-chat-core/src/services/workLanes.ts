@@ -236,6 +236,16 @@ function normalizeGoal(value: unknown): WorkLaneGoal | undefined {
   };
 }
 
+// Valid only as a whole: one letter per goal of the lane and a distinct in-range `pos` on every sent goal.
+function normalizeGoalRoad(raw: Obj, goals: WorkLaneGoal[] | undefined): { letters: string; pos: number[] } | null {
+  const letters = raw.goal_road, rawGoals = raw.goals;
+  if (!goals || !Array.isArray(rawGoals) || typeof letters !== 'string' || !/^[dwmbq]*$/.test(letters)
+    || letters.length !== raw.goals_total) return null;
+  const pos = rawGoals.map(goal => obj(goal)?.pos);
+  if (!pos.every((at): at is number => count(at) && at < letters.length) || new Set(pos).size !== pos.length) return null;
+  return { letters, pos };
+}
+
 function normalizeProgress(raw: Obj): Partial<WorkLane> {
   const progress: Partial<WorkLane> = {};
   if (typeof raw.goal_classes === 'string' && Array.isArray(raw.goals)
@@ -253,6 +263,16 @@ function normalizeProgress(raw: Obj): Partial<WorkLane> {
       && new Set(goals.map(goal => goal.goal_id)).size === goals.length) progress.goals = goals;
   }
   if (count(raw.goals_total)) progress.goals_total = raw.goals_total;
+  const road = normalizeGoalRoad(raw, progress.goals);
+  if (road) {
+    progress.goal_road = road.letters;
+    progress.goals = progress.goals!.map((goal, i) => ({ ...goal, pos: road.pos[i] }));
+  }
+  const parked = obj(raw.parked);
+  if (parked) progress.parked = {
+    at: typeof parked.at === 'string' && nullableTimestamp(parked.at) ? parked.at : null,
+    reason: typeof parked.reason === 'string' && parked.reason.trim() ? parked.reason.slice(0, 160) : null,
+  };
   const defaultGoal = normalizeDefaultGoal(raw.default_goal);
   if (defaultGoal) progress.default_goal = defaultGoal;
   if (typeof raw.detail_revision === 'string' && /^[a-f0-9]{64}$/.test(raw.detail_revision))

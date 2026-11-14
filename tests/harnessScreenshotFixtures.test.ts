@@ -88,6 +88,23 @@ describe('screenshot harness fixtures', () => {
     expect(FIXTURES[`lanes:readable_${variant}`].workLaneShows?.[lane.lane_id].members.length).toBeGreaterThan(8);
   });
 
+  it('roadmap fixtures seed the final daemon contract through the production reducer', () => {
+    const views = selectWorkLanes(seed('lanes:roadmap_views'));
+    expect(views).toHaveLength(13);
+    expect(views.filter(lane => lane.parked)).toHaveLength(2);
+    const road = views.find(lane => lane.title === 'Pentacle')!;
+    expect(road.goal_road).toHaveLength(10);
+    expect(road.goals?.map(goal => goal.pos)).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
+    expect(views.filter(lane => lane.members?.some(m => (m.open_questions?.count ?? 0) > 0))).toHaveLength(2);
+    expect(seed('lanes:roadmap_views').notifications.filter(n => n.question)).toHaveLength(2);
+    const overflow = selectWorkLanes(seed('lanes:roadmap_overflow'))[0];
+    expect([overflow.goals?.length, overflow.goals_total, overflow.goal_road, overflow.goal_counts?.[0]]).toEqual([8, 11, undefined, 1]);
+    expect(selectWorkLanes(seed('lanes:roadmap_no_classes'))[0].goal_classes).toBeUndefined();
+    const malformed = selectWorkLanes(seed('lanes:roadmap_malformed'));
+    expect(malformed).toHaveLength(2);
+    expect(malformed.map(lane => [lane.parked, lane.goal_road])).toEqual([[undefined, expect.any(String)], [undefined, undefined]]);
+  });
+
   it('lanes:empty seeds no lanes', () => {
     expect(selectOpenLaneCount(seed('lanes:empty'))).toBe(0);
   });

@@ -93,7 +93,7 @@ test("absent stays absent, explicit null stays null, malformed optional fields d
     { spec_id: "s" },
   );
 });
-test("twenty icon keys and ordered keyword matching come from the one JSON file", () => {
+test("twenty-four icon keys and ordered keyword matching come from the one JSON file", () => {
   const table = JSON.parse(
     readFileSync(new URL("../lane_icons.json", import.meta.url), "utf8"),
   );
@@ -101,7 +101,7 @@ test("twenty icon keys and ordered keyword matching come from the one JSON file"
     LANE_ICON_KEYS,
     table.icons.map((row: { key: string }) => row.key),
   );
-  assert.equal(new Set(LANE_ICON_KEYS).size, 20);
+  assert.equal(new Set(LANE_ICON_KEYS).size, 24);
   assert.equal(laneIconFor("MOBILE test tools"), "phone");
   assert.equal(laneIconFor("Unrecognised orchard"), null);
 });

@@ -22,7 +22,7 @@ test('lane classes use uncapped counts and lead goals use class letters and rank
   const item = lane({ goals, goal_counts: [1, 9, 2, 0], goal_classes: 'bbbbbbbm-' });
   assert.equal(readableLaneClass(item), 'moving');
   assert.deepEqual(readableLeadGoals(item).map(x => x.goal.goal_id), ['7']);
-  assert.equal(readableLaneClass(lane({ goal_counts: [0, 1, 0, 0], goal_classes: '-' })), 'stalled');
+  assert.equal(readableLaneClass(lane({ goal_counts: [0, 1, 0, 0], goal_classes: '-' })), 'idle');
   assert.equal(readableLaneClass(lane({ goal_counts: [0, 0, 3, 1], goal_classes: '-' })), 'idle');
   assert.equal(readableLaneClass(lane({ state: 'paused', goal_counts: [1, 0, 0, 0] })), 'paused');
 });
@@ -54,8 +54,8 @@ test('trouble uses the p75 threshold and newest stage transition', () => {
 
 test('missing classes fall back to legacy state and empty goals stay queued', () => {
   assert.equal(readableGoalClass({ ...goal, total: 0, working: true }, 'w'), 'queued');
-  assert.equal(readableLaneClass(lane({ goals: [{ ...goal, goal_id: 'g', title: 'G', rank: 1 }], goal_counts: [0, 1, 0, 0] })), 'moving');
-  assert.equal(readableLaneClass(lane({ goals: [{ ...goal, goal_id: 'g', title: 'G', rank: 1, state: 'not_started' }], goal_counts: [0, 1, 0, 0] })), 'idle');
+  assert.equal(readableLaneClass(lane({ goals: [{ ...goal, goal_id: 'g', title: 'G', rank: 1 }] })), 'moving');
+  assert.equal(readableLaneClass(lane({ goals: [{ ...goal, goal_id: 'g', title: 'G', rank: 1, state: 'not_started' }] })), 'idle');
 });
 test('trouble thresholds require all inputs and a full two days', () => {
   const now = Date.parse('2026-11-10T12:00:00Z');
@@ -79,5 +79,5 @@ test('a moving default goal uses the lane title and sorts last', () => {
   const item = lane({ goal_counts: [3, 0, 0, 0], goal_classes: 'mmw',
     goals: [{ ...goal, goal_id: 'later', title: 'Later', rank: 5 }, { ...goal, goal_id: 'earlier', title: 'Earlier', rank: 1 }],
     default_goal: { ...goal } });
-  assert.deepEqual(readableLeadGoals(item).map(x => x.goal.title), ['Earlier', 'Later', 'Lane']);
+  assert.deepEqual(readableLeadGoals(item).map(x => x.goal.title), ['Lane', 'Earlier']);
 });
