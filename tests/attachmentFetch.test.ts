@@ -57,8 +57,31 @@ test('fetchRenderAttachments fetches URI-less daemon blob refs and caches them a
     attachmentIndex: 0,
   }]);
 
+  mockGetInfoAsync.mockResolvedValue({ exists: true });
   await fetchRenderAttachments([{ key: 'f'.repeat(64), mime: 'image/jpeg' }]);
   expect(mockFetchBlobBase64).toHaveBeenCalledTimes(1);
+});
+
+test('a sent image with a removed local preview resolves from its durable blob key', async () => {
+  const key = 'd'.repeat(64);
+  mockGetInfoAsync.mockResolvedValue({ exists: false });
+  const rendered = await fetchRenderAttachments([
+    { key, mime: 'image/jpeg', width: 120, height: 240,
+      uri: 'file:///documents/outbox/finished/image-0.asset' } as any,
+  ]);
+  expect(mockFetchBlobBase64).toHaveBeenCalledWith(key);
+  expect(rendered?.[0].uri).toBe(`file:///cache/pentacle-chat-attachments/${key}.jpg`);
+});
+
+test('a present local preview stays local and a removed cache is fetched again', async () => {
+  const attachment = { key: 'e'.repeat(64), mime: 'image/png', uri: 'file:///preview.png' };
+  mockGetInfoAsync.mockResolvedValue({ exists: true });
+  expect((await fetchRenderAttachments([attachment]))?.[0].uri).toBe(attachment.uri);
+  expect(mockFetchBlobBase64).not.toHaveBeenCalled();
+  mockGetInfoAsync.mockResolvedValue({ exists: false });
+  await fetchRenderAttachments([attachment]);
+  await fetchRenderAttachments([attachment]);
+  expect(mockFetchBlobBase64).toHaveBeenCalledTimes(2);
 });
 
 test('attachment render helpers omit absent and non-local media instead of fabricating URIs', async () => {

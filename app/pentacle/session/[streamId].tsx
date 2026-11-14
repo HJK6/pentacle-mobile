@@ -73,7 +73,6 @@ import RenameChatModal from '../../../src/components/RenameChatModal';
 import { AgentThreadHistoryModal, type AgentThreadHistoryTarget } from '../../../src/components/AgentThreadHistoryModal';
 import { Spinner } from '../../../src/components/ArcaneAtoms';
 import { AttachmentBubble } from '../../../src/components/AttachmentBubble';
-import { isImageAttachment } from '../../../src/services/fileAttachmentShare';
 import { ImageViewerModal } from '../../../src/components/ImageViewerModal';
 import { createImageGallery, type ImageGallery } from '../../../src/services/imageGallery';
 import ReportViewerModal from '../../../src/components/ReportViewerModal';
@@ -4067,6 +4066,7 @@ export const TranscriptRow = memo(function TranscriptRow({
   attachments,
   queuedWhileWorking = false,
   onPressAttachment,
+  onAttachmentError,
   onRetry,
   canSendNow = false,
   onSendNow,
@@ -4085,6 +4085,7 @@ export const TranscriptRow = memo(function TranscriptRow({
   // Positive provider queue receipt, never inferred from a busy/origin hint.
   queuedWhileWorking?: boolean;
   onPressAttachment?: (uri: string, attachmentIndex: number) => void;
+  onAttachmentError?: () => void;
   // FEAT-SEND-RETRY: tap-to-retry a "failed sending" row (re-arm → re-transmit).
   onRetry?: (optimisticId: string) => void;
   canSendNow?: boolean;
@@ -4198,6 +4199,7 @@ export const TranscriptRow = memo(function TranscriptRow({
                 borderColor={P.userBorder}
                 testID={`message-image-${i}`}
                 onPress={() => onPressAttachment?.(att.uri, att.attachmentIndex ?? i)}
+                onError={onAttachmentError}
               />
             ))}
           </View>
@@ -4429,6 +4431,7 @@ export const TranscriptRow = memo(function TranscriptRow({
               borderColor={chrome.border}
               testID={`assistant-message-image-${i}`}
               onPress={() => onPressAttachment?.(att.uri, att.attachmentIndex ?? i)}
+              onError={onAttachmentError}
             />
           ))}
         </View>
@@ -4489,17 +4492,20 @@ function TranscriptRowWithFetchedAttachments({
     [item.attachments],
   );
   const [fetchedAttachments, setFetchedAttachments] = useState<RenderAttachment[] | undefined>(localAttachments);
+  const [retryFromBlob, setRetryFromBlob] = useState(false);
+
+  useEffect(() => { setRetryFromBlob(false); }, [item.attachments]);
 
   useEffect(() => {
     let cancelled = false;
-    if (!item.attachments?.length || item.attachments.every(a => !isImageAttachment(a.mime) || typeof (a as { uri?: unknown }).uri === 'string')) {
+    if (!item.attachments?.length) {
       setFetchedAttachments(localAttachments);
       return () => {
         cancelled = true;
       };
     }
     setFetchedAttachments(localAttachments);
-    fetchRenderAttachments(item.attachments)
+    fetchRenderAttachments(item.attachments, { ignoreLocalUri: retryFromBlob })
       .then((next) => {
         if (!cancelled) setFetchedAttachments(next);
       })
@@ -4509,9 +4515,10 @@ function TranscriptRowWithFetchedAttachments({
     return () => {
       cancelled = true;
     };
-  }, [item.attachments, localAttachments]);
+  }, [item.attachments, localAttachments, retryFromBlob]);
 
-  return <TranscriptRow item={item} {...props} attachments={fetchedAttachments} />;
+  return <TranscriptRow item={item} {...props} attachments={fetchedAttachments}
+    onAttachmentError={() => setRetryFromBlob(true)} />;
 }
 
 function ToolInvocationCard({

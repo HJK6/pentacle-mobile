@@ -16,6 +16,15 @@ Keep fixtures synthetic and preserve protocol fields, error messages, author
 prefixes and config keys: those values affect behavior even in synthetic data.
 The test host configuration uses hosta, hostb, and hostc.
 
+Sent-image recovery is covered by `tests/attachmentFetch.test.ts` and
+`tests/composerPhotoSend.test.tsx`. A delivered row can retain a preview URI
+after its outbox file or cache has been removed. The resolver checks local
+files and retrieves missing images using their durable blob keys. Native image
+failure triggers one fallback to the blob path, covering removal between the
+file check and decode. Disk cache entries are checked again on later resolution.
+The same resolver serves the full-screen viewer. Keep native screenshot and
+image-load telemetry proof separate from these filesystem/socket fixture tests.
+
 `tests/summaryFallbackFormatting.test.ts` replays the same captured synthetic
 provider-ingestion fixture as the web core/browser regression. Before transcript
 backfill, summary bubbles preserve Markdown and code whitespace. Once the matching

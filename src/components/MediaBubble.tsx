@@ -46,6 +46,7 @@ export interface MediaBubbleProps {
   width?: number;
   height?: number;
   onPress: () => void;
+  onError?: () => void;
   testID: string;
   borderColor: string;
 }
@@ -61,6 +62,7 @@ function MediaBubbleSource({
   width,
   height,
   onPress,
+  onError,
   testID,
   borderColor,
 }: MediaBubbleProps) {
@@ -101,6 +103,7 @@ function MediaBubbleSource({
           onError={() => {
             setLoading(false);
             setBroken(true);
+            onError?.();
           }}
           testID={`${testID}-img`}
         />
