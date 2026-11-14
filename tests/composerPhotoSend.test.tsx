@@ -62,15 +62,20 @@ jest.mock('@react-navigation/native', () => ({ useIsFocused: () => true }));
 jest.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ bottom: 0, left: 0, right: 0, top: 0 }) }));
 jest.mock('../src/hooks/usePentacleToken', () => jest.fn());
 const mockUploadBlobBase64 = jest.fn();
+const mockFetchBlobBase64 = jest.fn();
+const mockGetInfoAsync = jest.fn();
 jest.mock('expo-file-system/legacy', () => ({
   readAsStringAsync: jest.fn(async (uri: string) => `b64:${uri}`),
   writeAsStringAsync: jest.fn(),
   cacheDirectory: 'file:///cache/',
   documentDirectory: 'file:///docs/',
   EncodingType: { Base64: 'base64' },
+  getInfoAsync: (...args: unknown[]) => mockGetInfoAsync(...args),
+  makeDirectoryAsync: jest.fn().mockResolvedValue(undefined),
 }));
 jest.mock('../src/services/pentacleStream', () => ({
   uploadBlobBase64: (...args: unknown[]) => mockUploadBlobBase64(...args),
+  fetchBlobBase64: (...args: unknown[]) => mockFetchBlobBase64(...args),
   sendPhotoOutbox: (_id: string, assets: unknown[]) => require('../src/services/attachmentUpload').uploadStagedAttachments(assets),
   usePentacleStreamActions: jest.fn(),
   usePentacleStreamSelectorWhen: jest.fn(),
@@ -182,6 +187,9 @@ function resetState() {
 beforeEach(() => {
   jest.useFakeTimers({ now: new Date('2026-05-13T12:00:00.000Z') });
   resetState();
+  require('../src/services/attachmentFetch').clearAttachmentFetchCacheForTests();
+  mockGetInfoAsync.mockResolvedValue({ exists: true, size: 100 });
+  mockFetchBlobBase64.mockResolvedValue({ content_b64: 'aGVsbG8=', size_bytes: 5 });
   resetStagedAttachments();
   (usePentacleToken as jest.Mock).mockReturnValue({ isReady: true, token: 'test' });
   (usePentacleStreamActions as jest.Mock).mockReturnValue(mockActions);
@@ -250,6 +258,37 @@ beforeEach(() => {
   mockActions.sendMessage.mockResolvedValue(true);
   mockInputFocus.mockClear();
   mockKeyboardDismiss.mockClear();
+});
+
+test('a delivered image recovers a removed preview through the daemon attachment path', async () => {
+  const key = 'd'.repeat(64);
+  mockGetInfoAsync.mockResolvedValue({ exists: false });
+  mockState.events = [event({ kind: 'USER', text: 'Sent image',
+    attachments: [{ key, mime: 'image/jpeg', width: 120, height: 240,
+      uri: 'file:///documents/outbox/finished/image-0.asset' } as any] })];
+  render(<SessionScreen />);
+  await act(async () => {});
+  expect(mockFetchBlobBase64).toHaveBeenCalledWith(key);
+  expect(screen.getByTestId('message-image-0-img').props.source.uri)
+    .toBe(`file:///cache/pentacle-chat-attachments/${key}.jpg`);
+});
+
+test('a preview lost after the existence check recovers once after native image failure', async () => {
+  const key = 'e'.repeat(64);
+  const uri = 'file:///preview.jpg';
+  mockState.events = [event({ kind: 'USER', text: 'Sent image',
+    attachments: [{ key, mime: 'image/jpeg', uri } as any] })];
+  render(<SessionScreen />);
+  await act(async () => {});
+  expect(screen.getByTestId('message-image-0-img').props.source.uri).toBe(uri);
+  expect(mockFetchBlobBase64).not.toHaveBeenCalled();
+  mockGetInfoAsync.mockResolvedValue({ exists: false });
+  await act(async () => { fireEvent(screen.getByTestId('message-image-0-img'), 'error'); });
+  expect(mockFetchBlobBase64).toHaveBeenCalledTimes(1);
+  expect(screen.getByTestId('message-image-0-img').props.source.uri)
+    .toBe(`file:///cache/pentacle-chat-attachments/${key}.jpg`);
+  await act(async () => { fireEvent(screen.getByTestId('message-image-0-img'), 'error'); });
+  expect(mockFetchBlobBase64).toHaveBeenCalledTimes(1);
 });
 
 afterEach(() => {

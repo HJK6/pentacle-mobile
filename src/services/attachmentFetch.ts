@@ -8,7 +8,6 @@ import { isImageAttachment, fileType } from './fileAttachmentShare';
 type AttachmentWithLocalUri = ChatAttachment & { uri?: unknown };
 
 const CACHE_DIR = `${FileSystem.cacheDirectory || ''}pentacle-chat-attachments/`;
-const memoryCache = new Map<string, string>();
 const inFlight = new Map<string, Promise<string>>();
 
 function extensionForMime(mime: string) {
@@ -26,8 +25,6 @@ async function ensureCacheDir() {
 async function fetchAttachmentUri(attachment: ChatAttachment): Promise<string> {
   const key = String(attachment.key || '').trim();
   if (!key) throw new Error('Missing attachment key');
-  const cached = memoryCache.get(key);
-  if (cached) return cached;
   const existing = inFlight.get(key);
   if (existing) return existing;
 
@@ -36,7 +33,6 @@ async function fetchAttachmentUri(attachment: ChatAttachment): Promise<string> {
     const uri = cachePath(attachment);
     const info = await FileSystem.getInfoAsync(uri);
     if (info.exists) {
-      memoryCache.set(key, uri);
       return uri;
     }
     const fetched = await fetchBlobBase64(key);
@@ -44,7 +40,6 @@ async function fetchAttachmentUri(attachment: ChatAttachment): Promise<string> {
     await FileSystem.writeAsStringAsync(uri, fetched.content_b64, {
       encoding: FileSystem.EncodingType.Base64,
     });
-    memoryCache.set(key, uri);
     return uri;
   })().finally(() => {
     inFlight.delete(key);
@@ -66,19 +61,29 @@ export function renderAttachmentsWithLocalUris(attachments?: ChatAttachment[]): 
 }
 
 /** The viewer uses the same local/cache resolver as transcript rows, including unmounted rows. */
-export async function resolveImageAttachment(attachment: ChatAttachment): Promise<string> {
+export async function resolveImageAttachment(
+  attachment: ChatAttachment,
+  options: { ignoreLocalUri?: boolean } = {},
+): Promise<string> {
   if (!isImageAttachment(attachment.mime)) throw new Error('Unsupported image');
   const uri = (attachment as AttachmentWithLocalUri).uri;
-  if (typeof uri === 'string' && uri) return uri;
+  if (!options.ignoreLocalUri && typeof uri === 'string' && uri) {
+    if (!uri.startsWith('file:')) return uri;
+    const info = await FileSystem.getInfoAsync(uri).catch(() => null);
+    if (info?.exists && !info.isDirectory) return uri;
+  }
   return fetchAttachmentUri(attachment);
 }
 
-export async function fetchRenderAttachments(attachments?: ChatAttachment[]): Promise<RenderAttachment[] | undefined> {
+export async function fetchRenderAttachments(
+  attachments?: ChatAttachment[],
+  options: { ignoreLocalUri?: boolean } = {},
+): Promise<RenderAttachment[] | undefined> {
   if (!attachments?.length) return undefined;
   const renderAttachments: RenderAttachment[] = await Promise.all(attachments.map(async (attachment, attachmentIndex) => {
     if (!isImageAttachment(attachment.mime)) return { kind: 'file' as const, uri: '', attachment };
     return {
-      uri: await resolveImageAttachment(attachment),
+      uri: await resolveImageAttachment(attachment, options),
       width: attachment.width,
       height: attachment.height,
       attachmentIndex,
@@ -88,6 +93,5 @@ export async function fetchRenderAttachments(attachments?: ChatAttachment[]): Pr
 }
 
 export function clearAttachmentFetchCacheForTests() {
-  memoryCache.clear();
   inFlight.clear();
 }
