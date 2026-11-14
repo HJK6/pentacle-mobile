@@ -55,7 +55,8 @@ The `screen:variant` list is the `FIXTURES` registry in `src/harness/screenshotF
 `lanes:roadmap_views` seeds twenty-two lanes in the daemon's final wire shape:
 seven in progress (one working with ten goals and a valid `goal_road`), ten paused
 lanes, three idle lanes, two parked lanes and two lanes with an open question and
-a matching question. `lanes:roadmap_overflow`, `_loose`, `_loose_done`,
+a matching question. `lanes:roadmap_busy` covers thirteen busy lanes and one
+parked lane, including navigation from the outer rows. `lanes:roadmap_overflow`, `_loose`, `_loose_done`,
 `_no_classes` and `_malformed` cover more goals than the frame sends, members
 under no goal, older daemons and malformed keys. `lanes:readable_sparse` and
 `lanes:readable_old` still cover missing optional fields.

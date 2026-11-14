@@ -92,6 +92,13 @@ async function run() {
         await checkLabel(page, 'spec-bar-label', width);
       }
       if (width !== 390) { await page.close(); continue; }
+      await seed(page, 'roadmap_busy');
+      assert.equal(await page.locator('[data-testid^="lanes-map-lane-"]:visible').count(), 13);
+      assert.equal(await page.locator(tid('lanes-map-lane-road-lane-busy-14')).count(), 0);
+      await checkLabels(page, width);
+      await open(page, 'lanes-map-lane-road-lane-busy-13', 'readable-lane');
+      await back(page);
+      await seed(page, 'roadmap_views');
       await shot(page, 'home');
       await page.locator(tid('readable-section-working-now')).evaluate(node => node.scrollIntoView());
       await shot(page, 'home-list');

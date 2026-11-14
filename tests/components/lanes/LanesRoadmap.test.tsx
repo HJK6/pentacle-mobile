@@ -419,3 +419,23 @@ test.each([
   await settle();
   expect(view.queryAllByTestId(new RegExp(`^lane-goal-line-${lane(8)}-`)).map(n => n.props.testID)).toEqual(expected.map(n => `lane-goal-line-${lane(8)}-choice-${n}`));
 });
+
+
+test('every busy lane beyond the eight inner slots remains on the graph', async () => {
+  const view = setup('views', { edit: inventory => {
+    for (const l of inventory.lanes) if (!l.parked) {
+      l.state = 'active'; l.goal_counts = [1, 0, 0, 0];
+      l.goal_classes = `${'m'.repeat(l.goals?.length ?? 0)}-`;
+      l.goal_road = 'm'.repeat(l.goals_total ?? 0);
+    }
+  } });
+  await settle();
+  const graph = within(view.getByTestId('lanes-constellation'));
+  const expected = view.fixture.inventory.lanes.filter(l => !l.parked);
+  expect(expected.length).toBeGreaterThanOrEqual(13);
+  expect(graph.queryAllByTestId(/^lanes-map-lane-/)).toHaveLength(expected.length);
+  for (const lane of expected) expect(graph.getByTestId(`lanes-map-lane-${lane.lane_id}`)).toBeTruthy();
+  fireEvent.press(graph.getByTestId(`lanes-map-lane-${expected.at(-1)!.lane_id}`));
+  await settle();
+  expect(view.readShow).toHaveBeenCalledWith(expected.at(-1)!.lane_id, expect.anything());
+});

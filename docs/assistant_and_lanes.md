@@ -70,14 +70,14 @@ retry. This change leaves empty and completed lane presentation unchanged.
 The collapsed Finished earlier list shares its section's single divider.
 
 Open `/pentacle/lanes` from the assistant header. The header counts lanes
-working, in progress and quiet (idle plus paused). The map puts every working or
-in-progress lane on the inner ring, up to eight; the hub is the size of an inner
-lane ring and links run from edge to edge. Idle and paused lanes sit at the four
-corners, then `+N`. The list below has Working now, In progress, Idle and Paused,
-then a `Parked · N` button. A lane card shows a dot per goal in goal order, up to
-two lead goals (working first, then in progress) and `+N more in progress`; an
-idle or paused lane shows its next goal instead. A lane with an open question has
-a yellow `?` button that expands the shipped question card inside the card.
+working, in progress and quiet (idle plus paused). The inner ring has eight
+slots; additional working or in-progress lanes join the expanding outer rows
+alongside idle and paused lanes. The hub is the size of an inner lane ring and
+links run from edge to edge. The list below has Working now, In progress, Idle
+and Paused, then a `Parked · N` button. Cards show a dot per goal, the selected
+goals described above and a count of additional in-progress goals when present.
+A lane with an open question has a yellow `?` button that expands the shipped
+question card inside the card.
 
 A lane screen draws the lane's goals as a road, one stop per goal in goal order.
 The two lead goals are expanded with their bar and up to three item rows; every

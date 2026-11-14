@@ -8,7 +8,7 @@ type LanePlan = {
   title: string; icon: string; state?: 'active' | 'paused'; progressH: number; stateH?: number; question?: boolean;
   parked?: { at: string | null; reason: string | null } | unknown; goals: GoalPlan[]; loose?: Item[]; road?: boolean; classes?: boolean;
 };
-export type RoadmapVariant = 'views' | 'overflow' | 'loose' | 'loose_done' | 'no_classes' | 'malformed';
+export type RoadmapVariant = 'views' | 'busy' | 'overflow' | 'loose' | 'loose_done' | 'no_classes' | 'malformed';
 
 const sentences: Record<string, string> = {
   in_progress: 'Building the screen against the fixtures.', needs_qa: 'Waiting for the final review.', analysis: 'Writing the plan.',
@@ -31,6 +31,11 @@ function plans(variant: RoadmapVariant, at: (hours: number) => string): LanePlan
     { title: 'Daemon goal rule', items: [['ready_for_dev'], ['backlog']] },
     { title: 'Faster lane detail', items: q(2) },
     { title: 'Lane history', items: q(4) },
+  ];
+  if (variant === 'busy') return [
+    ...Array.from({ length: 13 }, (_, i): LanePlan => ({ title: `Active lane ${i + 1}`, icon: 'book', progressH: i + 1,
+      goals: [{ title: `Current goal ${i + 1}`, items: [['in_progress', i % 2 ? '' : 'w'], ['backlog']] }] })),
+    { title: 'Parked project', icon: 'camera', state: 'paused', progressH: 200, parked: { at: at(200), reason: 'On hold.' }, goals: [{ title: 'Later', items: q(2) }] },
   ];
   if (variant === 'overflow') return [{ title: 'Long road', icon: 'columns', progressH: 3, road: false,
     goals: Array.from({ length: 11 }, (_, i) => ({ title: `Stage ${i + 1}`, items: i === 9 ? [['in_progress'], ['backlog']] : q(2) })) }];

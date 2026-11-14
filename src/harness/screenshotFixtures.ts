@@ -1109,7 +1109,7 @@ export const FIXTURES: Record<string, HarnessFixture> = {
     const f = readableLanesFixture(variant);
     return [`lanes:readable_${variant}`, { snapshot: { ...questionsEmbeddedFixture().snapshot, work_lanes: { type: 'work_lanes.inventory', ...f.inventory } }, opts: SEEDED, workLaneShows: f.shows }];
   })),
-  ...Object.fromEntries((['views', 'overflow', 'loose', 'loose_done', 'no_classes', 'malformed'] as RoadmapVariant[]).map(variant => {
+  ...Object.fromEntries((['views', 'busy', 'overflow', 'loose', 'loose_done', 'no_classes', 'malformed'] as RoadmapVariant[]).map(variant => {
     const f = lanesRoadmapFixture(variant);
     return [`lanes:roadmap_${variant}`, { snapshot: { ...EMPTY_SNAPSHOT, sessions: f.sessions, notifications: f.notifications,
       work_lanes: { type: 'work_lanes.inventory', ...f.inventory } }, opts: SEEDED, workLaneShows: f.shows }];
