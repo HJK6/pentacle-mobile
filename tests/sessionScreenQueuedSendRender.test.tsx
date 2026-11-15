@@ -197,3 +197,20 @@ test('default-send regression: busy origin alone stays Sending until provider qu
   expect(has(renderer, 'user-send-sending')).toBe(true);
   act(() => { renderer.unmount(); });
 });
+
+test('failed text row is the shared option-B row: retry symbol, X deletes, no Retry word', () => {
+  const onRetry = jest.fn(); const onDiscard = jest.fn();
+  const { fireEvent } = require('@testing-library/react-native');
+  const renderer = render(
+    <TranscriptRow item={userItem({ sendState: 'failed', optimisticId: 'opt-1' })} chrome={chrome} queuedWhileWorking={false} onRetry={onRetry} onDiscard={onDiscard} />,
+  );
+  expect(has(renderer, 'user-send-failed')).toBe(true);
+  expect(allTextNodes(renderer)).toContain('Failed sending');
+  expect(allTextNodes(renderer)).not.toContain('Retry');
+  expect(renderer.getByTestId('user-send-retry').props.accessibilityLabel).toBe('Retry sending');
+  fireEvent.press(renderer.getByTestId('user-send-retry'));
+  expect(onRetry).toHaveBeenCalledWith('opt-1');
+  fireEvent.press(renderer.getByTestId('user-send-discard'));
+  expect(onDiscard).toHaveBeenCalledWith('opt-1');
+  act(() => { renderer.unmount(); });
+});

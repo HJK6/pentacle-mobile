@@ -218,9 +218,10 @@ or transcription.
 
 Separately, presentation stops unresolved progress 130 seconds after persisted
 `sendRequestedAt`, including queued and server-owned work. Checking is immediately
-shown as Delivery unconfirmed. The message retains safe recovery controls; route
-changes, relaunch and retry do not reset this display deadline. It changes neither
-stored delivery state nor receipt truth. Check again also reconciles an active
+shown as Failed sending, except during the budget of an explicit retry until lookup
+proves absence. The message retains safe recovery controls; route changes and
+relaunch do not reset this display deadline. It changes neither stored delivery
+state nor receipt truth. The retry symbol's lookup also reconciles an active
 server mandate without a client dispatch intent through existing outbound lookup,
 without creating an intent, uploading, transcribing or dispatching.
 
@@ -248,16 +249,16 @@ Only matching typed landed receipts/results or authoritative correlated canonica
 USER proof can terminalize the take. Bare true, `send.ok`, accepted/persisted,
 proof-unavailable, empty lookup, and timeout are not landed. Explicit generation
 mismatches are rejected; a wire generation field is not invented when the existing
-receipt omits it. Unknown stays Checking delivery, with Check again or Remove local
-copy. When an authenticated lookup on the current connection returns `found:false`
+receipt omits it. Unknown reads Failed sending; its retry symbol looks the receipt up
+again and its X removes the local copy. When an authenticated lookup on the current connection returns `found:false`
 (the daemon holds no receipt for the exact request, for example because the send
-frame was lost with the socket), the take also offers Send again. It re-sends the
+frame was lost with the socket), the retry symbol replays instead. It re-sends the
 identical persisted intent: same request ID, sequence and payload, with no new
 upload, transcription or request-ID rotation. Replay safety comes from the daemon's
 exact-request-ID claim and the assistant composite's immutable input identity, not
 from absence alone. Absence is process memory, valid only for the connection that
-proved it, and is never automatic: only the explicit action re-sends. Removing after dispatch warns that delivery may already have happened and
-never claims to unsend. Image-bearing outcomes may remain unknown where existing
+proved it, and is never automatic: only the explicit action re-sends. Removing after
+dispatch deletes the local copy at once (operator choice, 2026-11-15) and never claims to unsend. Image-bearing outcomes may remain unknown where existing
 proof cannot establish them. Exactly-once claims are limited to the existing durable
 receipt or composite-ID dedup evidence.
 

@@ -17,16 +17,19 @@ const GREEN = Tokens.palette.green;
 export default function VoiceBubble({
   levels,
   durationS,
+  failed = false,
   testID = 'voice-bubble',
 }: {
   levels: number[];
   durationS: number;
+  /** A failed send outlines the bubble in amber, like a failed text bubble. */
+  failed?: boolean;
   testID?: string;
 }) {
   const bars = downsampleLevels(levels ?? [], BUBBLE_BARS);
   return (
-    <View testID={testID} style={styles.wrap}>
-      <Bevel cut={10} fill={`${GREEN}16`} stroke={`${GREEN}55`} contentStyle={styles.row}>
+    <View testID={testID} style={[styles.wrap, failed && styles.failed]}>
+      <Bevel cut={10} fill={`${GREEN}16`} stroke={failed ? Tokens.palette.amber : `${GREEN}55`} contentStyle={styles.row}>
         <Svg width={12} height={12} viewBox="0 0 24 24">
           <Path d="M7 4l13 8-13 8z" fill={GREEN} />
         </Svg>
@@ -54,6 +57,7 @@ export default function VoiceBubble({
 
 const styles = StyleSheet.create({
   wrap: { alignSelf: 'flex-end', maxWidth: '84%' },
+  failed: { opacity: 0.72 },
   row: {
     flexDirection: 'row',
     alignItems: 'center',

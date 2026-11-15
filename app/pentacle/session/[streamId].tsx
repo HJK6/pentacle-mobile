@@ -53,13 +53,13 @@ import Starfield from '../../../src/components/Starfield';
 import StatusTag from '../../../src/components/StatusTag';
 import { StatusOverlay } from '../../../src/components/SessionStatusCard';
 import SendingIndicator from '../../../src/components/SendingIndicator';
+import { SendFailedRow } from '../../../src/components/SendStatusRow';
 import GlobalVoiceBar from '../../../src/components/voice/GlobalVoiceBar';
 import HeaderVoiceMic from '../../../src/components/voice/HeaderVoiceMic';
 import { compactHeaderLayout } from '../../../src/components/headerLayout';
 import { useVoiceSurface, useVoiceBarVisible, useVoiceBarOccupiesComposer, useVoiceChatStart } from '../../../src/services/voicePresentation';
 import { ASSISTANT_STREAM_ID, selectAssistantIdentity } from '../../../src/services/assistantIdentity';
-import VoiceBubble from '../../../src/components/voice/VoiceBubble';
-import VoiceMessageStatus from '../../../src/components/voice/VoiceMessageStatus';
+import VoiceMessageStatus, { removeVoiceMessage } from '../../../src/components/voice/VoiceMessageStatus';
 import { VoiceAnswersStatusNote, voiceAnswersItemCount } from '../../../src/components/questions/voice';
 import { DiscardGlyph, MicGlyph, VoiceRecordFace, recordButtonStyle } from '../../../src/components/voice/VoiceGlyphs';
 import { voiceRecorder } from '../../../src/services/voiceRecordingEngine';
@@ -2529,6 +2529,16 @@ export function SessionScreen(props: SessionScreenProps) {
       presentSendError(error);
     }
   }, [actions, presentSendError]);
+  const discardFromChat = useCallback(async (optimisticId: string) => {
+    try {
+      // A voice-owned row deletes its retained take, like X on the voice message itself.
+      const take = voiceDelivery.snapshot().takes.find(t => t.manifest.dispatchIntent?.optimisticId === optimisticId);
+      if (take) await removeVoiceMessage(take);
+      else await actions.discardFailedOptimisticSend(optimisticId);
+    } catch (error) {
+      presentSendError(error);
+    }
+  }, [actions, presentSendError]);
   const renderTranscriptItem = useCallback(({ item }: { item: PentacleTranscriptItem }) => (
 	    <View style={[styles.machineGroup, harnessExpandedRowId === item.id && styles.harnessExpandedRow]}>
       {item.timestampLabel ? <Text {...NON_SELECTABLE_TEXT} style={styles.machineTimestamp}>{item.timestampLabel}</Text> : null}
@@ -2542,6 +2552,7 @@ export function SessionScreen(props: SessionScreenProps) {
         queuedWhileWorking={item.queuedWhileWorking === true}
         onPressAttachment={(_uri, attachmentIndex) => openImageViewer(item.id, attachmentIndex)}
         onRetry={retryFromChat}
+        onDiscard={discardFromChat}
         canSendNow={item.queuedWhileWorking === true && Boolean(item.optimisticId) && (actions.canSendQueuedNow?.(streamId, item.optimisticId as string) ?? false)}
         onSendNow={async (id) => {
           try {
@@ -2562,7 +2573,7 @@ export function SessionScreen(props: SessionScreenProps) {
         })}
       />
     </View>
-	  ), [openImageViewer, chrome, copyFromChat, directChildForTranscript, harnessExpandedRowId, latestThinkingRowId, retryFromChat, session?.session_generation, showTurnDuration, streamId, actions, composerNotice]);
+	  ), [openImageViewer, chrome, copyFromChat, directChildForTranscript, discardFromChat, harnessExpandedRowId, latestThinkingRowId, retryFromChat, session?.session_generation, showTurnDuration, streamId, actions, composerNotice]);
   const loadedEarlierRemaining = detail?.remainingCount || 0;
   const loadEarlierAvailable = loadedEarlierRemaining > 0 || hasOlderHistoryPage;
   useEffect(() => {
@@ -4068,6 +4079,7 @@ export const TranscriptRow = memo(function TranscriptRow({
   onPressAttachment,
   onAttachmentError,
   onRetry,
+  onDiscard,
   canSendNow = false,
   onSendNow,
   directChild,
@@ -4088,6 +4100,7 @@ export const TranscriptRow = memo(function TranscriptRow({
   onAttachmentError?: () => void;
   // FEAT-SEND-RETRY: tap-to-retry a "failed sending" row (re-arm → re-transmit).
   onRetry?: (optimisticId: string) => void;
+  onDiscard?: (optimisticId: string) => void;
   canSendNow?: boolean;
   onSendNow?: (optimisticId: string) => void;
   directChild?: ChildAgent | null;
@@ -4206,8 +4219,7 @@ export const TranscriptRow = memo(function TranscriptRow({
         ) : null}
         {voiceTake ? (
           <>
-            <VoiceMessageStatus take={voiceTake} answerCount={voiceTake.manifest.frozenAnswers?.length ?? voiceAnswersItemCount(voiceTake.recordingId)} />
-            <VoiceBubble levels={voiceTake.levels} durationS={voiceTake.durationS} />
+            <VoiceMessageStatus take={voiceTake} accent={chrome.accent} answerCount={voiceTake.manifest.frozenAnswers?.length ?? voiceAnswersItemCount(voiceTake.recordingId)} />
           </>
         ) : item.voice ? <View style={styles.voiceCaptionRow} testID="voice-message-caption" accessibilityLabel="Transcribed from voice"><View style={styles.voiceDurationTag}><MicGlyph color={Tokens.palette.green} size={10} /><Text style={[styles.voiceCaptionText, styles.voiceDurationText]}>{formatDuration(item.voice.duration_s)}</Text></View></View> : null}
         {hasTextBody ? (
@@ -4258,28 +4270,16 @@ export const TranscriptRow = memo(function TranscriptRow({
           </View>
         ) : null}
         {isFailedAffordance ? (
-          <View style={styles.userSendStatusRow} testID="user-send-failed">
-            <FontAwesome name="exclamation-circle" size={10} color={P.warning} />
-            <Text {...NON_SELECTABLE_TEXT} style={styles.userSendStatusText}>Failed sending</Text>
-            {item.optimisticId ? (
-              <Pressable
-                testID="user-send-retry"
-                accessibilityRole="button"
-                accessibilityLabel="Retry sending"
-                hitSlop={8}
-                onPress={() => onRetry?.(item.optimisticId as string)}
-              >
-                <Text
-                  {...NON_SELECTABLE_TEXT}
-                  style={[styles.userSendStatusText, { color: chrome.accent, fontWeight: '600' }]}
-                >
-                  Retry
-                </Text>
-              </Pressable>
-            ) : null}
-          </View>
+          <SendFailedRow
+            testID="user-send-failed"
+            retryTestID="user-send-retry"
+            discardTestID="user-send-discard"
+            accent={chrome.accent}
+            onRetry={item.optimisticId ? () => onRetry?.(item.optimisticId as string) : undefined}
+            onDiscard={item.optimisticId && onDiscard ? () => onDiscard(item.optimisticId as string) : undefined}
+          />
         ) : null}
-        {!voiceTake && item.optimisticId && !isSentAffordance && !canceled ? <PhotoDiscardControl optimisticId={item.optimisticId} /> : null}
+        {!voiceTake && item.optimisticId && !isSentAffordance && !isFailedAffordance && !canceled ? <PhotoDiscardControl optimisticId={item.optimisticId} /> : null}
         {isSentAffordance ? (
           <View style={styles.userSendStatusRow} testID="user-send-sent">
             <FontAwesome name="check" size={10} color={P.muted} />

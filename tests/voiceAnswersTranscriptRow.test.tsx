@@ -144,7 +144,7 @@ test('the transcribing take shows "ANSWERS n QUESTIONS" for a bound recording an
   const twoTake = await transcribingRow(2);
   const bound = render(<TranscriptRow item={twoTake.row} chrome={chrome} />);
   expect(bound.getByTestId('voice-answers-label').props.children).toBe('ANSWERS 2 QUESTIONS');
-  expect(bound.getByText('TRANSCRIBING')).toBeTruthy();
+  expect(bound.getByText('Sending')).toBeTruthy();
   bound.unmount();
   await drop(twoTake.id);
 
@@ -165,7 +165,7 @@ test('CAP-06 restored pending row keeps its persisted answer count with no proce
   const take = await transcribingRow(2, true);
   const row = render(<TranscriptRow item={take.row} chrome={chrome} />);
   expect(row.getByTestId('voice-answers-label').props.children).toBe('ANSWERS 2 QUESTIONS');
-  expect(row.getByText('TRANSCRIBING')).toBeTruthy();
+  expect(row.getByText('Sending')).toBeTruthy();
   row.unmount();
   await drop(take.id);
 });

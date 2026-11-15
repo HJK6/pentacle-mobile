@@ -271,7 +271,7 @@ test('authoritative landed completion shows a transient receipt without retainin
   expect(view.queryByLabelText('Return to original chat')).toBeNull();
   expect(view.getByLabelText('View sent recording')).toBeTruthy();
   expect(h.store.get(take.recordingId)).toBeUndefined();
-  act(() => jest.advanceTimersByTime(2800));
+  act(() => jest.advanceTimersByTime(3000));
   expect(view.queryByTestId('voice-recording-overlay')).toBeNull(); h.delivery.dispose();
 });
 test('R4 ambiguous send failure is actionable on its message with the overlay mounted', async () => {
@@ -279,9 +279,11 @@ test('R4 ambiguous send failure is actionable on its message with the overlay mo
   (h.io.dispatch as jest.Mock).mockRejectedValue(new Error('synthetic send failure'));
   const view = render(<VoiceRecordingOverlay />);
   await act(async () => { await h.delivery.send(take.recordingId); });
-  expect(view.queryByTestId('global-voice-bar')).toBeNull();
+  expect(view.getByText('FAILED SENDING')).toBeTruthy();
+  expect(view.getByLabelText('Go to chat')).toBeTruthy();
   const row = render(<VoiceMessageStatus take={h.delivery.snapshot().takes[0]} />);
-  expect(row.getByLabelText('Check delivery again')).toBeTruthy();
+  expect(row.getByTestId('voice-send-failed')).toBeTruthy();
+  expect(row.getByLabelText('Retry sending')).toBeTruthy();
   expect(view.queryByLabelText('Send recording')).toBeNull(); h.delivery.dispose();
 });
 test('retained messages expose separate recovery and discard removes only the chosen take', async () => {

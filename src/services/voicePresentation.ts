@@ -2,7 +2,7 @@ import { useEffect, useId, useLayoutEffect, useRef, useState, useSyncExternalSto
 import { Keyboard, type KeyboardEvent } from 'react-native';
 import { voiceRecorder, voiceLifecycleSnapshot, subscribeVoiceLifecycle, sendVoiceTake } from './voiceRecordingEngine';
 import type { RecordingSnapshot } from './voiceRecording';
-import { useVoiceDelivery, voiceDelivery } from './voiceDelivery';
+import { useVoiceDelivery, voiceDelivery, type VoiceTake } from './voiceDelivery';
 import { voiceTakeStore } from './voiceTakeStore';
 import { ASSISTANT_STREAM_ID, selectAssistantIdentity } from './assistantIdentity';
 import { getPentacleStreamState, subscribeVoiceTransport, voiceTransportSnapshot, voiceOriginStatus } from './pentacleStream';
@@ -14,6 +14,10 @@ export type VoiceSurfaceOptions = { chat?: boolean; priority?: number; bottom?: 
 type Surface = VoiceSurfaceOptions & { id: string; page: VoiceSurfacePage; sequence: number };
 type Host = { id: string; priority: number; sequence: number; name: string };
 export type VoicePresentationReceipt = { recordingId: string; streamId: string; originLabel: string; landedAt: number };
+/** A send that failed while its chat was not open (operator, 2026-11-15): Go to chat for 5 s. */
+export type VoiceFailureNotice = { recordingId: string; streamId: string };
+export const VOICE_RECEIPT_MS = 3000;
+export const VOICE_FAILURE_NOTICE_MS = 5000;
 export type VoiceKeyboardFrame = { screenY: number; height: number };
 type ChatStart = { action: () => void | Promise<void>; disabled: boolean };
 const surfaces = new Map<string, Surface>();
@@ -22,11 +26,13 @@ const chatStarts = new Map<string, ChatStart>();
 const listeners = new Set<() => void>();
 let sequence = 0;
 let receiptTimer: ReturnType<typeof setTimeout> | undefined;
+let failureTimer: ReturnType<typeof setTimeout> | undefined;
+const attentionSeen = new Map<string, boolean>();
 let stopMonitor: (() => void) | undefined;
 let receiptScope: string | null = null;
 let stopReceiptScope: (() => void) | undefined;
-let state: { surface: Surface | null; host: Host | null; recordingId: string | null; dy: number; receipt: VoicePresentationReceipt | null; headerBusy: boolean; keyboardFrame: VoiceKeyboardFrame | null; revision: number } = {
-  surface: null, host: null, recordingId: null, dy: 0, receipt: null, headerBusy: false, keyboardFrame: null, revision: 0,
+let state: { surface: Surface | null; host: Host | null; recordingId: string | null; dy: number; receipt: VoicePresentationReceipt | null; failure: VoiceFailureNotice | null; headerBusy: boolean; keyboardFrame: VoiceKeyboardFrame | null; revision: number } = {
+  surface: null, host: null, recordingId: null, dy: 0, receipt: null, failure: null, headerBusy: false, keyboardFrame: null, revision: 0,
 };
 export const voicePresentationSnapshot = () => state;
 function emit(patch: Partial<typeof state> = {}) {
@@ -38,6 +44,29 @@ export function clearVoiceReceipt(recordingId?: string) {
   if (!state.receipt || (recordingId && state.receipt.recordingId !== recordingId)) return;
   if (receiptTimer) clearTimeout(receiptTimer);
   receiptTimer = undefined; receiptScope = null; stopReceiptScope?.(); stopReceiptScope = undefined; emit({ receipt: null });
+}
+export function clearVoiceFailureNotice(recordingId?: string) {
+  if (!state.failure || (recordingId && state.failure.recordingId !== recordingId)) return;
+  if (failureTimer) clearTimeout(failureTimer);
+  failureTimer = undefined; emit({ failure: null });
+}
+/** Raise the notice only on an observed transition into failure away from the message's chat. */
+function observeVoiceAttention(takes: readonly VoiceTake[], now: number) {
+  const ids = new Set<string>();
+  for (const take of takes) {
+    ids.add(take.recordingId);
+    const attention = take.status !== 'unsent' && voiceSendNeedsAttention(take, now);
+    const before = attentionSeen.get(take.recordingId);
+    attentionSeen.set(take.recordingId, attention);
+    if (!attention) clearVoiceFailureNotice(take.recordingId);
+    else if (before === false && !destinationOwnsPresentation(take.streamId, state)) {
+      if (failureTimer) clearTimeout(failureTimer);
+      emit({ failure: { recordingId: take.recordingId, streamId: take.streamId } });
+      failureTimer = setTimeout(() => clearVoiceFailureNotice(take.recordingId), VOICE_FAILURE_NOTICE_MS);
+    }
+  }
+  for (const id of [...attentionSeen.keys()]) if (!ids.has(id)) attentionSeen.delete(id);
+  if (state.failure && !ids.has(state.failure.recordingId)) clearVoiceFailureNotice();
 }
 function watchReceiptScope() {
   stopReceiptScope?.(); stopReceiptScope = undefined;
@@ -63,7 +92,7 @@ function ensureMonitor() {
   const stopLanded = voiceDelivery.subscribeLanded?.((receipt: VoicePresentationReceipt) => {
     const capturing = voiceRecorder.snapshot();
     if (capturing && capturing.recordingId !== receipt.recordingId) return;
-    const remaining = receipt.landedAt + 2800 - Date.now();
+    const remaining = receipt.landedAt + VOICE_RECEIPT_MS - Date.now();
     const incomingScope = currentScope();
     // An inadmissible or delayed proof must not cancel a newer receipt's timer.
     // Validate before touching the currently displayed receipt or its scope.
@@ -77,6 +106,7 @@ function ensureMonitor() {
   const stopCapture = voiceRecorder.subscribe(capture => {
     if (!capture) return;
     if (state.receipt && state.receipt.recordingId !== capture.recordingId) clearVoiceReceipt();
+    clearVoiceFailureNotice();
     if (state.recordingId !== capture.recordingId) emit({ recordingId: capture.recordingId, dy: 0 });
   });
   watchReceiptScope();
@@ -159,18 +189,22 @@ export function useVoicePresentation() {
   const recording = capture && voiceTakeStore.get(capture.recordingId) && voiceRecorder.isOwnedByCurrentScope(capture.recordingId) ? capture : null;
   const takes = delivery.takes.filter(take => voiceRecorder.isOwnedByCurrentScope(take.recordingId));
   const now = useVoiceSendTime(takes);
+  useEffect(() => { observeVoiceAttention(takes, now); });
   // A retained failure must not mask a newer active send's off-chat progress.
   const active = takes.filter(item => !voiceSendNeedsAttention(item, now));
+  const failure = presentation.failure
+    ? takes.find(item => item.recordingId === presentation.failure!.recordingId && voiceSendNeedsAttention(item, now)) : undefined;
   const take = !recording && !presentation.receipt ? active.find(item => item.recordingId === presentation.recordingId)
-    ?? active[0] ?? takes.find(item => item.recordingId === presentation.recordingId) ?? takes[0] : undefined;
+    ?? active[0] ?? failure ?? takes.find(item => item.recordingId === presentation.recordingId) ?? takes[0] : undefined;
+  const failureNotice = !!take && take === failure;
   const visible = lifecycle.foreground && lifecycle.unlocked && !!(recording || take || presentation.receipt);
   // Sent work and its recovery belong to the message. Unsent capture still needs Send/Discard.
   const suppressTakeProgress = !!take && take.status !== 'unsent'
-    && (destinationOwnsPresentation(take.streamId, presentation) || voiceSendNeedsAttention(take, now));
+    && (destinationOwnsPresentation(take.streamId, presentation) || voiceSendNeedsAttention(take, now) && !failureNotice);
   // Presentation never clears a receipt or changes its proof-derived deadline.
   const suppressBar = !recording && (presentation.receipt
     ? destinationOwnsPresentation(presentation.receipt.streamId, presentation) : suppressTakeProgress);
-  return { ...presentation, capture, recording, take, takes, delivery, lifecycle, visible, suppressBar, suppressTakeProgress, anchored: voiceChatOwnsPresentation(presentation) };
+  return { ...presentation, capture, recording, take, takes, delivery, lifecycle, visible, suppressBar, suppressTakeProgress, failureNotice, anchored: voiceChatOwnsPresentation(presentation) };
 }
 export function useVoiceBarVisible(surfaceId?: string) {
   const value = useVoicePresentation();
@@ -226,6 +260,7 @@ export async function pressVoiceHeader(onPress?: () => void | Promise<void>) {
 /** Test-only reset; position/receipt are deliberately never persisted. */
 export function resetVoicePresentationForTests() {
   stopMonitor?.(); if (receiptTimer) clearTimeout(receiptTimer); receiptTimer = undefined; receiptScope = null;
+  if (failureTimer) clearTimeout(failureTimer); failureTimer = undefined; attentionSeen.clear();
   surfaces.clear(); hosts.clear(); chatStarts.clear(); sequence = 0;
-  emit({ surface: null, host: null, recordingId: null, dy: 0, receipt: null, headerBusy: false, keyboardFrame: null });
+  emit({ surface: null, host: null, recordingId: null, dy: 0, receipt: null, failure: null, headerBusy: false, keyboardFrame: null });
 }

@@ -114,16 +114,16 @@ describe('pending TRANSCRIBING row (mock VoiceBubble + caption)', () => {
     expect(flat(view.getByTestId('voice-bubble')).alignSelf).toBe('flex-end');
   });
 
-  test('active message caption uses dim 10pt mono with a spinner', async () => {
+  test('active message reads Sending in muted 10pt mono with the sending stream (text-row grammar)', async () => {
     const composer = render(<ComposerBar {...props} streamId="hoste:origin" />);
     await act(async () => fireEvent.press(composer.getByTestId('composer-mic-button')));
     await act(async () => fireEvent.press(composer.getByTestId('composer-mic-button')));
     const pending = voiceDelivery.snapshot().takes[0];
     expect(pending?.status).toBe('transcribing');
     const row = render(<TranscriptRow item={voiceTakeRow(pending)} chrome={props.chrome} />);
-    expect(row.getByTestId('voice-transcribing-spinner')).toBeTruthy();
-    const label = flat(row.getByText('TRANSCRIBING'));
-    expect(label.color).toBe(Tokens.palette.dim);
+    expect(row.getByTestId('status-tag-sending-arrow')).toBeTruthy();
+    const label = flat(row.getByText('Sending'));
+    expect(label.color).toBe(Tokens.palette.muted);
     expect(label.fontSize).toBe(10);
   });
 });
