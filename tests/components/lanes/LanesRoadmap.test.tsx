@@ -363,11 +363,17 @@ test('real mix: two busy lanes inside and all nine quiet lanes named on one oute
 }, 15_000);
 
 test('Idle and Paused cards list lanes by last activity; Working now and In progress keep list order', async () => {
-  const view = setup('map_real');
+  // Three paused lanes become idle, stamped by progress_at in the reverse of list order.
+  const idle: [number, number][] = [[3, 10], [5, 5], [7, 1]];
+  const view = setup('map_real', { edit: inventory => {
+    for (const [i, hours] of idle) Object.assign(inventory.lanes[i], { state: 'active', goal_classes: 'q-', goal_road: 'q', goal_counts: [0, 0, 1, 0],
+      progress_at: new Date(Date.parse('2026-11-14T18:00:00Z') - hours * 3600000).toISOString() });
+  } });
   await settle();
   const titles = (section: string) => within(view.getByTestId(`readable-group-${section}`)).queryAllByTestId(/^lane-row-/)
     .map(n => view.fixture.inventory.lanes.find(l => `lane-row-${l.lane_id}` === n.props.testID)!.title);
-  expect(titles('paused')).toEqual(['Pentacle', 'Business acquisition', '3D printing', 'Hosts and accounts', 'Altum CRM and phone', 'J3', 'Personal', 'Altum Automations', 'Animation']);
+  expect(titles('idle')).toEqual(['Animation', 'Altum Automations', 'Business acquisition']);
+  expect(titles('paused')).toEqual(['Pentacle', '3D printing', 'Hosts and accounts', 'Altum CRM and phone', 'J3', 'Personal']);
   expect(titles('in-progress')).toEqual(['Pentacle mobile', 'Government contracts']);
 }, 15_000);
 
