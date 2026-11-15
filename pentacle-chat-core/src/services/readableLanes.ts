@@ -95,6 +95,33 @@ export function readableHomeCounts(laneClasses: LaneClass[]) {
   return { working: n('working'), moving: n('moving'), quiet: n('idle', 'paused'), parked: n('parked') };
 }
 
+/** Last activity, the stamp the home card age shows: `state_at` for a paused lane, otherwise `progress_at`. */
+export function readableLastActivity(lane: WorkLane, cls: LaneClass): string | null | undefined {
+  return cls === 'paused' ? lane.state_at : lane.progress_at;
+}
+
+/** Most recent first; a missing or unreadable stamp sorts last; ties keep list order. */
+export function readableByActivity<T>(items: readonly T[], at: (item: T) => string | null | undefined): T[] {
+  const time = (item: T) => { const t = Date.parse(at(item) ?? ''); return Number.isFinite(t) ? t : -Infinity; };
+  return items.map((item, i) => ({ item, i, t: time(item) })).sort((a, b) => (b.t - a.t) || a.i - b.i).map(row => row.item);
+}
+
+export type MapLane = { lane: WorkLane; cls: LaneClass; question: boolean };
+/**
+ * The home map's lanes. Up to six busy lanes sit inside in list order. With more, six are chosen: open questions first,
+ * then working, then moving, each by last activity; the rest go on the outer circle in that order. Quiet (idle and paused)
+ * lanes follow on the outer circle by last activity. Parked lanes are never on the map.
+ */
+export function readableMapLanes<T extends MapLane>(lanes: readonly T[]): { inner: T[]; extra: T[]; quiet: T[] } {
+  const recent = (group: T[]) => readableByActivity(group, l => readableLastActivity(l.lane, l.cls));
+  const busy = lanes.filter(l => l.cls === 'working' || l.cls === 'moving');
+  const quiet = recent(lanes.filter(l => l.cls === 'idle' || l.cls === 'paused'));
+  if (busy.length <= 6) return { inner: busy, extra: [], quiet };
+  const ranked = [...recent(busy.filter(l => l.question)), ...recent(busy.filter(l => !l.question && l.cls === 'working')),
+    ...recent(busy.filter(l => !l.question && l.cls === 'moving'))];
+  return { inner: ranked.slice(0, 6), extra: ranked.slice(6), quiet };
+}
+
 /** Working goals first, then moving goals, each in goal order; at most two. */
 export function readableLeadGoals(lane: WorkLane, road = readableRoad(lane, { legacy: true })): RoadStop[] {
   return [...road.filter(s => s.goalClass === 'working'), ...road.filter(s => s.goalClass === 'moving')].slice(0, 2);

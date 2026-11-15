@@ -11,7 +11,7 @@ jest.mock('../../../src/components/questions/QuestionDeckCard', () => {
 import React from 'react';
 import fs from 'node:fs';
 import path from 'node:path';
-import { AccessibilityInfo } from 'react-native';
+import { AccessibilityInfo, ScrollView } from 'react-native';
 import { act, fireEvent, render, within } from '@testing-library/react-native';
 import { applyWorkLanesInventory, initialPentacleStreamState, type WorkLanesInventory } from 'pentacle-chat-core';
 import LanesOverlay from '../../../src/components/lanes/LanesOverlay';
@@ -329,16 +329,123 @@ test('hatch patterns draw their own diagonal instead of rotating the tile', () =
 });
 
 
-test('graph shows every non-parked lane with thirteen quiet lanes, no overflow or paused label', async () => {
+test('map: every non-parked lane is named on the map or counted in exactly one +N', async () => {
   const view = setup();
   await settle();
   const graph = within(view.getByTestId('lanes-constellation'));
-  expect(graph.queryAllByTestId(/^lanes-map-lane-/)).toHaveLength(view.fixture.inventory.lanes.filter(l => !l.parked).length);
-  expect(graph.queryByTestId('lanes-map-more')).toBeNull();
-  expect(graph.queryAllByText(/^paused(?: ·|$)/i)).toHaveLength(0);
-  fireEvent.press(graph.getByTestId(`lanes-map-lane-${lane(20)}`));
+  const named = graph.queryAllByTestId(/^lanes-map-lane-/).map(n => String(n.props.testID).replace('lanes-map-lane-', ''));
+  const counted = [graph.queryByTestId('lanes-map-more'), graph.queryByTestId('lanes-map-more-busy')].filter(Boolean)
+    .reduce((sum, n) => sum + Number(/^(\d+) more lanes$/.exec(n!.props.accessibilityLabel)![1]), 0);
+  const open = view.fixture.inventory.lanes.filter(l => !l.parked);
+  expect(new Set(named).size).toBe(named.length);
+  expect(named.length + counted).toBe(open.length);
+  for (const id of named) expect(within(graph.getByTestId(`lanes-map-label-${id}`)).getByText(open.find(l => l.lane_id === id)!.title)).toBeTruthy();
+}, 15_000);
+
+test('real mix: two busy lanes inside and all nine quiet lanes named on one outer circle, no +N', async () => {
+  const view = setup('map_real');
   await settle();
-  expect(view.readShow).toHaveBeenCalledWith(lane(20), expect.anything());
+  const graph = within(view.getByTestId('lanes-constellation')), id = (n: number) => lane(n, 'map_real');
+  expect(graph.getByTestId('lanes-map-outer-circle')).toBeTruthy();
+  expect(graph.queryByTestId('lanes-map-more')).toBeNull();
+  expect(graph.queryByTestId('lanes-map-more-busy')).toBeNull();
+  // Inner lanes carry the age line; outer lanes carry the name only, and their label is the lane title.
+  for (const n of [2, 3]) expect(graph.getByTestId(`lanes-map-label-${id(n)}`)).toHaveTextContent(/ago$/);
+  for (const n of [1, 4, 5, 6, 7, 8, 9, 10, 11]) {
+    const title = view.fixture.inventory.lanes[n - 1].title;
+    expect(graph.getByTestId(`lanes-map-label-${id(n)}`)).toHaveTextContent(title, { exact: true });
+    expect(graph.getByTestId(`lanes-map-lane-${id(n)}`).props.accessibilityLabel).toBe(title);
+  }
+  for (const n of [12, 13]) expect(graph.queryByTestId(`lanes-map-lane-${id(n)}`)).toBeNull();
+  fireEvent.press(graph.getByTestId(`lanes-map-lane-${id(8)}`));
+  await settle();
+  expect(view.readShow).toHaveBeenCalledWith(id(8), expect.anything());
+}, 15_000);
+
+test('Idle and Paused cards list lanes by last activity; Working now and In progress keep list order', async () => {
+  const view = setup('map_real');
+  await settle();
+  const titles = (section: string) => within(view.getByTestId(`readable-group-${section}`)).queryAllByTestId(/^lane-row-/)
+    .map(n => view.fixture.inventory.lanes.find(l => `lane-row-${l.lane_id}` === n.props.testID)!.title);
+  expect(titles('paused')).toEqual(['Pentacle', 'Business acquisition', '3D printing', 'Hosts and accounts', 'Altum CRM and phone', 'J3', 'Personal', 'Altum Automations', 'Animation']);
+  expect(titles('in-progress')).toEqual(['Pentacle mobile', 'Government contracts']);
+}, 15_000);
+
+test('more than six busy lanes: six inside, the rest on the outer circle in the active styling before any quiet lane', async () => {
+  const view = setup('map_a12_p9');
+  await settle();
+  const graph = within(view.getByTestId('lanes-constellation')), id = (n: number) => lane(n, 'map_a12_p9');
+  const busy = Array.from({ length: 12 }, (_, i) => id(i + 1));
+  const inside = busy.filter(b => within(graph.getByTestId(`lanes-map-label-${b}`)).queryByText(/ago$/));
+  expect(inside).toHaveLength(6);
+  for (const b of busy.filter(x => !inside.includes(x))) {
+    // Active styling: one green progress ring, no age line.
+    expect(graph.getByTestId(`lane-goal-arc-${b}-1`)).toBeTruthy();
+    expect(graph.queryByTestId(`lane-goal-arc-${b}-2`)).toBeNull();
+    expect(within(graph.getByTestId(`lanes-map-label-${b}`)).queryByText(/ago$/)).toBeNull();
+  }
+  expect(graph.queryByTestId('lanes-map-more-busy')).toBeNull();
+  // Quiet lanes on the circle are muted: no progress ring.
+  for (let n = 13; n <= 21; n++) expect(graph.queryByTestId(`lane-goal-arc-${id(n)}-1`)).toBeNull();
+}, 15_000);
+
+test('a working lane on the outer circle keeps a short stub of moving dashes towards the hub', async () => {
+  const view = setup('map_a12_p9', { reduce: false, edit: inventory => {
+    for (const l of inventory.lanes.slice(0, 12)) { l.goal_classes = 'w-'; l.goal_road = 'w'; l.goal_counts = [1, 0, 0, 0]; }
+  } });
+  await settle();
+  const graph = within(view.getByTestId('lanes-constellation'));
+  expect(graph.queryAllByTestId(/^lanes-map-link-stub-/, hidden)).toHaveLength(6);
+  expect(graph.queryAllByTestId(/^working-spoke-stub-/, hidden).length).toBeGreaterThan(0);
+}, 15_000);
+
+test('busy lanes that cannot fit fold into a green +N, quiet lanes into a muted +N, each counted once', async () => {
+  const view = setup('map_a30_p9');
+  await settle();
+  const graph = within(view.getByTestId('lanes-constellation'));
+  const busyMore = graph.getByTestId('lanes-map-more-busy'), quietMore = graph.getByTestId('lanes-map-more');
+  const placed = graph.queryAllByTestId(/^lanes-map-lane-/).length;
+  const n = Number(/^(\d+) more lanes$/.exec(busyMore.props.accessibilityLabel)![1]);
+  expect(placed + n).toBe(30);
+  expect(busyMore).toHaveTextContent(`+${n}`);
+  expect(quietMore.props.accessibilityLabel).toBe('9 more lanes');
+  expect(quietMore).toHaveTextContent('+9');
+  for (let i = 31; i <= 39; i++) expect(graph.queryByTestId(`lanes-map-lane-${lane(i, 'map_a30_p9')}`)).toBeNull();
+}, 15_000);
+
+test('pressing +N scrolls the home list to the top-most card it counts, with an 8 point margin', async () => {
+  const scrollTo = jest.spyOn(ScrollView.prototype as unknown as { scrollTo(o: unknown): void }, 'scrollTo');
+  const view = setup('map_a0_p40');
+  await settle();
+  const layout = (testID: string, y: number) => fireEvent(view.getByTestId(testID), 'layout', { nativeEvent: { layout: { x: 0, y, width: 400, height: 80 } } });
+  layout('readable-group-paused', 600);
+  const cards = view.queryAllByTestId(/^lane-card-/);
+  cards.forEach((card, i) => layout(card.props.testID, 20 + 90 * i));
+  const more = within(view.getByTestId('lanes-constellation')).getByTestId('lanes-map-more');
+  const n = Number(/^(\d+) more lanes$/.exec(more.props.accessibilityLabel)![1]);
+  scrollTo.mockClear();
+  fireEvent.press(more);
+  // Paused cards are in last-activity order, so the folded (least recent) lanes are the last n cards.
+  expect(scrollTo).toHaveBeenCalledWith({ y: 600 + 20 + 90 * (cards.length - n) - 8, animated: true });
+}, 15_000);
+
+test('with six busy lanes and no quiet lanes the map is the approved single ring', async () => {
+  const view = setup('map_a6_p9', { edit: inventory => { inventory.lanes = inventory.lanes.filter(l => l.state !== 'paused'); } });
+  await settle();
+  const graph = view.getByTestId('lanes-constellation');
+  expect(graph.props.style).toMatchObject({ width: 440, height: 404 });
+  expect(within(graph).queryByTestId('lanes-map-outer-circle')).toBeNull();
+  const nodes = within(graph).queryAllByTestId(/^lanes-map-lane-/);
+  expect(nodes).toHaveLength(6);
+  for (const [i, node] of nodes.entries()) {
+    let holder = node.parent;
+    while (holder && holder.props.style?.left === undefined) holder = holder.parent;
+    const angle = -Math.PI / 2 + 2 * Math.PI * i / 6, box = holder!.props.style;
+    expect(node.props.style).toMatchObject({ width: 52, height: 52 });
+    expect(box.left).toBeCloseTo(220 + 108 * Math.cos(angle) - 62, 6);
+    expect(box.top).toBeCloseTo(190 + 108 * Math.sin(angle) - 26, 6);
+  }
+  for (const label of within(graph).queryAllByTestId(/^lanes-map-label-/)) expect(label.props.style).toMatchObject({ width: 124, height: 32 });
 }, 15_000);
 
 test('Finished earlier keeps the section rule without a second rule above the fold', async () => {
@@ -418,24 +525,4 @@ test.each([
   } });
   await settle();
   expect(view.queryAllByTestId(new RegExp(`^lane-goal-line-${lane(8)}-`)).map(n => n.props.testID)).toEqual(expected.map(n => `lane-goal-line-${lane(8)}-choice-${n}`));
-});
-
-
-test('every busy lane beyond the eight inner slots remains on the graph', async () => {
-  const view = setup('views', { edit: inventory => {
-    for (const l of inventory.lanes) if (!l.parked) {
-      l.state = 'active'; l.goal_counts = [1, 0, 0, 0];
-      l.goal_classes = `${'m'.repeat(l.goals?.length ?? 0)}-`;
-      l.goal_road = 'm'.repeat(l.goals_total ?? 0);
-    }
-  } });
-  await settle();
-  const graph = within(view.getByTestId('lanes-constellation'));
-  const expected = view.fixture.inventory.lanes.filter(l => !l.parked);
-  expect(expected.length).toBeGreaterThanOrEqual(13);
-  expect(graph.queryAllByTestId(/^lanes-map-lane-/)).toHaveLength(expected.length);
-  for (const lane of expected) expect(graph.getByTestId(`lanes-map-lane-${lane.lane_id}`)).toBeTruthy();
-  fireEvent.press(graph.getByTestId(`lanes-map-lane-${expected.at(-1)!.lane_id}`));
-  await settle();
-  expect(view.readShow).toHaveBeenCalledWith(expected.at(-1)!.lane_id, expect.anything());
 });

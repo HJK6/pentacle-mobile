@@ -1,5 +1,6 @@
 import type { PentacleNotification, PentacleSessionSummary, WorkLane, WorkLaneMember, WorkLaneShow, WorkLanesInventory } from 'pentacle-chat-core';
 import { ASSISTANT_STREAM_ID } from '../services/assistantIdentity';
+import { MAP_REAL_LANES, mapScenario } from './lanesMapScenarios';
 
 /** Item shorthand: status, then w = a seat working now, ? = open question, e = no estimate. */
 type Item = [status: string, flags?: string];
@@ -8,7 +9,11 @@ type LanePlan = {
   title: string; icon: string; state?: 'active' | 'paused'; progressH: number; stateH?: number; question?: boolean;
   parked?: { at: string | null; reason: string | null } | unknown; goals: GoalPlan[]; loose?: Item[]; road?: boolean; classes?: boolean;
 };
-export type RoadmapVariant = 'views' | 'busy' | 'overflow' | 'loose' | 'loose_done' | 'no_classes' | 'malformed';
+export type MapVariant = 'map_real' | 'map_a6_p9' | 'map_a12_p9' | 'map_a30_p9' | 'map_a0_p40';
+export type RoadmapVariant = 'views' | 'busy' | 'overflow' | 'loose' | 'loose_done' | 'no_classes' | 'malformed' | MapVariant;
+export const MAP_VARIANTS: MapVariant[] = ['map_real', 'map_a6_p9', 'map_a12_p9', 'map_a30_p9', 'map_a0_p40'];
+
+const mapCounts: Record<Exclude<MapVariant, 'map_real'>, [number, number]> = { map_a6_p9: [6, 9], map_a12_p9: [12, 9], map_a30_p9: [30, 9], map_a0_p40: [0, 40] };
 
 const sentences: Record<string, string> = {
   in_progress: 'Building the screen against the fixtures.', needs_qa: 'Waiting for the final review.', analysis: 'Writing the plan.',
@@ -37,6 +42,13 @@ function plans(variant: RoadmapVariant, at: (hours: number) => string): LanePlan
       goals: [{ title: `Current goal ${i + 1}`, items: [['in_progress', i % 2 ? '' : 'w'], ['backlog']] }] })),
     { title: 'Parked project', icon: 'camera', state: 'paused', progressH: 200, parked: { at: at(200), reason: 'On hold.' }, goals: [{ title: 'Later', items: q(2) }] },
   ];
+  if (variant.startsWith('map_')) {
+    const lanes = variant === 'map_real' ? MAP_REAL_LANES : mapScenario(...mapCounts[variant as Exclude<MapVariant, 'map_real'>]);
+    return lanes.map((l): LanePlan => ({ title: l.title, icon: l.icon, progressH: l.hours,
+      ...(l.cls === 'paused' || l.cls === 'parked' ? { state: 'paused' as const, stateH: l.hours } : {}),
+      ...(l.cls === 'parked' ? { parked: { at: at(l.hours), reason: 'On hold.' } } : {}),
+      goals: [{ title: 'Current goal', items: l.cls === 'working' ? [['in_progress', 'w'], ['backlog']] : l.cls === 'moving' ? [['in_progress'], ['backlog']] : q(2) }] }));
+  }
   if (variant === 'overflow') return [{ title: 'Long road', icon: 'columns', progressH: 3, road: false,
     goals: Array.from({ length: 11 }, (_, i) => ({ title: `Stage ${i + 1}`, items: i === 9 ? [['in_progress'], ['backlog']] : q(2) })) }];
   if (variant === 'loose' || variant === 'loose_done') return [{ title: 'Unplaced work', icon: 'wrench', progressH: 2,
