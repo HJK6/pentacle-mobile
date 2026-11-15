@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { readableAge, readableGoalClass, readableHours, readableLaneClass, readableLeadGoals, readableSeatCount, readableSentence, readableTrouble } from '../src/services/readableLanes';
+import { readableAge, readableByActivity, readableGoalClass, readableLastActivity, readableMapLanes, readableHours, readableLaneClass, readableLeadGoals, readableSeatCount, readableSentence, readableTrouble } from '../src/services/readableLanes';
 import type { WorkLane, WorkLaneMember, WorkLaneSeat } from '../src/types/pentacle';
+import type { LaneClass } from '../src/services/readableLanes';
 
 const goal = { state: 'in_progress' as const, done: 0, total: 2 };
 const lane = (extra: Partial<WorkLane> = {}) => ({ state: 'active', title: 'Lane', goals: [], ...extra } as WorkLane);
@@ -80,4 +81,35 @@ test('a moving default goal uses the lane title and sorts last', () => {
     goals: [{ ...goal, goal_id: 'later', title: 'Later', rank: 5 }, { ...goal, goal_id: 'earlier', title: 'Earlier', rank: 1 }],
     default_goal: { ...goal } });
   assert.deepEqual(readableLeadGoals(item).map(x => x.goal.title), ['Lane', 'Earlier']);
+});
+
+test('last activity is the card age stamp: state_at when paused, otherwise progress_at', () => {
+  const l = lane({ state_at: '2026-11-14T10:00:00Z', progress_at: '2026-11-14T12:00:00Z' });
+  assert.equal(readableLastActivity(l, 'paused'), '2026-11-14T10:00:00Z');
+  for (const cls of ['idle', 'working', 'moving'] as const) assert.equal(readableLastActivity(l, cls), '2026-11-14T12:00:00Z');
+});
+test('activity order: most recent first, missing or bad stamps last, ties keep list order', () => {
+  const rows = [['a', '2026-11-14T10:00:00Z'], ['b', null], ['c', '2026-11-14T12:00:00Z'], ['d', 'not a date'], ['e', '2026-11-14T10:00:00Z'], ['f', undefined]] as const;
+  assert.deepEqual(readableByActivity([...rows], r => r[1]).map(r => r[0]), ['c', 'a', 'e', 'b', 'd', 'f']);
+  assert.deepEqual(readableByActivity([], () => null), []);
+});
+test('map lanes: up to six busy lanes inside in list order, quiet lanes by last activity, parked left out', () => {
+  const at = (h: number | null) => h === null ? null : new Date(Date.UTC(2026, 10, 14, 12) - h * 3600000).toISOString();
+  const entry = (id: string, cls: LaneClass, h: number | null, question = false) => ({ id, cls, question, lane: lane({ lane_id: id, progress_at: at(h), state_at: at(h === null ? null : h + 100) }) });
+  const lanes = [entry('m1', 'moving', 9), entry('p1', 'paused', 1), entry('w1', 'working', 5), entry('i1', 'idle', 50), entry('x', 'parked', 0), entry('p2', 'paused', null), entry('i2', 'idle', 2)];
+  const map = readableMapLanes(lanes);
+  assert.deepEqual(map.inner.map(l => l.id), ['m1', 'w1']);
+  assert.deepEqual(map.extra, []);
+  // p1 is stamped by state_at (101 h ago), so the idle lanes stamped by progress_at come first.
+  assert.deepEqual(map.quiet.map(l => l.id), ['i2', 'i1', 'p1', 'p2']);
+});
+test('map lanes: more than six busy lanes choose questions, then working, then moving, each by last activity', () => {
+  const at = (h: number) => new Date(Date.UTC(2026, 10, 14, 12) - h * 3600000).toISOString();
+  const entry = (id: string, cls: LaneClass, h: number, question = false) => ({ id, cls, question, lane: lane({ lane_id: id, progress_at: at(h) }) });
+  const lanes = [entry('m-old', 'moving', 30), entry('m-new', 'moving', 1), entry('w-old', 'working', 20), entry('q-moving', 'moving', 40, true),
+    entry('w-new', 'working', 2), entry('m-mid', 'moving', 10), entry('q-working', 'working', 3, true), entry('m-tie-a', 'moving', 15), entry('m-tie-b', 'moving', 15)];
+  const map = readableMapLanes(lanes);
+  assert.deepEqual(map.inner.map(l => l.id), ['q-working', 'q-moving', 'w-new', 'w-old', 'm-new', 'm-mid']);
+  assert.deepEqual(map.extra.map(l => l.id), ['m-tie-a', 'm-tie-b', 'm-old']);
+  assert.deepEqual(map.quiet, []);
 });

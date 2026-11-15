@@ -51,10 +51,34 @@ and shows the default name. Setup is in the README's
 
 ## Work lanes
 
-The graph draws every non-parked lane, including all paused lanes, without an
-overflow badge. Quiet rows expand above and below the central ring as needed;
-the graph scrolls with the page. Paused nodes use their muted appearance and age
-without repeating a state label. Parked lanes remain behind the Parked button.
+The map draws every non-parked lane; parked lanes remain behind the Parked
+button. It is exactly the screen width, capped at 440 points (the operator's
+phone), never scrolls sideways and draws nothing outside its width.
+
+- **Single ring.** With no idle or paused lanes and at most six working or
+  in-progress lanes, the approved map: 52 point rings on a 108 point circle with
+  names and ages under them.
+- **Two circles.** Otherwise up to six busy (working or in-progress) lanes sit
+  on the inner ring: 46 point rings on a 94 to 98 point circle with the name and
+  age under each. With more than six, lanes with an open question come first,
+  then working, then in progress, each by last activity. Every other lane goes
+  on one outer circle with the hub as its centre: a 40 point ring with the name
+  under it (at most two lines, no age). Busy outer lanes keep the green ring,
+  progress arc and question mark, and a working one keeps a short stub of moving
+  dashes towards the hub; quiet outer lanes are muted. Busy outer lanes take the
+  places nearest 12 and 6 o'clock, then quiet lanes follow by last activity.
+- **+N.** Lanes that do not fit fold into a dashed `+N` on the circle. Quiet
+  lanes fold first, least recent first, into a muted `+N`; busy lanes fold only
+  when they alone fill the circle, into a green `+N` with the muted one beside
+  it. Every lane is named on the map or counted in exactly one `+N`. Tapping a
+  `+N` scrolls the list so the top-most card it counts sits at the top.
+
+Last activity is the stamp the card age shows: `state_at` for a paused lane,
+otherwise `progress_at`. The Idle and Paused sections use the same order, so the
+cards match the circle. The layout (`lanesRingLayout.ts`) ports `mapPlan` from
+the approved mock with coarser search steps (radius by 4, start angle by half a
+place) so it stays within about 8 ms on the phone's JS engine. Narrower phones
+show fewer lanes on the circle under the same rules.
 
 Home cards show at most two unfinished goals. Working, in-progress and blocked
 goals all count as started. If none has started, show the first unfinished goal.
@@ -70,10 +94,8 @@ retry. This change leaves empty and completed lane presentation unchanged.
 The collapsed Finished earlier list shares its section's single divider.
 
 Open `/pentacle/lanes` from the assistant header. The header counts lanes
-working, in progress and quiet (idle plus paused). The inner ring has eight
-slots; additional working or in-progress lanes join the expanding outer rows
-alongside idle and paused lanes. The hub is the size of an inner lane ring and
-links run from edge to edge. The list below has Working now, In progress, Idle
+working, in progress and quiet (idle plus paused). The map is described above.
+The hub is the size of an inner lane ring and links run from edge to edge. The list below has Working now, In progress, Idle
 and Paused, then a `Parked · N` button. Cards show a dot per goal, the selected
 goals described above and a count of additional in-progress goals when present.
 A lane with an open question has a yellow `?` button that expands the shipped

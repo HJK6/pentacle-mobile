@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, LayoutAnimation, Pressable, ScrollView, Text, View, useWindowDimensions, type GestureResponderEvent } from 'react-native';
 import {
-  derivedDefaultGoal, readableAge, readableDay, readableDots, readableHomeCounts, readableHours, readableItemKind, readableItemOrder, readableLaneClass,
+  derivedDefaultGoal, readableAge, readableByActivity, readableDay, readableDots, readableHomeCounts, readableHours, readableItemKind, readableItemOrder, readableLaneClass,
+  readableLastActivity, readableMapLanes,
   readableCardGoals, readableLeadGoals, readableRoad, readableSeatCount, readableSentence, readableStopWord, readableTrouble,
   type ItemKind, type LaneClass, type RoadStop, type WorkLane, type WorkLaneMember, type WorkLaneRecent, type WorkLanesInventory,
 } from 'pentacle-chat-core';
@@ -104,8 +105,8 @@ function GoalRing({ stop, size, yellow, muted, spark }: { stop: RoadStop; size: 
 }
 
 /* ---------- home ---------- */
-function LaneCard({ model, cls, spark, expanded, first, onToggle, onOpen, questionCard, connected, active, readShow }: {
-  connected: boolean; active: boolean; readShow?: ReadWorkLaneShow; model: LaneCardViewModel; first: boolean; cls: LaneClass; spark: Motion; expanded: boolean; onToggle(): void; onOpen: Open; questionCard: React.ReactNode;
+function LaneCard({ model, cls, spark, expanded, first, onToggle, onOpen, questionCard, connected, active, readShow, onLayout }: {
+  onLayout?(y: number): void; connected: boolean; active: boolean; readShow?: ReadWorkLaneShow; model: LaneCardViewModel; first: boolean; cls: LaneClass; spark: Motion; expanded: boolean; onToggle(): void; onOpen: Open; questionCard: React.ReactNode;
 }) {
   const listed = model.lane;
   const missingGoals = (listed.goals_total ?? 0) > (listed.goals?.length ?? 0);
@@ -125,7 +126,7 @@ function LaneCard({ model, cls, spark, expanded, first, onToggle, onOpen, questi
     <Text style={{ ...mono, color: blocked ? p.yellow : p.muted }}>{blocked ? 'blocked · ' : ''}{stop.goal.done}/{stop.goal.total}</Text>
   </View>; };
   const open = (e: GestureResponderEvent) => onOpen({ kind: 'lane', laneId: lane.lane_id }, e, { ref: mark, node: <LaneMark lane={lane} quiet={quiet} size={34} /> });
-  return <View style={{ borderTopWidth: first ? 0 : 1, borderColor: p.line }}>
+  return <View testID={`lane-card-${lane.lane_id}`} onLayout={e => onLayout?.(e.nativeEvent.layout.y)} style={{ borderTopWidth: first ? 0 : 1, borderColor: p.line }}>
     {/* iOS folds the question button into this row for VoiceOver, so the row also carries it as an action. */}
     <Pressable testID={`lane-row-${lane.lane_id}`} accessibilityRole="button" onPress={open} style={{ flexDirection: 'row', gap: 12, paddingVertical: 15 }}
       accessibilityActions={question ? [{ name: 'question', label: expanded ? 'Hide question' : 'Show question' }] : undefined}
@@ -159,30 +160,38 @@ function Home({ lanes, classes, inventory, assistantName, connected, active, exp
   const working = by('working'), moving = by('moving'), parked = by('parked');
   const anyWorking = lanes.some(m => classes.get(m.lane.lane_id) === 'working');
   const mapMotion = useWorkingMotion(active, anyWorking, 1100), spark = useWorkingMotion(active, anyWorking, 2600);
-  const busy = lanes.filter(m => ['working', 'moving'].includes(classes.get(m.lane.lane_id)!));
-  const quiet = [...busy.slice(8), ...lanes.filter(m => ['idle', 'paused'].includes(classes.get(m.lane.lane_id)!))];
-  const node = (model: LaneCardViewModel): ConstellationNode => {
-    const cls = classes.get(model.lane.lane_id)!, inner = cls === 'working' || cls === 'moving';
-    const age = readableAge(cls === 'paused' ? model.lane.state_at : model.lane.progress_at);
-    return { id: model.lane.lane_id, title: model.lane.title, lane: model.lane, kind: cls === 'working' ? 'working' : inner ? 'moving' : 'quiet',
-      state: inner ? (age ? `${age} ago` : '') : [cls === 'paused' ? null : 'idle', age].filter(Boolean).join(' · '),
-      question: model.waitingOnYou > 0 || laneNeedsYou(model.lane),
+  // Idle and Paused cards follow last activity, like the outer circle of the map.
+  const recent = (group: LaneCardViewModel[], cls: LaneClass) => readableByActivity(group, m => readableLastActivity(m.lane, cls));
+  const map = readableMapLanes(lanes.map(model => ({ model, lane: model.lane, cls: classes.get(model.lane.lane_id)!, question: model.waitingOnYou > 0 || laneNeedsYou(model.lane) })));
+  const node = ({ model, cls, question }: (typeof map.inner)[number]): ConstellationNode => {
+    const busy = cls === 'working' || cls === 'moving', age = readableAge(readableLastActivity(model.lane, cls));
+    return { id: model.lane.lane_id, title: model.lane.title, lane: model.lane, kind: cls === 'working' ? 'working' : busy ? 'moving' : 'quiet',
+      state: busy && age ? `${age} ago` : '', question,
       onPress: (e, ring) => onOpen({ kind: 'lane', laneId: model.lane.lane_id }, e, { ref: ring, node: <LaneMark lane={model.lane} quiet={quietClass(cls)} size={34} /> }) };
   };
-  const cards = (group: LaneCardViewModel[]) => group.map((model, i) => <LaneCard key={model.lane.lane_id} first={i === 0} model={model} cls={classes.get(model.lane.lane_id)!} spark={spark} connected={connected} active={active} readShow={readShow}
+  // +N scrolls the list so the top-most card it counts sits at the top: section offsets plus card offsets inside them.
+  const scroll = useRef<ScrollView>(null), sectionTop = useRef(new Map<string, number>()), cardTop = useRef(new Map<string, { section: string; y: number }>());
+  const toCards = (ids: string[]) => {
+    const tops = ids.flatMap(id => { const c = cardTop.current.get(id), s = c && sectionTop.current.get(c.section); return c && s !== undefined ? [s + c.y] : []; });
+    if (tops.length) scroll.current?.scrollTo({ y: Math.max(0, Math.min(...tops) - 8), animated: true });
+  };
+  const cards = (group: LaneCardViewModel[], section: string) => group.map((model, i) => <LaneCard key={model.lane.lane_id} first={i === 0} model={model} cls={classes.get(model.lane.lane_id)!} spark={spark} connected={connected} active={active} readShow={readShow}
     expanded={expanded === model.lane.lane_id} onOpen={onOpen} questionCard={expanded === model.lane.lane_id ? questionCard(model) : null}
+    onLayout={y => cardTop.current.set(model.lane.lane_id, { section, y })}
     onToggle={() => setExpanded(expanded === model.lane.lane_id ? null : model.lane.lane_id)} />);
   return <>
     <Header hero={<Badge kind="home" tone={p.green} />} title={assistantName} sub={`${counts.working} working · ${counts.moving} in progress · ${counts.quiet} quiet`} onClose={onClose} />
     {inventory?.work_index?.available === false ? <Text testID="lanes-index-banner" style={{ ...mono, color: p.muted, paddingHorizontal: 16, paddingTop: 6 }}>DATA AS OF {inventory.work_index.snapshot_at || 'unknown'}</Text> : null}
-    <ScrollView testID="readable-lanes-scroll" contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 56 }}>
+    <ScrollView ref={scroll} testID="readable-lanes-scroll" contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 56 }}>
       <View testID="readable-home">
         <View style={{ marginHorizontal: -16, alignItems: 'center', borderBottomWidth: 1, borderColor: p.line }}>
-          <LanesConstellation width={Math.min(width, 430)} inner={busy.slice(0, 8).map(node)} outer={quiet.map(node)} assistantName={assistantName} motion={mapMotion} />
+          <LanesConstellation width={Math.min(width, 440)} inner={map.inner.map(node)} extra={map.extra.map(node)} quiet={map.quiet.map(node)}
+            assistantName={assistantName} motion={mapMotion} onMore={toCards} />
         </View>
         {connected && lanes.length === 0 ? <Text style={{ ...body, marginTop: 16 }}>No open lanes</Text> : null}
-        {([['Working now', working, p.green], ['In progress', moving, p.muted], ['Idle', by('idle'), p.muted], ['Paused', by('paused'), p.muted]] as const)
-          .map(([name, group, tone]) => group.length ? <View key={name}><Section name={name} count={group.length} tone={tone} />{cards(group)}</View> : null)}
+        {([['Working now', working, p.green], ['In progress', moving, p.muted], ['Idle', recent(by('idle'), 'idle'), p.muted], ['Paused', recent(by('paused'), 'paused'), p.muted]] as const)
+          .map(([name, group, tone]) => group.length ? <View key={name} testID={`readable-group-${name.toLowerCase().replace(/\s+/g, '-')}`} onLayout={e => sectionTop.current.set(name, e.nativeEvent.layout.y)}>
+            <Section name={name} count={group.length} tone={tone} />{cards(group, name)}</View> : null)}
         {parked.length ? <Pressable testID="parked-button" accessibilityRole="button" onPress={e => onOpen({ kind: 'parked' }, e)}
           style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 22, paddingVertical: 11, paddingHorizontal: 12, minHeight: 44, borderWidth: 1, borderStyle: 'dashed', borderColor: p.line, borderRadius: 9 }}>
           <Icon kind="parked" size={15} color={p.muted} /><Text style={{ ...body, fontSize: 15, color: p.muted, flex: 1 }}>Parked · {parked.length}</Text><Icon kind="chevron" size={13} color={p.muted} />
