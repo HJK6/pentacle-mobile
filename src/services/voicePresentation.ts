@@ -7,7 +7,7 @@ import { voiceTakeStore } from './voiceTakeStore';
 import { ASSISTANT_STREAM_ID, selectAssistantIdentity } from './assistantIdentity';
 import { getPentacleStreamState, subscribeVoiceTransport, voiceTransportSnapshot, voiceOriginStatus } from './pentacleStream';
 import { setVoiceContextPage } from './voiceContext';
-import { useVoiceSendTime, voiceSendNeedsAttention } from './voiceSendStatus';
+import { clearVoiceSendRetry, useVoiceSendTime, voiceSendNeedsAttention } from './voiceSendStatus';
 
 export type VoiceSurfacePage = { page_id: string; title: string; entity_id?: string; question_id?: string };
 export type VoiceSurfaceOptions = { chat?: boolean; priority?: number; bottom?: number; top?: number };
@@ -65,7 +65,8 @@ function observeVoiceAttention(takes: readonly VoiceTake[], now: number) {
       failureTimer = setTimeout(() => clearVoiceFailureNotice(take.recordingId), VOICE_FAILURE_NOTICE_MS);
     }
   }
-  for (const id of [...attentionSeen.keys()]) if (!ids.has(id)) attentionSeen.delete(id);
+  // A removed or landed take drops its retry display mark too (QA 9b9af498).
+  for (const id of [...attentionSeen.keys()]) if (!ids.has(id)) { attentionSeen.delete(id); clearVoiceSendRetry(id); }
   if (state.failure && !ids.has(state.failure.recordingId)) clearVoiceFailureNotice();
 }
 function watchReceiptScope() {

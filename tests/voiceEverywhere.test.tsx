@@ -566,3 +566,13 @@ test('in the destination chat a failure raises no bar; the message row owns it',
   emitDelivery([take('failed')]);
   expect(view.queryByTestId('global-voice-bar')).toBeNull();
 });
+test('a removed take drops its retry display mark (QA 9b9af498)', () => {
+  const { markVoiceSendRetry, voiceSendNeedsAttention } = require('../src/services/voiceSendStatus');
+  const stale = { ...take('checking', true), sendRequestedAt: Date.now() - 130_000 };
+  mockDelivery = { ...mockDelivery, takes: [stale] };
+  render(<><VoiceRecordingOverlay /><Page /></>);
+  markVoiceSendRetry('take-1');
+  expect(voiceSendNeedsAttention(stale, Date.now())).toBe(false);
+  emitDelivery([]);
+  expect(voiceSendNeedsAttention(stale, Date.now())).toBe(true);
+});

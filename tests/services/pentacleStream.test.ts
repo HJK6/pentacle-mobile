@@ -7311,3 +7311,14 @@ describe('voice image upload scope repair MOB-02', () => {
     timerSpy.mockRestore(); setup.unsubscribe();
   });
 });
+
+test('voice X leaves no transcript fallback after an unconfirmed hydrated intent (QA 9b9af498)', () => {
+  const { stream, prepare, unsubscribe } = readyVoiceTransport();
+  const intent = prepare();
+  stream.hydrateVoiceDispatchIntent(intent);
+  stream.discardVoiceOptimisticSend(intent);
+  expect(stream.getPentacleStreamState().optimisticSends?.[intent.optimisticId]).toBeUndefined();
+  const detail = require('pentacle-chat-core').selectSessionDetail(stream.getPentacleStreamState(), VOICE_STREAM_ID);
+  expect(detail.transcriptItems.filter((item: { isUser?: boolean }) => item.isUser)).toEqual([]);
+  unsubscribe();
+});

@@ -638,6 +638,7 @@ export function discardVoiceOptimisticSend(intent: VoiceDispatchIntent): void {
   next = mutatePentacleEventBuckets(next, { type: 'optimistic-remove', streamId: optimistic.stream_id, optimisticId: intent.optimisticId });
   if (next.workingByStream?.[optimistic.stream_id]?.optimisticId === intent.optimisticId) next = clearPentacleTurn(next, optimistic.stream_id);
   setState(next);
+  restoreSummaryAfterDiscard(optimistic.stream_id, optimistic.text);
 }
 export function forgetVoiceDispatchIntent(intent: VoiceDispatchIntent): void {
   voiceReceiptWaiters.get(intent.requestId)?.finish(voiceUnknown(intent));
