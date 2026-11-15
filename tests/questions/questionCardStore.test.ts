@@ -113,17 +113,27 @@ test('questions that arrive while stored state loads open the card on the first 
   expect(store.getSnapshot()).toEqual({ shown: true, pageKey: 'b' });
 });
 
-test('an unreadable stored record counts as none and the seen list is capped', async () => {
+test('an unreadable stored record counts as none and the cap bounds only settled questions', async () => {
   const storage = memoryStorage();
   storage.items.set('card', '{not json');
   const store = createQuestionCardStore('card', storage);
   await settle();
-  store.observeDeck(Array.from({ length: 600 }, (_, n) => `k${n}`));
+  const pending = Array.from({ length: 600 }, (_, n) => `k${n}`);
+  store.observeDeck(pending);
   expect(store.getSnapshot()).toEqual({ shown: true, pageKey: 'k0' });
+  store.hide();
+  await settle();
+  expect(JSON.parse(storage.items.get('card')!).seen).toHaveLength(600);
+  const relaunched = createQuestionCardStore('card', storage);
+  relaunched.observeDeck(pending);
+  await settle();
+  expect(relaunched.getSnapshot().shown).toBe(false);
+  relaunched.observeDeck(['fresh']);
   await settle();
   const seen = JSON.parse(storage.items.get('card')!).seen as string[];
-  expect(seen).toHaveLength(500);
-  expect(seen[499]).toBe('k599');
+  expect(seen).toHaveLength(501);
+  expect(seen.slice(-2)).toEqual(['k599', 'fresh']);
+  expect(relaunched.getSnapshot()).toEqual({ shown: true, pageKey: 'fresh' });
 });
 
 function deferredStorage(initial: Record<string, unknown>) {

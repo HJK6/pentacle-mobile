@@ -19,10 +19,14 @@ export function createQuestionCardStore(storageKey?: string, storage: CardStorag
   let pendingDeck: readonly string[] | null = null;
   // Keys on screen when he toggled or closed during loading count as seen, so only a later arrival reopens.
   const acknowledged = new Set<string>();
+  let liveKeys: readonly string[] = [];
   const emit = () => listeners.forEach((listener) => listener());
   const persist = () => {
     if (!storageKey || !hydrated) return;
-    const record = { shown: snapshot.shown, seen: [...seen].slice(-SEEN_LIMIT) };
+    // The cap bounds settled history only; every question still pending is always kept.
+    const live = new Set(liveKeys);
+    const settled = [...seen].filter((key) => !live.has(key)).slice(-SEEN_LIMIT);
+    const record = { shown: snapshot.shown, seen: [...settled, ...liveKeys.filter((key) => seen.has(key))] };
     storage.setItem(storageKey, JSON.stringify(record)).catch(() => undefined);
   };
   const setShown = (shown: boolean) => {
@@ -39,8 +43,8 @@ export function createQuestionCardStore(storageKey?: string, storage: CardStorag
     observeDeck(keys: readonly string[]) {
       if (!hydrated) { pendingDeck = keys; return; }
       const first = keys.find((key) => !seen.has(key));
-      // Re-adding moves pending keys to the newest end, so the stored cap never drops one.
-      keys.forEach((key) => { seen.delete(key); seen.add(key); });
+      liveKeys = keys;
+      keys.forEach((key) => seen.add(key));
       if (first !== undefined) { snapshot = { shown: true, pageKey: first }; emit(); persist(); }
     },
     setPageKey(pageKey: string | null) {
@@ -72,6 +76,7 @@ export function createQuestionCardStore(storageKey?: string, storage: CardStorag
       hydrated = true;
       const keys = pendingDeck;
       pendingDeck = null;
+      liveKeys = keys ?? liveKeys;
       emit();
       // A toggle, close or reset made while loading was never written; store what is in effect now.
       if (touched) persist();
