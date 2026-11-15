@@ -161,12 +161,13 @@ test.each([false, true])('shared footer covers first, middle, last and one unans
   expect(screen.getByTestId('questions-unanswered-label')).toHaveTextContent('1 unanswered');
 });
 
-test('lane card filters the existing deck and keeps its draft isolated across remounts', () => {
+test('lane card filters the existing deck and keeps its draft isolated across remounts', async () => {
   const { laneQuestionCardStore } = require('../../src/components/questions/questionCardStore');
   laneQuestionCardStore('lane-test').reset();
   mockState = baseState({ sessions: [session(SESSION_B, 'Review')], notifications: [durableQuestion(SESSION_B, 'one'), durableQuestion(SESSION_B, 'two')] });
   const view = render(<QuestionDeckCard embedded laneId="lane-test" laneQuestionIds={['q-one']} />);
-  expect(screen.getByTestId('questions-counter')).toHaveTextContent('QUESTION 1 / 1');
+  // The lane card opens once its stored dismissal state has loaded.
+  expect(await screen.findByTestId('questions-counter')).toHaveTextContent('QUESTION 1 / 1');
   fireEvent.press(screen.getByTestId('questions-option-1'));
   view.unmount();
   render(<QuestionDeckCard embedded laneId="lane-test" laneQuestionIds={['q-one']} />);

@@ -1357,3 +1357,4 @@ export function getFixture(
 }
 
 FIXTURES['assistant:questions_embedded'] = questionsEmbeddedFixture();
+FIXTURES['assistant:questions_embedded_new'] = questionsEmbeddedFixture(true);

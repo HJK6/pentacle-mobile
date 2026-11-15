@@ -203,8 +203,9 @@ the session screen.
 Approved embedded-card design: `mobile/Pentacle Questions Embedded.html`, version 11, frames 01–02.
 In the Assistant thread, `QuestionDeckCard` is the newest transcript item directly above the composer.
 New unseen deck keys show the card on the first unseen page. Closing hides it until a new key arrives
-or the header `?` is tapped. Visibility and its draft/error controller are process-local; hiding
-preserves drafts and pending submissions. Final submissions stay pinned until settled, and a legacy
+or the header `?` is tapped. Visibility and seen keys are stored on the device, so a closed card stays
+closed after a relaunch. The draft/error controller is process-local; hiding preserves drafts and
+pending submissions. Final submissions stay pinned until settled, and a legacy
 send error holds its See chat banner until dismissed. The card's source mark uses a found lane icon,
 with SourceMark fallback when no lane is found or the carried inventory is incomplete.
 The card omits header mic and See chat. The Assistant header mic talks to the assistant in free form.
