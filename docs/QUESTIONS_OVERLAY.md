@@ -11,8 +11,10 @@ live in [assistant_home_contracts.md](assistant_home_contracts.md); this page re
 
 Approved design: `mobile/Pentacle Questions Embedded.html`, version 11, frames 01–02.
 A previously unseen deck key shows the card on its first unseen page. Close hides it until
-another unseen key arrives or the header `?` is tapped. Seen keys last for this app process;
-a cold start shows a pending deck. Hiding preserves drafts, errors and pending submissions.
+another unseen key arrives or the header `?` is tapped. The shown flag and seen keys (last 500)
+are stored on the device per card (Assistant and each lane), so a closed card stays closed after a
+relaunch; the card makes no deck decision until that record has loaded. Hiding preserves drafts,
+errors and pending submissions, which stay process-local.
 A final submission keeps its page pinned until settlement. The card leaves only when the
 effective deck is empty, no submission is pending and no legacy error banner is held.
 The banner retains See chat recovery and Dismiss. The embedded header omits mic and See chat;
@@ -32,7 +34,7 @@ SourceMark without extra fetching. Other session transcripts do not embed this c
 | `src/components/questions/submitDeckAnswers.ts` | `submitDeckAnswers`, `sendableKeys`: serial send orchestration over `submitQuestionSubmission`. |
 | `src/components/questions/QuestionDeckCard.tsx` | Shared page body, dots, footer and errors, hosted by the transcript or overlay. |
 | `src/components/questions/QuestionsScreen.tsx` | Notification overlay wrapper, retaining its voice controls and See chat header. |
-| `src/components/questions/questionCardStore.ts` | Process-local visibility, seen keys, page, drafts, errors and in-flight pinned deck. |
+| `src/components/questions/questionCardStore.ts` | Stored visibility and seen keys; process-local page, drafts, errors and in-flight pinned deck. |
 | `src/components/questions/questionSourceLane.ts` | Bounded lead/inline-seat lane lookup, with none/unknown SourceMark fallback. |
 | `src/components/questions/SourceMark.tsx`, `DeckDots.tsx` | Source ring and the per-question-accent dots. |
 | `src/components/questions/index.ts` | Re-exports; P3 imports `selectPendingQuestionCount` from here. |

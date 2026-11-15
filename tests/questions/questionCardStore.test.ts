@@ -55,3 +55,73 @@ test('lane cards retain drafts independently from the assistant card and other l
   expect(first.getSnapshot().shown).toBe(true);
   expect(questionCardStore.getSnapshot().shown).toBe(false);
 });
+
+function memoryStorage() {
+  const items = new Map<string, string>();
+  return { items, getItem: async (key: string) => items.get(key) ?? null, setItem: async (key: string, value: string) => { items.set(key, value); } };
+}
+const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+test('a closed card stays closed after a relaunch; only an unseen question reopens it, on that question', async () => {
+  const storage = memoryStorage();
+  const first = createQuestionCardStore('card', storage);
+  await settle();
+  first.observeDeck(['a', 'b']);
+  expect(first.getSnapshot()).toEqual({ shown: true, pageKey: 'a' });
+  first.hide();
+  await settle();
+
+  const relaunched = createQuestionCardStore('card', storage);
+  relaunched.observeDeck(['a', 'b']);
+  expect(relaunched.getSnapshot().shown).toBe(false);
+  await settle();
+  expect(relaunched.getSnapshot().shown).toBe(false);
+  relaunched.observeDeck(['a', 'b']);
+  expect(relaunched.getSnapshot().shown).toBe(false);
+  relaunched.observeDeck(['a', 'b', 'c']);
+  expect(relaunched.getSnapshot()).toEqual({ shown: true, pageKey: 'c' });
+});
+
+test('a card left open stays open after a relaunch, and the question button still toggles it', async () => {
+  const storage = memoryStorage();
+  const first = createQuestionCardStore('card', storage);
+  await settle();
+  first.observeDeck(['a']);
+  await settle();
+  const relaunched = createQuestionCardStore('card', storage);
+  await settle();
+  relaunched.observeDeck(['a']);
+  expect(relaunched.getSnapshot().shown).toBe(true);
+  relaunched.toggle(1);
+  expect(relaunched.getSnapshot().shown).toBe(false);
+  await settle();
+  const again = createQuestionCardStore('card', storage);
+  await settle();
+  again.observeDeck(['a']);
+  expect(again.getSnapshot().shown).toBe(false);
+  again.toggle(1);
+  expect(again.getSnapshot().shown).toBe(true);
+});
+
+test('questions that arrive while stored state loads open the card on the first unseen one', async () => {
+  const storage = memoryStorage();
+  storage.items.set('card', JSON.stringify({ shown: false, seen: ['a'] }));
+  const store = createQuestionCardStore('card', storage);
+  store.observeDeck(['a', 'b']);
+  expect(store.getSnapshot().shown).toBe(false);
+  await settle();
+  expect(store.getSnapshot()).toEqual({ shown: true, pageKey: 'b' });
+});
+
+test('an unreadable stored record counts as none and the seen list is capped', async () => {
+  const storage = memoryStorage();
+  storage.items.set('card', '{not json');
+  const store = createQuestionCardStore('card', storage);
+  await settle();
+  store.observeDeck(Array.from({ length: 600 }, (_, n) => `k${n}`));
+  expect(store.getSnapshot()).toEqual({ shown: true, pageKey: 'k0' });
+  await settle();
+  const seen = JSON.parse(storage.items.get('card')!).seen as string[];
+  expect(seen).toHaveLength(500);
+  expect(seen[499]).toBe('k599');
+});
