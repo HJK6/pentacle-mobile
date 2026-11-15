@@ -129,12 +129,12 @@ test('paused capture shows truthful interruption, Send and X, with explicit Resu
   await act(async () => { fireEvent.press(view.getByTestId('global-voice-send')); });
   expect(mockSend).toHaveBeenCalledWith('take-1');
 });
-test('only landed event shows Sent, assistant View clears it, and expiry is 2800ms from proof', () => {
+test('only landed event shows Sent, assistant View clears it, and expiry is 3000ms from proof', () => {
   const view = render(<><VoiceRecordingOverlay /><Page /></>);
   expect(view.queryByText(/SENT TO/)).toBeNull();
   act(() => mockLandedListeners.forEach(fn => fn({ recordingId: 'take-1', streamId: ASSISTANT_STREAM_ID, originLabel: 'Guide', landedAt: Date.now() })));
   expect(view.getByText('SENT TO GUIDE')).toBeTruthy();
-  act(() => jest.advanceTimersByTime(2799)); expect(view.getByText('SENT TO GUIDE')).toBeTruthy();
+  act(() => jest.advanceTimersByTime(2999)); expect(view.getByText('SENT TO GUIDE')).toBeTruthy();
   act(() => jest.advanceTimersByTime(1)); expect(view.queryByText('SENT TO GUIDE')).toBeNull();
   act(() => mockLandedListeners.forEach(fn => fn({ recordingId: 'take-2', streamId: ASSISTANT_STREAM_ID, originLabel: 'Guide', landedAt: Date.now() })));
   fireEvent.press(view.getByLabelText('View sent recording'));
@@ -174,7 +174,7 @@ test.each(['hosta:original', ASSISTANT_STREAM_ID])('destination %s suppresses pa
   expect(view.queryByLabelText('Return to original chat')).toBeNull();
   expect(view.getByText('Draft stays')).toBeTruthy();
   view.rerender(tree(false));
-  expect(view.getByText('TRANSCRIBING…')).toBeTruthy();
+  expect(view.getByText('SENDING')).toBeTruthy();
   expect(view.getByLabelText('View voice message')).toBeTruthy();
   view.rerender(tree(true, true));
   expect(view.getByTestId('global-voice-bar').props.accessibilityLabel).toBe('Floating voice recording');
@@ -225,7 +225,7 @@ test.each(['hosta:original', ASSISTANT_STREAM_ID])('destination %s filters a rec
   view.rerender(tree(true, true));
   expect(view.getByText('SENT TO ORIGINAL CHAT')).toBeTruthy();
   view.rerender(tree(true));
-  act(() => jest.advanceTimersByTime(1199));
+  act(() => jest.advanceTimersByTime(1399));
   view.rerender(tree(false));
   expect(view.getByText('SENT TO ORIGINAL CHAT')).toBeTruthy();
   act(() => jest.advanceTimersByTime(1));
@@ -241,7 +241,7 @@ test('a receipt landing away is hidden on entry and expires there without a new 
   expect(view.getByText('SENT TO ORIGINAL CHAT')).toBeTruthy();
   view.rerender(tree(true));
   expect(view.queryByText(/SENT TO/)).toBeNull();
-  act(() => jest.advanceTimersByTime(2800));
+  act(() => jest.advanceTimersByTime(3000));
   view.rerender(tree(false));
   expect(view.queryByText(/SENT TO/)).toBeNull();
 });
@@ -269,7 +269,7 @@ test('storage recovery stays visible beside retained messages without delivery c
   expect(mockDelivery.takes).toHaveLength(2);
 });
 test.each([
-  ['queued','QUEUED'], ['uploading','UPLOADING…'], ['transcribing','TRANSCRIBING…'], ['checking','CHECKING DELIVERY'],
+  ['queued','SENDING'], ['uploading','SENDING'], ['transcribing','SENDING'], ['checking','SENDING'],
 ])('off-chat %s uses only bounded progress, never fake Sent', (status, label) => {
   mockDelivery = { ...mockDelivery, takes: [take(status, status === 'checking')] };
   const view = render(<><VoiceRecordingOverlay /><Page /></>);
@@ -302,7 +302,7 @@ test('landed receipt is shown ahead of other retained takes and does not remove 
   expect(view.getByText('SENT TO GUIDE')).toBeTruthy();
   expect(view.queryByTestId('voice-take-list')).toBeNull();
   expect(mockDelivery.takes).toHaveLength(1);
-  act(() => jest.advanceTimersByTime(2800));
+  act(() => jest.advanceTimersByTime(3000));
   expect(view.getByText('UNSENT · 0:12 KEPT')).toBeTruthy();
 });
 
@@ -337,7 +337,7 @@ test.each([3000, 100])('an out-of-order proof %ims older cannot replace or cance
   act(() => mockLandedListeners.forEach(fn => fn({ recordingId: 'take-older', streamId: ASSISTANT_STREAM_ID, originLabel: 'Older recipient', landedAt: provedAt - ageMs })));
   expect(view.getByText('SENT TO LATEST RECIPIENT')).toBeTruthy();
   expect(view.queryByText('SENT TO OLDER RECIPIENT')).toBeNull();
-  act(() => jest.advanceTimersByTime(2299));
+  act(() => jest.advanceTimersByTime(2499));
   expect(view.getByText('SENT TO LATEST RECIPIENT')).toBeTruthy();
   act(() => jest.advanceTimersByTime(1));
   expect(view.queryByText('SENT TO LATEST RECIPIENT')).toBeNull();
@@ -431,7 +431,28 @@ test.each(['0', '1'])('assistant header recorder origin is gated (harness=%s)', 
 });
 
 
-test.each(['message', 'retained card'] as const)('%s offers explicit local removal after an in-flight server cancel', async surface => {
+test('message X cancels a server-owned send and then removes the local copy without a confirm', async () => {
+  const owned = { ...take('server_owned'), sendRequestedAt: Date.now() - 130_000 };
+  owned.manifest = { ...owned.manifest, serverMandate: { intent: {} } } as any;
+  mockDelivery = { ...mockDelivery, takes: [owned] };
+  const alert = jest.spyOn(Alert, 'alert');
+  mockDiscard.mockImplementation(async (_id, options) => {
+    if (!options?.removeLocalCopy) {
+      mockDelivery = { ...mockDelivery, takes: [{ ...owned, status: 'checking' }] };
+      mockDeliveryListeners.forEach(fn => fn());
+    }
+  });
+  try {
+    const view = render(<><VoiceRecordingOverlay /><Page /><VoiceMessageStatus take={owned as any} /></>);
+    await act(async () => { fireEvent.press(view.getByLabelText('Cancel and delete')); });
+    expect(mockDiscard.mock.calls).toEqual([['take-1'], ['take-1', { removeLocalCopy: true }]]);
+    expect(alert).not.toHaveBeenCalled();
+  } finally {
+    alert.mockRestore();
+    mockDiscard.mockImplementation(async () => undefined);
+  }
+});
+test('retained card offers explicit local removal after an in-flight server cancel', async () => {
   const owned = take('server_owned');
   owned.manifest = { ...owned.manifest, serverMandate: { intent: {} } } as any;
   mockDelivery = { ...mockDelivery, takes: [owned] };
@@ -443,9 +464,8 @@ test.each(['message', 'retained card'] as const)('%s offers explicit local remov
     }
   });
   try {
-    const view = render(surface === 'message' ? <><VoiceRecordingOverlay /><Page /><VoiceMessageStatus take={owned as any} /></>
-      : <VoiceTakeControls take={owned as any} onReturn={() => {}} />);
-    await act(async () => { fireEvent.press(view.getByLabelText(surface === 'message' ? 'Remove local copy' : 'Discard recording')); });
+    const view = render(<VoiceTakeControls take={owned as any} onReturn={() => {}} />);
+    await act(async () => { fireEvent.press(view.getByLabelText('Discard recording')); });
     expect(mockDiscard).toHaveBeenCalledWith('take-1');
     expect(mockDelivery.takes).toHaveLength(1);
     expect(alert).toHaveBeenCalledWith('Remove local copy?',
@@ -478,6 +498,9 @@ test('off-chat progress expires at the original deadline across navigation and r
   view.rerender(tree(false));
   expect(view.getByText('SENDING')).toBeTruthy();
   act(() => jest.advanceTimersByTime(1));
+  // Overdue while away from its chat: the short failure bar, then nothing.
+  expect(view.getByText('FAILED SENDING')).toBeTruthy();
+  act(() => jest.advanceTimersByTime(5000));
   expect(view.queryByTestId('global-voice-bar')).toBeNull();
   view.unmount(); view = render(tree(false));
   expect(view.queryByTestId('global-voice-bar')).toBeNull();
@@ -493,6 +516,63 @@ test('an older failed or overdue take cannot hide a newer active send elsewhere'
     { ...take('uploading'), recordingId: 'active', sendRequestedAt: Date.now() },
   ] };
   const view = render(<><VoiceRecordingOverlay /><Page /></>);
-  expect(view.getByText('UPLOADING…')).toBeTruthy();
+  expect(view.getByText('SENDING')).toBeTruthy();
   expect(mockDelivery.takes).toHaveLength(3);
+});
+
+function emitDelivery(takes: any[]) { act(() => { mockDelivery = { ...mockDelivery, takes }; mockDeliveryListeners.forEach(fn => fn()); }); }
+test.each(['queued', 'uploading', 'transcribing', 'server_owned'])('outside the chat an in-flight %s send reads SENDING', status => {
+  mockDelivery = { ...mockDelivery, takes: [take(status)] };
+  const view = render(<><VoiceRecordingOverlay /><Page /></>);
+  expect(view.getByText('SENDING')).toBeTruthy();
+  expect(view.queryByLabelText('Go to chat')).toBeNull();
+});
+test.each(['failed', 'not_landed', 'auth_needed', 'origin_unavailable'])('outside the chat a send that turns %s shows FAILED SENDING with Go to chat for 5 s', status => {
+  mockDelivery = { ...mockDelivery, takes: [take('transcribing')] };
+  const view = render(<><VoiceRecordingOverlay /><Page /></>);
+  expect(view.getByText('SENDING')).toBeTruthy();
+  emitDelivery([take(status)]);
+  expect(view.getByText('FAILED SENDING')).toBeTruthy();
+  expect(view.getByLabelText('Go to chat')).toBeTruthy();
+  expect(view.queryByLabelText('View voice message')).toBeNull();
+  act(() => jest.advanceTimersByTime(4999));
+  expect(view.getByText('FAILED SENDING')).toBeTruthy();
+  act(() => jest.advanceTimersByTime(1));
+  expect(view.queryByTestId('global-voice-bar')).toBeNull();
+  expect(mockDiscard).not.toHaveBeenCalled();
+});
+test('Go to chat opens the failed message chat and hides the bar', () => {
+  mockDelivery = { ...mockDelivery, takes: [take('uploading')] };
+  const view = render(<><VoiceRecordingOverlay /><Page /></>);
+  emitDelivery([take('failed')]);
+  fireEvent.press(view.getByLabelText('Go to chat'));
+  expect(mockRouter.push.mock.calls.length + mockRouter.replace.mock.calls.length).toBeGreaterThan(0);
+  expect(view.queryByTestId('global-voice-bar')).toBeNull();
+});
+test('a send that passes its display budget away from the chat also shows the failure bar', () => {
+  mockDelivery = { ...mockDelivery, takes: [{ ...take('transcribing'), sendRequestedAt: Date.now() }] };
+  const view = render(<><VoiceRecordingOverlay /><Page /></>);
+  act(() => jest.advanceTimersByTime(130_000));
+  expect(view.getByText('FAILED SENDING')).toBeTruthy();
+});
+test('a message that was already failed when first seen raises no failure bar', () => {
+  mockDelivery = { ...mockDelivery, takes: [take('failed')] };
+  const view = render(<><VoiceRecordingOverlay /><Page /></>);
+  expect(view.queryByTestId('global-voice-bar')).toBeNull();
+});
+test('in the destination chat a failure raises no bar; the message row owns it', () => {
+  mockDelivery = { ...mockDelivery, takes: [take('transcribing')] };
+  const view = render(<><VoiceRecordingOverlay /><Page chat entityId="hosta:original" /></>);
+  emitDelivery([take('failed')]);
+  expect(view.queryByTestId('global-voice-bar')).toBeNull();
+});
+test('a removed take drops its retry display mark (QA 9b9af498)', () => {
+  const { markVoiceSendRetry, voiceSendNeedsAttention } = require('../src/services/voiceSendStatus');
+  const stale = { ...take('checking', true), sendRequestedAt: Date.now() - 130_000 };
+  mockDelivery = { ...mockDelivery, takes: [stale] };
+  render(<><VoiceRecordingOverlay /><Page /></>);
+  markVoiceSendRetry('take-1');
+  expect(voiceSendNeedsAttention(stale, Date.now())).toBe(false);
+  emitDelivery([]);
+  expect(voiceSendNeedsAttention(stale, Date.now())).toBe(true);
 });

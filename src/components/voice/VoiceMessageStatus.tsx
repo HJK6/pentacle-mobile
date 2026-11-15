@@ -2,62 +2,82 @@ import React, { useRef, useState } from 'react';
 import { Alert, StyleSheet, Text, View } from 'react-native';
 import { Fonts, Tokens } from '../../../constants/Colors';
 import { voiceDelivery, type VoiceTake } from '../../services/voiceDelivery';
-import { sendVoiceTake } from '../../services/voiceRecordingEngine';
+import { discardVoiceTake, sendVoiceTake } from '../../services/voiceRecordingEngine';
 import { formatDuration } from '../../services/voiceRecording';
-import { useVoiceSendTime, voiceSendFailed, voiceSendNeedsAttention } from '../../services/voiceSendStatus';
+import { clearVoiceSendRetry, markVoiceSendRetry, useVoiceSendTime, voiceSendNeedsAttention } from '../../services/voiceSendStatus';
+import { SendFailedRow, SendingRow } from '../SendStatusRow';
 import { discardRetainedVoiceTake, VoiceControlButton } from './VoiceTakeControls';
-import { VoiceSpinner } from './VoiceGlyphs';
+import VoiceBubble from './VoiceBubble';
 
-const labels: Record<VoiceTake['status'], string> = {
-  unsent: 'UNSENT', queued: 'QUEUED', uploading: 'UPLOADING', transcribing: 'TRANSCRIBING',
-  server_owned: 'SENDING', checking: 'DELIVERY UNCONFIRMED', failed: 'DELIVERY FAILED',
-  auth_needed: 'SIGN IN REQUIRED', origin_unavailable: 'ORIGINAL CHAT UNAVAILABLE', not_landed: 'NOT DELIVERED',
-};
+/**
+ * X on a failed voice message deletes its local copy at once (operator, 2026-11-15).
+ * A server-owned send still gets a cancel attempt first so the server stops trying.
+ */
+export async function removeVoiceMessage(take: VoiceTake) {
+  const id = take.recordingId;
+  if (take.manifest.serverMandate && !take.manifest.serverMandateFailed) {
+    if (require('../../services/pentacleStream').voiceTransportSnapshot().ready) {
+      try { await discardVoiceTake(id); } catch { /* fall through to local removal */ }
+    }
+    if (!voiceDelivery.snapshot().takes.some(current => current.recordingId === id)) return;
+    await discardVoiceTake(id, { removeLocalCopy: true });
+  } else if (take.manifest.dispatchIntent) {
+    await discardVoiceTake(id, { removeLocalCopy: true });
+  } else {
+    await discardVoiceTake(id);
+  }
+}
 
-/** Every retained message owns its exits, independently of global overlay registration. */
-export default function VoiceMessageStatus({ take, answerCount = 0 }: { take: VoiceTake; answerCount?: number }) {
+/** The voice bubble and its send row: the same Sending / Failed sending grammar as text. */
+export default function VoiceMessageStatus({ take, answerCount = 0, accent }: { take: VoiceTake; answerCount?: number; accent?: string }) {
   const now = useVoiceSendTime([take]);
-  const attention = voiceSendNeedsAttention(take, now);
-  const failed = voiceSendFailed(take);
+  const failed = take.status !== 'unsent' && voiceSendNeedsAttention(take, now);
   const serverOwned = !!take.manifest.serverMandate && !take.manifest.serverMandateFailed;
   const uncertain = take.status !== 'not_landed' && (!!take.manifest.dispatchIntent
     || serverOwned && ['server_owned', 'checking'].includes(take.status));
   const canReplay = uncertain && take.receiptAbsent && !serverOwned;
-  const canRetry = failed && !uncertain;
   const pending = useRef(false);
   const [busy, setBusy] = useState(false);
-  const run = async (work: () => Promise<unknown>) => {
+  const [, refresh] = useState(0);
+  const run = async (work: () => Promise<unknown>, onError?: () => void) => {
     if (pending.current) return;
     pending.current = true; setBusy(true);
     try { await work(); }
-    catch (error) { Alert.alert('Voice message', error instanceof Error ? error.message : 'Could not update the message.'); }
+    catch (error) { onError?.(); Alert.alert('Voice message', error instanceof Error ? error.message : 'Could not update the message.'); }
     finally { pending.current = false; setBusy(false); }
   };
-  const label = take.error || (canReplay ? 'NOT RECEIVED' : attention && !failed ? 'DELIVERY UNCONFIRMED' : labels[take.status]);
+  // One symbol, the safe command for the state: exact replay after proven absence,
+  // lookup while delivery is unconfirmed or server-owned, otherwise a retry.
+  const retry = () => {
+    const id = take.recordingId;
+    markVoiceSendRetry(id); refresh(value => value + 1);
+    void run(() => canReplay ? voiceDelivery.sendAgain(id) : uncertain ? voiceDelivery.checkAgain(id) : voiceDelivery.retry(id),
+      () => clearVoiceSendRetry(id));
+  };
+  const extras = [
+    answerCount > 0 ? `ANSWERS ${answerCount} QUESTION${answerCount === 1 ? '' : 'S'}` : null,
+    take.interrupted ? `INTERRUPTED AT ${formatDuration(take.durationS)}` : null,
+  ].filter(Boolean) as string[];
   return <View testID="voice-transcription-status" style={styles.container}>
-    <View style={styles.caption}>
-      {!attention && take.status === 'transcribing' ? <VoiceSpinner testID="voice-transcribing-spinner" /> : null}
-      <Text style={[styles.text, attention && styles.attention]}>{label}</Text>
-      {answerCount > 0 ? <Text testID="voice-answers-label" style={styles.text}>{`ANSWERS ${answerCount} QUESTION${answerCount === 1 ? '' : 'S'}`}</Text> : null}
-      {take.interrupted ? <Text style={styles.text}>· INTERRUPTED AT {formatDuration(take.durationS)}</Text> : null}
+    {extras.length ? <View style={styles.caption}>{extras.map(text =>
+      <Text key={text} testID={text.startsWith('ANSWERS') ? 'voice-answers-label' : undefined} style={styles.text}>{text}</Text>)}</View> : null}
+    <VoiceBubble levels={take.levels} durationS={take.durationS} failed={failed} />
+    {take.status === 'unsent' ? <View style={styles.actions}>
+      <Text style={styles.text}>UNSENT</Text>
+      <VoiceControlButton label="Send voice message" disabled={busy} onPress={() => { void run(() => sendVoiceTake(take.recordingId)); }}>Send</VoiceControlButton>
+      <VoiceControlButton label="Discard voice message" testID="voice-transcription-discard" disabled={busy}
+        onPress={() => discardRetainedVoiceTake(take)}>Discard</VoiceControlButton>
     </View>
-    <View style={styles.actions}>
-      {take.status === 'unsent' ? <VoiceControlButton label="Send voice message" disabled={busy} onPress={() => { void run(() => sendVoiceTake(take.recordingId)); }}>Send</VoiceControlButton>
-        : uncertain ? <VoiceControlButton label={canReplay ? 'Send again' : 'Check delivery again'} disabled={busy}
-          testID={canReplay ? 'voice-send-again' : 'voice-check-again'}
-          onPress={() => { void run(() => canReplay ? voiceDelivery.sendAgain(take.recordingId) : voiceDelivery.checkAgain(take.recordingId)); }}>{canReplay ? 'Send again' : 'Check again'}</VoiceControlButton>
-        : canRetry ? <VoiceControlButton label="Retry voice message" testID="voice-transcription-retry" disabled={busy}
-          onPress={() => { void run(() => voiceDelivery.retry(take.recordingId)); }}>Retry</VoiceControlButton> : null}
-      <VoiceControlButton label={uncertain ? 'Remove local copy' : 'Discard voice message'} testID="voice-transcription-discard" disabled={busy}
-        onPress={() => discardRetainedVoiceTake(take)}>{uncertain ? 'Remove local copy' : 'Discard'}</VoiceControlButton>
-    </View>
+      : failed ? <SendFailedRow testID="voice-send-failed" retryTestID="voice-send-retry" discardTestID="voice-send-discard"
+        accent={accent} retryDisabled={busy} onRetry={retry} onDiscard={() => { void run(() => removeVoiceMessage(take)); }} />
+      // Operator, 2026-11-15: "Uploading" while the audio uploads, then "Sending".
+      : <SendingRow testID="voice-send-sending" label={take.status === 'uploading' ? 'Uploading' : 'Sending'} />}
   </View>;
 }
 
 const styles = StyleSheet.create({
-  container: { alignSelf: 'flex-end', maxWidth: '100%' },
-  caption: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'flex-end', alignItems: 'center', gap: 6 },
+  container: { alignSelf: 'flex-end', alignItems: 'flex-end', maxWidth: '100%' },
+  caption: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'flex-end', alignItems: 'center', gap: 6, marginBottom: 4 },
   text: { color: Tokens.palette.dim, fontFamily: Fonts.jetBrainsMono.medium, fontSize: 10 },
-  attention: { color: Tokens.palette.amber },
-  actions: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'flex-end' },
+  actions: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'flex-end', alignItems: 'center' },
 });

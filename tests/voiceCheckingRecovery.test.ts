@@ -260,6 +260,9 @@ test('Remove local copy on a never-proven take drops its Sending bubble instead 
     expect(j.store.get(take.recordingId)).toBeUndefined();
     expect(j.stream.getPentacleStreamState().optimisticSends?.[intent.optimisticId]).toBeUndefined();
     expect(rows()).toHaveLength(0);
+    // X must not leave a session-summary fallback ghost of the deleted transcript (QA 9b9af498).
+    const detail = require('pentacle-chat-core').selectSessionDetail(j.stream.getPentacleStreamState(), intent.streamId);
+    expect(detail.transcriptItems.filter((item: { isUser?: boolean }) => item.isUser)).toEqual([]);
     expect(recovered.sends()).toHaveLength(0);
   } finally { j.cleanup(); }
 });

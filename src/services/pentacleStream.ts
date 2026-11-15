@@ -638,6 +638,7 @@ export function discardVoiceOptimisticSend(intent: VoiceDispatchIntent): void {
   next = mutatePentacleEventBuckets(next, { type: 'optimistic-remove', streamId: optimistic.stream_id, optimisticId: intent.optimisticId });
   if (next.workingByStream?.[optimistic.stream_id]?.optimisticId === intent.optimisticId) next = clearPentacleTurn(next, optimistic.stream_id);
   setState(next);
+  restoreSummaryAfterDiscard(optimistic.stream_id, optimistic.text);
 }
 export function forgetVoiceDispatchIntent(intent: VoiceDispatchIntent): void {
   voiceReceiptWaiters.get(intent.requestId)?.finish(voiceUnknown(intent));
@@ -1371,6 +1372,7 @@ const streamActions = Object.freeze({
   markOptimisticFailed,
   retainUploadForRetry,
   retryOptimisticSend,
+  discardFailedOptimisticSend,
   spawnSession: spawnPentacleSession,
   spawnSessionV2: spawnPentacleSessionV2,
   getSpawnCatalog,
@@ -6115,6 +6117,36 @@ export function discardOptimisticQuestionAnswer(optimisticId: string) {
     next = clearPentacleTurn(next, optimistic.stream_id);
   }
   setState(next);
+}
+
+/**
+ * X on a failed text or photo message: delete the local copy at once (operator, 2026-11-15).
+ * Pruning the optimistic row also drops its durable outbox entry (see setState).
+ */
+export async function discardFailedOptimisticSend(optimisticId: string): Promise<boolean> {
+  const optimistic = state.optimisticSends?.[optimisticId];
+  if (!optimistic || isVoiceOwnedSend(optimistic) || optimistic.status !== 'failed') return false;
+  const removed = optimistic.request_id.startsWith('photo-')
+    ? await discardPhotoOutbox(optimisticId, true)
+    : (discardOptimisticQuestionAnswer(optimisticId), true);
+  if (removed) restoreSummaryAfterDiscard(optimistic.stream_id, optimistic.text);
+  return removed;
+}
+/** The chat summary still names the deleted text; point it back at the last remaining event
+ *  so the session-summary fallback row cannot re-show the deleted message. */
+function restoreSummaryAfterDiscard(streamId: string, text: string) {
+  const session = state.sessions.find((item) => item.stream_id === streamId);
+  if (!session || String(session.last_kind || '').toUpperCase() !== 'USER' || session.last_text !== text) return;
+  const previous = peekEventsForStream(state, streamId).at(-1);
+  setState({
+    ...state,
+    sessions: state.sessions.map((item) => item === session ? {
+      ...item,
+      last_text: previous?.text ?? '',
+      last_kind: previous?.kind ?? '',
+      last_event_at: previous?.timestamp ?? item.last_event_at,
+    } : item),
+  });
 }
 
 // Reducer-owned turn phase entry point. Synchronously appends the optimistic

@@ -5,16 +5,18 @@ import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Fonts, Tokens } from '../../../constants/Colors';
 import { ASSISTANT_STREAM_ID } from '../../services/assistantIdentity';
-import { clearVoiceReceipt, clampVoiceDy, setVoiceBarDy, useVoicePresentation, voiceKeyboardBottom } from '../../services/voicePresentation';
+import { clearVoiceFailureNotice, clearVoiceReceipt, clampVoiceDy, setVoiceBarDy, useVoicePresentation, voiceKeyboardBottom } from '../../services/voicePresentation';
 import { discardVoiceTake, sendVoiceTake, voiceRecorder } from '../../services/voiceRecordingEngine';
 import { formatDuration } from '../../services/voiceRecording';
 import { performChatOpenNavigation } from '../../services/chatOpenNavigation';
 import RecordingStrip from './RecordingStrip';
+import SendingIndicator from '../SendingIndicator';
 import { discardRetainedVoiceTake, VoiceControlButton } from './VoiceTakeControls';
 import { DiscardGlyph, MicGlyph, VoiceCheckGlyph, VoiceRecordFace, VoiceSendGlyph, VoiceSpinner } from './VoiceGlyphs';
 
 const G = Tokens.palette.green;
-const labels = { unsent: 'UNSENT', queued: 'QUEUED', uploading: 'UPLOADING…', transcribing: 'TRANSCRIBING…', server_owned: 'SENDING', checking: 'CHECKING DELIVERY', failed: 'DELIVERY FAILED', auth_needed: 'SIGN IN REQUIRED', origin_unavailable: 'ORIGINAL CHAT UNAVAILABLE', not_landed: 'NOT DELIVERED' };
+// One send grammar with the message rows (operator, 2026-11-15): SENDING, SENT, FAILED SENDING.
+const labels = { unsent: 'UNSENT', queued: 'SENDING', uploading: 'SENDING', transcribing: 'SENDING', server_owned: 'SENDING', checking: 'SENDING', failed: 'FAILED SENDING', auth_needed: 'FAILED SENDING', origin_unavailable: 'FAILED SENDING', not_landed: 'FAILED SENDING' };
 const run = (work: () => Promise<unknown>) => { void work().catch(error => Alert.alert('Voice recording', error instanceof Error ? error.message : 'Could not update recording.')); };
 /** Geometry-only projection. Capture, durable queue and dispatch remain their existing owners. */
 export default function GlobalVoiceBar({ anchored = false, docked = false, surfaceId, onReturn, bottom, top }: {
@@ -44,22 +46,22 @@ export default function GlobalVoiceBar({ anchored = false, docked = false, surfa
   const target = recording ?? take;
   const isRecording = recording?.status === 'recording';
   const interrupted = recording?.status === 'paused';
-  const failed = !!take && ['failed', 'auth_needed', 'origin_unavailable', 'not_landed'].includes(take.status);
+  const failed = value.failureNotice;
   const canSend = !!recording && !['starting','stopping'].includes(recording.status) || take?.status === 'unsent';
   const canDiscard = !!recording || take?.status === 'unsent';
   const discard = () => take ? discardRetainedVoiceTake(take) : run(() => discardVoiceTake(id));
-  const connectionFailure = take?.status === 'failed' && /^(?:disconnected|not_connected|not connected|no connection|offline|network error)$/i.test(take.manifest.delivery?.error ?? take.error ?? '');
-  const tone = interrupted ? Tokens.palette.amber : failed ? Tokens.palette.red : G;
+  const tone = interrupted || failed ? Tokens.palette.amber : G;
   const fieldBorder = { borderColor: `${tone}66` };
   const originLabel = recording?.originLabel || take?.draft?.originLabel || receipt?.originLabel || '';
   const stateLabel = recording
     ? recording.error || (recording.status === 'starting' ? 'STARTING…' : recording.status === 'stopping' ? 'SAVING…' : interrupted ? `INTERRUPTED · ${formatDuration(recording.durationS)} KEPT` : `UNSENT · ${formatDuration(recording.durationS)} KEPT`)
-    : take ? `${connectionFailure ? 'NO CONNECTION' : labels[take.status]}${take.status === 'unsent' ? ` · ${formatDuration(take.durationS)} KEPT` : ''}` : `SENT TO ${originLabel.toUpperCase()}`;
-  const busy = !!recording && ['starting','stopping'].includes(recording.status) || !!take && ['queued','uploading','transcribing','server_owned'].includes(take.status);
+    : take ? failed ? 'FAILED SENDING' : `${labels[take.status]}${take.status === 'unsent' ? ` · ${formatDuration(take.durationS)} KEPT` : ''}` : `SENT TO ${originLabel.toUpperCase()}`;
+  const busy = !!recording && ['starting','stopping'].includes(recording.status);
+  const sending = !recording && !!take && !failed && take.status !== 'unsent';
   const open = (streamId: string) => { if (onReturn) onReturn(streamId); else performChatOpenNavigation(streamId, router as unknown as Parameters<typeof performChatOpenNavigation>[1]); };
   const content = isRecording ? <RecordingStrip displayLevels={recording.displayLevels} sampleCount={recording.levels.length} durationS={recording.durationS} onDiscard={() => {}} showDiscard={false}
     destinationLabel={recording.streamId !== ASSISTANT_STREAM_ID ? originLabel : undefined} testID="voice-recording-strip" />
-    : <View style={styles.status}>{receipt && !target ? <VoiceCheckGlyph /> : busy ? <VoiceSpinner size={12} color={tone} /> : null}<View style={styles.stateCopy}>{interrupted ? <Text numberOfLines={1} style={styles.origin}>{originLabel}</Text> : null}<Text numberOfLines={1} style={[styles.state, { color: tone }]}>{stateLabel}</Text></View></View>;
+    : <View style={styles.status}>{receipt && !target ? <VoiceCheckGlyph /> : sending ? <SendingIndicator /> : busy ? <VoiceSpinner size={12} color={tone} /> : null}<View style={styles.stateCopy}>{interrupted ? <Text numberOfLines={1} style={styles.origin}>{originLabel}</Text> : null}<Text numberOfLines={1} style={[styles.state, { color: tone }]}>{stateLabel}</Text></View></View>;
   return <View pointerEvents="box-none" testID="global-voice-bar" accessibilityLabel={anchored ? 'Voice recording in chat' : 'Floating voice recording'}
     style={[styles.bar, anchored ? styles.anchored : { position: 'absolute', left: 16, right: 16, bottom: base + dy }, docked && styles.docked]}>
     <View testID={anchored && !docked ? 'composer-capsule' : 'global-voice-field'} style={[styles.field, fieldBorder]} onLayout={event => setWidth(Math.max(1, event.nativeEvent.layout.width))}>
@@ -69,7 +71,9 @@ export default function GlobalVoiceBar({ anchored = false, docked = false, surfa
       </Svg>
       {canDiscard ? <Pressable accessibilityRole="button" accessibilityState={{ disabled: false }} accessibilityLabel={take?.manifest.dispatchIntent ? 'Remove local copy' : 'Discard recording'} testID="voice-recording-strip-discard" onPress={discard} style={styles.discard}><DiscardGlyph /></Pressable> : null}
       <View {...(!anchored ? pan.panHandlers : {})} testID={!anchored ? 'voice-bar-drag-region' : undefined} style={styles.drag}>{content}</View>
-      {(interrupted || !recording && (take || receipt)) ? <Pressable accessibilityRole="button" accessibilityState={{ disabled: false }} accessibilityLabel={interrupted ? 'Return to original chat' : receipt ? 'View sent recording' : 'View voice message'} onPress={() => { if (receipt) clearVoiceReceipt(receipt.recordingId); open((recording ?? take ?? receipt)!.streamId); }} style={styles.view}><Text style={styles.viewText}>View</Text></Pressable> : null}
+      {failed && take ? <Pressable accessibilityRole="button" accessibilityLabel="Go to chat" testID="voice-go-to-chat"
+        onPress={() => { clearVoiceFailureNotice(take.recordingId); open(take.streamId); }} style={styles.view}><Text style={styles.viewText}>Go to chat</Text></Pressable>
+        : (interrupted || !recording && (take || receipt)) ? <Pressable accessibilityRole="button" accessibilityState={{ disabled: false }} accessibilityLabel={interrupted ? 'Return to original chat' : receipt ? 'View sent recording' : 'View voice message'} onPress={() => { if (receipt) clearVoiceReceipt(receipt.recordingId); open((recording ?? take ?? receipt)!.streamId); }} style={styles.view}><Text style={styles.viewText}>View</Text></Pressable> : null}
     </View>
     {interrupted ? <VoiceControlButton label="Resume recording" disabled={recording.pauseReason === 'origin'} onPress={() => run(() => voiceRecorder.resume())}>Resume</VoiceControlButton> : null}
     {canSend ? <Pressable accessibilityRole="button" accessibilityState={{ disabled: false }} accessibilityLabel={isRecording ? 'Stop and send' : 'Send recording'}

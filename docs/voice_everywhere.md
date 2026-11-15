@@ -22,38 +22,43 @@ admission, account/origin, upload, cancellation and receipt-proof fences.
   proof-derived Sent receipts are hidden from the bottom bar. Exact ordinary
   stream IDs and the assistant composite identity determine the destination.
   Capture and unsent controls remain available before Send.
-- Other chats, lists and covering surfaces show active send progress with View
-  to open its original destination. Failed and checking states use only the
-  message row. Progress expires 130 seconds after persisted `sendRequestedAt`;
-  navigation, relaunch and overdue retries never renew that display budget.
-  Expiry shows Delivery unconfirmed without changing delivery truth or sending
-  anything. An older failed/overdue take cannot hide a newer active send.
+- Other chats, lists and covering surfaces show active send progress as SENDING
+  with View to open its original destination. A send observed turning failed or
+  overdue while its chat is not open shows FAILED SENDING with Go to chat for
+  5 seconds; otherwise failure belongs to the message row. Progress expires 130
+  seconds after persisted `sendRequestedAt` or the last explicit retry;
+  navigation and relaunch never renew that display budget. Expiry shows Failed
+  sending without changing delivery truth or sending anything. An older
+  failed/overdue take cannot hide a newer active send.
 - A focused chat uses its existing measured composer slot for capture, unsent
   work and off-target bounded Uploading/Transcribing/Sent presentation. Queued
   and server-owned off-target progress docks above the live composer. Its draft
   owner stays mounted while capture owns the slot; the existing `composerWrap`
   measurement owns keyboard offsets and transcript clearance.
-- Message actions use the existing guarded commands: Retry for definite failure,
-  Check again for uncertain dispatch or server ownership, and Send again only
-  for authoritative absence of the exact client intent. Server-owned checking
-  without a client intent queries the existing outbound operation. Discard uses
-  server cancellation where available, then explicit local-copy removal if
-  cancellation cannot be confirmed. Multiple messages retain independent exits.
+- A voice message uses the text send row under its bubble: Uploading while the
+  audio uploads, then Sending, or "!" Failed sending with a retry symbol and an
+  X (one shared row for text and voice, `src/components/SendStatusRow.tsx`). The
+  symbol runs the existing guarded command for the state: retry for definite
+  failure, lookup for uncertain dispatch or server ownership, and exact replay
+  only for authoritative absence of the client intent. It shows Sending again
+  until the outcome or a fresh 130-second budget. X deletes the local copy at
+  once with no confirm; a server-owned send gets a cancel attempt first.
+  Multiple messages retain independent exits.
 - Outside chat, the selected root/modal host projects one 44-pixel field and
   circular microphone. Only the field's non-control region accepts vertical
   dragging. Horizontal placement is fixed. Position is process-only, keyed by
   recording ID and relative to the current surface baseline. Chat does not
   overwrite it; a new take resets it.
 
-The displayed phases come from capture and durable delivery: Starting, Saving,
-Queued, Uploading, Transcribing and Checking delivery. A paused take remains
+Capture phases are Starting and Saving; every delivery phase reads Sending
+(Uploading in the message row while the audio uploads). A paused take remains
 interrupted/kept until an explicit Send or Resume. The bottom capture surface
 retains Resume, Send and Discard. Held-account, unrecoverable-recording and storage
 recovery notices remain available; delivery recovery belongs to each message. Removing a local copy does not
 claim to unsend anything.
 
 Only matching authoritative landed proof, followed by owned cleanup, produces
-the process-only Sent receipt. It expires 2800 ms after proof; a new capture
+the process-only Sent receipt. It expires 3000 ms after proof; a new capture
 replaces it. The destination chat hides that receipt without consuming it. Leaving
 before its original deadline reveals only the remaining time; navigation cannot
 renew it, and nothing reappears after expiry. View opens the original destination
