@@ -182,3 +182,46 @@ test('a reset while stored state loads wins over the stored record', async () =>
   store.observeDeck(['a']);
   expect(store.getSnapshot()).toEqual({ shown: true, pageKey: 'a' });
 });
+
+test('button and close actions made while stored state loads keep their order against arrivals', async () => {
+  // While loading the card is hidden, so the header button opens it. Each row: stored record, deck seen
+  // before the action, actions, deck after loading, then the expected shown flag now and after a relaunch.
+  type Row = [{ shown: boolean; seen: string[] }, string[], ('toggle' | 'hide')[], string[] | null, boolean, boolean];
+  const rows: Row[] = [
+    [{ shown: false, seen: ['a'] }, ['a', 'b'], ['toggle', 'hide'], null, false, false],
+    [{ shown: true, seen: ['a'] }, ['a', 'b'], ['toggle', 'hide'], null, false, false],
+    [{ shown: false, seen: [] }, ['a'], ['toggle', 'hide'], null, false, false],
+    [{ shown: false, seen: ['a'] }, ['a', 'b'], ['toggle', 'hide'], ['a', 'b', 'c'], true, true],
+    [{ shown: false, seen: ['a'] }, ['a'], ['toggle'], null, true, true],
+    [{ shown: true, seen: ['a'] }, ['a', 'b'], ['toggle'], null, true, true],
+  ];
+  for (const [record, before, actions, after, shownNow, shownRelaunched] of rows) {
+    const label = JSON.stringify({ record, before, actions, after });
+    const storage = deferredStorage({ card: record });
+    const store = createQuestionCardStore('card', storage);
+    store.observeDeck(before);
+    actions.forEach((action) => action === 'toggle' ? store.toggle(before.length) : store.hide());
+    storage.release();
+    await settle();
+    if (after) store.observeDeck(after);
+    expect([label, store.getSnapshot().shown]).toEqual([label, shownNow]);
+    await settle();
+    const relaunched = createQuestionCardStore('card', storage);
+    await settle();
+    relaunched.observeDeck(after ?? before);
+    expect([label, relaunched.getSnapshot().shown]).toEqual([label, shownRelaunched]);
+  }
+});
+
+test('a question that arrived before a close made while loading does not reopen the card', async () => {
+  const storage = deferredStorage({ card: { shown: false, seen: ['a'] } });
+  const store = createQuestionCardStore('card', storage);
+  store.observeDeck(['a', 'b']);
+  store.toggle(2);
+  store.hide();
+  storage.release();
+  await settle();
+  expect(store.getSnapshot().shown).toBe(false);
+  store.observeDeck(['a', 'b', 'c']);
+  expect(store.getSnapshot()).toEqual({ shown: true, pageKey: 'c' });
+});
