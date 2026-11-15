@@ -125,3 +125,60 @@ test('an unreadable stored record counts as none and the seen list is capped', a
   expect(seen).toHaveLength(500);
   expect(seen[499]).toBe('k599');
 });
+
+function deferredStorage(initial: Record<string, unknown>) {
+  const items = new Map(Object.entries(initial).map(([key, value]) => [key, JSON.stringify(value)] as const));
+  let release: () => void = () => undefined;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  return {
+    items, release,
+    getItem: async (key: string) => { await gate; return items.get(key) ?? null; },
+    setItem: async (key: string, value: string) => { items.set(key, value); },
+  };
+}
+
+test('a question still pending is never dropped by the stored cap, however many others settle', async () => {
+  const storage = memoryStorage();
+  const store = createQuestionCardStore('card', storage);
+  await settle();
+  store.observeDeck(['old']);
+  store.hide();
+  for (let n = 0; n < 501; n += 1) {
+    store.observeDeck(['old', `new${n}`]);
+    store.hide();
+    store.observeDeck(['old']);
+  }
+  await settle();
+  const relaunched = createQuestionCardStore('card', storage);
+  await settle();
+  relaunched.observeDeck(['old']);
+  expect(relaunched.getSnapshot().shown).toBe(false);
+});
+
+test('opening and closing the card while stored state loads is what the next launch restores', async () => {
+  const storage = deferredStorage({ card: { shown: true, seen: ['a'] } });
+  const store = createQuestionCardStore('card', storage);
+  store.observeDeck(['a']);
+  store.toggle(1);
+  store.hide();
+  storage.release();
+  await settle();
+  expect(store.getSnapshot().shown).toBe(false);
+  const relaunched = createQuestionCardStore('card', storage);
+  await settle();
+  relaunched.observeDeck(['a']);
+  expect(relaunched.getSnapshot().shown).toBe(false);
+});
+
+test('a reset while stored state loads wins over the stored record', async () => {
+  const storage = deferredStorage({ card: { shown: true, seen: ['a'] } });
+  const store = createQuestionCardStore('card', storage);
+  store.observeDeck(['a']);
+  store.reset();
+  storage.release();
+  await settle();
+  expect(store.getSnapshot().shown).toBe(false);
+  expect(JSON.parse(storage.items.get('card')!)).toEqual({ shown: false, seen: [] });
+  store.observeDeck(['a']);
+  expect(store.getSnapshot()).toEqual({ shown: true, pageKey: 'a' });
+});

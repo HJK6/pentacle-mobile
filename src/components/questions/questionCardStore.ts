@@ -15,6 +15,7 @@ export function createQuestionCardStore(storageKey?: string, storage: CardStorag
   const listeners = new Set<() => void>();
   let hydrated = !storageKey;
   let touched = false;
+  let discardStored = false;
   let pendingDeck: readonly string[] | null = null;
   const emit = () => listeners.forEach((listener) => listener());
   const persist = () => {
@@ -32,7 +33,8 @@ export function createQuestionCardStore(storageKey?: string, storage: CardStorag
     observeDeck(keys: readonly string[]) {
       if (!hydrated) { pendingDeck = keys; return; }
       const first = keys.find((key) => !seen.has(key));
-      keys.forEach((key) => seen.add(key));
+      // Re-adding moves pending keys to the newest end, so the stored cap never drops one.
+      keys.forEach((key) => { seen.delete(key); seen.add(key); });
       if (first !== undefined) { snapshot = { shown: true, pageKey: first }; emit(); persist(); }
     },
     setPageKey(pageKey: string | null) {
@@ -47,19 +49,25 @@ export function createQuestionCardStore(storageKey?: string, storage: CardStorag
       const value = typeof next === 'function' ? (next as (prev: T) => T)(previous) : next;
       if (!Object.is(previous, value)) { fields.set(name, value); emit(); }
     },
-    reset() { fields.clear(); seen.clear(); snapshot = { shown: false, pageKey: null }; emit(); persist(); },
+    reset() {
+      fields.clear(); seen.clear(); snapshot = { shown: false, pageKey: null };
+      if (!hydrated) { touched = true; discardStored = true; pendingDeck = null; }
+      emit(); persist();
+    },
   };
   if (storageKey) {
     const finish = (raw: string | null) => {
       try {
-        const record = raw ? JSON.parse(raw) as { shown?: unknown; seen?: unknown } : null;
-        if (Array.isArray(record?.seen)) record.seen.forEach((key) => { if (typeof key === 'string') seen.add(key); });
+        const record = raw && !discardStored ? JSON.parse(raw) as { shown?: unknown; seen?: unknown } : null;
+        if (Array.isArray(record?.seen)) record.seen.forEach((key) => { if (typeof key === 'string' && !seen.has(key)) seen.add(key); });
         if (!touched && typeof record?.shown === 'boolean') snapshot = { ...snapshot, shown: record.shown };
       } catch { /* an unreadable record counts as none */ }
       hydrated = true;
       const keys = pendingDeck;
       pendingDeck = null;
       emit();
+      // A toggle, close or reset made while loading was never written; store what is in effect now.
+      if (touched) persist();
       if (keys) store.observeDeck(keys);
     };
     storage.getItem(storageKey).then(finish, () => finish(null));
