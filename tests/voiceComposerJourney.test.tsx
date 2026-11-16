@@ -14,6 +14,7 @@ import PersonalHome from '../src/components/personal/PersonalHome';
 import CalendarView from '../src/components/personal/CalendarView';
 import QuestionsScreen from '../src/components/questions/QuestionsScreen';
 import { twoItemQuestion } from './questions/fixtures';
+import { VOICE_SEND_PROGRESS_MS } from '../src/services/voiceSendStatus';
 import { resetVoicePresentationForTests } from '../src/services/voicePresentation';
 import { ASSISTANT_STREAM_ID } from '../src/services/assistantIdentity';
 import { initialPentacleStreamState, setTelemetrySink, type TelemetryPayload } from 'pentacle-chat-core';
@@ -155,6 +156,8 @@ test('a stuck checking take owns recovery on its message while every chat compos
   await act(async () => { resolveTranscript({ text: 'lost frame', model: 'synthetic', duration_s: 3 }); await voiceDelivery.drain(); });
   const take = voiceDelivery.snapshot().takes[0];
   expect(take).toMatchObject({ status: 'checking' });
+  // Unproven reads Sending until the display budget ends; recovery belongs to the message after it.
+  act(() => { jest.advanceTimersByTime(VOICE_SEND_PROGRESS_MS); });
   for (const streamId of ['hosta:origin', 'hosta:other']) {
     view.rerender(<><VoiceRecordingOverlay /><ComposerBar {...props} streamId={streamId} /></>);
     expect(view.getByTestId('composer-input').props.editable).toBe(true);
@@ -185,6 +188,7 @@ test('when the daemon has no receipt the message offers Send again, which resend
     const take = voiceDelivery.snapshot().takes[0];
     expect(take).toMatchObject({ status: 'checking', receiptAbsent: false });
     view.rerender(<><VoiceRecordingOverlay /><ComposerBar {...props} streamId="hosta:origin" /><TranscriptRow item={voiceTakeRow(take)} chrome={props.chrome} /></>);
+    act(() => { jest.advanceTimersByTime(VOICE_SEND_PROGRESS_MS); });
     expect(view.getByLabelText('Retry sending')).toBeTruthy();
     stream.setVoiceReceiptAbsentForTests(true);
     await act(async () => fireEvent.press(view.getByLabelText('Retry sending')));

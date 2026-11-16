@@ -1020,6 +1020,7 @@ export function useVoiceDelivery() {
   );
 }
 export function voiceTakeRow(take: VoiceTake): PentacleTranscriptItem {
+  const intent = take.manifest?.dispatchIntent ?? take.manifest?.serverMandate?.intent;
   const createdAt = new Date(take.createdAt);
   return {
     id: `voice:${take.recordingId}`,
@@ -1038,6 +1039,8 @@ export function voiceTakeRow(take: VoiceTake): PentacleTranscriptItem {
     eventCase: 'USER',
     displayRule: 'bubble:user',
     voice: { duration_s: take.durationS },
+    // The stream's own row for this send; the screen shows the take row instead while it exists.
+    ...(intent ? { optimisticId: intent.optimisticId } : {}),
   };
 }
 /** Generic timeline Retry cannot rotate voice request IDs or retranscribe retained work. */
