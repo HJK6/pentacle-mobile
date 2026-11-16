@@ -69,6 +69,22 @@ async function checkLabel(page, id, width) {
   assert(!box.clipped && box.right <= width - 16 + 0.5, `${id} clipped at ${width}: ${JSON.stringify(box)}`);
   receipt.labels = [...(receipt.labels || []), { id, width, right: box.right }];
 }
+/** Added lane words share the existing age slot without colliding with a long title. */
+async function checkWaitingCard(page) {
+  const card = page.locator(tid('lane-card-sample-lane-1'));
+  await card.scrollIntoViewIfNeeded();
+  const title = await rect(card.getByText('Prepare the next release and verify every supported client', { exact: true }));
+  const word = await rect(card.getByText('waiting on Dot · 3h', { exact: true }));
+  const bounds = await rect(card);
+  for (const [name, box] of [['title', title], ['word-plus-age', word]]) {
+    assert(box.x >= bounds.x - 0.5 && box.x + box.width <= bounds.x + bounds.width + 0.5
+      && box.y >= bounds.y - 0.5 && box.y + box.height <= bounds.y + bounds.height + 0.5,
+    `Waiting card ${name} escapes card: ${JSON.stringify({ box, bounds })}`);
+  }
+  assert(!(title.x < word.x + word.width && word.x < title.x + title.width
+    && title.y < word.y + word.height && word.y < title.y + title.height), 'Waiting card title overlaps word-plus-age');
+  receipt.waitingCard = { title, word, bounds, overlap: false };
+}
 async function open(page, id, screen) { const target = page.locator(tid(id)); await target.scrollIntoViewIfNeeded(); await target.click(); await page.locator(tid(screen)).waitFor(); }
 async function back(page) { await page.locator(tid('lanes-back')).click(); await page.waitForTimeout(50); }
 async function run() {
@@ -146,6 +162,23 @@ async function run() {
         await shot(page, `${variant}-lane`);
         await back(page);
       }
+      await seed(page, 'readable_dot');
+      await checkWaitingCard(page);
+      await shot(page, 'dot-home-waiting');
+      await open(page, 'lane-row-sample-lane-1', 'readable-lane');
+      await page.getByText('waiting on Dot · 3h ago', { exact: true }).waitFor();
+      await shot(page, 'dot-waiting-lane');
+      await open(page, 'goal-head-g_sample_0_0', 'readable-goal');
+      await open(page, 'spec-row-spec_sample__lane_0', 'readable-spec');
+      const item = page.locator(tid('readable-spec'));
+      await item.getByText('Waiting for Dot', { exact: true }).waitFor();
+      await item.getByText('Lead reported done · 2h ago', { exact: true }).waitFor();
+      const dot = await rect(item.getByText('Dot', { exact: true }));
+      const now = await rect(item.getByText('Now', { exact: true }));
+      const latest = await rect(item.getByText('Latest', { exact: true }));
+      assert(dot.y < now.y && now.y < latest.y, 'Dot / Now / Latest row order changed');
+      await shot(page, 'dot-item');
+      await back(page); await back(page); await back(page);
       for (const variant of ['readable_sparse', 'readable_old']) {
         await seed(page, variant);
         await open(page, 'lane-row-sample-lane-4', 'readable-lane');

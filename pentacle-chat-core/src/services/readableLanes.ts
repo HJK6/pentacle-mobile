@@ -83,10 +83,18 @@ export function readableDots(lane: WorkLane, road = readableRoad(lane, { legacy:
 export function readableLaneClass(lane: WorkLane, working = false): LaneClass {
   if (lane.parked) return 'parked';
   if (lane.state === 'paused') return 'paused';
+  if (lane.activity === 'working') return 'working';
   if (working || /w/.test(`${lane.goal_classes ?? ''}${lane.goal_road ?? ''}`)) return 'working';
   if (lane.goal_counts) return lane.goal_counts[0] > 0 ? 'moving' : 'idle';
   if (lane.goal_classes || lane.goal_road) return /m/.test(`${lane.goal_classes ?? ''}${lane.goal_road ?? ''}`) ? 'moving' : 'idle';
   return readableRoad(lane, { legacy: true }).some(stop => stop.goalClass === 'moving') ? 'moving' : 'idle';
+}
+
+/** Additional prose for the existing lane age slots. Parked lanes keep their hold text. */
+export function readableLaneWord(lane: WorkLane): string | null {
+  if (lane.parked) return null;
+  if (lane.activity === 'waiting_on_dot') return `waiting on ${lane.external?.label ?? 'Dot'}`;
+  return lane.activity === 'blocked' ? 'blocked' : null;
 }
 
 /** Header counts; parked lanes are in none of them. */
@@ -144,6 +152,7 @@ export function readableDeprecated(member: WorkLaneMember) {
 export function readableItemKind(member: WorkLaneMember): ItemKind {
   if (member.status === 'completed') return 'done';
   if ((member.open_questions?.count ?? 0) > 0) return 'needs';
+  if (member.external?.some(entry => entry.state === 'working')) return 'working';
   if (member.seats?.some(s => s.activity === 'working')) return 'working';
   if (member.status === 'in_progress' || member.status === 'needs_qa') return 'in_progress';
   if (member.status === 'blocked') return 'blocked';
@@ -187,10 +196,30 @@ export function readableHours(hours: number | null | undefined): string | null {
   if (hours == null || !Number.isFinite(hours) || hours < 0) return null;
   return hours < 1 ? '<1h left' : `~${Math.round(hours)}h left`;
 }
+/** One entry owns both the detail row's label and prose, even if wire order differs. */
+export function readableExternalEntry(member: WorkLaneMember) {
+  for (const state of ['working', 'review', 'queued'] as const) {
+    const entry = member.external?.find(entry => entry.state === state);
+    if (entry) return entry;
+  }
+  return undefined;
+}
+export function readableExternalLine(member: WorkLaneMember): string | null {
+  const entry = readableExternalEntry(member);
+  if (!entry) return null;
+  return entry.state === 'working' ? `${entry.label} is on it now`
+    : entry.state === 'review' ? `${entry.label} returned it, in review` : `Waiting for ${entry.label}`;
+}
+/** The only sentence shown on a small (Later or Done) row. */
+export function readableQueuedLine(member: WorkLaneMember): string | null {
+  if (member.status === 'blocked' || (member.open_questions?.count ?? 0) > 0) return null;
+  const entry = readableExternalEntry(member);
+  return entry?.state === 'queued' ? `Waiting for ${entry.label}` : null;
+}
 export function readableSentence(member: WorkLaneMember): string | null {
   if (member.status === 'blocked') return member.blocked_line ? `Blocked on ${member.blocked_line}` : null;
   if ((member.open_questions?.count ?? 0) > 0) return 'Waiting on your answer.';
-  return member.status_line || null;
+  return readableQueuedLine(member) ?? (member.status_line || null);
 }
 export function readableSeatCount(member: WorkLaneMember): string | null {
   const seats = member.seats ?? [];

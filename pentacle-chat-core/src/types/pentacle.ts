@@ -732,7 +732,29 @@ export interface WorkLaneRecent {
 }
 
 /** Optional facts stay absent when an older or malformed projection omits them. */
+export type WorkLaneActivity = 'working' | 'waiting_on_dot' | 'waiting_on_you' | 'blocked' | 'idle';
+export interface WorkLaneExternal {
+  label: string;
+  working: number;
+  queued: number;
+  review: number;
+  verified_at: string;
+}
+export interface WorkLaneMemberExternal {
+  label: string;
+  ref: string;
+  state: 'working' | 'queued' | 'review';
+  verified_at: string;
+}
+export interface WorkLaneLatestEvent {
+  kind: 'review_passed' | 'review_failed' | 'reported_done';
+  at: string;
+}
+
 export interface WorkLaneMember {
+  /** Detail-only packet work and latest reported milestone; absent from inventory previews. */
+  external?: WorkLaneMemberExternal[];
+  latest_event?: WorkLaneLatestEvent | null;
   spec_id: string;
   goal_id?: string | null;
   title?: string | null;
@@ -825,6 +847,8 @@ export interface WorkLaneParked {
 }
 
 export interface WorkLane extends WorkLaneAggregates {
+  activity?: WorkLaneActivity | null;
+  external?: WorkLaneExternal;
   lane_id: string;
   icon?: string | null;
   title: string;

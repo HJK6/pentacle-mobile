@@ -32,6 +32,8 @@ export function currentMember(
     estimate_first: Object.hasOwn(inline, 'estimate_first') ? inline.estimate_first : selected.estimate_first,
     unblocks: Object.hasOwn(inline, 'unblocks') ? inline.unblocks : selected.unblocks,
     recent: Object.hasOwn(inline, 'recent') ? inline.recent : selected.recent,
+    external: Object.hasOwn(inline, 'external') ? inline.external : selected.external,
+    latest_event: Object.hasOwn(inline, 'latest_event') ? inline.latest_event : selected.latest_event,
   };
 }
 export function useLaneMembers(

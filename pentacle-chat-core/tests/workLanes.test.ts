@@ -323,3 +323,67 @@ test('counts: each of open/active/paused/blocked rejects every invalid value, an
   }
   assert.ok(normalizeWorkLanesInventory({ ...frame, counts: { open: 0, active: 0, paused: 0, blocked: 0 } }));
 });
+
+const dotLane = { label: 'Dot', working: 1, queued: 2, review: 0, verified_at: '2026-11-10T10:00:00Z' };
+const dotMember = { label: 'Dot', ref: 'sample-packet', state: 'working', verified_at: dotLane.verified_at };
+const latest = { kind: 'review_passed', at: dotLane.verified_at };
+const optionalLane = (extra: Record<string, unknown>) => normalizeWorkLanesInventory({ ...fixture.inventory_frame, lanes: [{ ...fixture.inventory_frame.lanes[0], ...extra }] })!.lanes[0];
+const optionalMember = (extra: Record<string, unknown>) => optionalLane({ members: [{ spec_id: 'sample', ...extra }] }).members![0];
+
+test('optional activity retains valid words and null, omits invalid values without dropping the lane', () => {
+  for (const value of ['working', 'waiting_on_dot', 'waiting_on_you', 'blocked', 'idle', null]) {
+    const lane = optionalLane({ activity: value });
+    assert.ok(lane); assert.equal(lane.activity, value);
+  }
+  for (const value of [undefined, 'unknown', 1, {}, [], true]) {
+    const lane = optionalLane({ activity: value });
+    assert.ok(lane); assert.equal(Object.hasOwn(lane, 'activity'), false);
+  }
+});
+
+test('lane external validates its own object and never drops the lane or other optional fields', () => {
+  assert.deepEqual(optionalLane({ external: dotLane }).external, dotLane);
+  for (const external of [undefined, null, [], 'Dot', 2, {}, { ...dotLane, label: '' }, { ...dotLane, label: 7 },
+    { ...dotLane, working: -1 }, { ...dotLane, queued: 1.5 }, { ...dotLane, review: 'unknown' },
+    { ...dotLane, verified_at: null }, { ...dotLane, verified_at: 'invalid' }]) {
+    const lane = optionalLane({ external, activity: 'blocked' });
+    assert.ok(lane); assert.equal(Object.hasOwn(lane, 'external'), false); assert.equal(lane.activity, 'blocked');
+  }
+});
+
+test('member external keeps valid entries and drops only malformed entries, never the member', () => {
+  for (const state of ['working', 'review', 'queued']) {
+    const entry = { ...dotMember, state };
+    assert.deepEqual(optionalMember({ external: [entry] }).external, [entry]);
+  }
+  assert.deepEqual(optionalMember({ external: [] }).external, []);
+  for (const external of [undefined, null, {}, 'Dot', 2]) {
+    const member = optionalMember({ external, latest_event: latest });
+    assert.equal(member.spec_id, 'sample'); assert.equal(Object.hasOwn(member, 'external'), false); assert.deepEqual(member.latest_event, latest);
+  }
+  for (const bad of [null, 'Dot', {}, { ...dotMember, state: 'unknown' }, { ...dotMember, ref: '' },
+    { ...dotMember, label: 1 }, { ...dotMember, verified_at: null }, { ...dotMember, verified_at: 'invalid' }]) {
+    const member = optionalMember({ external: [bad, dotMember], latest_event: latest });
+    assert.equal(member.spec_id, 'sample'); assert.deepEqual(member.external, [dotMember]); assert.deepEqual(member.latest_event, latest);
+  }
+});
+
+test('latest event retains supported kinds and null while ignoring invalid objects', () => {
+  for (const kind of ['review_passed', 'review_failed', 'reported_done']) {
+    const event = { ...latest, kind };
+    assert.deepEqual(optionalMember({ latest_event: event }).latest_event, event);
+  }
+  assert.equal(optionalMember({ latest_event: null }).latest_event, null);
+  for (const latest_event of [undefined, [], 'done', 1, {}, { ...latest, kind: 'unknown' }, { ...latest, at: null }, { ...latest, at: 'invalid' }]) {
+    const member = optionalMember({ latest_event, external: [dotMember] });
+    assert.equal(member.spec_id, 'sample'); assert.equal(Object.hasOwn(member, 'latest_event'), false); assert.deepEqual(member.external, [dotMember]);
+  }
+});
+
+test('detail parser carries the same optional fields as inventory normalization', () => {
+  const lane = { ...fixture.inventory_frame.lanes[0], activity: 'working', external: dotLane };
+  const member = { spec_id: 'sample', external: [dotMember], latest_event: latest };
+  const show = parseWorkLaneShow({ type: 'work_lanes.show.ok', lane_id: lane.lane_id, projection: lane, members: [member], updates: [], spec_changes: [], events: [] });
+  assert.ok(show); assert.equal(show.projection?.activity, 'working'); assert.deepEqual(show.projection?.external, dotLane);
+  assert.deepEqual(show.members[0].external, [dotMember]); assert.deepEqual(show.members[0].latest_event, latest);
+});
