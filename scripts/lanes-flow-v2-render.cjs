@@ -6,6 +6,11 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { chromium } = require('playwright');
+// Explicit supplemental run: PENTACLE_RENDER_MODE=dot-with-known-map-red.
+// It never produces a passing full-driver receipt or zero exit while scope is incomplete.
+const mode = process.env.PENTACLE_RENDER_MODE || 'default';
+assert(['default', 'dot-with-known-map-red'].includes(mode), 'Unknown lanes render mode');
+const scoped = mode === 'dot-with-known-map-red';
 const root = path.resolve(__dirname, '..');
 const output = path.resolve(process.env.PENTACLE_RENDER_OUTPUT || '');
 const url = new URL(process.env.PENTACLE_RENDER_URL || 'http://127.0.0.1:8081');
@@ -13,6 +18,18 @@ assert(['localhost', '127.0.0.1', '[::1]'].includes(url.hostname), 'Use the admi
 assert(process.env.PENTACLE_RENDER_OUTPUT && output !== root && !output.startsWith(root + path.sep), 'Render evidence must stay outside the repository');
 fs.mkdirSync(output, { recursive: true });
 const receipt = { kind: 'readable-lanes-render', evidence_class: 'Supplemental fixture renders, not native touch proof', widths: [], maps: [], screenshots: [], errors: [] };
+if (scoped) Object.assign(receipt, {
+  mode, scope: '390x844 map diagnosis and spec 8 Dot display only', known_reds: [],
+  spec8: { status: 'NOT EXECUTED', checks: [] },
+  not_executed: [
+    { check: 'default.other-viewports', details: '375/430 map checks and 375 goal/spec bar containment' },
+    { check: 'default.map-label-overlap', details: 'roadmap_views at 390/375' },
+    { check: 'default.roadmap-busy', details: '13-lane count, parked exclusion, label overlap and outer-lane navigation' },
+    { check: 'default.roadmap-views-journeys', details: 'Home/list/question/quiet, lane/blocked lane, goal, Later/Done, item, parked journeys and bar containment' },
+    { check: 'default.other-fixtures', details: 'Overflow, loose, loose_done, no_classes, sparse/old missing-field checks and captures' },
+    { check: 'default.motion', details: 'Motion-enabled home/lane captures' },
+  ].map(entry => ({ ...entry, reason: 'Outside explicitly selected Dot-only scope' })),
+});
 // Screens stay mounted under the top one, so every locator targets the visible copy.
 const tid = id => `[data-testid="${id}"]:visible`;
 const lane = n => `road-lane-views-${n}`;
@@ -87,6 +104,59 @@ async function checkWaitingCard(page) {
 }
 async function open(page, id, screen) { const target = page.locator(tid(id)); await target.scrollIntoViewIfNeeded(); await target.click(); await page.locator(tid(screen)).waitFor(); }
 async function back(page) { await page.locator(tid('lanes-back')).click(); await page.waitForTimeout(50); }
+async function checkDot(page) {
+  await seed(page, 'readable_dot');
+  await checkWaitingCard(page);
+  await shot(page, 'dot-home-waiting');
+  await open(page, 'lane-row-sample-lane-1', 'readable-lane');
+  await page.getByText('waiting on Dot · 3h ago', { exact: true }).waitFor();
+  await shot(page, 'dot-waiting-lane');
+  await open(page, 'goal-head-g_sample_0_0', 'readable-goal');
+  await open(page, 'spec-row-spec_sample__lane_0', 'readable-spec');
+  const item = page.locator(tid('readable-spec'));
+  await item.getByText('Waiting for Dot', { exact: true }).waitFor();
+  await item.getByText('Lead reported done · 2h ago', { exact: true }).waitFor();
+  const dot = await rect(item.getByText('Dot', { exact: true }));
+  const now = await rect(item.getByText('Now', { exact: true }));
+  const latest = await rect(item.getByText('Latest', { exact: true }));
+  assert(dot.y < now.y && now.y < latest.y, 'Dot / Now / Latest row order changed');
+  await shot(page, 'dot-item');
+  await back(page); await back(page); await back(page);
+}
+/** Only the observed count failure is continuable; every other exception remains fatal. */
+async function scopedDotRun(page, width) {
+  try {
+    await checkMap(page, width);
+  } catch (error) {
+    const message = 'Every non-parked lane, including all thirteen quiet lanes, is drawn';
+    if (!(error instanceof assert.AssertionError) || error.operator !== 'strictEqual'
+      || error.actual !== 12 || error.expected !== 20 || width !== 390
+      || error.message.split('\n')[0] !== message) throw error;
+    receipt.known_reds.push({
+      status: 'KNOWN RED', check: 'map.non-parked-lane-count', failure: String(error),
+      observed: { actual: 12, expected: 20, width, fixture: 'roadmap_views' },
+      rule: { ref: '67898c29', requirement: 'All non-parked lanes must remain visible without overflow' },
+      evidence: {
+        description: 'Identical base and candidate render-diagnosis receipts',
+        base: 'cfccc24c6b3a7315f43c24aa9100ce7287909325', candidate: '1280be28846e6ad398f37438b49bde0fb67fc571',
+        sha256: 'debfb35fd3fb4380a7aad7c21982bac4c6fc7e77230a3cf94a7d17aa6b443ffa',
+      },
+    });
+    for (const check of ['map.zero-overflow-markers', 'map.no-paused-label', 'map.geometry', 'map.minimum-inner-lanes', 'map.equal-inner-radii'])
+      receipt.not_executed.push({ check, width, reason: 'Stopped after KNOWN RED lane count' });
+  }
+  receipt.spec8.status = 'RUNNING';
+  try {
+    await checkDot(page);
+    assert.deepEqual(receipt.errors, [], 'Rendered route emitted page errors');
+    receipt.spec8 = { status: 'PASS', width, height: 844,
+      checks: ['Waiting card containment and title/word-plus-age overlap', 'Waiting lane header',
+        'Dot and Latest text', 'Dot / Now / Latest row order', 'Three Dot screenshots'] };
+  } catch (error) {
+    receipt.spec8.status = 'FAIL';
+    throw error;
+  }
+}
 async function run() {
   const browser = await chromium.launch({ headless: true });
   try {
@@ -98,6 +168,11 @@ async function run() {
       await page.addStyleTag({ content: '[data-testid="voice-recording-overlay"] { display: none !important; }' });
       await seed(page, 'roadmap_views');
       await page.evaluate(() => document.fonts.ready);
+      if (scoped) {
+        await scopedDotRun(page, width);
+        await page.close();
+        return;
+      }
       await checkMap(page, width);
       if (width !== 430) await checkLabels(page, width);
       if (width === 375) {
@@ -162,23 +237,7 @@ async function run() {
         await shot(page, `${variant}-lane`);
         await back(page);
       }
-      await seed(page, 'readable_dot');
-      await checkWaitingCard(page);
-      await shot(page, 'dot-home-waiting');
-      await open(page, 'lane-row-sample-lane-1', 'readable-lane');
-      await page.getByText('waiting on Dot · 3h ago', { exact: true }).waitFor();
-      await shot(page, 'dot-waiting-lane');
-      await open(page, 'goal-head-g_sample_0_0', 'readable-goal');
-      await open(page, 'spec-row-spec_sample__lane_0', 'readable-spec');
-      const item = page.locator(tid('readable-spec'));
-      await item.getByText('Waiting for Dot', { exact: true }).waitFor();
-      await item.getByText('Lead reported done · 2h ago', { exact: true }).waitFor();
-      const dot = await rect(item.getByText('Dot', { exact: true }));
-      const now = await rect(item.getByText('Now', { exact: true }));
-      const latest = await rect(item.getByText('Latest', { exact: true }));
-      assert(dot.y < now.y && now.y < latest.y, 'Dot / Now / Latest row order changed');
-      await shot(page, 'dot-item');
-      await back(page); await back(page); await back(page);
+      await checkDot(page);
       for (const variant of ['readable_sparse', 'readable_old']) {
         await seed(page, variant);
         await open(page, 'lane-row-sample-lane-4', 'readable-lane');
@@ -205,4 +264,18 @@ async function run() {
     assert.deepEqual(receipt.errors, [], 'Rendered route emitted page errors');
   } finally { await browser.close(); }
 }
-run().then(() => { receipt.passed = true; }).catch(error => { receipt.passed = false; receipt.failure = String(error.stack || error); process.exitCode = 1; }).finally(() => fs.writeFileSync(path.join(output, 'receipt.json'), JSON.stringify(receipt, null, 2)));
+run().then(() => {
+  if (scoped) {
+    receipt.passed = false;
+    receipt.status = receipt.known_reds.length ? 'KNOWN RED' : 'SCOPED ONLY';
+    receipt.failure = receipt.known_reds.length
+      ? 'KNOWN RED: map shows 12/20 non-parked lanes (rule 67898c29); see known_reds and not_executed. Spec 8 result is separate.'
+      : 'Scoped run only; default driver checks remain unexecuted.';
+    process.exitCode = 1;
+  } else receipt.passed = true;
+}).catch(error => {
+  receipt.passed = false;
+  if (scoped) receipt.status = 'FAIL';
+  receipt.failure = String(error.stack || error);
+  process.exitCode = 1;
+}).finally(() => fs.writeFileSync(path.join(output, 'receipt.json'), JSON.stringify(receipt, null, 2)));
