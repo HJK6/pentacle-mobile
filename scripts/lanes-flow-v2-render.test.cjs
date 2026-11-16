@@ -75,6 +75,7 @@ test('opt-in retains KNOWN RED and citations, runs real Dot assertions, lists un
   assert.equal(exitCode, 1);
   assert.equal(receipt.spec8.status, 'PASS');
   assert.equal(receipt.known_reds.length, 1);
+  assert(receipt.known_reds.every(entry => entry.work_item === 'pentacle-mobile__lanes_map_show_all_non_parked_2026_11'));
   assert.deepEqual(receipt.known_reds[0].observed, { actual: 12, expected: 20, width: 390, fixture: 'roadmap_views' });
   assert.equal(receipt.known_reds[0].rule.ref, '67898c29');
   assert.equal(receipt.known_reds[0].evidence.sha256, 'debfb35fd3fb4380a7aad7c21982bac4c6fc7e77230a3cf94a7d17aa6b443ffa');

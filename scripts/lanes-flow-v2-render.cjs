@@ -134,6 +134,7 @@ async function scopedDotRun(page, width) {
       || error.message.split('\n')[0] !== message) throw error;
     receipt.known_reds.push({
       status: 'KNOWN RED', check: 'map.non-parked-lane-count', failure: String(error),
+      work_item: 'pentacle-mobile__lanes_map_show_all_non_parked_2026_11',
       observed: { actual: 12, expected: 20, width, fixture: 'roadmap_views' },
       rule: { ref: '67898c29', requirement: 'All non-parked lanes must remain visible without overflow' },
       evidence: {
