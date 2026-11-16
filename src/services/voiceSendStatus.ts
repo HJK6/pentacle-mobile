@@ -21,13 +21,10 @@ function deadline(take: VoiceTake) {
   );
   return Number.isFinite(started) ? started + VOICE_SEND_PROGRESS_MS : Infinity;
 }
-function retrying(take: VoiceTake, now: number) {
-  const at = retriedAt.get(take.recordingId);
-  return at !== undefined && now < at + VOICE_SEND_PROGRESS_MS;
-}
 export function voiceSendNeedsAttention(take: VoiceTake, now: number) {
-  // A retried lookup reads Sending until it proves absence or its budget runs out.
-  const checking = take.status === 'checking' && (!retrying(take, now) || !!take.receiptAbsent);
+  // Checking is an unproven send, not a failed one: it reads Sending until a lookup proves the
+  // daemon holds no receipt or the display budget runs out. A take with no send time has no budget.
+  const checking = take.status === 'checking' && (!!take.receiptAbsent || !Number.isFinite(deadline(take)));
   return voiceSendFailed(take) || checking || now >= deadline(take);
 }
 

@@ -1000,7 +1000,12 @@ export function assembleSessionTranscriptRows(
   const fullyCoveredLocalNotificationIds = fullyCoveredAnswerNotificationIds(
     Object.values(localProjections),
   );
-  const normalizedDetailItems = detailItems.map(formatNotificationAnswerTellItem);
+  // A server-sent voice message has no text of its own, so while its take row is on screen the
+  // stream's textless row for the same send would repeat it.
+  const takeOptimisticIds = new Set(voiceRows.flatMap((row) => (row.optimisticId ? [row.optimisticId] : [])));
+  const normalizedDetailItems = detailItems
+    .filter((item) => !(item.optimisticId && takeOptimisticIds.has(item.optimisticId) && !item.text.trim()))
+    .map(formatNotificationAnswerTellItem);
   // The projectionTexts guard drops ONLY the operator's OWN still-pending optimistic echo
   // (item.isUser && item.pending) whose text matches a local projection — a narrow, same-device,
   // pre-reconcile suppression of a row this client itself just queued. It is NOT the cross-answer

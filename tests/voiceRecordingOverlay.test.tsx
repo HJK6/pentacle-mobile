@@ -7,6 +7,7 @@ import { VoiceTakeStore, type VoiceTakeIO, type VoiceTakeManifest } from '../src
 import type { VoiceDispatchIntent, VoiceSendEvidence } from '../src/services/pentacleStream';
 import VoiceRecordingOverlay from '../src/components/voice/VoiceRecordingOverlay';
 import VoiceMessageStatus from '../src/components/voice/VoiceMessageStatus';
+import { VOICE_SEND_PROGRESS_MS } from '../src/services/voiceSendStatus';
 import { resetVoicePresentationForTests, useVoiceSurface } from '../src/services/voicePresentation';
 import { StyleSheet, View } from 'react-native';
 let mockDelivery: VoiceDelivery;
@@ -279,6 +280,8 @@ test('R4 ambiguous send failure is actionable on its message with the overlay mo
   (h.io.dispatch as jest.Mock).mockRejectedValue(new Error('synthetic send failure'));
   const view = render(<VoiceRecordingOverlay />);
   await act(async () => { await h.delivery.send(take.recordingId); });
+  expect(view.queryByText('FAILED SENDING')).toBeNull();
+  act(() => { jest.advanceTimersByTime(VOICE_SEND_PROGRESS_MS); });
   expect(view.getByText('FAILED SENDING')).toBeTruthy();
   expect(view.getByLabelText('Go to chat')).toBeTruthy();
   const row = render(<VoiceMessageStatus take={h.delivery.snapshot().takes[0]} />);

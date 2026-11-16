@@ -119,6 +119,7 @@ export class MockWebSocket {
   commits: string[] = [];
   transcribeErrors: string[] = [];
   receiptState: 'unknown' | 'accepted' | 'not_landed' | 'landed' = 'unknown';
+  receiptReason = '';
   constructor(public url: string) {
     MockWebSocket.instances.push(this);
   }
@@ -245,6 +246,7 @@ export class MockWebSocket {
                     request_id,
                     to_stream_id: frame.to_stream_id,
                     state: this.receiptState,
+                    ...(this.receiptReason ? { reason: this.receiptReason } : {}),
                   },
                 ],
         });

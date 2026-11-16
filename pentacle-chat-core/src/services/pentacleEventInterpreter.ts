@@ -974,7 +974,9 @@ export function interpretPentacleEvent(
     return interpreted(event, assistCase, 'bubble:assistant', 'assistant', assistantLabel, collapsedText, false, 'Agent-authored attachment.');
   }
 
-  if (isTerminalFurnitureText(text, kind) && !(kind === 'USER' && event.attachments?.length)) {
+  // A voice message sent by the server has no text until the daemon echoes it; the operator's
+  // own message must stay visible (with its send state) rather than read as empty furniture.
+  if (isTerminalFurnitureText(text, kind) && !(kind === 'USER' && (event.attachments?.length || event.meta?.voice))) {
     return interpreted(event, 'transient-noise', 'hidden:noise', 'system', '', text, true, 'Terminal UI furniture is not durable conversation.');
   }
 

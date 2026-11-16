@@ -110,7 +110,7 @@ test('an active server mandate retries by lookup only', async () => {
 });
 
 test('an unconfirmed client intent looks up, and replays exactly only after authoritative absence', async () => {
-  const retained = take('checking', { manifest: { dispatchIntent: {} } as any, receiptAbsent: false });
+  const retained = take('checking', { manifest: { dispatchIntent: {} } as any, receiptAbsent: false, sendRequestedAt: Date.now() - VOICE_SEND_PROGRESS_MS });
   const view = render(<VoiceMessageStatus take={retained} />);
   await act(async () => fireEvent.press(view.getByLabelText('Retry sending')));
   expect(mockCheck).toHaveBeenCalledWith('take-1'); expect(mockReplay).not.toHaveBeenCalled();
@@ -135,8 +135,21 @@ test('retry shows Sending again until the delivery outcome or the display budget
   expect(view.getByTestId('voice-send-failed')).toBeTruthy();
 });
 
+test('an unproven delivery reads Sending, not Failed, until a lookup proves absence or the display budget ends', () => {
+  const unproven = take('checking', { manifest: { dispatchIntent: {} } as any, receiptAbsent: false });
+  const view = render(<VoiceMessageStatus take={unproven} />);
+  expect(view.getByTestId('voice-send-sending')).toBeTruthy();
+  expect(view.queryByTestId('voice-send-failed')).toBeNull();
+  view.rerender(<VoiceMessageStatus take={{ ...unproven, receiptAbsent: true }} />);
+  expect(view.getByTestId('voice-send-failed')).toBeTruthy();
+  view.rerender(<VoiceMessageStatus take={unproven} />);
+  expect(view.getByTestId('voice-send-sending')).toBeTruthy();
+  act(() => jest.advanceTimersByTime(VOICE_SEND_PROGRESS_MS));
+  expect(view.getByTestId('voice-send-failed')).toBeTruthy();
+});
+
 test('X removes an unconfirmed or server-owned message without a confirm', async () => {
-  const intent = take('checking', { manifest: { dispatchIntent: {} } as any });
+  const intent = take('checking', { manifest: { dispatchIntent: {} } as any, sendRequestedAt: Date.now() - VOICE_SEND_PROGRESS_MS });
   let view = render(<VoiceMessageStatus take={intent} />);
   await act(async () => fireEvent.press(view.getByLabelText('Cancel and delete')));
   expect(mockDiscard).toHaveBeenCalledWith('take-1', { removeLocalCopy: true });

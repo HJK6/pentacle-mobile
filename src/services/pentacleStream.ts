@@ -524,7 +524,12 @@ function applyVoiceSendFrame(frame: Record<string, unknown>, source: 'send.resul
     : receiptState === 'landed' || frame.delivery === 'landed' ? 'landed'
       : receiptState === 'not_landed' ? 'not_landed' : 'unknown';
   const evidence = publishVoiceEvidence(intent, { ...voiceUnknown(intent, source), state: outcome });
-  const accepted = recordOptimisticSendAcceptanceByRequestId(state, intent.requestId, sendAcceptanceFromFrame(frame));
+  // A landed voice send the provider queued reads Queued until its USER echo, like any other send.
+  const reason = String(frame.reason ?? '');
+  const queued = evidence.state === 'landed'
+    && (frame.provider_queued === true || reason === 'provider_queued' || reason.endsWith(';provider_queued'));
+  const accepted = recordOptimisticSendAcceptanceByRequestId(state, intent.requestId,
+    { ...sendAcceptanceFromFrame(frame), ...(queued ? { provider_queued: true } : {}) });
   setState(evidence.state === 'landed' ? markOptimisticAckedByRequestId(accepted, intent.requestId, Date.now())
     : evidence.state === 'not_landed' ? markOptimisticFailedByRequestId(accepted, intent.requestId, 'not_landed', Date.now())
       : markOptimisticIndeterminateByRequestId(accepted, intent.requestId, Date.now()));
