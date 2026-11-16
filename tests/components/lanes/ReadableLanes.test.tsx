@@ -164,7 +164,9 @@ function snapshotPart(view: ReturnType<typeof render>, id: string) {
   }
   const node = find(view.toJSON());
   expect(node).toBeDefined();
-  return node;
+  // Quoted JSON text preserves significant spaces without emitting trailing
+  // whitespace in the snapshot file (the React JSX serializer leaves it bare).
+  return JSON.parse(JSON.stringify(node));
 }
 
 test('legacy fixture card and item remain visually unchanged without optional keys', async () => {
