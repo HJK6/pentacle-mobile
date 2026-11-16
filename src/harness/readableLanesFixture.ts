@@ -8,7 +8,7 @@ export function readableLanesFixture(variant: 'full' | 'sparse' | 'old' | 'dot' 
     for (const index of [0, 3]) {
       const lane = fixture.inventory.lanes[index], show = fixture.shows[lane.lane_id];
       lane.state = 'active'; lane.state_reason = 'work_started'; lane.lead = null;
-      lane.goal_classes = lane.goal_classes?.replace(/w/g, 'm');
+      lane.goal_classes = lane.goal_classes?.split('w').join('m');
       lane.progress_at = stamp(3);
       for (const goal of lane.goals ?? []) goal.working = false;
       for (const member of [...show.members, ...(lane.members ?? [])]) {
