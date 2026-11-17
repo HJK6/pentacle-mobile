@@ -113,3 +113,64 @@ test('map lanes: more than six busy lanes choose questions, then working, then m
   assert.deepEqual(map.extra.map(l => l.id), ['m-tie-a', 'm-tie-b', 'm-old']);
   assert.deepEqual(map.quiet, []);
 });
+
+import * as readable from '../src/services/readableLanes';
+const external = (state: 'working' | 'queued' | 'review', label = 'Dot') => ({ label, ref: `packet-${state}`, state, verified_at: '2026-11-10T10:00:00Z' });
+
+test('external lane activity changes only working and preserves parked/paused precedence', () => {
+  assert.equal(readableLaneClass(lane({ activity: 'working' })), 'working');
+  assert.equal(readableLaneClass(lane({ activity: 'working', state: 'paused' })), 'paused');
+  assert.equal(readableLaneClass(lane({ activity: 'working', parked: { at: null, reason: null } })), 'parked');
+  for (const activity of ['waiting_on_dot', 'waiting_on_you', 'blocked', 'idle', null, undefined] as const) {
+    for (const goal_classes of ['q-', 'm-', 'w-']) {
+      assert.equal(readableLaneClass(lane({ activity, goal_classes })), readableLaneClass(lane({ goal_classes })));
+    }
+  }
+});
+
+test('lane words use the external label, keep paused words and suppress parked words', () => {
+  for (const activity of ['working', 'waiting_on_dot', 'waiting_on_you', 'blocked', 'idle', null, undefined] as const) {
+    for (const label of [undefined, 'Scout']) {
+      const item = lane({ activity, ...(label ? { external: { label, working: 0, queued: 1, review: 0, verified_at: '2026-11-10T10:00:00Z' } } : {}) });
+      const expected = activity === 'waiting_on_dot' ? `waiting on ${label ?? 'Dot'}` : activity === 'blocked' ? 'blocked' : null;
+      assert.equal(readable.readableLaneWord(item), expected);
+      assert.equal(readable.readableLaneWord({ ...item, state: 'paused' }), expected);
+      assert.equal(readable.readableLaneWord({ ...item, parked: { at: null, reason: null } }), null);
+    }
+  }
+});
+
+test('external item work respects completed and open-question precedence and only working work counts as an agent', () => {
+  const member: WorkLaneMember = { spec_id: 'a', status: 'backlog', seats: [], external: [external('working')] };
+  assert.equal(readable.readableItemKind(member), 'working');
+  assert.equal(readable.readableItemKind({ ...member, status: 'completed' }), 'done');
+  assert.equal(readable.readableItemKind({ ...member, open_questions: { count: 1, first_question_id: 'q' } }), 'needs');
+  for (const state of ['queued', 'review'] as const) {
+    assert.equal(readable.readableItemKind({ ...member, external: [external(state)] }), 'later');
+    assert.equal(readableSeatCount({ ...member, external: [external(state)] }), null);
+  }
+});
+
+test('a working external entry is one more agent on it now, exactly like a working seat', () => {
+  const seat = (activity: 'working' | 'idle') => ({ stream_id: `s-${activity}`, role: null, host: null, visibility: null, activity, last_activity: null });
+  const member: WorkLaneMember = { spec_id: 'a', status: 'in_progress', seats: [], external: [external('working')] };
+  assert.equal(readableSeatCount(member), '1 on it now');
+  assert.equal(readableSeatCount({ ...member, seats: [seat('working')] }), '2 on it now');
+  assert.equal(readableSeatCount({ ...member, seats: [seat('idle')] }), '1 on it now');
+  assert.equal(readableSeatCount({ ...member, seats: [seat('working')], seats_total: 3 }), '2+ on it now');
+  assert.equal(readableSeatCount({ ...member, external: [external('working'), external('working')] }), '2 on it now');
+  assert.equal(readableSeatCount({ ...member, external: [] }), null);
+  assert.equal(readableSeatCount({ spec_id: 'a' }), null);
+  assert.equal('readableExternalLine' in readable, false);
+});
+
+test('queued-only sentence appears without moving backlog, while blocked/question/status prose wins otherwise', () => {
+  const member: WorkLaneMember = { spec_id: 'a', status: 'backlog', status_line: 'Lead status.', external: [external('queued')] };
+  assert.equal(readableSentence(member), 'Waiting for Dot');
+  assert.equal(readable.readableItemKind(member), 'later');
+  assert.equal(readableSentence({ ...member, status: 'blocked', blocked_line: 'approval' }), 'Blocked on approval');
+  assert.equal(readableSentence({ ...member, status: 'blocked' }), null);
+  assert.equal(readableSentence({ ...member, open_questions: { count: 1, first_question_id: null } }), 'Waiting on your answer.');
+  for (const state of ['working', 'review'] as const) assert.equal(readableSentence({ ...member, external: [...member.external!, external(state)] }), 'Lead status.');
+  assert.equal(readableSentence({ ...member, external: [] }), 'Lead status.');
+});

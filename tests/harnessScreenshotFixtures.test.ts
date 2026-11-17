@@ -22,7 +22,7 @@ import {
   getPentacleStreamState,
   selectStreamSlice,
 } from '../src/services/pentacleStream';
-import { selectChatList, selectMachineStatsTabs, selectOpenLaneCount, selectWorkLanes } from 'pentacle-chat-core';
+import { selectChatList, selectMachineStatsTabs, selectOpenLaneCount, selectWorkLanes, parseWorkLaneShow, readableLaneClass, readableItemKind } from 'pentacle-chat-core';
 import { selectLaneUpdates } from '../src/services/workLanes';
 
 function seed(key: string) {
@@ -77,7 +77,7 @@ describe('screenshot harness fixtures', () => {
     expect(selectWorkLanes(state).some((lane) => lane.visible_chat.available === 'history')).toBe(true);
   });
 
-  it.each(['full', 'sparse', 'old'])('readable %s fixture survives the production reducer', (variant) => {
+  it.each(['full', 'sparse', 'old', 'dot'])('readable %s fixture survives the production reducer', (variant) => {
     const state = seed(`lanes:readable_${variant}`);
     const lanes = selectWorkLanes(state);
     expect(lanes).toHaveLength(13);
@@ -86,6 +86,23 @@ describe('screenshot harness fixtures', () => {
     if (variant === 'old') expect(lane.goal_classes).toBeUndefined();
     else expect(lane.goal_classes).toBeTruthy();
     expect(FIXTURES[`lanes:readable_${variant}`].workLaneShows?.[lane.lane_id].members.length).toBeGreaterThan(8);
+  });
+
+  it('Dot fixture preserves optional wire keys and detail-only packet and event data', () => {
+    const lanes = selectWorkLanes(seed('lanes:readable_dot'));
+    const waiting = lanes.find(lane => lane.lane_id === 'sample-lane-1')!;
+    const working = lanes.find(lane => lane.lane_id === 'sample-lane-4')!;
+    expect(waiting.activity).toBe('waiting_on_dot');
+    expect(waiting.external?.label).toBe('Dot');
+    expect(working.lead).toBeNull();
+    expect(working.goal_classes).not.toContain('w');
+    expect(readableLaneClass(working)).toBe('working');
+    expect(working.members?.every(m => !m.seats?.length && !m.external && !m.latest_event)).toBe(true);
+    const show = parseWorkLaneShow(FIXTURES['lanes:readable_dot'].workLaneShows![working.lane_id])!;
+    expect(show.members.flatMap(m => m.external?.map(e => e.state) ?? [])).toEqual(['working', 'review', 'queued']);
+    expect(show.members.flatMap(m => m.latest_event ? [m.latest_event.kind] : [])).toEqual(['review_passed', 'review_failed', 'reported_done']);
+    expect(readableItemKind(show.members[0])).toBe('working');
+    expect(readableItemKind(show.members[8])).toBe('later');
   });
 
   it('roadmap fixtures seed the final daemon contract through the production reducer', () => {

@@ -125,6 +125,39 @@ The `lanes:roadmap_*` fixtures follow the daemon wire contract. The older
 [screenshot harness](SCREENSHOT_HARNESS.md) captures the real components; native
 release validation remains separate.
 
+## External work and lane activity
+
+Optional daemon fields add words in existing slots. Lane `activity: working`
+places a lane under Working now even without a live seat; parked and paused
+classification still takes precedence. `waiting_on_dot` adds `waiting on <label>`
+before the card age and header sub line, using the lane's `external.label` or
+Dot. `blocked` adds `blocked` there. Parked lanes add neither word. Other
+activity values keep the existing presentation.
+
+Member `external` entries are detail-only. A working entry makes an unfinished
+item working after the open-question check and counts as one more agent on it:
+the item's "N on it now" count and the Working now section treat it as they
+treat a working seat. The item screen has no separate row for external work. A
+queued-only item shows `Waiting for <label>` in its row, including the small
+Later and Done rows, unless blocked or waiting for an operator answer; review
+entries add nothing. Other rows keep the lead's Status text.
+
+Detail-only `latest_event` adds Latest immediately below Now only when its
+stamp is newer than the item's progress, or progress is absent. It reads
+`Review passed`, `Review failed`, or `Lead reported done`, followed by the
+existing age. Same-observation inventory previews retain both detail keys;
+a newer detail response replaces or clears them through `detail_revision`.
+Malformed optional keys and unknown words never remove a lane or member;
+malformed external entries are omitted independently. Missing keys keep the
+previous screens.
+
+The synthetic `lanes:readable_dot` fixture covers a waiting lane, a lane working
+only through external work, all three packet states and all three report kinds.
+`scripts/lanes-flow-v2-render.cjs` captures the added words at 390×844 and checks
+that the long-title waiting card and its word-plus-age slot do not overlap or
+escape the card. These fixture renders supplement the installed-client journey;
+they do not establish native or live-daemon behavior.
+
 ## Capture notes
 
 Captured 2026-10-26 from `81f820e402d49e07e3e7b664794ae85eff31c7b5` under
