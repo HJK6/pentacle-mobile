@@ -1,7 +1,43 @@
 import { lanesGoalsFixture } from './lanesGoalsFixture';
 
 /** Synthetic complete, sparse and pre-projection journeys through the real lane reducers. */
-export function readableLanesFixture(variant: 'full' | 'sparse' | 'old' = 'full', now = Date.now()) {
+export function readableLanesFixture(variant: 'full' | 'sparse' | 'old' | 'dot' = 'full', now = Date.now()): ReturnType<typeof lanesGoalsFixture> {
+  if (variant === 'dot') {
+    const fixture = readableLanesFixture('full', now);
+    const stamp = (hours: number) => new Date(now - hours * 3600000).toISOString();
+    for (const index of [0, 3]) {
+      const lane = fixture.inventory.lanes[index], show = fixture.shows[lane.lane_id];
+      lane.state = 'active'; lane.state_reason = 'work_started'; lane.lead = null;
+      lane.goal_classes = lane.goal_classes?.split('w').join('m');
+      lane.progress_at = stamp(3);
+      for (const goal of lane.goals ?? []) goal.working = false;
+      for (const member of [...show.members, ...(lane.members ?? [])]) {
+        member.seats = []; member.seats_total = 0; member.lead_seat = null;
+        member.open_questions = { count: 0, first_question_id: null };
+      }
+    }
+    const waiting = fixture.inventory.lanes[0], working = fixture.inventory.lanes[3];
+    waiting.title = 'Prepare the next release and verify every supported client';
+    waiting.activity = 'waiting_on_dot';
+    waiting.external = { label: 'Dot', working: 0, review: 0, queued: 1, verified_at: stamp(1) };
+    const queued = fixture.shows[waiting.lane_id].members[0];
+    queued.status = 'backlog'; queued.goal_id = waiting.goals![0].goal_id;
+    queued.external = [{ label: 'Dot', ref: 'sample-waiting', state: 'queued', verified_at: stamp(1) }];
+    queued.latest_event = { kind: 'reported_done', at: stamp(2) };
+    queued.progress_at = stamp(3);
+    working.activity = 'working';
+    working.external = { label: 'Dot', working: 1, review: 1, queued: 1, verified_at: stamp(1) };
+    const members = fixture.shows[working.lane_id].members;
+    for (const [index, state, kind] of [[0, 'working', 'review_passed'], [1, 'review', 'review_failed'], [8, 'queued', 'reported_done']] as const) {
+      members[index].external = [{ label: 'Dot', ref: `sample-${state}`, state, verified_at: stamp(1) }];
+      members[index].latest_event = { kind, at: stamp(2) };
+      members[index].progress_at = stamp(3);
+    }
+    // Packet and event keys are detail-only, including after a live presence update.
+    for (const lane of [waiting, working]) lane.members = fixture.shows[lane.lane_id].members.slice(0, 8).map(({ external, latest_event, criteria, transitions, ...preview }) => preview);
+    fixture.inventory.counts = { open: 13, active: 5, blocked: 1, paused: 7 };
+    return fixture;
+  }
   const fixture = lanesGoalsFixture(now);
   const stamp = new Date(now - 12 * 60000).toISOString();
   for (const [i, lane] of fixture.inventory.lanes.entries()) {

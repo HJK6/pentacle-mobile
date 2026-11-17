@@ -6,6 +6,10 @@ import type {
   PentacleEvent,
   PentacleStreamState,
   WorkLane,
+  WorkLaneActivity,
+  WorkLaneExternal,
+  WorkLaneMemberExternal,
+  WorkLaneLatestEvent,
   WorkLaneLead,
   WorkLaneEstimate,
   WorkLaneDefaultGoal,
@@ -123,11 +127,42 @@ function normalizeRecent(value: unknown): WorkLaneRecent[] | undefined {
   return result;
 }
 
+const LANE_ACTIVITIES: readonly WorkLaneActivity[] = ['working', 'waiting_on_dot', 'waiting_on_you', 'blocked', 'idle'];
+const EXTERNAL_STATES: readonly WorkLaneMemberExternal['state'][] = ['working', 'queued', 'review'];
+const EVENT_KINDS: readonly WorkLaneLatestEvent['kind'][] = ['review_passed', 'review_failed', 'reported_done'];
+const nonblank = (value: unknown): value is string => typeof value === 'string' && value.trim().length > 0;
+const timestamp = (value: unknown): value is string => typeof value === 'string' && nullableTimestamp(value);
+
+function normalizeLaneExternal(value: unknown): WorkLaneExternal | undefined {
+  const raw = obj(value);
+  if (!raw || !nonblank(raw.label) || !count(raw.working) || !count(raw.queued) || !count(raw.review) || !timestamp(raw.verified_at)) return undefined;
+  return { label: raw.label, working: raw.working, queued: raw.queued, review: raw.review, verified_at: raw.verified_at };
+}
+
+function normalizeMemberExternal(value: unknown): WorkLaneMemberExternal[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  return value.flatMap(entry => {
+    const raw = obj(entry), state = EXTERNAL_STATES.find(state => state === raw?.state);
+    if (!raw || !state || !nonblank(raw.label) || !nonblank(raw.ref) || !timestamp(raw.verified_at)) return [];
+    return [{ label: raw.label, ref: raw.ref, state, verified_at: raw.verified_at }];
+  });
+}
+
+function normalizeLatestEvent(value: unknown): WorkLaneLatestEvent | null | undefined {
+  if (value === null) return null;
+  const raw = obj(value), kind = EVENT_KINDS.find(kind => kind === raw?.kind);
+  return raw && kind && timestamp(raw.at) ? { kind, at: raw.at } : undefined;
+}
+
 function normalizeMember(value: unknown): WorkLaneMember | null {
   const raw = obj(value);
   const specId = str(raw?.spec_id);
   if (!raw || !specId) return null;
   const member: WorkLaneMember = { spec_id: specId };
+  const external = normalizeMemberExternal(raw.external);
+  if (external !== undefined) member.external = external;
+  const latestEvent = normalizeLatestEvent(raw.latest_event);
+  if (latestEvent !== undefined) member.latest_event = latestEvent;
   if (nullableString(raw.goal_id)) member.goal_id = raw.goal_id;
   for (const key of ['title', 'status_text', 'next_action_text', 'source_changed_at', 'status_line', 'next_line', 'blocked_line', 'summary_line'] as const) {
     if (nullableString(raw[key])) member[key] = raw[key];
@@ -356,11 +391,15 @@ function normalizeLane(value: unknown): WorkLane | null {
   const lead = normalizeLead(raw.lead);
   const lastRaw = obj(raw.last_update);
   const lastKind = UPDATE_KINDS.find((item) => item === lastRaw?.kind);
+  const activity = raw.activity === null ? null : LANE_ACTIVITIES.find(activity => activity === raw.activity);
+  const external = normalizeLaneExternal(raw.external);
   // Member-work is authoritative even when the old lead is gone. Other active
   // lanes without a qualifying lead retain the legacy owner-loss fallback.
   const unled = state === 'active' && raw.state_reason !== 'members_working' && (!lead || !lead.qualifies);
   return {
     lane_id: String(raw.lane_id),
+    ...(activity !== undefined ? { activity } : {}),
+    ...(external !== undefined ? { external } : {}),
     ...(nullableString(raw.icon) ? { icon: raw.icon } : {}),
     title: str(raw.title) ?? '',
     summary: str(raw.summary) ?? '',

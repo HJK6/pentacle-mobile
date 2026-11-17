@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, LayoutAnimation, Pressable, ScrollView, Text, View, useWindowDimensions, type GestureResponderEvent } from 'react-native';
 import {
   derivedDefaultGoal, readableAge, readableByActivity, readableDay, readableDots, readableHomeCounts, readableHours, readableItemKind, readableItemOrder, readableLaneClass,
-  readableLastActivity, readableMapLanes,
+  readableLastActivity, readableMapLanes, readableLaneWord, readableQueuedLine,
   readableCardGoals, readableLeadGoals, readableRoad, readableSeatCount, readableSentence, readableStopWord, readableTrouble,
   type ItemKind, type LaneClass, type RoadStop, type WorkLane, type WorkLaneMember, type WorkLaneRecent, type WorkLanesInventory,
 } from 'pentacle-chat-core';
@@ -64,9 +64,9 @@ function Fold({ id, text, onPress, divider = true }: { id: string; text: string;
     <Text style={{ ...body, fontSize: 14.5, color: p.muted, flex: 1 }}>{text}</Text><Icon kind="chevron" size={13} color={p.muted} />
   </Pressable>;
 }
-/** The one row: mark, title, age, one sentence. Small rows carry the title only. */
+/** The one row: mark, title, age, one sentence. Small rows add only queued external-work prose. */
 function ItemRow({ member, small = false, pulse, first, onPress }: { member: WorkLaneMember; small?: boolean; pulse: Motion; first?: boolean; onPress(e: GestureResponderEvent): void }) {
-  const kind = readableItemKind(member), sentence = small ? null : readableSentence(member);
+  const kind = readableItemKind(member), sentence = small ? readableQueuedLine(member) : readableSentence(member);
   const right = kind === 'done' ? readableDay(member.progress_at) : readableAge(member.progress_at);
   return <Pressable testID={`spec-row-${member.spec_id}`} accessibilityRole="button" onPress={onPress}
     style={{ flexDirection: 'row', gap: 10, paddingVertical: small ? 8 : 11, minHeight: 44, borderTopWidth: first ? 0 : 1, borderColor: p.line }}>
@@ -116,7 +116,7 @@ function LaneCard({ model, cls, spark, expanded, first, onToggle, onOpen, questi
   const lane = projection ? { ...listed, goals: projection.goals, goals_total: projection.goals_total, goal_classes: projection.goal_classes,
     goal_counts: projection.goal_counts, goal_road: projection.goal_road, default_goal: projection.default_goal } : listed;
   const road = readableRoad(lane, { legacy: !projection }), lead = missingGoals && !projection ? [] : readableCardGoals(lane, road), dots = readableDots(lane, road);
-  const quiet = quietClass(cls), age = readableAge(cls === 'paused' ? lane.state_at : lane.progress_at);
+  const quiet = quietClass(cls), age = [readableLaneWord(lane), readableAge(cls === 'paused' ? lane.state_at : lane.progress_at)].filter(Boolean).join(' · ');
   const goalLoadState = missingGoals && !projection
     ? !connected ? 'Waiting for connection' : detail.error || detail.complete ? 'Goals unavailable · Open lane to retry' : 'Loading goals…' : null;
   const more = (lane.goal_counts?.[0] ?? 0) - lead.filter(stop => stop.goalClass === 'working' || stop.goalClass === 'moving').length, question = laneNeedsYou(lane), mark = useRef<View>(null);
@@ -244,8 +244,9 @@ function LaneScreen({ model, data, show, connected, active, rise, onOpen, onBack
   const members = data?.members ?? [], working = members.some(m => readableItemKind(m) === 'working') || (data?.road ?? []).some(s => s.goalClass === 'working');
   const rail = useWorkingMotion(active, working, 1000), pulse = useWorkingMotion(active, working, 1800);
   const lead = new Set(data ? readableLeadGoals(lane, data.road).map(s => goalKey(s.goal.goal_id)) : []);
-  const sub = lane.parked && readableDay(lane.parked.at) ? `parked ${readableDay(lane.parked.at)}` : lane.state === 'paused'
+  const age = lane.parked && readableDay(lane.parked.at) ? `parked ${readableDay(lane.parked.at)}` : lane.state === 'paused'
     ? ['paused', readableAge(lane.state_at)].filter(Boolean).join(' · ') : ago(lane.progress_at);
+  const sub = [readableLaneWord(lane), age].filter(Boolean).join(' · ');
   const goalMembers = (goalId: string | null) => members.filter(m => (m.goal_id ?? null) === goalId);
   return <>
     <Header hero={<LaneMark lane={lane} quiet={quietClass(cls)} size={34} />} title={lane.title} sub={sub} subTone={cls === 'working' ? p.green : undefined} onBack={onBack} onClose={onClose} onHero={onHero} heroHidden={heroHidden} />
@@ -312,6 +313,9 @@ function ItemScreen({ member, members, crumb, onQuestion, onBack, onClose, onHer
   const open = (member.criteria ?? []).filter(c => c.disposition === 'open'), passed = (member.criteria ?? []).filter(c => c.disposition === 'done');
   const sub = kind === 'done' ? ['done', readableDay(member.progress_at)].filter(Boolean).join(' ') : ago(member.progress_at);
   const stageTone = member.status === 'blocked' ? p.yellow : p.green;
+  const event = member.latest_event;
+  const latest = event && (!member.progress_at || Date.parse(event.at) > Date.parse(member.progress_at))
+    ? `${({ review_passed: 'Review passed', review_failed: 'Review failed', reported_done: 'Lead reported done' })[event.kind]} · ${readableAge(event.at)} ago` : null;
   return <>
     <Header hero={<Badge kind="spec" tone={yellow ? p.yellow : kind === 'done' || kind === 'later' ? p.muted : p.green} />} title={memberTitle(member)} crumb={crumb} sub={sub}
       subTone={kind === 'working' ? p.green : undefined} onBack={onBack} onClose={onClose} onHero={onHero} heroHidden={heroHidden} />
@@ -322,7 +326,7 @@ function ItemScreen({ member, members, crumb, onQuestion, onBack, onClose, onHer
         {member.ac_total != null && member.ac_checked != null ? <RoadBar testID="spec-bar" done={member.ac_checked} total={member.ac_total} hatch={member.status === 'blocked'} label={` checks${readableHours(member.estimate?.median) ? ` · ${readableHours(member.estimate?.median)}` : ''}`} /> : null}
         {trouble.length ? <Text style={{ ...body, color: p.yellow, marginTop: 8 }}>{trouble.join(' · ')}</Text> : null}
         {hasQuestion(member) ? <Pressable testID="spec-open-question" accessibilityRole="button" onPress={onQuestion} style={{ paddingVertical: 14 }}><Text style={{ ...titleStyle, color: p.yellow }}>●  {member.open_questions?.count} open {member.open_questions?.count === 1 ? 'question' : 'questions'}  ›</Text></Pressable> : null}
-        {([['Now', member.status_line], ['Blocked on', member.status === 'blocked' ? member.blocked_line : null], ['Unblocks', member.unblocks?.map(x => x.title).join(', ')], ['Next', member.next_line]] as const).map(([name, value]) => value ? <View key={name} style={{ marginTop: 14, flexDirection: 'row', gap: 12 }}><Text style={{ ...label, width: 80, color: name === 'Blocked on' ? p.yellow : p.green }}>{name}</Text><Text style={{ ...body, flex: 1, color: p.text }}>{value}</Text></View> : null)}
+        {([['now', 'Now', member.status_line], ['latest', 'Latest', latest], ['blocked', 'Blocked on', member.status === 'blocked' ? member.blocked_line : null], ['unblocks', 'Unblocks', member.unblocks?.map(x => x.title).join(', ')], ['next', 'Next', member.next_line]] as const).map(([key, name, value]) => value ? <View key={key} style={{ marginTop: 14, flexDirection: 'row', gap: 12 }}><Text style={{ ...label, width: 80, color: name === 'Blocked on' ? p.yellow : p.green }}>{name}</Text><Text style={{ ...body, flex: 1, color: p.text }}>{value}</Text></View> : null)}
         {member.ac_total ? <><Section name="Checks left" count={open.length} tone={p.green} />{open.map((c, i) => <Text key={i} style={{ ...body, color: p.text, paddingVertical: 6 }}>○  {c.title}</Text>)}
           {passed.length ? passedOpen ? passed.map((c, i) => <Text key={i} style={{ ...body, color: p.muted, paddingVertical: 6 }}>✓  {c.title}</Text>)
             : <Fold id="spec-passed-open" text={`Show ${passed.length} passed`} onPress={() => setPassedOpen(true)} /> : null}</> : null}
