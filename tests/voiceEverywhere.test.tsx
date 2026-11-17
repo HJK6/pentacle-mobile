@@ -59,6 +59,13 @@ function Page({ chat = false, title = 'Personal', priority = 0, entityId, pageId
 }
 beforeEach(() => { jest.useFakeTimers(); mockInsets = { top: 24, bottom: 20, left: 0, right: 0 }; resetVoicePresentationForTests(); mockCapture = null; mockDelivery = { takes: [], heldCount: 0, recoveryFailures: [], last: null }; mockLifecycle = { foreground: true, unlocked: true }; });
 afterEach(() => { jest.useRealTimers(); });
+test('mic label stays a complete sentence before the assistant session loads', () => {
+  const loaded = mockState.sessions;
+  mockState.sessions = [];
+  try {
+    expect(render(<Page />).getByLabelText('Talk to assistant')).toBeTruthy();
+  } finally { mockState.sessions = loaded; }
+});
 test('outside header freezes assistant origin and starts an empty ordinary draft', async () => {
   const view = render(<><VoiceRecordingOverlay /><Page /></>);
   const mic = view.getByLabelText('Talk to Guide');
