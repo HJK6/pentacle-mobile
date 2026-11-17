@@ -157,12 +157,14 @@ async function checkDot(page) {
   await back(page);
   await open(page, 'lane-row-sample-lane-4', 'readable-lane');
   await open(page, 'goal-head-g_sample_3_0', 'readable-goal');
-  await page.locator(tid('spec-row-spec_sample__flow_9')).getByText('Waiting for Dot', { exact: true }).waitFor();
+  const queued = page.locator(tid('spec-row-spec_sample__flow_9'));
+  await queued.getByText('Waiting for Dot', { exact: true }).waitFor();
+  await queued.scrollIntoViewIfNeeded();
   await shot(page, 'dot-goal');
   await open(page, 'spec-row-spec_sample__flow_1', 'readable-spec');
   const item = page.locator(tid('readable-spec'));
   await item.getByText('1 on it now', { exact: false }).waitFor();
-  await item.getByText('Lead reported done · 2h ago', { exact: true }).waitFor();
+  await item.getByText('Review passed · 2h ago', { exact: true }).waitFor();
   assert.equal(await item.getByText('Dot', { exact: true }).count(), 0, 'Item screen has a separate Dot row');
   const now = await rect(item.getByText('Now', { exact: true }));
   const latest = await rect(item.getByText('Latest', { exact: true }));
