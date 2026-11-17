@@ -74,3 +74,9 @@ test('the lanes/status meta row keeps a 44pt tap target without changing header 
   fireEvent.press(view.getByTestId('assistant-meta-hit-area'));
   expect(props.onStatus).toHaveBeenCalled();
 });
+
+test('screen-reader labels stay complete sentences before the assistant name loads', () => {
+  const view = render(<AssistantHeader {...props} identity={{ ...props.identity, name: '' }} />);
+  expect(view.getByLabelText('assistant status, 3 open lanes')).toBeTruthy();
+  expect(view.getByLabelText('assistant status')).toBeTruthy();
+});

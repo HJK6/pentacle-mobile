@@ -80,5 +80,10 @@ test('a renamed assistant updates the home title and uppercase label without cha
 test('the home tab shows no name until the assistant session loads', () => {
   mockIdentityState = { sessions: [] };
   render(<TabLayout />);
-  expect(visible()[0].options).toMatchObject({ title: '', tabBarLabel: '' });
+  expect(visible()[0].options).toMatchObject({ title: '', tabBarLabel: '', tabBarAccessibilityLabel: 'assistant tab' });
+});
+
+test('a loaded name keeps the default tab accessibility label', () => {
+  render(<TabLayout />);
+  expect(visible()[0].options.tabBarAccessibilityLabel).toBeUndefined();
 });

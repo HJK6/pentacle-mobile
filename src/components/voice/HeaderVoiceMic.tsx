@@ -1,7 +1,7 @@
 import React, { useSyncExternalStore } from 'react';
 import { Alert, Linking, Pressable, StyleSheet, View } from 'react-native';
 import { Tokens } from '../../../constants/Colors';
-import { selectAssistantIdentity } from '../../services/assistantIdentity';
+import { selectAssistantIdentity, spokenAssistantName } from '../../services/assistantIdentity';
 import { PermissionDeniedError } from '../../services/voiceRecording';
 import { getPentacleStreamState, subscribeVoiceTransport } from '../../services/pentacleStream';
 import { pressVoiceHeader, useVoicePresentation, voiceHeaderStartReady } from '../../services/voicePresentation';
@@ -32,7 +32,7 @@ export default function HeaderVoiceMic({ onPress, disabled = false, label, testI
     ]);
     else Alert.alert('Voice recording', error instanceof Error ? error.message : 'Could not record audio. Try again.');
   }); };
-  return <Pressable accessibilityRole="button" accessibilityLabel={active ? recording ? 'Stop and send' : 'Send active recording' : label ?? `Talk to ${identity.name}`}
+  return <Pressable accessibilityRole="button" accessibilityLabel={active ? recording ? 'Stop and send' : 'Send active recording' : label ?? `Talk to ${spokenAssistantName(identity.name)}`}
     accessibilityHint={!active && unavailable ? 'Recording is unavailable until this chat is ready and the app is unlocked' : undefined}
     accessibilityState={{ disabled: unavailable, busy }} disabled={unavailable} onPress={event => { event?.stopPropagation(); press(); }} testID={testID} style={styles.hit}>
     <View testID={`${testID}-face`} style={[styles.face, recording && styles.recording, unavailable && styles.disabled]}><HeaderVoiceRecordFace recording={recording} /></View>

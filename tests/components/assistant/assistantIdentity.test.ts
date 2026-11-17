@@ -1,7 +1,7 @@
 import { initialPentacleStreamState, type PentacleSessionSummary } from 'pentacle-chat-core';
 import { MACHINES } from '../../../constants/Colors';
 import { assistantAccent } from '../../../src/components/assistant/assistantIdentity';
-import { selectAssistantIdentity, ASSISTANT_STREAM_ID } from '../../../src/services/assistantIdentity';
+import { selectAssistantIdentity, spokenAssistantName, ASSISTANT_STREAM_ID } from '../../../src/services/assistantIdentity';
 function assistantSession(streamId: string, overrides: Partial<PentacleSessionSummary> = {}): PentacleSessionSummary {
   return { stream_id: streamId, host: 'hostc', provider: 'claude', session_name: 'assistant',
     last_event_at: '2026-05-16T12:00:00Z', last_text: '', last_kind: 'ASSIST', draft: '',
@@ -32,4 +32,9 @@ test('title fallback and live rename update one identity, while unrelated change
   expect(first.name).toBe('Example guide');
   expect(selectAssistantIdentity({ ...state, connected: true } as typeof state)).toBe(first);
   expect(selectAssistantIdentity({ ...state, sessions: [{ ...state.sessions[0], display_name: 'Lews' }] }).name).toBe('Lews');
+});
+
+test('spoken name falls back to a neutral word only while the name is unknown', () => {
+  expect(spokenAssistantName('')).toBe('assistant');
+  expect(spokenAssistantName('Lews')).toBe('Lews');
 });

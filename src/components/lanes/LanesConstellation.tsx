@@ -7,6 +7,7 @@ import MachineSigil from "../MachineSigil";
 import LaneIcon from "./LaneIcon";
 import { Bang, label, mono, p } from "./LaneAtoms";
 import { GoalRings } from './GoalProgress';
+import { spokenAssistantName } from '../../services/assistantIdentity';
 import { INNER, OUTER, mapLayout, ringedMapLayout, type MapPoint } from "./lanesRingLayout";
 
 export type ConstellationNode = {
@@ -102,7 +103,7 @@ function More({ point, count, busy, onPress }: { point: MapPoint; count: number;
 }
 function Hub({ point, size, assistantName, assistantSigil }: { point: MapPoint; size: number; assistantName: string; assistantSigil: MachineSigilKind }) {
   return (
-    <View accessible accessibilityRole="image" testID="lanes-map-assistant" accessibilityLabel={assistantName}
+    <View accessible accessibilityRole="image" testID="lanes-map-assistant" accessibilityLabel={spokenAssistantName(assistantName)}
       style={{ position: "absolute", left: point.x - size / 2, top: point.y - size / 2, width: size, height: size, borderRadius: size / 2, borderWidth: 1.5,
         borderColor: `${p.green}bf`, backgroundColor: '#0a120e', alignItems: "center", justifyContent: "center",
         shadowColor: p.green, shadowOpacity: 0.12, shadowRadius: 7, shadowOffset: { width: 0, height: 0 } }}>

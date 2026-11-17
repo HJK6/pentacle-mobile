@@ -6,7 +6,7 @@ import Svg, { Path } from 'react-native-svg';
 import { Fonts, Tokens } from '@/constants/Colors';
 import ArcaneRingFrame from '../ArcaneRingFrame';
 import { AssistantIcon, assistantAccent } from './assistantIdentity';
-import type { AssistantIdentity } from '../../services/assistantIdentity';
+import { spokenAssistantName, type AssistantIdentity } from '../../services/assistantIdentity';
 import StatusTag from '../StatusTag';
 
 type Props = {
@@ -30,14 +30,14 @@ export default function AssistantHeader({ identity, others, pending, lanes, bloc
   return <View testID="assistant-header" style={[styles.header, { paddingTop: Math.max(top, 52) }]}>
     <HeaderButton kind="sessions" count={others} onPress={onDrawer} />
     <View style={styles.identity}>
-      <Pressable accessibilityRole="button" accessibilityLabel={`${identity.name} status, ${lanes} open lanes${blocked > 0 ? `, ${blocked} blocked` : ''}`}
+      <Pressable accessibilityRole="button" accessibilityLabel={`${spokenAssistantName(identity.name)} status, ${lanes} open lanes${blocked > 0 ? `, ${blocked} blocked` : ''}`}
       onPress={onStatus} style={styles.identityMark}>
       <ArcaneRingFrame size={38} color={assistantAccent(identity)} identity>
         <AssistantIcon identity={identity} size={38 * 0.64} />
       </ArcaneRingFrame>
       </Pressable>
       <View style={styles.nameBlock}>
-        <Pressable onPress={onStatus} accessibilityRole="button" accessibilityLabel={`${identity.name} status`} style={{ flexShrink: 1 }}>
+        <Pressable onPress={onStatus} accessibilityRole="button" accessibilityLabel={`${spokenAssistantName(identity.name)} status`} style={{ flexShrink: 1 }}>
           <Text style={styles.name} numberOfLines={1}>{identity.name}</Text>
         </Pressable>
         <Pressable onPress={onStatus} accessibilityRole="button" accessibilityLabel={`${lanes} open lanes${blocked > 0 ? `, ${blocked} blocked` : ''}`} style={styles.meta}>

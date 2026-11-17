@@ -8,6 +8,10 @@ import { usePentacleStreamSelectorWhen } from './pentacleStream';
 export const ASSISTANT_STREAM_ID = getAssistantStreamId();
 export const DEFAULT_ASSISTANT_NAME = 'Zephyr';
 
+// Screen-reader wording while the name is unknown (no session yet), so labels stay complete sentences.
+export const SPOKEN_ASSISTANT_FALLBACK = 'assistant';
+export const spokenAssistantName = (name: string) => name || SPOKEN_ASSISTANT_FALLBACK;
+
 export type AssistantIdentity = {
   streamId: string;
   // The operator's name for their assistant (Pentacle web: the protected assistant
