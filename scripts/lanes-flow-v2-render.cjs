@@ -154,15 +154,19 @@ async function checkDot(page) {
   await open(page, 'lane-row-sample-lane-1', 'readable-lane');
   await page.getByText('waiting on Dot · 3h ago', { exact: true }).waitFor();
   await shot(page, 'dot-waiting-lane');
-  await open(page, 'goal-head-g_sample_0_0', 'readable-goal');
-  await open(page, 'spec-row-spec_sample__lane_0', 'readable-spec');
+  await back(page);
+  await open(page, 'lane-row-sample-lane-4', 'readable-lane');
+  await open(page, 'goal-head-g_sample_3_0', 'readable-goal');
+  await page.locator(tid('spec-row-spec_sample__flow_9')).getByText('Waiting for Dot', { exact: true }).waitFor();
+  await shot(page, 'dot-goal');
+  await open(page, 'spec-row-spec_sample__flow_1', 'readable-spec');
   const item = page.locator(tid('readable-spec'));
-  await item.getByText('Waiting for Dot', { exact: true }).waitFor();
+  await item.getByText('1 on it now', { exact: false }).waitFor();
   await item.getByText('Lead reported done · 2h ago', { exact: true }).waitFor();
-  const dot = await rect(item.getByText('Dot', { exact: true }));
+  assert.equal(await item.getByText('Dot', { exact: true }).count(), 0, 'Item screen has a separate Dot row');
   const now = await rect(item.getByText('Now', { exact: true }));
   const latest = await rect(item.getByText('Latest', { exact: true }));
-  assert(dot.y < now.y && now.y < latest.y, 'Dot / Now / Latest row order changed');
+  assert(now.y < latest.y, 'Now / Latest row order changed');
   await shot(page, 'dot-item');
   await back(page); await back(page); await back(page);
 }
@@ -176,7 +180,7 @@ async function scopedDotRun(page, width) {
     assert.deepEqual(receipt.errors, [], 'Rendered route emitted page errors');
     receipt.spec8 = { status: 'PASS', width, height: 844,
       checks: ['Waiting card containment and title/word-plus-age overlap', 'Waiting lane header',
-        'Dot and Latest text', 'Dot / Now / Latest row order', 'Three Dot screenshots'] };
+        'Queued Waiting for Dot row', 'Working Dot counted on the item and no separate Dot row', 'Now / Latest row order', 'Four Dot screenshots'] };
   } catch (error) {
     receipt.spec8.status = 'FAIL';
     throw error;

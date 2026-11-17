@@ -63,7 +63,7 @@ approved two-circle design. `lanes:roadmap_overflow`, `_loose`, `_loose_done`,
 under no goal, older daemons and malformed keys. `lanes:readable_sparse` and
 `lanes:readable_old` still cover missing optional fields. `lanes:readable_dot`
 covers a lane waiting for external work, a lane working without live seats,
-queued backlog text and the item table's external-work and Latest rows.
+queued backlog text, a working external entry counted on its item and the item table's Latest row.
 
 The scoped Playwright driver `scripts/lanes-flow-v2-render.cjs` captures home,
 the expanded question card, lane, goal, item, Parked and a parked lane at
@@ -72,7 +72,7 @@ checks that no map labels overlap at 390 and 375 points and, at 375, 390 and 430
 that the hub is the centre of the lane ring circle and every link ends on the
 hub's edge and the ring's edge. Screens under the top one stay mounted, so its
 locators use `:visible`. At 390×844 it also captures the waiting home card,
-waiting lane and item with both added rows, checks their order, and checks the
+waiting lane, the goal's queued row and the item with its agent count and Latest row, checks Now/Latest order, and checks the
 long-title card for containment and overlap with its word-plus-age text.
 Supply an admitted screenshot server
 with `PENTACLE_RENDER_URL` and an external output directory with

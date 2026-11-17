@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, LayoutAnimation, Pressable, ScrollView, Text, View, useWindowDimensions, type GestureResponderEvent } from 'react-native';
 import {
   derivedDefaultGoal, readableAge, readableByActivity, readableDay, readableDots, readableHomeCounts, readableHours, readableItemKind, readableItemOrder, readableLaneClass,
-  readableLastActivity, readableMapLanes, readableLaneWord, readableExternalEntry, readableExternalLine, readableQueuedLine,
+  readableLastActivity, readableMapLanes, readableLaneWord, readableQueuedLine,
   readableCardGoals, readableLeadGoals, readableRoad, readableSeatCount, readableSentence, readableStopWord, readableTrouble,
   type ItemKind, type LaneClass, type RoadStop, type WorkLane, type WorkLaneMember, type WorkLaneRecent, type WorkLanesInventory,
 } from 'pentacle-chat-core';
@@ -313,7 +313,6 @@ function ItemScreen({ member, members, crumb, onQuestion, onBack, onClose, onHer
   const open = (member.criteria ?? []).filter(c => c.disposition === 'open'), passed = (member.criteria ?? []).filter(c => c.disposition === 'done');
   const sub = kind === 'done' ? ['done', readableDay(member.progress_at)].filter(Boolean).join(' ') : ago(member.progress_at);
   const stageTone = member.status === 'blocked' ? p.yellow : p.green;
-  const external = readableExternalEntry(member), externalLine = readableExternalLine(member);
   const event = member.latest_event;
   const latest = event && (!member.progress_at || Date.parse(event.at) > Date.parse(member.progress_at))
     ? `${({ review_passed: 'Review passed', review_failed: 'Review failed', reported_done: 'Lead reported done' })[event.kind]} · ${readableAge(event.at)} ago` : null;
@@ -327,7 +326,7 @@ function ItemScreen({ member, members, crumb, onQuestion, onBack, onClose, onHer
         {member.ac_total != null && member.ac_checked != null ? <RoadBar testID="spec-bar" done={member.ac_checked} total={member.ac_total} hatch={member.status === 'blocked'} label={` checks${readableHours(member.estimate?.median) ? ` · ${readableHours(member.estimate?.median)}` : ''}`} /> : null}
         {trouble.length ? <Text style={{ ...body, color: p.yellow, marginTop: 8 }}>{trouble.join(' · ')}</Text> : null}
         {hasQuestion(member) ? <Pressable testID="spec-open-question" accessibilityRole="button" onPress={onQuestion} style={{ paddingVertical: 14 }}><Text style={{ ...titleStyle, color: p.yellow }}>●  {member.open_questions?.count} open {member.open_questions?.count === 1 ? 'question' : 'questions'}  ›</Text></Pressable> : null}
-        {([['external', external?.label, externalLine], ['now', 'Now', member.status_line], ['latest', 'Latest', latest], ['blocked', 'Blocked on', member.status === 'blocked' ? member.blocked_line : null], ['unblocks', 'Unblocks', member.unblocks?.map(x => x.title).join(', ')], ['next', 'Next', member.next_line]] as const).map(([key, name, value]) => value ? <View key={key} style={{ marginTop: 14, flexDirection: 'row', gap: 12 }}><Text style={{ ...label, width: 80, color: name === 'Blocked on' ? p.yellow : p.green }}>{name}</Text><Text style={{ ...body, flex: 1, color: p.text }}>{value}</Text></View> : null)}
+        {([['now', 'Now', member.status_line], ['latest', 'Latest', latest], ['blocked', 'Blocked on', member.status === 'blocked' ? member.blocked_line : null], ['unblocks', 'Unblocks', member.unblocks?.map(x => x.title).join(', ')], ['next', 'Next', member.next_line]] as const).map(([key, name, value]) => value ? <View key={key} style={{ marginTop: 14, flexDirection: 'row', gap: 12 }}><Text style={{ ...label, width: 80, color: name === 'Blocked on' ? p.yellow : p.green }}>{name}</Text><Text style={{ ...body, flex: 1, color: p.text }}>{value}</Text></View> : null)}
         {member.ac_total ? <><Section name="Checks left" count={open.length} tone={p.green} />{open.map((c, i) => <Text key={i} style={{ ...body, color: p.text, paddingVertical: 6 }}>○  {c.title}</Text>)}
           {passed.length ? passedOpen ? passed.map((c, i) => <Text key={i} style={{ ...body, color: p.muted, paddingVertical: 6 }}>✓  {c.title}</Text>)
             : <Fold id="spec-passed-open" text={`Show ${passed.length} passed`} onPress={() => setPassedOpen(true)} /> : null}</> : null}

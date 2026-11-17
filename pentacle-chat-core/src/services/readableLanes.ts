@@ -196,19 +196,13 @@ export function readableHours(hours: number | null | undefined): string | null {
   if (hours == null || !Number.isFinite(hours) || hours < 0) return null;
   return hours < 1 ? '<1h left' : `~${Math.round(hours)}h left`;
 }
-/** One entry owns both the detail row's label and prose, even if wire order differs. */
-export function readableExternalEntry(member: WorkLaneMember) {
+/** The entry that names a queued item's waiting sentence: working, then review, then queued, whatever the wire order. */
+function readableExternalEntry(member: WorkLaneMember) {
   for (const state of ['working', 'review', 'queued'] as const) {
     const entry = member.external?.find(entry => entry.state === state);
     if (entry) return entry;
   }
   return undefined;
-}
-export function readableExternalLine(member: WorkLaneMember): string | null {
-  const entry = readableExternalEntry(member);
-  if (!entry) return null;
-  return entry.state === 'working' ? `${entry.label} is on it now`
-    : entry.state === 'review' ? `${entry.label} returned it, in review` : `Waiting for ${entry.label}`;
 }
 /** The only sentence shown on a small (Later or Done) row. */
 export function readableQueuedLine(member: WorkLaneMember): string | null {
@@ -223,7 +217,7 @@ export function readableSentence(member: WorkLaneMember): string | null {
 }
 export function readableSeatCount(member: WorkLaneMember): string | null {
   const seats = member.seats ?? [];
-  const working = seats.filter(s => s.activity === 'working').length;
+  const working = seats.filter(s => s.activity === 'working').length + (member.external?.filter(entry => entry.state === 'working').length ?? 0);
   return working ? `${working}${(member.seats_total ?? seats.length) > seats.length ? '+' : ''} on it now` : null;
 }
 export function readableTrouble(member: WorkLaneMember, now = Date.now()): string[] {

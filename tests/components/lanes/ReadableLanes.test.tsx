@@ -206,18 +206,35 @@ test('waiting word precedes card and header ages, and Dot-only work joins Workin
 });
 
 test.each([
-  ['spec_sample__flow_1', 'Dot is on it now', 'Review passed'],
-  ['spec_sample__flow_2', 'Dot returned it, in review', 'Review failed'],
-  ['spec_sample__flow_9', 'Waiting for Dot', 'Lead reported done'],
-])('item %s places Dot above Now and Latest below Now', async (id, line, event) => {
+  ['spec_sample__flow_1', 'Review passed'],
+  ['spec_sample__flow_2', 'Review failed'],
+  ['spec_sample__flow_9', 'Lead reported done'],
+])('item %s has no separate Dot row and puts Latest below Now', async (id, event) => {
   const view = setup('dot');
   await openDotItem(view, id);
   const item = within(view.getByTestId('readable-spec'));
-  expect(item.getByText(line)).toBeTruthy();
   expect(item.getByText(`${event} · 2h ago`)).toBeTruthy();
+  expect(item.queryByText('Dot')).toBeNull();
+  expect(item.queryByText('Dot is on it now')).toBeNull();
+  expect(item.queryByText('Dot returned it, in review')).toBeNull();
   const labels = view.getByTestId('readable-spec').findAllByType(Text).map(n => n.props.children);
-  expect(labels.indexOf('Dot')).toBeLessThan(labels.indexOf('Now'));
   expect(labels.indexOf('Latest')).toBeGreaterThan(labels.indexOf('Now'));
+});
+
+test('a working Dot entry counts as one more agent on the item and its row is drawn working; review and queued entries add nothing', async () => {
+  const view = setup('dot');
+  fireEvent.press(view.getByTestId('lane-row-sample-lane-4'));
+  await act(async () => {});
+  fireEvent.press(view.getByTestId('goal-head-g_sample_3_0'));
+  await act(async () => {});
+  expect(view.getByTestId('item-mark-spec_sample__flow_1-working')).toBeTruthy();
+  fireEvent.press(view.getByTestId('spec-row-spec_sample__flow_1'));
+  expect(within(view.getByTestId('readable-spec')).getByText(/(^| · )1 on it now$/)).toBeTruthy();
+  for (const id of ['spec_sample__flow_2', 'spec_sample__flow_9']) {
+    const other = setup('dot');
+    await openDotItem(other, id);
+    expect(within(other.getByTestId('readable-spec')).queryByText(/on it now/)).toBeNull();
+  }
 });
 
 test('queued backlog small row shows only its waiting sentence; ordinary Later and Done rows stay terse', async () => {
@@ -244,7 +261,7 @@ test.each(['older', 'equal', 'newer', 'missing'] as const)('Latest visibility co
   expect(within(view.getByTestId('readable-spec')).queryByText('Latest') !== null).toBe(relation === 'older' || relation === 'missing');
 });
 
-test('an already open item keeps Dot through preview refresh, then shows a report-only detail revision and clears removed keys', async () => {
+test('an already open item keeps its working Dot count through preview refresh, then shows a report-only detail revision and clears removed keys', async () => {
   const fixture = readableLanesFixture('dot');
   const lane = fixture.inventory.lanes[3], initial = fixture.shows[lane.lane_id];
   const member = initial.members[0];
@@ -258,7 +275,7 @@ test('an already open item keeps Dot through preview refresh, then shows a repor
   expect(within(view.getByTestId('readable-spec')).queryByText('Latest')).toBeNull();
   lane.members![0] = { ...lane.members![0], seats: [{ stream_id: 'sample', role: null, host: null, visibility: null, activity: 'idle', last_activity: null }] };
   view.rerender(<LanesOverlay {...props} {...projected()} />);
-  expect(within(view.getByTestId('readable-spec')).getByText('Dot is on it now')).toBeTruthy();
+  expect(within(view.getByTestId('readable-spec')).getByText(/(^| · )1 on it now$/)).toBeTruthy();
   const updated = { ...initial, detail_revision: 'b'.repeat(64), projection: { ...lane, detail_revision: 'b'.repeat(64) }, members: initial.members.map(m => m.spec_id === member.spec_id ? { ...m, latest_event: { kind: 'review_passed' as const, at: new Date().toISOString() } } : m) };
   readShow.mockImplementation(async () => updated);
   lane.detail_revision = updated.detail_revision;
@@ -271,7 +288,7 @@ test('an already open item keeps Dot through preview refresh, then shows a repor
   view.rerender(<LanesOverlay {...props} {...projected()} />);
   await act(async () => {});
   const item = within(view.getByTestId('readable-spec'));
-  expect(item.queryByText('Dot')).toBeNull(); expect(item.queryByText('Latest')).toBeNull();
+  expect(item.queryByText(/on it now/)).toBeNull(); expect(item.queryByText('Latest')).toBeNull();
 });
 
 test('malformed optional wire values preserve the existing card and item render', async () => {

@@ -13,7 +13,7 @@ const chip = (id, count) => ({ id, text: `+${count}`, label: `${count} more lane
 // Run the actual driver, replacing only browser/filesystem boundaries. No browser,
 // server, child process, real screenshot or network is used by these tests.
 async function execute({ mode, nodes = views(12), chips = [chip('lanes-map-more', 8)],
-  innerCount = 6, mapError, geometryError = false, labelOverlap = false, overlap = false, dotError, pageError } = {}) {
+  innerCount = 6, mapError, geometryError = false, labelOverlap = false, overlap = false, dotError, pageError, dotRow = false } = {}) {
   const files = new Map(), shots = [], closes = { page: 0, browser: 0 };
   const processStub = { env: { PENTACLE_RENDER_OUTPUT: '/synthetic-render-output', ...(mode ? { PENTACLE_RENDER_MODE: mode } : {}) }, exitCode: undefined };
   let resolveReceipt;
@@ -28,7 +28,7 @@ async function execute({ mode, nodes = views(12), chips = [chip('lanes-map-more'
       const bounds = (selector, text) => {
         if (text) return text === 'Prepare the next release and verify every supported client' ? box(64, 90, 140, 42)
           : text === 'waiting on Dot · 3h' ? box(overlap ? 100 : 214, 90, 140, 14)
-            : box(16, text === 'Dot' ? 100 : text === 'Now' ? 130 : 160, 80, 20);
+            : box(16, text === 'Now' ? 130 : 160, 80, 20);
         if (selector.includes('lane-card-')) return box(16, 80, 358, 100);
         if (selector.includes('lanes-map-assistant')) return box(hub.x - size / 2, hub.y - size / 2, size, size);
         const match = selector.match(/lanes-map-(lane|link-end|link)-(road-lane-[a-z]+-\d+)/);
@@ -56,6 +56,7 @@ async function execute({ mode, nodes = views(12), chips = [chip('lanes-map-more'
           if (link) { const i = currentNodes().indexOf(link[1]); return i >= 0 && i < innerCount ? 1 : 0; }
           if (selector.includes('lanes-map-more')) return currentChips().filter(c => selector.includes(`"${c.id}"`)).length;
           if (selector.includes('lanes-map-lane-road-lane-busy-14')) return 0;
+          if (dotRow && text === 'Dot') return 1;
           return 0;
         },
         async innerText() { return ''; }, async scrollIntoViewIfNeeded() {}, async click() {},
@@ -124,7 +125,7 @@ for (const mode of ['dot', 'dot-with-known-map-red']) test(`${mode} retains corr
   assert.equal(receipt.widths.length, 1);
   assert(receipt.not_executed.some(entry => entry.check === 'default.other-viewports'));
   assert(!receipt.not_executed.some(entry => entry.reason.includes('KNOWN RED')));
-  assert.deepEqual(shots, ['dot-home-waiting.png', 'dot-waiting-lane.png', 'dot-item.png']);
+  assert.deepEqual(shots, ['dot-home-waiting.png', 'dot-waiting-lane.png', 'dot-goal.png', 'dot-item.png']);
   assert.equal(receipt.waitingCard.overlap, false);
 });
 
@@ -160,6 +161,7 @@ for (const [options, failure] of [
   [{ labelOverlap: true }, /Overlapping labels/],
   [{ overlap: true }, /Waiting card title overlaps word-plus-age/],
   [{ dotError: new Error('Dot text timeout') }, /Dot text timeout/],
+  [{ dotRow: true }, /separate Dot row/],
   [{ pageError: new Error('render failed') }, /Rendered route emitted page errors/],
 ]) test(`scoped mode preserves hard failure ${failure}`, { timeout: 2000 }, async () => {
   const { receipt, closes } = await execute({ mode: 'dot', ...options });

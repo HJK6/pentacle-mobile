@@ -135,12 +135,12 @@ Dot. `blocked` adds `blocked` there. Parked lanes add neither word. Other
 activity values keep the existing presentation.
 
 Member `external` entries are detail-only. A working entry makes an unfinished
-item working after the open-question check. The detail table selects working,
-then review, then queued, and places that entry's label and sentence above Now.
-A queued-only item shows `Waiting for <label>` in its row, including the small
-Later and Done rows, unless blocked or waiting for an operator answer. Other
-rows keep the lead's Status text. Seat counts and the worked-hours meta line
-remain unchanged.
+item working after the open-question check and counts as one more agent on it:
+the item's "N on it now" count and the Working now section treat it as they
+treat a working seat. The item screen has no separate row for external work. A
+queued-only item shows `Waiting for <label>` in its row, including the small
+Later and Done rows, unless blocked or waiting for an operator answer; review
+entries add nothing. Other rows keep the lead's Status text.
 
 Detail-only `latest_event` adds Latest immediately below Now only when its
 stamp is newer than the item's progress, or progress is absent. It reads

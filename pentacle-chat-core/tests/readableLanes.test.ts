@@ -140,22 +140,28 @@ test('lane words use the external label, keep paused words and suppress parked w
   }
 });
 
-test('external item work respects completed and open-question precedence without changing seat counts', () => {
+test('external item work respects completed and open-question precedence and only working work counts as an agent', () => {
   const member: WorkLaneMember = { spec_id: 'a', status: 'backlog', seats: [], external: [external('working')] };
   assert.equal(readable.readableItemKind(member), 'working');
   assert.equal(readable.readableItemKind({ ...member, status: 'completed' }), 'done');
   assert.equal(readable.readableItemKind({ ...member, open_questions: { count: 1, first_question_id: 'q' } }), 'needs');
-  assert.equal(readableSeatCount(member), null);
-  for (const state of ['queued', 'review'] as const) assert.equal(readable.readableItemKind({ ...member, external: [external(state)] }), 'later');
+  for (const state of ['queued', 'review'] as const) {
+    assert.equal(readable.readableItemKind({ ...member, external: [external(state)] }), 'later');
+    assert.equal(readableSeatCount({ ...member, external: [external(state)] }), null);
+  }
 });
 
-test('external line selects working, review, queued in that order, independent of wire order', () => {
-  for (const [state, expected] of [['working', 'Scout is on it now'], ['review', 'Scout returned it, in review'], ['queued', 'Waiting for Scout']] as const)
-    assert.equal(readable.readableExternalLine({ spec_id: 'a', external: [external(state, 'Scout')] }), expected);
-  assert.equal(readable.readableExternalLine({ spec_id: 'a' }), null);
-  assert.equal(readable.readableExternalLine({ spec_id: 'a', external: [] }), null);
-  assert.equal(readable.readableExternalLine({ spec_id: 'a', external: [external('queued'), external('review', 'Reviewer'), external('working', 'Builder')] }), 'Builder is on it now');
-  assert.equal(readable.readableExternalLine({ spec_id: 'a', external: [external('queued'), external('review', 'Reviewer')] }), 'Reviewer returned it, in review');
+test('a working external entry is one more agent on it now, exactly like a working seat', () => {
+  const seat = (activity: 'working' | 'idle') => ({ stream_id: `s-${activity}`, role: null, host: null, visibility: null, activity, last_activity: null });
+  const member: WorkLaneMember = { spec_id: 'a', status: 'in_progress', seats: [], external: [external('working')] };
+  assert.equal(readableSeatCount(member), '1 on it now');
+  assert.equal(readableSeatCount({ ...member, seats: [seat('working')] }), '2 on it now');
+  assert.equal(readableSeatCount({ ...member, seats: [seat('idle')] }), '1 on it now');
+  assert.equal(readableSeatCount({ ...member, seats: [seat('working')], seats_total: 3 }), '2+ on it now');
+  assert.equal(readableSeatCount({ ...member, external: [external('working'), external('working')] }), '2 on it now');
+  assert.equal(readableSeatCount({ ...member, external: [] }), null);
+  assert.equal(readableSeatCount({ spec_id: 'a' }), null);
+  assert.equal('readableExternalLine' in readable, false);
 });
 
 test('queued-only sentence appears without moving backlog, while blocked/question/status prose wins otherwise', () => {
