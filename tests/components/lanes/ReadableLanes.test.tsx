@@ -23,6 +23,16 @@ function setup(variant: 'full' | 'sparse' | 'old' = 'full') {
   const view = render(<LanesOverlay lanes={selectLaneCardViewModels(state)} inventory={state.workLanes} assistantName="Assistant" connected updates={[]} top={0} bottom={0} onChat={jest.fn()} onClose={jest.fn()} readShow={readShow} />);
   return { ...view, readShow };
 }
+test('the home hub label stays a complete word before the assistant name loads', () => {
+  const fixture = readableLanesFixture('full');
+  const state = applyWorkLanesInventory(initialPentacleStreamState, fixture.inventory);
+  const props = { lanes: selectLaneCardViewModels(state), inventory: state.workLanes, updates: [], top: 0, bottom: 0, onChat: jest.fn(), onClose: jest.fn(), readShow: jest.fn(async (id: string) => fixture.shows[id]) };
+  const named = render(<LanesOverlay {...props} assistantName="Assistant" connected />);
+  expect(named.getByTestId('lanes-map-assistant').props.accessibilityLabel).toBe('Assistant');
+  named.unmount();
+  const unnamed = render(<LanesOverlay {...props} assistantName="" connected />);
+  expect(unnamed.getByTestId('lanes-map-assistant').props.accessibilityLabel).toBe('assistant');
+});
 test('lane, goal and spec navigation uses the question card and never exposes raw fields', async () => {
   const view = setup();
   expect(view.queryByTestId('lane-question')).toBeNull();
