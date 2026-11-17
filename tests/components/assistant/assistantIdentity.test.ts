@@ -18,9 +18,9 @@ test('display-name customization wins over title and the lamp takes the canonica
   expect(assistantAccent(identity)).toBe(MACHINES.hostc.accent);
 });
 
-test('missing or blank names default to Zephyr and keep the identity lamp', () => {
+test('an unloaded session has no name and a blank one defaults to Zephyr, both keeping the identity lamp', () => {
   const empty = selectAssistantIdentity(initialPentacleStreamState);
-  expect(empty.name).toBe('Zephyr');
+  expect(empty.name).toBe('');
   expect(empty.sigilKind).toBe('djinni');
   expect(selectAssistantIdentity({ ...initialPentacleStreamState,
     sessions: [assistantSession(empty.streamId, { display_name: ' ', title: ' ' })] }).name).toBe('Zephyr');

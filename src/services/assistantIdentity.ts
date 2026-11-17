@@ -11,7 +11,7 @@ export const DEFAULT_ASSISTANT_NAME = 'Zephyr';
 export type AssistantIdentity = {
   streamId: string;
   // The operator's name for their assistant (Pentacle web: the protected assistant
-  // session's displayName, default 'Zephyr'). Never a hard-coded product name.
+  // session's displayName, default 'Zephyr'; empty until that session loads). Never a hard-coded product name.
   name: string;
   // The assistant session's host; its machine sigil is drawn with sigilKind.
   hostId: string | null;
@@ -24,7 +24,9 @@ let lastIdentity: AssistantIdentity | undefined;
 // receive it as a prop (the home header) do not re-render on unrelated store changes.
 export function selectAssistantIdentity(state: Pick<PentacleStreamState, 'sessions'>): AssistantIdentity {
   const session = state.sessions.find((item) => item.stream_id === ASSISTANT_STREAM_ID);
-  const name = [session?.display_name, session?.title].map((value) => String(value || '').trim()).find(Boolean)
+  // Before the daemon's snapshot lands there is no session, so the name is unknown: render none
+  // rather than the public default, which would flash on launch before the real name arrives.
+  const name = !session ? '' : [session.display_name, session.title].map((value) => String(value || '').trim()).find(Boolean)
     || DEFAULT_ASSISTANT_NAME;
   const next: AssistantIdentity = { streamId: ASSISTANT_STREAM_ID, name, hostId: session?.host || null, sigilKind: 'djinni' };
   if (lastIdentity && sameAssistantIdentity(lastIdentity, next)) return lastIdentity;

@@ -7,8 +7,15 @@ import { fireEvent, isDisabled, mount, resetWorld, screen, within } from './scre
 
 registerOutboundGuard();
 
+let mockAssistantName = 'Zephyr';
+jest.mock('../../src/services/assistantIdentity', () => ({
+  ...jest.requireActual('../../src/services/assistantIdentity'),
+  useAssistantIdentity: () => ({ streamId: 'home:assistant', name: mockAssistantName, hostId: null, sigilKind: 'djinni' }),
+}));
+
 let server: FakeHousehold;
 beforeEach(() => {
+  mockAssistantName = 'Zephyr';
   server = resetWorld();
   // This suite isolates real event controls; due-row coverage lives in CalendarDue.
   Object.values(server.lists).flat().forEach((item) => { item.due_date = null; });
@@ -94,6 +101,13 @@ describe('CalendarView agenda', () => {
     expect(within(agendaRow('TestFlight')).getByText(/ADDED BY ZEPHYR/)).toBeTruthy();
     expect(within(agendaRow('Trash day')).queryByText(/ADDED BY ZEPHYR/)).toBeNull();
     expect(within(agendaRow('Standup')).queryByText(/ADDED BY ZEPHYR/)).toBeNull();
+  });
+
+  it('omits the added-by name until the assistant session loads', async () => {
+    mockAssistantName = '';
+    await mount('CalendarView');
+    expect(screen.queryAllByText(/ADDED BY/)).toHaveLength(0);
+    expect(hasAgendaRow('Vet')).toBe(true);
   });
 
   it("tapping another day shows that day without ' · TODAY' and a singular/plural event count", async () => {

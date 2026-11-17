@@ -120,6 +120,7 @@ test('the status surface lamp takes the assistant host machine and follows a hos
 });
 
 test('selects only assistant-stream status publications and renders the latest loaded count', async () => {
+  mockState.sessions = [session(ASSISTANT_ID, { display_name: 'Zephyr' })];
   mockState.events = [
     event(30, 'Latest synthetic status'), event(10, 'First synthetic status'),
     event(20, 'Middle synthetic status'), event(40, 'Prose excluded', { publish_kind: 'prose' }),
