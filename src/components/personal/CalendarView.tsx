@@ -209,7 +209,7 @@ export default function CalendarView({ date }: { date?: string }) {
                     <View style={styles.assistant}>
                       <Text style={[styles.metaText, styles.assistantText]}>·</Text>
                       <Lamp size={12} />
-                      <Text style={[styles.metaText, styles.assistantText]}>ADDED BY {assistant.name.toUpperCase()}</Text>
+                      {assistant.name ? <Text style={[styles.metaText, styles.assistantText]}>ADDED BY {assistant.name.toUpperCase()}</Text> : null}
                     </View>
                   ) : null}
                 </View>

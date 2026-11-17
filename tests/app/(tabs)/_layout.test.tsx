@@ -28,7 +28,7 @@ jest.mock('../../../src/hooks/useUnreadNotifications', () => ({
 const config = () => require('expo-router').__mock.tabScreens.mock.calls.map((call: any[]) => call[0]);
 const visible = () => config().filter((screen: any) => screen.options.href !== null);
 
-beforeEach(() => { mockIdentityState = { sessions: [] }; require('expo-router').__mock.tabScreens.mockClear(); });
+beforeEach(() => { mockIdentityState = { sessions: [{ stream_id: 'home:assistant', host: 'hostc' }] }; require('expo-router').__mock.tabScreens.mockClear(); });
 
 test('The assistant is the initial tab and the four visible tabs have the contract order and labels', () => {
   render(<TabLayout />);
@@ -75,4 +75,10 @@ test('a renamed assistant updates the home title and uppercase label without cha
   expect(home.options).toMatchObject({ title: 'Lews', tabBarLabel: 'LEWS' });
   expect(render(home.options.tabBarIcon({ color: '#7fa896' })).UNSAFE_getByType(MachineSigil).props)
     .toMatchObject({ kind: 'djinni', color: '#7fa896', size: 22 });
+});
+
+test('the home tab shows no name until the assistant session loads', () => {
+  mockIdentityState = { sessions: [] };
+  render(<TabLayout />);
+  expect(visible()[0].options).toMatchObject({ title: '', tabBarLabel: '' });
 });

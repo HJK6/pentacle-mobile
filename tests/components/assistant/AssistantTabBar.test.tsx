@@ -32,6 +32,7 @@ const Tabs = createBottomTabNavigator();
 const Empty = () => <View />;
 
 test('the actual tab bar applies compact icon/label/button geometry within the safe bar', () => {
+  mockIdentityState = { sessions: [{ stream_id: 'home:assistant', host: 'hostc' }] };
   jest.useFakeTimers();
   const keyboard = jest.spyOn(Keyboard, 'addListener');
   render(<TabLayout />).unmount();
