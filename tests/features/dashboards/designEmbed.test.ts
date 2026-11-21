@@ -1,7 +1,10 @@
 import {
   createDesignEmbed,
+  designDashboardHref,
   isDesignEmbedNavigationAllowed,
 } from '../../../src/features/dashboards/designEmbed';
+import { parseDashboardLinkEvent } from 'pentacle-chat-core';
+import sharedFixtures from '../../../pentacle-chat-core/tests/fixtures/dashboard_links_v1.json';
 
 const policy = {
   pentacleOrigin: 'https://chat.example.ts.net',
@@ -9,6 +12,25 @@ const policy = {
 };
 const origin = policy.pentacleOrigin;
 const home = '/next/embed/design';
+
+test.each(sharedFixtures.event_cases)('uses the shared embedded route for $name', fixture => {
+  const link = parseDashboardLinkEvent(fixture.event);
+  expect(link).toEqual(fixture.link);
+  if (!link) return;
+  const route = designDashboardHref(link.target);
+  const source = createDesignEmbed(policy, route.params);
+  expect(source).toEqual({ origin, uri: origin + fixture.paths?.embed });
+  expect(isDesignEmbedNavigationAllowed(origin, { url: source!.uri })).toBe(true);
+});
+
+test('maps the provisional E8 exact screen to the native route', () => {
+  const params = designDashboardHref({
+    project_id: 'delivery',
+    design_id: 'delivery-board',
+    view_id: 'prototype',
+  }).params;
+  expect(createDesignEmbed(policy, params)?.uri).toBe(origin + '/next/embed/design/delivery/delivery-board/prototype');
+});
 
 test.each([
   [{}, home],

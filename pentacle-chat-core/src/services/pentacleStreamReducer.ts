@@ -11,6 +11,7 @@ import {
 } from './pentacleEventBuckets';
 import { optimisticMatchesServerUser, parseServerEventTimeStrict } from './optimisticMatch';
 import {
+  assistantDashboardLink,
   hasExplicitUserSendBinding,
   isCodexHelperSuggestion,
   isTerminalDividerText,
@@ -2038,12 +2039,10 @@ export function applyPentacleEvent(
     !isClaudeJsonlEvent(event) &&
     (event.attachments?.length ?? 0) === 0 &&
     (event.kind === 'ASSIST' || event.kind === 'TOOL' || event.kind === 'TOOL-OUT') &&
-    isTransientTranscriptNoise(event.text)
+    isTransientTranscriptNoise(event.text) &&
+    !assistantDashboardLink(event)
   ) {
-    // An attachment-bearing event (an operator or agent image, incl. a
-    // caption-less one with empty text) is durable content, never transient
-    // noise — mirror the USER/ASSIST attachment exemption in the interpreter
-    // and in the fetched/snapshot filters below.
+    // Attachments and typed Design links may have an empty caption.
     return state;
   }
 
@@ -2536,12 +2535,17 @@ function filterCurrentTailRegression(
 
 function normalizeFetchedIncomingEvents(rawEvents: PentacleEvent[] | undefined): PentacleEvent[] {
   if (!Array.isArray(rawEvents)) return [];
-  return rawEvents.map(normalizeEvent).filter((event) => (
+  return rawEvents.map(normalizeEvent).filter(keepFetchedTranscriptEvent);
+}
+
+function keepFetchedTranscriptEvent(event: PentacleEvent) {
+  return (
     event.kind !== 'DRAFT' &&
     event.kind !== 'WORKING' &&
     !isHelperSuggestionEvent(event) &&
-    (isClaudeJsonlEvent(event) || (event.attachments?.length ?? 0) > 0 || !isTransientTranscriptNoise(event.text))
-  ));
+    (isClaudeJsonlEvent(event) || (event.attachments?.length ?? 0) > 0 ||
+      !isTransientTranscriptNoise(event.text) || Boolean(assistantDashboardLink(event)))
+  );
 }
 
 export function selectCurrentTailEvents(
@@ -2746,12 +2750,7 @@ export function applyPentacleSnapshotMessage(
     ? dedupeRecentEventsByStream(
       reconcileTrustedDaemonNoticeBatch(
         state.events,
-        incomingEvents.map(normalizeEvent).filter((event) => (
-          event.kind !== 'DRAFT' &&
-          event.kind !== 'WORKING' &&
-          !isHelperSuggestionEvent(event) &&
-          (isClaudeJsonlEvent(event) || (event.attachments?.length ?? 0) > 0 || !isTransientTranscriptNoise(event.text))
-        )),
+        normalizeFetchedIncomingEvents(incomingEvents),
       ),
       limit,
       assistantCompositeStreamIds(sessions),

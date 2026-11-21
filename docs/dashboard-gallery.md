@@ -1,9 +1,24 @@
-# Mockups in the phone browser
+# Design on iOS
 
-In Dashboards, select **Mockups** to open the shared web gallery in the phone's
-browser. Choose a project, view and flow there to see its image, play and seek
-its video, or use its interactive prototype. The app uses the existing catalog
-order and browser retry control; it does not store or render another library.
+Open **Design** from the Dashboards tab to browse the shared design library
+inside Pentacle. A Design preview in chat opens the linked board or screen.
+A Design chip opens Home. Use native **Back** to return to the originating
+screen. The preview uses the recorded image attached to the message and keeps
+the caption visible. If the image is unavailable, the text preview still opens
+the linked design.
+
+The shared catalog keeps the built-in ID `ui-review`, its current label, and
+its membership, visibility and order. The iOS app displays the Design label
+for that ID. Other hosted dashboards retain their existing browser policy.
+
+The native view loads the exact HTTPS origin admitted by the current hosted
+dashboard policy. It accepts only the standalone Design Home, board and screen
+addresses built from the shared chat link target. It sends no app credentials,
+injected headers or browser login cookies. The viewer requires the device's
+Tailscale identity. If the policy, authentication or main document fails, the
+screen offers **Try again** and reads the current policy again.
+
+## Legacy Mockups browser entry
 
 The shared catalog represents Mockups as built-in board `ui-review`. Mobile
 recognizes that one built-in and derives its browser URL from the current
@@ -14,11 +29,8 @@ routes and mismatched ports are refused before Linking. Other permitted
 tailnet hosted dashboards retain their existing policy. The current connected
 daemon supplies the policy; a cached catalog cannot bypass missing policy.
 
-The browser uses the existing Tailscale identity or provisioned web login.
-Linking receives only the validated URL; the app supplies no token, headers or
-cookies. If the browser cannot reach or authenticate to the gallery, retain the
-actual error for the release owner. Native embedding and new login mechanisms
-are outside this handoff.
+The legacy browser entry continues to use its existing Tailscale identity or
+provisioned web login. Linking receives only the validated URL.
 
 For source verification, run the catalog loader and catalog screen Jest suites,
 then `npm run test:unit`, `npm run typecheck` and `npm run validate` with the
@@ -34,13 +46,11 @@ PENTACLE_RENDER_OUTPUT=/absolute/external/evidence \
 node scripts/mockups-dashboard-render.cjs
 ```
 
-The driver uses Playwright WebKit at 390 and 375 px, captures Mockups, browser
-failure/retry and empty states, and checks the exact browser URL. It is a
-phone-size preflight, not physical iPhone, Safari, Tailscale or media proof.
-The fixture capture hides the unrelated web voice storage-error overlay under
-an approved harness accommodation; it does not change the app or native proof.
-Physical acceptance remains a release prerequisite: on the phone open
-Dashboards → Mockups, verify Safari loads the configured origin's `/designs/`
-using existing authentication, then open a project/view/flow and verify its PNG,
-inline video playback and seeking, prototype navigation/animation, and refresh.
-Retain the app, web and catalog revisions with that evidence.
+The browser driver uses Playwright WebKit at 390 and 375 px and exercises the
+legacy selector, browser failure/retry and empty states.
+
+The installed iOS gate exercises the Design entry and a seeded chat preview
+with the accepted standalone viewer. Record the selected screen, native Back
+and transcript position, viewer gestures, and failure/Retry evidence along
+with the app, web and catalog revisions. Record paired-device Tailscale
+admission separately when a paired device is reachable.

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
@@ -19,7 +19,7 @@ export default function DashboardScreen() {
   const insets = useSafeAreaInsets();
   const { dashboardId, projectId, designId, viewId } = useLocalSearchParams<RouteParams>();
 
-  const showDesign = dashboardId === 'design';
+  const showDesign = Platform.OS === 'ios' && dashboardId === 'design';
   const title = showDesign ? 'Design' : 'Dashboard';
   return (
     <View style={[styles.screen, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
