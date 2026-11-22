@@ -1,5 +1,5 @@
 import React from 'react';
-import { Text } from 'react-native';
+import { Platform, Text } from 'react-native';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import DashboardsScreen from '../../../app/(tabs)/dashboards';
 import { dashboardHubClient } from '../../../src/features/dashboards/dashboardHubClient';
@@ -47,6 +47,7 @@ describe('Dashboards tab with registered boards', () => {
   let connect: jest.SpyInstance;
   let refresh: jest.SpyInstance;
   beforeEach(() => {
+    jest.replaceProperty(Platform, 'OS', 'web');
     connect = jest.spyOn(dashboardHubClient, 'connect').mockImplementation(() => undefined);
     jest.spyOn(dashboardHubClient, 'configure').mockImplementation(() => undefined);
     refresh = jest.spyOn(dashboardHubClient, 'refresh').mockImplementation(() => undefined);

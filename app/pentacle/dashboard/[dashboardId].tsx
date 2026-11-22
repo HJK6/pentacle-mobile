@@ -20,7 +20,6 @@ export default function DashboardScreen() {
   const { dashboardId, projectId, designId, viewId } = useLocalSearchParams<RouteParams>();
 
   const showDesign = Platform.OS === 'ios' && dashboardId === 'design';
-  const title = showDesign ? 'Design' : 'Dashboard';
   return (
     <View style={[styles.screen, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
       <View style={styles.header}>
@@ -32,7 +31,8 @@ export default function DashboardScreen() {
         >
           <Text style={styles.backLabel}>‹</Text>
         </Pressable>
-        <Text accessibilityRole="header" style={styles.title}>{title}</Text>
+        {/* The embedded viewer owns its title and the Design/Reload control. */}
+        {!showDesign ? <Text accessibilityRole="header" style={styles.title}>Dashboard</Text> : null}
       </View>
       {showDesign ? (
         <DesignEmbed

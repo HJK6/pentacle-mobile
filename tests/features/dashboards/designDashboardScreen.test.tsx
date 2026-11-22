@@ -37,7 +37,8 @@ test('mounts Design in the app and keeps refused navigation out of the browser',
   const openURL = jest.spyOn(Linking, 'openURL');
   try {
     render(<DashboardScreen />);
-    expect(screen.getByRole('header', { name: 'Design' })).toBeVisible();
+    expect(screen.queryByRole('header', { name: 'Design' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Back' })).toBeVisible();
     expect(webView().props.source).toEqual({ uri: origin + path });
     expect(webView().props).toMatchObject({
       originWhitelist: ['*'],
