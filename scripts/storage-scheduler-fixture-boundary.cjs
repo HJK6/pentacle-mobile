@@ -29,6 +29,8 @@ cp.spawnSync = (binary, args, options) => {
     if (!fs.existsSync(loadedFlag)) return { status: 113, stdout: '', stderr: 'not found' };
     const text = fs.readFileSync(plistPath, 'utf8');
     if (scenario === 'bare-print') return { status: 0, stdout: `gui/501/${LABEL} = {\n\tproperties = inferred program\n}\n`, stderr: '' };
+    if (scenario === 'partial-import') return { status: 0, stdout: printLoadedService(LABEL, text).replace('properties = inferred program', 'properties = partial import | inferred program'), stderr: '' };
+    if (scenario === 'two-entries') return { status: 0, stdout: printLoadedService(LABEL, text).replace('\t\t\t\t\t0 = \t\t\t\t]', '\t\t\t\t\t0 = \t\t\t\t\t1 = \t\t\t\t]'), stderr: '' };
     return { status: 0, stdout: printLoadedService(LABEL, text), stderr: '' };
   }
   if (action === 'bootstrap' && args.length === 3 && args[1] === `gui/${process.getuid()}` && args[2] === plistPath) { fs.writeFileSync(loadedFlag, '1'); return { status: 0, stdout: '', stderr: '' }; }

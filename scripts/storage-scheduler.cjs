@@ -101,7 +101,10 @@ const SPAWN_CONSTRAINT_PRINT = ['\tspawn constraint = {', '\t\t"reqs" => {', '\t
 function assertSpawnConstraintLoaded(printed) {
   const text = String(printed);
   const occurrences = text.split('\tspawn constraint = {').length - 1;
-  if (occurrences !== 1 || !text.includes(`\n${SPAWN_CONSTRAINT_PRINT}\n`) || !/^\tproperties = .*\bhas spawn constraint\b/m.test(text)) throw new Error('SCHEDULER_SPAWN_CONSTRAINT_UNVERIFIED');
+  const properties = /^\tproperties = (.*)$/m.exec(text)?.[1] || '';
+  // `partial import` means launchd dropped part of the plist (a wrong-typed key) yet still loaded the job: refuse it even
+  // when a valid one-entry constraint block is also printed.
+  if (occurrences !== 1 || !text.includes(`\n${SPAWN_CONSTRAINT_PRINT}\n`) || !/\bhas spawn constraint\b/.test(properties) || /\bpartial import\b/.test(properties)) throw new Error('SCHEDULER_SPAWN_CONSTRAINT_UNVERIFIED');
 }
 
 function renderPlist() {

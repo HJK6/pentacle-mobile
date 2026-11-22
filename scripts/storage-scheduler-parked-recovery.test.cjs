@@ -124,9 +124,10 @@ test('parked state (label out, committed reseal journal): storage:update install
   assert.equal(fs.readdirSync(p.f.state).filter((name) => name.endsWith('.lock')).length, 0);
 });
 
-test('parked state: a constraint launchd cannot show rolls back, restores the old plist byte for byte and leaves the label out', { skip: !darwin }, (t) => {
+for (const scenario of ['bare-print', 'partial-import', 'two-entries']) {
+test(`parked state: a constraint launchd cannot show (${scenario}) rolls back, restores the old plist byte for byte and leaves the label out`, { skip: !darwin }, (t) => {
   const p = parked(t);
-  const result = p.update('bare-print');
+  const result = p.update(scenario);
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /SCHEDULER_SPAWN_CONSTRAINT_UNVERIFIED/);
   const transaction = p.records().find((record) => record.action === 'update');
@@ -139,6 +140,7 @@ test('parked state: a constraint launchd cannot show rolls back, restores the ol
   assert.ok(fs.readFileSync(path.join(p.f.state, 'authority-reseal.json')).equals(p.journalBytes));
   assert.equal(p.actions().includes('kickstart'), false, 'nothing ran without a verified constraint');
 });
+}
 
 test('parked state: the update is refused and writes nothing when the committed journal no longer matches the authority', { skip: !darwin }, (t) => {
   const p = parked(t);
