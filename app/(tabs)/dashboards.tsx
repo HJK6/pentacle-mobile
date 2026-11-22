@@ -19,8 +19,8 @@ import { getParam, useHarnessReady } from '../../src/utils/harnessRuntime';
 
 type CatalogResult = Awaited<ReturnType<ReturnType<typeof createCatalogLoader>['refresh']>>;
 type BrowserBoard = Extract<CatalogBoard, { kind: 'hosted-view' | 'built-in' }>;
-function opensNativeDesign(board?: CatalogBoard) {
-  return Platform.OS === 'ios' && board?.kind === 'built-in' && board.id === 'ui-review';
+function isDesignCatalogBoard(board?: CatalogBoard) {
+  return board?.kind === 'built-in' && board.id === 'ui-review';
 }
 
 function browserBoard(board?: CatalogBoard): BrowserBoard | null {
@@ -51,18 +51,21 @@ export default function DashboardsScreen() {
   const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const harnessReady = useHarnessReady();
   const ready = process.env.EXPO_PUBLIC_HARNESS !== '1' || harnessReady;
-  const { registry, order } = useMemo(() => catalogResult.catalog
-    ? mergeCatalogBoards(catalogResult.catalog)
-    : { registry: {}, order: [] }, [catalogResult.catalog]);
+  const designSelection = Platform.OS === 'ios';
+  const { registry, order } = useMemo(() => {
+    const catalog = catalogResult.catalog;
+    if (!catalog) return { registry: {}, order: [] };
+    return mergeCatalogBoards(designSelection ? { ...catalog, boards: catalog.boards.filter(isDesignCatalogBoard) } : catalog);
+  }, [catalogResult.catalog, designSelection]);
   const hasBoards = order.length > 0;
   // The catalog is the membership authority; only resolved native built-ins use the hub.
   const hasHubBoards = order.some(id => !registry[id].catalogBoard);
   const { client, connectionState, refresh } = useDashboardHub(isFocused && hasHubBoards);
-  const selectedId = activeId && Object.prototype.hasOwnProperty.call(registry, activeId) ? activeId : order[0] ?? null;
+  const legacySelection = activeId && Object.prototype.hasOwnProperty.call(registry, activeId) ? activeId : order[0] ?? null;
+  const selectedId = designSelection ? null : legacySelection;
   const definition = selectedId ? registry[selectedId] ?? null : null;
-  const showNativeDesign = opensNativeDesign(definition?.catalogBoard);
   const Renderer = definition?.render;
-  useVoiceSurface({ page_id: 'dashboards', title: showNativeDesign ? 'Design' : definition?.label || 'Dashboards', ...(selectedId ? { entity_id: selectedId } : {}) }, isFocused, { bottom: 47 + Math.max(insets.bottom, 22) + 17, top: Math.max(insets.top, TOP_INSET) + 72 });
+  useVoiceSurface({ page_id: 'dashboards', title: definition?.label || 'Dashboards', ...(selectedId ? { entity_id: selectedId } : {}) }, isFocused, { bottom: 47 + Math.max(insets.bottom, 22) + 17, top: Math.max(insets.top, TOP_INSET) + 72 });
   const snapshot = definition && !definition.catalogBoard
     ? definition.resolve(client.getEnvelope(definition.hubKey), connectionState === 'connected', { batch: foreclosureBatch })
     : null;
@@ -194,35 +197,35 @@ export default function DashboardsScreen() {
   }, []);
 
   const selectBoard = useCallback((id: string) => {
+    const board = registry[id]?.catalogBoard;
+    if (designSelection) {
+      if (isDesignCatalogBoard(board)) router.push(designDashboardHref());
+      return;
+    }
     ++handoffGeneration.current;
     setHostedError(null);
     setActiveId(id);
-    const board = registry[id].catalogBoard;
-    if (opensNativeDesign(board)) {
-      router.push(designDashboardHref());
-    } else {
-      const target = browserBoard(board);
-      if (target) void openHosted(target);
-    }
-  }, [registry, openHosted]);
-  const hostedBoard = showNativeDesign ? null : browserBoard(definition?.catalogBoard);
+    const target = browserBoard(board);
+    if (target) void openHosted(target);
+  }, [designSelection, registry, openHosted]);
+  const hostedBoard = browserBoard(definition?.catalogBoard);
 
   const selector = useMemo(() => order.map((id) => {
     const item = registry[id];
     const selected = selectedId === id;
     return (
       <Pressable
-        accessibilityRole="tab"
-        accessibilityState={{ selected }}
+        accessibilityRole={designSelection ? 'button' : 'tab'}
+        accessibilityState={designSelection ? undefined : { selected }}
         key={id}
         onPress={() => selectBoard(id)}
-        style={[styles.selectorButton, selected && styles.selectorButtonActive]}
+        style={[styles.selectorButton, designSelection && styles.designButton, selected && styles.selectorButtonActive]}
         testID={`dashboard-selector-${id}`}
       >
-        <Text style={[styles.selectorText, selected && styles.selectorTextActive]}>{opensNativeDesign(item.catalogBoard) ? 'Design' : item.label}</Text>
+        <Text style={[styles.selectorText, designSelection && styles.designText, selected && styles.selectorTextActive]}>{designSelection ? 'Design' : item.label}</Text>
       </Pressable>
     );
-  }), [order, registry, selectedId, selectBoard]);
+  }), [designSelection, order, registry, selectedId, selectBoard]);
 
   return (
     <View style={styles.container} testID="dashboards-tab-screen">
@@ -233,35 +236,33 @@ export default function DashboardsScreen() {
         testID="dashboards-scroll"
       >
         <View style={styles.topRow}>
-          <Text numberOfLines={1} style={[styles.screenTitle, { flexShrink: 1 }]}>DASHBOARDS</Text><HeaderVoiceMic /><View style={{ flex: 1 }} />
+          {!designSelection ? <Text numberOfLines={1} style={[styles.screenTitle, { flexShrink: 1 }]}>DASHBOARDS</Text> : null}
+          <HeaderVoiceMic /><View style={{ flex: 1 }} />
           {hasHubBoards ? <Text style={styles.connection}>{connectionState.toUpperCase()}</Text> : null}
         </View>
         {catalogResult.message ? <View style={styles.statusCard} testID={catalogResult.status === 'unavailable' ? 'dashboard-catalog-unavailable' : 'dashboard-catalog-error'}>
           <Text style={styles.statusText}>{catalogResult.message}</Text>
         </View> : null}
-        {catalogResult.catalog ? <View accessible accessibilityLabel={catalogResult.catalog.catalog_version} testID="dashboard-catalog-version">
+        {catalogResult.catalog && !designSelection ? <View accessible accessibilityLabel={catalogResult.catalog.catalog_version} testID="dashboard-catalog-version">
           <Text style={styles.catalogVersion}>{catalogResult.catalog.catalog_version}</Text>
         </View> : null}
         {catalogResult.cached ? <Text style={styles.catalogVersion} testID="dashboard-catalog-cached">catalog cached {cacheAge(catalogResult.age ?? 0)}</Text> : null}
         {catalogBusy ? <Text style={styles.catalogVersion}>Loading dashboard catalog…</Text> : null}
-        {hasBoards ? (
+        {hasBoards ? (designSelection ? (
+          <View style={styles.selector} testID="dashboard-selector">{selector}</View>
+        ) : (
           <ScrollView horizontal contentContainerStyle={styles.selector} showsHorizontalScrollIndicator={false} testID="dashboard-selector">
             {selector}
           </ScrollView>
-        ) : (
+        )) : (
           <View style={styles.empty} testID="dashboards-empty">
             <View accessible accessibilityLabel="No dashboards yet" testID="dashboards-empty-state">
               <Text style={styles.emptyTitle}>No dashboards yet</Text>
             </View>
-            <Text style={styles.emptyBody}>New dashboards will appear here when they are ready.</Text>
+            {!designSelection ? <Text style={styles.emptyBody}>New dashboards will appear here when they are ready.</Text> : null}
           </View>
         )}
-        {showNativeDesign ? <View style={styles.statusCard} testID={`dashboard-board-${selectedId}`}>
-          <Text style={styles.hostedTitle}>Design</Text>
-          <Pressable accessibilityRole="button" testID="dashboard-design-open" onPress={() => router.push(designDashboardHref())} style={styles.selectorButton}>
-            <Text style={styles.selectorText}>Open Design</Text>
-          </Pressable>
-        </View> : hostedBoard ? <View style={styles.statusCard} testID={`dashboard-board-${hostedBoard.id}`}>
+        {hostedBoard ? <View style={styles.statusCard} testID={`dashboard-board-${hostedBoard.id}`}>
           <Text style={styles.hostedTitle}>{hostedBoard.name}</Text>
           <Text style={styles.catalogVersion}>Opens in your system browser.</Text>
           {hostedError?.id === hostedBoard.id ? <Text style={styles.statusText} testID="dashboard-hosted-error">{hostedError.message}</Text> : null}
@@ -287,6 +288,8 @@ const styles = StyleSheet.create({
   selector: { gap: 8, paddingBottom: 14 },
   selectorButton: { backgroundColor: Tokens.palette.panel, borderColor: Tokens.palette.line, borderRadius: 8, borderWidth: 1, paddingHorizontal: 14, paddingVertical: 9 },
   selectorButtonActive: { borderColor: Tokens.palette.green },
+  designButton: { minHeight: 44, justifyContent: 'center' },
+  designText: { color: Tokens.palette.text, fontSize: 14, textTransform: 'none' },
   selectorText: { color: Tokens.palette.muted, fontFamily: Fonts.jetBrainsMono.bold, fontSize: 10, letterSpacing: 0.4, textTransform: 'uppercase' },
   selectorTextActive: { color: Tokens.palette.text },
   empty: { alignItems: 'center', borderColor: Tokens.palette.line, borderRadius: 8, borderStyle: 'dashed', borderWidth: 1, gap: 6, marginTop: 24, paddingHorizontal: 16, paddingVertical: 28 },

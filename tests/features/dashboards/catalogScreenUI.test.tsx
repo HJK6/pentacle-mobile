@@ -1,10 +1,11 @@
 import React from 'react';
-import { Linking, Platform } from 'react-native';
+import { Linking, Platform, View } from 'react-native';
 import { router } from 'expo-router';
 import { teeTelemetrySink, type TelemetryPayload } from 'pentacle-chat-core';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import DashboardsScreen from '../../../app/(tabs)/dashboards';
+import DashboardScreen from '../../../app/pentacle/dashboard/[dashboardId]';
 import { DASHBOARD_ORDER, DASHBOARD_REGISTRY, mergeCatalogBoards } from '../../../src/features/dashboards/dashboardRegistry';
 import { dashboardHubClient } from '../../../src/features/dashboards/dashboardHubClient';
 import { type Catalog, type ReportDescriptor } from '../../../src/features/dashboards/catalogLoader';
@@ -15,10 +16,17 @@ let mockPolicy: unknown = null;
 let mockFocused = true;
 let mockSpec: string | undefined = 'example__dashboard_catalog';
 let mockReady = true;
+let mockDashboardParams: { dashboardId: string } = { dashboardId: 'design' };
+const mockDashboardBack = jest.fn();
 jest.mock('@react-navigation/native', () => ({ useIsFocused: () => mockFocused }));
 jest.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ bottom: 0, left: 0, right: 0, top: 0 }) }));
 jest.mock('expo-constants', () => ({ __esModule: true, default: { expoConfig: { extra: { get dashboardCatalogSpecId() { return mockSpec; } } } } }));
-jest.mock('expo-router', () => ({ router: { push: jest.fn() } }));
+jest.mock('expo-router', () => ({
+  router: { push: jest.fn() },
+  useLocalSearchParams: () => mockDashboardParams,
+  useRouter: () => ({ back: mockDashboardBack, canGoBack: () => true }),
+}));
+jest.mock('react-native-webview', () => ({ WebView: require('react-native').View }));
 jest.mock('../../../src/services/pentacleStream', () => ({ sendPentacleAssetCommand: jest.fn(), subscribePentacleAssetFrames: jest.fn(), getHostedDashboardPolicy: () => mockPolicy }));
 jest.mock('../../../src/services/pentacleAssets', () => ({ ...jest.requireActual('../../../src/services/pentacleAssets'), listReportsBySpec: jest.fn(), getReportByOwner: jest.fn() }));
 jest.mock('../../../src/components/Starfield', () => () => null);
@@ -46,6 +54,7 @@ function deferred<T>() {
 }
 
 beforeEach(async () => {
+  jest.replaceProperty(Platform, 'OS', 'web');
   await AsyncStorage.clear();
   mockPolicy = null; mockFocused = true; mockSpec = catalogSpec; mockReady = true;
   currentCatalog = catalog();
@@ -56,6 +65,8 @@ beforeEach(async () => {
     ? { asset_id: id, title: 'Example Catalog', content_type: 'dashboard-catalog', body: JSON.stringify(currentCatalog) }
     : { asset_id: id, title: id, content_type: 'report', body: { schema_version: 1, title: 'Example', sections: [{ id: 'example-section', title: 'Example section', blocks: [{ id: 'example-body', type: 'para', runs: [`Synthetic report ${id}.`] }] }] } });
 });
+
+afterEach(() => jest.restoreAllMocks());
 
 test('unset config preserves the empty state without catalog, report, or hub calls', async () => {
   mockSpec = undefined;
@@ -261,28 +272,113 @@ const hostedBoards: Catalog['boards'] = [
 ];
 
 const mockupsBoard = { id: 'ui-review', name: 'Mockups', kind: 'built-in' as const, visible: true };
-test('iOS opens the built-in Design entry at Home without a browser hand-off', async () => {
+test('iOS lists only Design, opens it once, and returns to the same clean list', async () => {
   const platform = jest.replaceProperty(Platform, 'OS', 'ios');
   const open = jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined);
+  const connect = jest.spyOn(dashboardHubClient, 'connect');
+  const push = jest.mocked(router.push);
+  push.mockReset();
+  mockDashboardBack.mockReset();
+  mockPolicy = hostedPolicy;
+  currentCatalog = { ...catalog(), boards: [...catalog().boards, ...hostedBoards, mockupsBoard] };
+
+  function Journey() {
+    const [viewing, setViewing] = React.useState(false);
+    mockFocused = !viewing;
+    React.useEffect(() => {
+      push.mockImplementation(destination => {
+        const id = typeof destination === 'object' ? destination.params?.dashboardId : undefined;
+        if (typeof id !== 'string') throw new Error('Expected a dashboard route with an ID');
+        mockDashboardParams = { dashboardId: id };
+        setViewing(true);
+      });
+      mockDashboardBack.mockImplementation(() => setViewing(false));
+    }, []);
+    return <>
+      <View style={viewing ? { display: 'none' } : undefined}><DashboardsScreen /></View>
+      {viewing ? <DashboardScreen /> : null}
+    </>;
+  }
+
+  function expectCleanList() {
+    const row = screen.getByRole('button', { name: 'Design' });
+    expect(row.props.testID).toBe('dashboard-selector-ui-review');
+    expect(screen.queryByTestId('dashboard-catalog-version')).toBeNull();
+    expect(screen.queryByTestId('dashboard-selector-project-map')).toBeNull();
+    expect(screen.queryByTestId('dashboard-selector-modeler-3d')).toBeNull();
+    expect(screen.queryByTestId('dashboard-selector-example-report')).toBeNull();
+    expect(screen.queryByTestId('dashboard-design-open')).toBeNull();
+    expect(screen.queryByText('DASHBOARDS')).toBeNull();
+    return row;
+  }
+  try {
+    render(<Journey />);
+    await screen.findByTestId('dashboard-selector-ui-review');
+    const design = expectCleanList();
+    expect(push).not.toHaveBeenCalled();
+    fireEvent.press(design);
+    expect(push).toHaveBeenCalledTimes(1);
+    expect(push).toHaveBeenCalledWith({
+      pathname: '/pentacle/dashboard/[dashboardId]',
+      params: { dashboardId: 'design' },
+    });
+    expect(screen.getByTestId('design-webview').props.source).toEqual({
+      uri: 'https://chat.example.ts.net/next/embed/design',
+    });
+    fireEvent.press(screen.getByRole('button', { name: 'Back' }));
+    await screen.findByTestId('dashboard-selector-ui-review');
+    expectCleanList();
+    expect(mockDashboardBack).toHaveBeenCalledTimes(1);
+    expect(push).toHaveBeenCalledTimes(1);
+    expect(reportLists()).toEqual([]);
+    expect(connect).not.toHaveBeenCalled();
+    expect(open).not.toHaveBeenCalled();
+  } finally {
+    platform.restore();
+    open.mockRestore();
+    connect.mockRestore();
+    push.mockReset();
+    mockDashboardBack.mockReset();
+  }
+});
+
+test.each([
+  ['hidden', { ...mockupsBoard, visible: false }],
+  ['wrong kind', { id: 'ui-review', name: 'Design impostor', kind: 'hosted-view', hosted: { url: 'https://boards.example.ts.net/design/' } }],
+  ['absent', null],
+])('iOS omits Design when its approved entry is %s', async (_case, board) => {
+  const platform = jest.replaceProperty(Platform, 'OS', 'ios');
+  const push = jest.mocked(router.push);
+  push.mockClear();
+  currentCatalog = { ...catalog(), boards: [...hostedBoards, ...(board ? [board] : [])] };
+  try {
+    render(<DashboardsScreen />);
+    await waitFor(() => expect(get).toHaveBeenCalled());
+    expect(screen.getByText('No dashboards yet')).toBeVisible();
+    expect(screen.queryByTestId('dashboard-selector-ui-review')).toBeNull();
+    expect(screen.queryByTestId('dashboard-selector-modeler-3d')).toBeNull();
+    expect(push).not.toHaveBeenCalled();
+  } finally { platform.restore(); }
+});
+
+test('iOS refresh removes Design when withdrawn and preserves valid cache on a read failure', async () => {
+  const platform = jest.replaceProperty(Platform, 'OS', 'ios');
   const push = jest.mocked(router.push);
   push.mockClear();
   currentCatalog = { ...catalog(), boards: [mockupsBoard, ...hostedBoards] };
   try {
     render(<DashboardsScreen />);
-    const design = await screen.findByTestId('dashboard-selector-ui-review');
-    expect(design).toHaveTextContent('Design');
+    await screen.findByTestId('dashboard-selector-ui-review');
+    list.mockRejectedValueOnce(new Error('synthetic read failure'));
+    await act(async () => refresh());
+    expect(screen.getByTestId('dashboard-catalog-cached')).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Design' })).toBeVisible();
+    currentCatalog = { ...catalog(), boards: hostedBoards };
+    await act(async () => refresh());
+    await screen.findByTestId('dashboards-empty-state');
+    expect(screen.queryByTestId('dashboard-selector-ui-review')).toBeNull();
     expect(push).not.toHaveBeenCalled();
-    fireEvent.press(design);
-    expect(push).toHaveBeenCalledWith({
-      pathname: '/pentacle/dashboard/[dashboardId]',
-      params: { dashboardId: 'design' },
-    });
-    expect(open).not.toHaveBeenCalled();
-    expect(screen.queryByTestId('dashboard-hosted-open')).toBeNull();
-  } finally {
-    platform.restore();
-    open.mockRestore();
-  }
+  } finally { platform.restore(); }
 });
 
 const mockupsUrl = 'https://chat.example.ts.net/designs/';
