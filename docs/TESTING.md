@@ -213,17 +213,20 @@ launchd readback to show exactly one `spawn constraint` block with one (redacted
 constraint`; a wrong-typed constraint loads as `partial import` without enforcement and is refused
 (`SCHEDULER_SPAWN_CONSTRAINT_UNVERIFIED`). `launchctl print` redacts the hash itself and `kickstart -k` exits 0 even
 when the spawn is denied, so the plist digest proves the bytes and the fresh transaction-bound smoke report proves
-enforcement. Consequences: the plist digest is specific to the interpreter; after a Node upgrade, relocation or
-Homebrew cleanup of the pinned keg (or a dylib) spawns fail until `storage:update` is run again with the chosen,
-verified interpreter, and janitor health can lag the fault by up to two intervals (12 hours). The transaction
-pins the plist digest, not script bytes: the scheduled wrapper executes the current clone. A BTM-managed LWCR
-appearing after a login can coexist with this constraint; their precedence is not evidenced here.
+that the scheduled entry point ran under the verified constraint. The plist digest is specific to the
+interpreter. After a Node upgrade, check the pinned keg path, its effective dylibs and the job’s last
+exit reason. Removing or changing a required file can break a later spawn. Health can lag a fault by
+two intervals (12 hours). An owner-approved update pins the chosen verified interpreter and provides
+a fresh smoke receipt. The wrapper reads the current checkout at each spawn. The behavior of a
+future login with a managed BTM constraint, including coexistence and precedence, remains unverified.
 
-Update outcomes: success needs a committed transaction whose digest equals the on-disk plist, a passing
-`validateInstalledAuthority`, the launchd constraint readback, one error-free bound report and a clean closed State
-layout. A restored transaction leaves the old plist with the label out. A retained rollback, a committed update whose
-final authority transition left a temporary, and any crash with the schema-2 lock present stop the line for the
-deployment owner (no automatic recovery, no lock removal); health alone never decides a handback.
+For a parked-label update, handback requires normal updater exit zero and its complete committed
+stdout receipt matching the stored transaction, owned plist and one error-free smoke report. Verify
+the installed authority, current loaded job and absence of locks and temporary residue. A failure,
+interruption, ambiguous result or failed readback leaves the deployment with the owner. Preserve
+the files and command output, including when rollback restored the preimage or a transaction is
+already committed. A parked label remains out on a completed rollback. Schema-2 locks require
+owner disposition.
 The opt-in native proofs (`PENTACLE_LAUNCHD_PROOF=1 node --test scripts/storage-scheduler-spawn-constraint.test.cjs`)
 use disposable `com.pentacle.mobile.lwcrproof.*` labels only.
 
