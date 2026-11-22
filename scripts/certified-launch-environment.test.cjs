@@ -38,9 +38,9 @@ test('canonical environment prefixes the supported PATH and strips caller-steere
   const inherited = { PATH: '/custom/bin:/usr/bin', npm_config_cache: '/tmp/cache', PENTACLE_GATE_QUIET_RECEIPT: '/stale/receipt.json',
     PENTACLE_OWNED_GROUP_RECEIPT: '/stale/owner.json', KEEP: '1' };
   const snapshot = JSON.stringify(inherited);
-  const environment = canonicalChildEnvironment('/repo', inherited, '/Users/someone', '/opt/node/bin/node');
+  const environment = canonicalChildEnvironment('/repo', inherited, '/Users/example', '/opt/node/bin/node');
   assert.equal(JSON.stringify(inherited), snapshot);
-  assert.deepEqual(environment.PATH.split(':'), ['/Users/someone/.local/bin', '/repo/node_modules/.bin', '/opt/node/bin',
+  assert.deepEqual(environment.PATH.split(':'), ['/Users/example/.local/bin', '/repo/node_modules/.bin', '/opt/node/bin',
     '/opt/homebrew/bin', '/usr/bin', '/bin', '/usr/sbin', '/sbin', '/custom/bin']);
   for (const name of ['npm_config_cache', 'PENTACLE_GATE_QUIET_RECEIPT', 'PENTACLE_OWNED_GROUP_RECEIPT']) assert.equal(name in environment, false, name);
   assert.equal(environment.KEEP, '1');

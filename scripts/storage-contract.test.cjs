@@ -29,7 +29,7 @@ const EXPECTED_ENDPOINTS = Object.freeze({
 
 test('path-valued storage and gate environment authority is rejected', () => {
   const { rejectEnvironmentAuthority } = require('./storage-authority.cjs');
-  assert.equal(rejectEnvironmentAuthority({ PATH: '/usr/bin', HOME: '/Users/test' }), true);
+  assert.equal(rejectEnvironmentAuthority({ PATH: '/usr/bin', HOME: '/Users/example' }), true);
   for (const name of ['PENTACLE_STORAGE_STATE_ROOT', 'PENTACLE_STORAGE_REPORT_DIR', 'PENTACLE_GATE_ARTIFACT_DIR', 'PENTACLE_GATE_NATIVE_ROOT', 'PENTACLE_GATE_SIMULATOR_DEVICE_SET_ROOT']) {
     assert.throws(() => rejectEnvironmentAuthority({ [name]: '/tmp/escape' }), /FORBIDDEN_AUTHORITY/);
   }

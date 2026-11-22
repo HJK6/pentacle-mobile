@@ -12,7 +12,7 @@ jest.mock('@expo/vector-icons/FontAwesome', () => 'FontAwesome');
 beforeEach(() => {
   (globalThis as Record<string, unknown>).__PENTACLE_EXPO_CONFIG__ = {
     extra: {
-      wsUrl: 'ws://10.0.0.0:7791',
+      wsUrl: 'ws://192.0.2.11:7791',
       hosts: {
         hoste: { label: 'hoste', color: '#ffd60a', sigil: 'ibis' },
         hostc: { label: 'hostc', color: '#4da3ff', sigil: 'mage' },

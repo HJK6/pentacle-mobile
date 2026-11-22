@@ -27,7 +27,7 @@ Choose the endpoint before building:
 | App location | WebSocket endpoint |
 | --- | --- |
 | iOS simulator on the daemon's Mac | `ws://127.0.0.1:7791` |
-| Physical phone or another computer | The daemon host's reachable LAN/VPN address, for example `ws://192.168.1.20:7791` |
+| Physical phone or another computer | The daemon host's reachable LAN/VPN address, for example `ws://192.0.2.10:7791` |
 
 Replace the example with the actual address. A phone's `localhost` is the phone,
 not the Mac. For a phone, change the daemon's `--host` from loopback to its

@@ -3,13 +3,16 @@
 // MANUAL ONLY. This driver is dormant until a separate FD grant provisions its real account/domain.
 const fs=require('node:fs'),os=require('node:os'),path=require('node:path'),crypto=require('node:crypto'),cp=require('node:child_process');
 const authority=require('./storage-authority.cjs'),state=require('./storage-state.cjs');
-const USER='pmstoragerehearsal',HOME='/Users/pmstoragerehearsal',LABEL='com.pentacle.mobile.storage-janitor';
+const USER='pmstoragerehearsal',LABEL='com.pentacle.mobile.storage-janitor';
 const fail=code=>{throw new Error(`REHEARSAL_${code}`);},sha=b=>crypto.createHash('sha256').update(b).digest('hex');
 const exists=p=>fs.lstatSync(p,{throwIfNoEntry:false})!==undefined;
 function identityGuard(args,facts) {
   if(args.length!==2 || !/^[1-9][0-9]*$/.test(args[0]) || !/^[0-9a-f]{40}$/.test(args[1]))fail('ARGUMENTS');
   const uid=Number(args[0]);
-  if(!Number.isSafeInteger(uid)||[0,501].includes(uid)||facts.uid!==uid||facts.euid!==uid||facts.username!==USER||facts.home!==HOME||facts.userHome!==HOME||facts.environmentHome!==HOME)fail('REAL_ACCOUNT_REQUIRED');
+  const home=facts.userHome;
+  const exactHome=typeof home==='string' && !home.endsWith('/') && path.posix.normalize(home)===home
+    && path.posix.dirname(home)==='/Users' && path.posix.basename(home)===USER;
+  if(!Number.isSafeInteger(uid)||[0,501].includes(uid)||facts.uid!==uid||facts.euid!==uid||facts.username!==USER||!exactHome||facts.home!==home||facts.environmentHome!==home)fail('REAL_ACCOUNT_REQUIRED');
   if(facts.execArgv.length||facts.env.NODE_OPTIONS||facts.env.NODE_PATH||Object.keys(facts.env).some(k=>/^(RETIRE_TEST_|RESEAL_TEST_|PLANNING_)/.test(k)))fail('PRELOAD_FORBIDDEN');
   authority.rejectEnvironmentAuthority(facts.env);return {uid,sha:args[1]};
 }
@@ -29,7 +32,7 @@ function preflight(args) {
   const layout=authority.fixedLayout();
   const source=authority.assertPublicRoot(layout,__dirname);
   sourceGuard(id.sha,source.head,command('/usr/bin/git',['-C',source.repository,'rev-parse','refs/remotes/origin/main']).trim(),command('/usr/bin/git',['-C',source.repository,'ls-remote','--heads','origin','main']).trim());
-  const directories=[HOME,path.join(HOME,'Library'),layout.schedulerRoot,layout.repositories['pentacle-mobile'],layout.worktrees,layout.memory];
+  const directories=[layout.home,path.join(layout.home,'Library'),layout.schedulerRoot,layout.repositories['pentacle-mobile'],layout.worktrees,layout.memory];
   const identities=directories.map(p=>owned(p));
   if(identities.some(i=>i.device!==identities[0].device))fail('CROSS_DEVICE');
   if(fs.readdirSync(layout.worktrees).length||fs.readdirSync(layout.memory).length)fail('INITIAL_REFERENCE_NOT_EMPTY');
@@ -39,7 +42,7 @@ function preflight(args) {
   if(!fs.lstatSync(path.join(other,'.git')).isDirectory()||command('/usr/bin/git',['-C',other,'status','--porcelain=v1','--untracked-files=all'])||command('/usr/bin/git',['-C',other,'rev-parse','HEAD']).trim()!==id.sha||command('/usr/bin/git',['-C',other,'remote','get-url','origin']).trim()!=='https://github.com/HJK6/pentacle-mobile.git')fail('SEALED_SOURCE');
   if(exists(layout.support)||exists(layout.launchAgent)||!missingLabel(id.uid))fail('INITIAL_RESOURCES_EXIST');
   command('/bin/launchctl',['print',`gui/${id.uid}`]);
-  const space=fs.statfsSync(HOME,{bigint:true});if(space.bavail*space.bsize<60n*2n**30n)fail('CAPACITY');
+  const space=fs.statfsSync(layout.home,{bigint:true});if(space.bavail*space.bsize<60n*2n**30n)fail('CAPACITY');
   const executable=fs.realpathSync(process.execPath),interpreter=require('./storage-retire-generation.cjs').executableIdentity(executable);
   if(!process.version.startsWith('v22.'))fail('NODE22_REQUIRED');
   return {id,layout,source,identities,node:{...interpreter,path:executable,version:process.version}};
@@ -117,7 +120,7 @@ function detachOwned(c,created) {
   if(inventory().some(i=>i['image-path']===c.layout.stateImage||(i['system-entities']||[]).some(e=>e['mount-point']===c.layout.state)))fail('CLEANUP_FAIL:STILL_ATTACHED');
 }
 async function main(args) {
-  const c=preflight(args),root=path.join(HOME,'agent-workspace/agent-outputs');
+  const c=preflight(args),root=path.join(c.layout.home,'agent-workspace/agent-outputs');
   if(!exists(root))fs.mkdirSync(root,{mode:0o700});owned(root);c.output=path.join(root,'storage-transition-rehearsal');if(exists(c.output))fail('EVIDENCE_EXISTS');fs.mkdirSync(c.output,{mode:0o700});durable(path.join(c.output,'context.json'),c);
   let sequence=0,primary=null,archived=null,archiveManifest=null;const created=new Set();
   async function runCLI(script,args,tag) {

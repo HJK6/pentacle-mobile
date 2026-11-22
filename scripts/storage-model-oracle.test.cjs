@@ -233,7 +233,7 @@ test('sandbox admits only scratch/evidence writes and keeps state read-only', (t
   assert.ok(profile.includes(`(allow file-write* (subpath "${evidence}"))`));
   assert.ok(profile.includes(`(deny file-write* (subpath "${state}"))`));
   assert.equal(profile.includes(`(allow file-write* (subpath "${state}"))`), false);
-  for (const broad of ['/tmp', '/Users/operator', '/Library/Developer/CoreSimulator']) {
+  for (const broad of ['/tmp', '/Users/example', '/Library/Developer/CoreSimulator']) {
     assert.equal(profile.includes(`(allow file-write* (subpath "${broad}"))`), false);
   }
   assert.throws(() => renderProfile({ writeRoots: [scratch, scratch], readOnlyRoots: [state] }), /SANDBOX_ROOT_IDENTITY/);

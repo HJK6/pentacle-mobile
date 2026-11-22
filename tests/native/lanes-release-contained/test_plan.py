@@ -85,7 +85,7 @@ def test_memory_tree_has_missing_ambiguous_and_editable_items(tmp_path):
 
 
 def test_child_env_is_contained_and_audio_backend_off(tmp_path):
-    inherited = {"PATH": "/usr/bin", "LANG": "C.UTF-8", "HOME": "/home/someone", "MIC_API": "http://127.0.0.1:7780",
+    inherited = {"PATH": "/usr/bin", "LANG": "C.UTF-8", "HOME": "/home/example", "MIC_API": "http://127.0.0.1:7780",
                  "AGENT_ORCH_STREAM_ID": "x", "PENTACLE_ASSISTANT_COMPOSITE_ENABLED": "1", "AWS_PROFILE": "p",
                  "PENTACLE_MEMORY_ROOT": "/shared/memory", "EXPO_PUBLIC_PENTACLE_WS_URL": "ws://example"}
     env = sd.child_env(tmp_path / "scratch", inherited)
@@ -104,7 +104,7 @@ def test_child_env_is_contained_and_audio_backend_off(tmp_path):
     (lambda env: env.update(MIC_API="http://127.0.0.1:17894"), "MIC_API"),
     (lambda env: env.pop("PENTACLE_MEMORY_ROOT"), "PENTACLE_MEMORY_ROOT"),
     (lambda env: env.update(PENTACLE_MEMORY_ROOT="/elsewhere/memory"), "PENTACLE_MEMORY_ROOT"),
-    (lambda env: env.update(HOME="/home/someone"), "HOME"),
+    (lambda env: env.update(HOME="/home/example"), "HOME"),
     (lambda env: env.update(AGENT_ORCH_TOKEN="x"), "AGENT_ORCH_TOKEN"),
     (lambda env: env.update(PENTACLE_ASSISTANT_DIRECT_PRIMARY_STREAM_ID="x"), "PENTACLE_ASSISTANT_DIRECT"),
 ])

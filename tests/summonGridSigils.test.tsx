@@ -12,7 +12,7 @@ jest.mock('@expo/vector-icons/FontAwesome', () => 'FontAwesome');
 beforeEach(() => {
   (globalThis as Record<string, unknown>).__PENTACLE_EXPO_CONFIG__ = {
     extra: {
-      wsUrl: 'ws://10.0.0.0:7791',
+      wsUrl: 'ws://192.0.2.11:7791',
       hosts: {
         alpha: { label: 'hosta', color: '#ff7ab8', sigil: 'djinni' },
         hostc: { label: 'hostc', color: '#4da3ff', sigil: 'mage' },
@@ -86,7 +86,7 @@ test('Configure agent step shows the selected machine sigil accent, not the firs
 
 test('fifth ibis card keeps the shared card width and its own color', () => {
   (globalThis as Record<string, any>).__PENTACLE_EXPO_CONFIG__ = {
-    extra: { wsUrl: 'ws://10.0.0.0:7791', hosts: { hosta: { sigil: 'djinni' }, hostb: { sigil: 'sun' }, hostc: { sigil: 'mage' }, hostd: { sigil: 'flower' }, hoste: { sigil: 'ibis' } }, hostOrder: ["hosta", "hostb", "hostc", "hostd", "hoste"] },
+    extra: { wsUrl: 'ws://192.0.2.11:7791', hosts: { hosta: { sigil: 'djinni' }, hostb: { sigil: 'sun' }, hostc: { sigil: 'mage' }, hostd: { sigil: 'flower' }, hoste: { sigil: 'ibis' } }, hostOrder: ["hosta", "hostb", "hostc", "hostd", "hoste"] },
   };
   renderModal([
     { host: 'hosta', title: 'Host A', online: true },

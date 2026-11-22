@@ -171,7 +171,7 @@ test('simulator mutators accept only run ids and re-resolve the capped device se
 // by OPEN HANDLES under the exact device set path (lsof), escalates SIGTERM -> SIGKILL, and is
 // fail-closed. Clock/lsof/signal are injected so the state machine is exercised offline. lsof `-Fpn`
 // output is `p<pid>` records followed by `n<path>` records.
-const DRAIN_DEVICE_SET = '/Users/x/Library/PentacleMobileStorage/Scratch/home/Library/Developer/PentacleCoreSimulator/Devices';
+const DRAIN_DEVICE_SET = '/Users/example/Library/PentacleMobileStorage/Scratch/home/example/Developer/PentacleCoreSimulator/Devices';
 
 test('drainSimulatorHandles waits for open handles under the device set to disappear, then returns', () => {
   const { drainSimulatorHandles } = require('./storage-gate.cjs').bind(mutationCapability);
