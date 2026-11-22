@@ -203,6 +203,35 @@ plist digest must match. The janitor rechecks those bindings at an observe-dead
 journal write, and the updater rechecks them when accepting the immutable report
 and committing. Ordinary validation and `apply` remain installed-only.
 
+The scheduled plist pins the code identity of the interpreter it names. `renderPlist()` adds a
+`SpawnConstraint` (`{cdhash: {$in: [<20-byte CDHash>]}}`) for `process.execPath`; launchd then refuses to spawn
+the job from any other executable (`OS_REASON_CODESIGNING`), including for `launchctl kickstart`. The CDHash is the
+anchored `CDHash=` line of `codesign -dvvv --arch <native>`, re-proved with `codesign --verify --strict --arch
+<native> -R '=cdhash H"…"'`; an unsigned, ambiguous or unsupported executable refuses before any lock, transaction
+or State provisioning (`SCHEDULER_SPAWN_CONSTRAINT_UNAVAILABLE:*`). After bootstrap the updater requires the
+launchd readback to show exactly one `spawn constraint` block with one (redacted) cdhash element and `has spawn
+constraint`; a wrong-typed constraint loads as `partial import` without enforcement and is refused
+(`SCHEDULER_SPAWN_CONSTRAINT_UNVERIFIED`). `launchctl print` redacts the hash itself and `kickstart -k` exits 0 even
+when the spawn is denied, so the plist digest proves the bytes and the fresh transaction-bound smoke report proves
+that the scheduled entry point ran under the verified constraint. The plist digest is specific to the
+interpreter. After a Node upgrade, check the pinned keg path, its effective dylibs and the job’s last
+exit reason. Removing or changing a required file can break a later spawn. Health can lag a fault by
+two intervals (12 hours). An owner-approved update pins the chosen verified interpreter and provides
+a fresh smoke receipt. The wrapper reads the current checkout at each spawn. The behavior of a
+future login with a managed BTM constraint, including coexistence and precedence, remains unverified.
+
+For a parked-label update, handback requires normal updater exit zero and its complete committed
+stdout receipt matching the stored transaction, owned plist and one error-free smoke report. Verify
+the installed authority, current loaded job and absence of locks and temporary residue. A failure,
+interruption, ambiguous result or failed readback leaves the deployment with the owner. Preserve
+the files and command output, including when rollback restored the preimage or a transaction is
+already committed. A parked label remains out on a completed rollback. A `launchctl print` that
+fails with anything but the missing-service answer is an unknown state: the scheduler refuses to
+start, or leaves a rollback incomplete (record `rolling_back`, plist untouched) rather than recording
+`restored`. Schema-2 locks require owner disposition.
+The opt-in native proofs (`PENTACLE_LAUNCHD_PROOF=1 node --test scripts/storage-scheduler-spawn-constraint.test.cjs`)
+use disposable `com.pentacle.mobile.lwcrproof.*` labels only.
+
 An occupied legacy scheduler lock cannot grant this exception. New acquisition
 refuses an unavailable process epoch. Recovery of an interrupted version-2 lock
 refuses with `SCHEDULER_LOCK_RECOVERY_UNSUPPORTED`; stop and retain the transaction
