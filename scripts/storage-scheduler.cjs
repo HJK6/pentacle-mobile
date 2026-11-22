@@ -63,10 +63,52 @@ function acquireScheduler(authority, recover = false) {
 
 function xml(value) { return String(value).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;'); }
 
+const CODESIGN = '/usr/bin/codesign';
+const cdhashCache = new Map();
+
+// launchd enforces plist SpawnConstraint at every spawn (including `launchctl kickstart`), so the plist pins the code
+// identity of the exact executable it names. The CDHash is read from the signature and re-proved with codesign's own
+// requirement evaluator; anything ambiguous throws before any scheduler state is created.
+function executableCdhash(executable) {
+  const unavailable = (why) => new Error(`SCHEDULER_SPAWN_CONSTRAINT_UNAVAILABLE:${why}`);
+  if (typeof executable !== 'string' || !path.isAbsolute(executable)) throw unavailable('EXECUTABLE_PATH');
+  let stat;
+  try { stat = fs.statSync(executable); } catch { throw unavailable('EXECUTABLE_MISSING'); }
+  if (!stat.isFile()) throw unavailable('EXECUTABLE_MISSING');
+  const key = [executable, stat.dev, stat.ino, stat.mtimeMs, stat.size].join('\0');
+  if (cdhashCache.has(key)) return cdhashCache.get(key);
+  const arch = { arm64: 'arm64', x64: 'x86_64' }[process.arch];
+  if (!arch) throw unavailable('ARCH_UNSUPPORTED');
+  const shown = spawnSync(CODESIGN, ['-dvvv', '--arch', arch, executable], { encoding: 'utf8' });
+  if (shown.error || shown.status !== 0) throw unavailable('CODESIGN_DISPLAY');
+  const hashes = [...`${shown.stdout || ''}\n${shown.stderr || ''}`.matchAll(/^CDHash=([0-9a-f]{40})$/gm)].map((match) => match[1]);
+  if (hashes.length !== 1) throw unavailable('CDHASH_CARDINALITY');
+  const verified = spawnSync(CODESIGN, ['--verify', '--strict', '--arch', arch, '-R', `=cdhash H"${hashes[0]}"`, executable], { encoding: 'utf8' });
+  if (verified.error || verified.status !== 0) throw unavailable('CODESIGN_VERIFY');
+  if (cdhashCache.size > 8) cdhashCache.clear();
+  cdhashCache.set(key, hashes[0]);
+  return hashes[0];
+}
+
+function spawnConstraintXml(executable) {
+  return `<key>SpawnConstraint</key><dict><key>cdhash</key><dict><key>$in</key><array><data>${Buffer.from(executableCdhash(executable), 'hex').toString('base64')}</data></array></dict></dict>`;
+}
+
+// `launchctl print` redacts the data element, so the readback proves presence and exact shape (one cdhash entry);
+// the pinned value itself is proven by the plist digest and by the smoke run executing under the constraint.
+const SPAWN_CONSTRAINT_PRINT = ['\tspawn constraint = {', '\t\t"reqs" => {', '\t\t\t"cdhash" => {', '\t\t\t\t"$in" => [', '\t\t\t\t\t0 = \t\t\t\t]', '\t\t\t}', '\t\t}', '\t\t"vers" => 1', '\t\t"comp" => 1', '\t\t"ccat" => 0', '\t}'].join('\n');
+
+function assertSpawnConstraintLoaded(printed) {
+  const text = String(printed);
+  const occurrences = text.split('\tspawn constraint = {').length - 1;
+  if (occurrences !== 1 || !text.includes(`\n${SPAWN_CONSTRAINT_PRINT}\n`) || !/^\tproperties = .*\bhas spawn constraint\b/m.test(text)) throw new Error('SCHEDULER_SPAWN_CONSTRAINT_UNVERIFIED');
+}
+
 function renderPlist() {
   const root = path.resolve(__dirname, '..');
   const argv = [process.execPath, path.join(__dirname, 'storage-janitor-scheduled.cjs'), 'storage:janitor', 'dry-run'];
-  return `<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0"><dict><key>Label</key><string>${LABEL}</string><key>ProgramArguments</key><array>${argv.map((item) => `<string>${xml(item)}</string>`).join('')}</array><key>WorkingDirectory</key><string>${xml(root)}</string><key>StartInterval</key><integer>21600</integer><key>RunAtLoad</key><false/><key>StandardOutPath</key><string>/dev/null</string><key>StandardErrorPath</key><string>/dev/null</string><key>ProcessType</key><string>Background</string></dict></plist>\n`;
+  const constraint = spawnConstraintXml(process.execPath);
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0"><dict><key>Label</key><string>${LABEL}</string><key>ProgramArguments</key><array>${argv.map((item) => `<string>${xml(item)}</string>`).join('')}</array><key>WorkingDirectory</key><string>${xml(root)}</string><key>StartInterval</key><integer>21600</integer><key>RunAtLoad</key><false/><key>StandardOutPath</key><string>/dev/null</string><key>StandardErrorPath</key><string>/dev/null</string><key>ProcessType</key><string>Background</string>${constraint}</dict></plist>\n`;
 }
 
 function command(binary, args) {
@@ -173,9 +215,14 @@ function bootoutIfLoaded() {
   return true;
 }
 
+function assertLoadedConstraint(target) {
+  if (fs.readFileSync(target, 'utf8').includes('<key>SpawnConstraint</key>')) assertSpawnConstraintLoaded(command('/bin/launchctl', ['print', launchDomain()]));
+}
+
 function bootstrapAndVerify(target) {
   command('/bin/launchctl', ['bootstrap', `gui/${process.getuid()}`, target]);
   if (!loaded()) throw new Error('SCHEDULER_BOOTSTRAP_UNVERIFIED');
+  assertLoadedConstraint(target);
 }
 
 function restoreBaseline() {
@@ -199,6 +246,9 @@ function installOrUpdate(action) {
   if (action === 'install' && (fs.existsSync(fixedLayout().launchAgent) || spawnSync('/bin/launchctl', ['print', `gui/${process.getuid()}/${LABEL}`]).status === 0)) throw new Error('SCHEDULER_EXISTING_LABEL_OR_PLIST');
   assertToolchainSafeLayout();
   assertPublicRoot();
+  // Render (and prove the executable's code identity) once, before any lock, record or authority change: an unsigned or
+  // ambiguous executable must refuse cleanly, and the digest recorded is exactly the bytes written.
+  const candidatePlist = renderPlist();
   let authority;
   if (action === 'install') {
     if (fs.existsSync(path.join(fixedLayout().state, 'authority.json'))) {
@@ -225,13 +275,13 @@ function installOrUpdate(action) {
     if (require('./storage-state.cjs').listRecords('scheduler').some((entry) => !['committed', 'restored'].includes(entry.state))) throw new Error('SCHEDULER_TRANSACTION_INCOMPLETE');
     const id = generatedId();
     let transaction = createRecord('scheduler', { schema: 1, id, revision: 0, state: 'absent', action, generation: authority.generation, prior_owned: plistOwned(target, committedDigest), prior_content: priorText, prior_loaded: priorLoaded, created_at: new Date().toISOString() });
-    transaction = schedulerTransition(transaction, 'prepared', { candidate_digest: crypto.createHash('sha256').update(renderPlist()).digest('hex') });
+    transaction = schedulerTransition(transaction, 'prepared', { candidate_digest: crypto.createHash('sha256').update(candidatePlist).digest('hex') });
     release.bindTransaction(transaction.id);
     const binding = action === 'update' ? release.binding(transaction) : null;
     if (action === 'update') authority = stateMutations.transitionInstalledAuthority('installed', 'updating');
     try {
       if (action === 'update' && priorLoaded) bootoutIfLoaded();
-      atomicText(target, renderPlist());
+      atomicText(target, candidatePlist);
       transaction = schedulerTransition(transaction, 'candidate_installed');
       bootstrapAndVerify(target);
       const smoke = smokeReport(transaction, binding);
@@ -292,6 +342,7 @@ function recoverCommitted() {
     if (transaction.state === 'absent') transaction = schedulerTransition(transaction, 'prepared', { recovered_at: new Date().toISOString() });
     if (['candidate_installed', 'smoke_verified'].includes(transaction.state) && plistOwned(target, transaction.candidate_digest)) {
       if (!loaded()) throw new Error('SCHEDULER_CANDIDATE_NOT_LOADED');
+      assertLoadedConstraint(target);
       if (transaction.state === 'candidate_installed') {
         const smoke = smokeReport(transaction);
         transaction = schedulerTransition(transaction, 'smoke_verified', { smoke_report_id: smoke.report_id, smoke_report_digest: crypto.createHash('sha256').update(JSON.stringify(smoke)).digest('hex') });

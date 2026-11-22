@@ -398,6 +398,52 @@ test('wrapper closes the stdout log when the stderr log cannot be opened', async
 });
 
 
+// Recovery start state of the SpawnConstraint restoration: the label is booted out (absent), the plist on disk is the
+// latest committed digest and the authority is installed. The shipped update must write the constrained plist,
+// bootstrap, read the constraint back, smoke-run under it and commit, without any bootout.
+transactional('update from a booted-out label installs the constrained plist, bootstraps, smokes and commits', 'real-parked', (result) => {
+  const evidence = ok(result);
+  assert.equal(evidence.update.status, 0, JSON.stringify(evidence));
+  assert.equal(evidence.transaction.state, 'committed');
+  assert.equal(evidence.transaction.prior_loaded, false);
+  assert.equal(evidence.transaction.prior_content, evidence.priorModel.content);
+  assert.equal(evidence.plistHasSpawnConstraint, true);
+  assert.equal(evidence.plistDigestMatchesRecord, true);
+  assert.equal(evidence.plistRestored, false);
+  assert.equal(evidence.authority.state, 'installed');
+  assert.equal(evidence.sealsUnchanged, true);
+  assert.deepEqual(evidence.launchctlActions.filter((action) => action !== 'print'), ['bootstrap', 'kickstart']);
+  assert.equal(evidence.priorLoadedAgain, true, 'label loaded with the candidate after commit');
+  assert.equal(evidence.wrapper.status, 0);
+  assert.equal(evidence.reports.length, 1);
+  assert.deepEqual(evidence.reports[0].errors, []);
+});
+
+transactional('a constraint the launchd readback cannot show rolls back to the prior plist and leaves the label out', 'real-parked-bare-print', (result) => {
+  const evidence = ok(result);
+  assert.notEqual(evidence.update.status, 0);
+  assert.match(evidence.update.stderr, /SCHEDULER_SPAWN_CONSTRAINT_UNVERIFIED/);
+  assert.equal(evidence.plistRestored, true, 'prior plist restored byte for byte');
+  assert.equal(evidence.priorLoadedAgain, false, 'the label stays out');
+  assert.equal(evidence.transaction.state, 'restored');
+  assert.equal(evidence.authority.state, 'installed');
+  assert.equal(evidence.sealsUnchanged, true);
+  assert.deepEqual(evidence.launchctlActions.filter((action) => action !== 'print'), ['bootstrap', 'bootout']);
+  assert.equal(evidence.observations.length, 0, 'the janitor never ran without a verified constraint');
+});
+
+transactional('an executable whose code identity cannot be proven refuses before any lock, record or launchctl action', 'real-parked-codesign-fail', (result) => {
+  const evidence = ok(result);
+  assert.notEqual(evidence.update.status, 0);
+  assert.match(evidence.update.stderr, /SCHEDULER_SPAWN_CONSTRAINT_UNAVAILABLE:CODESIGN_DISPLAY/);
+  assert.equal(evidence.plistRestored, true);
+  assert.equal(evidence.transaction, undefined);
+  assert.equal(evidence.authority.state, 'installed');
+  assert.deepEqual(evidence.locks, []);
+  assert.deepEqual(evidence.launchctlActions, [], 'no launchctl call of any kind');
+  assert.equal(evidence.priorLoadedAgain, false);
+});
+
 transactional('actual update CLI to rendered wrapper to real janitor succeeds', 'real-update', (result) => {
   const evidence = ok(result);
   assert.equal(evidence.observations.length, 1, 'actual janitor child started');

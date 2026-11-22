@@ -33,6 +33,7 @@ process.kill = (pid, signal) => {
   throw Object.assign(new Error('dead'),{code:'ESRCH'});
 };
 const exec = cp.execFileSync, spawnSync = cp.spawnSync, spawn = cp.spawn;
+const { SPAWN_CONSTRAINT_BLOCK } = require('./storage-launchctl-print-fixture.cjs');
 function jsonPlist(bytes) {
   const s = String(bytes); if (/^[\[{]/.test(s)) return JSON.parse(s);
   const unxml = s => s.replaceAll('&amp;','&').replaceAll('&lt;','<').replaceAll('&gt;','>');
@@ -62,6 +63,7 @@ cp.spawn = (binary,args,options) => {
 cp.spawnSync = (binary,args,options={}) => {
   log(binary,args); const c=load(), ok=stdout=>({status:0,signal:null,stdout:stdout||'',stderr:''});
   if (binary==='/usr/bin/plutil' && JSON.stringify(args)===JSON.stringify(['-convert','json','-o','-','--','-'])) return ok(JSON.stringify(jsonPlist(options.input)));
+  if (binary==='/usr/bin/plutil' && args[0]==='-extract' && JSON.stringify(args.slice(3))===JSON.stringify(['-o','-','--','-'])) { const value=jsonPlist(options.input)[args[1]]; return ok(args[2]==='raw'?`${value}\n`:JSON.stringify(value)); }
   if (binary==='/usr/bin/hdiutil') {
     if (args[0]==='info' && args[1]==='-plist') return ok(JSON.stringify({images:[...(c.inventoryExtra||[]),...c.mounts.map(m=>({'image-path':m.image,writeable:!m.ro,'image-type':'sparse bundle disk image','system-entities':[{'mount-point':m.mount,'dev-entry':'/dev/disk99s1'}]}))]}));
     if (args[0]==='create' && args.at(-1)===image && args.includes('64m')) { fs.mkdirSync(image,{mode:0o700}); fs.mkdirSync(path.join(image,'.volume'),{mode:0o700}); fs.writeFileSync(path.join(image,'fixture-image'),'64MiB'); return ok(); }
@@ -82,13 +84,14 @@ cp.spawnSync = (binary,args,options={}) => {
     const m=c.mounts.find(m=>m.mount===args[2]);if(!m)throw new Error('FIXTURE_DISK_DENIED');
     return ok(JSON.stringify({MountPoint:m.mount,DeviceNode:c.wrongDevice?'/dev/disk98s1':'/dev/disk99s1',Writable:c.writable?true:!m.ro,WritableVolume:c.writableVolume?true:!m.ro,FilesystemType:'apfs'}));
   }
+  if(binary==='/usr/bin/codesign') return spawnSync(binary,args,options);
   if(binary==='/bin/launchctl') {
     const domain=`gui/${process.getuid()}/com.pentacle.mobile.storage-janitor`;
     if(args[0]==='print' && args[1]===domain) {
       if(c.labelError)return {status:5,stdout:'',stderr:'unreadable'};
       if(!c.loaded)return {status:113,stdout:'',stderr:`Could not find service "com.pentacle.mobile.storage-janitor" in domain for user gui: ${process.getuid()}`};
       const p=jsonPlist(fs.readFileSync(path.join(home,'Library/LaunchAgents/com.pentacle.mobile.storage-janitor.plist')));
-      return ok(`${domain} = {\n\tpath = ${path.join(home,'Library/LaunchAgents/com.pentacle.mobile.storage-janitor.plist')}\n\tstate = ${c.running?'running':'not running'}\n${c.running?'\tpid = 88888\n':''}${c.duplicateState?'\tstate = not running\n':''}\targuments = {\n${(c.foreignArgv?[...p.ProgramArguments.slice(0,3),'apply']:p.ProgramArguments).join('\n')}\n\t}\n\tworking directory = ${p.WorkingDirectory}\n\tresource coalition = {\n\t\tstate = active\n\t}\n\tjetsam coalition = {\n\t\tstate = active\n\t}\n\tLWCR = {\n\t\t"reqs" => {\n\t\t\t"cdhash" => {\n\t\t\t\t"$in" => [\n\t\t\t\t\tfixture\n\t\t\t\t]\n\t\t\t}\n\t\t}\n\t}\n}\n`);
+      return ok(`${domain} = {\n\tpath = ${path.join(home,'Library/LaunchAgents/com.pentacle.mobile.storage-janitor.plist')}\n\tstate = ${c.running?'running':'not running'}\n${c.running?'\tpid = 88888\n':''}${c.duplicateState?'\tstate = not running\n':''}\targuments = {\n${(c.foreignArgv?[...p.ProgramArguments.slice(0,3),'apply']:p.ProgramArguments).join('\n')}\n\t}\n\tworking directory = ${p.WorkingDirectory}\n\tresource coalition = {\n\t\tstate = active\n\t}\n\tjetsam coalition = {\n\t\tstate = active\n\t}\n\tLWCR = {\n\t\t"reqs" => {\n\t\t\t"cdhash" => {\n\t\t\t\t"$in" => [\n\t\t\t\t\tfixture\n\t\t\t\t]\n\t\t\t}\n\t\t}\n\t}\n${fs.readFileSync(path.join(home,'Library/LaunchAgents/com.pentacle.mobile.storage-janitor.plist'),'utf8').includes('<key>SpawnConstraint</key>')?`${SPAWN_CONSTRAINT_BLOCK}\n\tproperties = inferred program | has spawn constraint\n`:''}}\n`);
     }
     if(args[0]==='bootstrap' && args[1]===`gui/${process.getuid()}` && args[2]===path.join(home,'Library/LaunchAgents/com.pentacle.mobile.storage-janitor.plist') && !c.loaded){c.loaded=true;save(c);return ok();}
     if(args[0]==='bootout' && args[1]===domain && c.loaded){crash('before-bootout');c.loaded=false;save(c);crash('after-bootout');return ok();}

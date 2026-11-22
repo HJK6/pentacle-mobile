@@ -100,7 +100,8 @@ function verifyInstalled(c,install,tag) {
   const rows=install.observations.rows,wrappers=rows.filter(r=>r.kind==='wrapper'&&r.service_pid===r.pid);
   if(!wrappers.some(w=>rows.some(r=>r.kind==='janitor'&&r.ppid===w.pid&&r.epoch&&Date.parse(r.at)>=install.started&&Date.parse(r.at)<=install.ended)))fail('HARNESS_ERROR:PRODUCER_CHAIN_MISSED');
   const expected=[process.execPath,path.join(c.source.repository,'scripts/storage-janitor-scheduled.cjs'),'storage:janitor','dry-run'];
-  const parsed=JSON.parse(command('/usr/bin/plutil',['-convert','json','-o','-','--','-'],fs.readFileSync(c.layout.launchAgent)));
+  const plistBytes=fs.readFileSync(c.layout.launchAgent),field=(key,format)=>command('/usr/bin/plutil',['-extract',key,format,'-o','-','--','-'],plistBytes);
+  const parsed={Label:field('Label','raw').replace(/\n$/,''),WorkingDirectory:field('WorkingDirectory','raw').replace(/\n$/,''),ProgramArguments:JSON.parse(field('ProgramArguments','json'))};
   if(parsed.Label!==LABEL||parsed.WorkingDirectory!==c.source.repository||JSON.stringify(parsed.ProgramArguments)!==JSON.stringify(expected))fail('LOADED_PLIST');
   require('./storage-retire-generation.cjs').hostPlatform(c.layout).launchd({argv:expected,working_directory:c.source.repository});
   const stdout=fs.readFileSync(path.join(c.layout.state,'logs/janitor.stdout.log'),'utf8'),stderr=fs.readFileSync(path.join(c.layout.state,'logs/janitor.stderr.log'),'utf8');
