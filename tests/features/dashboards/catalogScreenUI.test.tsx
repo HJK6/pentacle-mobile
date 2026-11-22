@@ -1,5 +1,6 @@
 import React from 'react';
-import { Linking } from 'react-native';
+import { Linking, Platform } from 'react-native';
+import { router } from 'expo-router';
 import { teeTelemetrySink, type TelemetryPayload } from 'pentacle-chat-core';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -260,8 +261,33 @@ const hostedBoards: Catalog['boards'] = [
 ];
 
 const mockupsBoard = { id: 'ui-review', name: 'Mockups', kind: 'built-in' as const, visible: true };
+test('iOS opens the built-in Design entry at Home without a browser hand-off', async () => {
+  const platform = jest.replaceProperty(Platform, 'OS', 'ios');
+  const open = jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined);
+  const push = jest.mocked(router.push);
+  push.mockClear();
+  currentCatalog = { ...catalog(), boards: [mockupsBoard, ...hostedBoards] };
+  try {
+    render(<DashboardsScreen />);
+    const design = await screen.findByTestId('dashboard-selector-ui-review');
+    expect(design).toHaveTextContent('Design');
+    expect(push).not.toHaveBeenCalled();
+    fireEvent.press(design);
+    expect(push).toHaveBeenCalledWith({
+      pathname: '/pentacle/dashboard/[dashboardId]',
+      params: { dashboardId: 'design' },
+    });
+    expect(open).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('dashboard-hosted-open')).toBeNull();
+  } finally {
+    platform.restore();
+    open.mockRestore();
+  }
+});
+
 const mockupsUrl = 'https://chat.example.ts.net/designs/';
-test('Mockups opens the exact gallery with no credentials, retries browser failure and stays selected on return', async () => {
+test('legacy Mockups opens the exact gallery, retries browser failure and stays selected on return', async () => {
+  const platform = jest.replaceProperty(Platform, 'OS', 'web');
   mockPolicy = hostedPolicy;
   currentCatalog = { ...catalog(), boards: [...hostedBoards, mockupsBoard] };
   const open = jest.spyOn(Linking, 'openURL').mockRejectedValueOnce(new Error('synthetic browser refusal')).mockResolvedValue(undefined);
@@ -281,10 +307,11 @@ test('Mockups opens the exact gallery with no credentials, retries browser failu
     await waitFor(() => expect(catalogLists()).toHaveLength(2));
     expect(screen.getByTestId('dashboard-selector-ui-review').props.accessibilityState.selected).toBe(true);
     expect(open).toHaveBeenCalledTimes(2);
-  } finally { open.mockRestore(); }
+  } finally { platform.restore(); open.mockRestore(); }
 });
 
-test('built-in Mockups derives the URL again from the current policy on retry', async () => {
+test('legacy Mockups derives the URL again from the current policy on retry', async () => {
+  const platform = jest.replaceProperty(Platform, 'OS', 'web');
   mockPolicy = { ...hostedPolicy, pentacleOrigin: 'https://chat.example.ts.net:8443/' };
   currentCatalog = { ...catalog(), boards: [mockupsBoard] };
   const open = jest.spyOn(Linking, 'openURL').mockRejectedValueOnce(new Error('synthetic browser refusal')).mockResolvedValue(undefined);
@@ -297,7 +324,7 @@ test('built-in Mockups derives the URL again from the current policy on retry', 
     fireEvent.press(screen.getByTestId('dashboard-hosted-open'));
     await waitFor(() => expect(open).toHaveBeenLastCalledWith('https://new-chat.example.ts.net/designs/'));
     expect(open.mock.calls.every(args => args.length === 1)).toBe(true);
-  } finally { open.mockRestore(); }
+  } finally { platform.restore(); open.mockRestore(); }
 });
 
 test.each([
@@ -306,7 +333,8 @@ test.each([
   { ...hostedPolicy, pentacleOrigin: 'https://chat.example.ts.net/?token=synthetic' },
   { ...hostedPolicy, pentacleOrigin: 'https://user:pass@chat.example.ts.net' },
   { ...hostedPolicy, pentacleOrigin: 'https://chat.example.ts.net/other/../' },
-])('built-in Mockups refuses unavailable or malformed live policy at selection and retry: %j', async policy => {
+])('legacy Mockups refuses unavailable or malformed live policy at selection and retry: %j', async policy => {
+  const platform = jest.replaceProperty(Platform, 'OS', 'web');
   mockPolicy = policy;
   currentCatalog = { ...catalog(), boards: [mockupsBoard] };
   const open = jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined);
@@ -319,7 +347,7 @@ test.each([
     mockPolicy = hostedPolicy;
     fireEvent.press(screen.getByTestId('dashboard-hosted-open'));
     await waitFor(() => expect(open).toHaveBeenCalledWith(mockupsUrl));
-  } finally { open.mockRestore(); }
+  } finally { platform.restore(); open.mockRestore(); }
 });
 
 test('other unknown built-ins remain unavailable and never open the browser', async () => {

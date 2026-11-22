@@ -69,7 +69,7 @@ const dnsHost = /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-
 function staticHostedUrl(value: unknown): value is string {
   return plainHttpUrl(value) && (value as string).startsWith('https://') && !/[\\?#]/.test(value as string) && dnsHost.test(new URL(value as string).hostname);
 }
-export function validateHostedDashboardUrl(value: unknown, input: unknown): string {
+export function hostedDashboardOrigin(input: unknown): URL {
   const policy = input as HostedDashboardPolicy | null;
   if (!policy || typeof policy.tailnetSuffix !== 'string' || !dnsHost.test(policy.tailnetSuffix) || !policy.tailnetSuffix.toLowerCase().endsWith('.ts.net') || !staticHostedUrl(policy.pentacleOrigin)) {
     throw new Error('Hosted dashboard configuration unavailable');
@@ -78,12 +78,18 @@ export function validateHostedDashboardUrl(value: unknown, input: unknown): stri
   if (!/^https:\/\/[^/]+\/?$/.test(policy.pentacleOrigin) || !dnsHost.test(origin.hostname) || origin.pathname !== '/' || !origin.hostname.toLowerCase().endsWith(`.${policy.tailnetSuffix.toLowerCase()}`)) {
     throw new Error('Hosted dashboard configuration unavailable');
   }
+  return origin;
+}
+
+export function validateHostedDashboardUrl(value: unknown, input: unknown): string {
+  const origin = hostedDashboardOrigin(input);
+  const { tailnetSuffix } = input as HostedDashboardPolicy;
   if (!staticHostedUrl(value)) throw new Error('Dashboard URL must be credential-free HTTPS without query or fragment');
   const url = new URL(value);
   // Check the raw path as well: URL parsing normalizes dot segments and aliases.
   // The gallery is the only route allowed on the configured Pentacle origin.
   if (url.origin === origin.origin && url.pathname === '/designs/' && value.slice(value.indexOf('/', 'https://'.length)) === '/designs/') return value;
-  if (!dnsHost.test(url.hostname) || !url.hostname.toLowerCase().endsWith(`.${policy.tailnetSuffix.toLowerCase()}`) || url.hostname.toLowerCase() === origin.hostname.toLowerCase()) {
+  if (!dnsHost.test(url.hostname) || !url.hostname.toLowerCase().endsWith(`.${tailnetSuffix.toLowerCase()}`) || url.hostname.toLowerCase() === origin.hostname.toLowerCase()) {
     throw new Error('Dashboard URL is outside the permitted hosted origin policy');
   }
   return value;

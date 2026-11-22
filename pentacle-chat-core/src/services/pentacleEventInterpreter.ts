@@ -1,6 +1,7 @@
 import type { PentacleEvent, PentacleMessageEnvelope } from '../types/pentacle';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { bytesToHex, utf8ToBytes } from '@noble/hashes/utils.js';
+import { parseDashboardLinkEvent } from './dashboardLinks';
 
 /** Client policy authority for daemon-authenticated message-envelope tags. */
 export const PENTACLE_MESSAGE_ENVELOPE_RENDER_POLICIES = {
@@ -799,6 +800,10 @@ export function isTerminalFurnitureText(text: string, kind = '') {
   return false;
 }
 
+export function assistantDashboardLink(event: PentacleEvent) {
+  return event.kind === 'ASSIST' || event.kind === 'ASSIST_TEXT' ? parseDashboardLinkEvent(event) : null;
+}
+
 export function isTransientTranscriptNoise(text: string) {
   const normalized = normalizedEventText(text);
   if (!normalized) return true;
@@ -964,14 +969,11 @@ export function interpretPentacleEvent(
     return interpreted(event, pending ? 'queued-draft' : 'draft', 'draft:composer', 'assistant', 'Draft', text, true, 'Draft state is rendered outside committed transcript rows.');
   }
 
-  // An agent-authored image rides as an ASSIST event carrying attachments (the
-  // `send_image` daemon path). Render it as the agent's own image bubble and
-  // never let the empty-caption furniture/noise heuristics below suppress it —
-  // the mirror of the operator USER-attachment exemption on the next guard.
-  if ((kind === 'ASSIST' || kind === 'ASSIST_TEXT') && event.attachments?.length) {
+  // Attachments and typed dashboard links can form an assistant row on their own.
+  if ((kind === 'ASSIST' || kind === 'ASSIST_TEXT') && (event.attachments?.length || assistantDashboardLink(event))) {
     const provider = String(event.provider || '').toLowerCase();
     const assistCase = classifyAssistantText(normalized, { provider });
-    return interpreted(event, assistCase, 'bubble:assistant', 'assistant', assistantLabel, collapsedText, false, 'Agent-authored attachment.');
+    return interpreted(event, assistCase, 'bubble:assistant', 'assistant', assistantLabel, collapsedText, false, 'Agent-authored attachment or dashboard link.');
   }
 
   // A voice message sent by the server has no text until the daemon echoes it; the operator's

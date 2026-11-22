@@ -79,6 +79,7 @@
     "react-native-screens": "~4.16.0",
     "react-native-svg": "15.12.1",
     "react-native-web": "~0.21.0",
+    "react-native-webview": "13.15.0",
     "expo-file-system": "~19.0.16",
     "expo-asset": "~11.1.7",
     "base64-js": "^1.5.1",

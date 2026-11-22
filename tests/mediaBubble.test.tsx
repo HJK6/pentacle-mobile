@@ -7,7 +7,16 @@
 import React from 'react';
 import { fireEvent, render, screen, within } from '@testing-library/react-native';
 import { ActivityIndicator } from 'react-native';
-import type { PentacleTranscriptItem } from 'pentacle-chat-core';
+import {
+  applyFetchedStreamEvents,
+  applyPentacleEvent,
+  applyPentacleSnapshotMessage,
+  initialPentacleStreamState,
+  selectSessionDetail,
+  type PentacleEvent,
+  type PentacleSessionSummary,
+  type PentacleTranscriptItem,
+} from 'pentacle-chat-core';
 import { TranscriptRow } from '../app/pentacle/session/[streamId]';
 import { ImageViewerModal } from '../src/components/ImageViewerModal';
 import type { RenderAttachment } from '../src/types/renderAttachment';
@@ -157,6 +166,89 @@ test('an assistant image row renders the existing MediaBubble and opens the exis
   fireEvent.press(screen.getByTestId('assistant-message-image-0'));
   expect(onPressAttachment).toHaveBeenCalledWith('file:///tmp/a.jpg', 0);
 });
+
+const designTarget = { project_id: 'delivery', design_id: 'delivery-board', view_id: 'prototype' };
+
+function projectedDesignRow(
+  dashboardLink: unknown,
+  text: string,
+  attachments?: PentacleEvent['attachments'],
+  ingress: 'live' | 'history' | 'snapshot' = 'live',
+) {
+  const stream = 'fixture:design-chat';
+  const time = '2026-11-21T00:00:00.000Z';
+  const session: PentacleSessionSummary = {
+    stream_id: stream, host: 'fixture', provider: 'codex', session_name: 'design-chat',
+    last_event_at: time, last_text: '', last_kind: '', draft: '', pending: false, working: false, online: true,
+  };
+  const event: PentacleEvent = {
+    stream_id: stream, session_id: stream, host: 'fixture', provider: 'codex', session_name: 'design-chat',
+    timestamp: time, daemon_seq: 7, kind: 'ASSIST', text, raw: { dashboard_link: dashboardLink }, attachments,
+  };
+  const initial = { ...initialPentacleStreamState, connected: true, sessions: [session] };
+  const state = ingress === 'snapshot' ? applyPentacleSnapshotMessage(initial, { events: [event], sessions: [session] })
+    : ingress === 'history' ? applyFetchedStreamEvents(initial, [event], 500, stream)
+    : applyPentacleEvent(initial, event);
+  const item = selectSessionDetail(state, stream, { visibleCount: 'all' })?.transcriptItems[0];
+  if (!item) throw new Error('Expected a durable assistant row');
+  return item;
+}
+
+test('a typed assistant preview retains the caption and opens the exact target, including after an image error', () => {
+  const item = projectedDesignRow(
+    { dashboard: 'design', target: designTarget, title: 'Fixture prototype', subtitle: 'Delivery board' },
+    'Synthetic caption',
+    [{ key: 'a'.repeat(64), mime: 'image/png' }],
+  );
+  const open = jest.fn();
+  const onAttachmentError = jest.fn();
+  const viewImage = jest.fn();
+  render(<TranscriptRow item={item} chrome={chrome} attachments={twoThumbs}
+    onOpenDesign={open} onAttachmentError={onAttachmentError} onPressAttachment={viewImage} />);
+  expect(screen.getByTestId('design-link-image').props.source).toEqual({ uri: twoThumbs[0].uri });
+  expect(screen.getByText('Synthetic caption')).toBeTruthy();
+  expect(screen.getByText('Design · Delivery board')).toBeTruthy();
+  fireEvent.press(screen.getByTestId('design-link-preview'));
+  expect(open).toHaveBeenLastCalledWith(designTarget);
+  fireEvent(screen.getByTestId('design-link-image'), 'error');
+  expect(onAttachmentError).toHaveBeenCalledTimes(1);
+  expect(screen.queryByTestId('design-link-image')).toBeNull();
+  fireEvent.press(screen.getByTestId('design-link-preview'));
+  expect(open).toHaveBeenCalledTimes(2);
+  fireEvent.press(screen.getByTestId('assistant-message-image-1'));
+  expect(viewImage).toHaveBeenCalledWith(twoThumbs[1].uri, 1);
+});
+
+test.each(['live', 'history', 'snapshot'] as const)('a captionless target and Home chip remain actionable on %s', ingress => {
+  const open = jest.fn();
+  const exact = projectedDesignRow({ dashboard: 'design', target: designTarget }, '', undefined, ingress);
+  const chip = projectedDesignRow({ dashboard: 'design' }, '', undefined, ingress);
+  const { rerender } = render(<TranscriptRow item={exact} chrome={chrome} onOpenDesign={open} />);
+  expect(screen.queryByTestId('design-link-image')).toBeNull();
+  expect(screen.getByText('Design · delivery-board')).toBeTruthy();
+  fireEvent.press(screen.getByTestId('design-link-preview'));
+  expect(open).toHaveBeenLastCalledWith(designTarget);
+  rerender(<TranscriptRow item={chip} chrome={chrome} onOpenDesign={open} />);
+  fireEvent.press(screen.getByTestId('design-link-chip'));
+  expect(open).toHaveBeenLastCalledWith(undefined);
+});
+
+test.each([{ dashboard: 'design', target: null }, { dashboard: 'unknown' }])(
+  'a malformed or unknown link preserves the original caption and attachment',
+  link => {
+    const open = jest.fn();
+    const viewImage = jest.fn();
+    const item = projectedDesignRow(link, 'Ordinary caption', [{ key: 'b'.repeat(64), mime: 'image/png' }]);
+    render(<TranscriptRow item={item} chrome={chrome} attachments={[twoThumbs[0]]}
+      onOpenDesign={open} onPressAttachment={viewImage} />);
+    expect(screen.queryByTestId('design-link-preview')).toBeNull();
+    expect(screen.queryByTestId('design-link-chip')).toBeNull();
+    expect(screen.getByText('Ordinary caption')).toBeTruthy();
+    fireEvent.press(screen.getByTestId('assistant-message-image-0'));
+    expect(open).not.toHaveBeenCalled();
+    expect(viewImage).toHaveBeenCalledWith(twoThumbs[0].uri, 0);
+  },
+);
 
 test('ImageViewerModal shows the tapped image and closes', () => {
   const onClose = jest.fn();

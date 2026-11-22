@@ -16,7 +16,9 @@ import { logTelemetry } from '../utils/telemetry';
 import { TELEMETRY_EVENTS } from '../utils/telemetryEvents';
 import { normalizePentacleHost } from './pentacleHosts';
 import { parseLaneUpdateEvent } from './workLanes';
+import type { DashboardLink } from './dashboardLinks';
 import {
+  assistantDashboardLink,
   coalesceInterpretedEvents,
   collapseCodeBlocks,
   findCoalescibleTerminalDividerIndex,
@@ -155,6 +157,7 @@ export type PentacleTranscriptItem = {
   // Typed work-lane update carried by a `publish_kind: 'lane_update'` composite event;
   // clients that do not branch on it render `text` as ordinary assistant prose.
   laneUpdate?: WorkLaneUpdate;
+  dashboardLink?: DashboardLink;
   // Present on `agent-question-answer` rows: the durable notification this row echoes, so a
   // client holding the same answer as a resolved-notification projection can render one of them
   // rather than both.
@@ -718,6 +721,13 @@ function sameTranscriptItem(a: PentacleTranscriptItem, b: PentacleTranscriptItem
     a.publishKind === b.publishKind &&
     a.laneUpdate?.update_id === b.laneUpdate?.update_id &&
     a.laneUpdate?.summary === b.laneUpdate?.summary &&
+    a.dashboardLink?.dashboard === b.dashboardLink?.dashboard &&
+    a.dashboardLink?.target?.project_id === b.dashboardLink?.target?.project_id &&
+    a.dashboardLink?.target?.design_id === b.dashboardLink?.target?.design_id &&
+    a.dashboardLink?.target?.view_id === b.dashboardLink?.target?.view_id &&
+    a.dashboardLink?.title === b.dashboardLink?.title &&
+    a.dashboardLink?.subtitle === b.dashboardLink?.subtitle &&
+    a.dashboardLink?.revision_id === b.dashboardLink?.revision_id &&
     a.eventCase === b.eventCase &&
     a.displayRule === b.displayRule &&
     a.notificationId === b.notificationId &&
@@ -1746,6 +1756,7 @@ function buildSessionTranscriptRows(
 
     const authoritativeSeq = authoritativeEventSeq(event);
     const laneUpdate = parseLaneUpdateEvent(event);
+    const dashboardLink = item.displayRule === 'bubble:assistant' ? assistantDashboardLink(event) : null;
     if (laneUpdate) {
       // A re-published update keeps its message id across daemon sequences; the
       // timeline shows each typed update once.
@@ -1782,6 +1793,7 @@ function buildSessionTranscriptRows(
       ...(event.lane_id ? { laneId: event.lane_id } : {}),
       ...(event.publish_kind ? { publishKind: event.publish_kind } : {}),
       ...(laneUpdate ? { laneUpdate } : {}),
+      ...(dashboardLink ? { dashboardLink } : {}),
       ...(item.notificationId ? { notificationId: item.notificationId } : {}),
     };
     if (event.attachments && event.attachments.length > 0) {

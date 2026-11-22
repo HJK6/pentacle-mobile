@@ -1,7 +1,8 @@
 import HeaderVoiceMic from '../../src/components/voice/HeaderVoiceMic';
 import { useVoiceSurface } from '../../src/services/voicePresentation';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Linking, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Linking, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { router } from 'expo-router';
 import { useIsFocused } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { logTelemetry } from 'pentacle-chat-core';
@@ -13,10 +14,15 @@ import { mergeCatalogBoards, type DashboardId } from '../../src/features/dashboa
 import { useDashboardHub } from '../../src/features/dashboards/useDashboardHub';
 import { logFocusedTab } from '../../src/services/mobileTabsTelemetry';
 import { createCatalogLoader, getCatalogSpecId, validateHostedDashboardUrl, type CatalogBoard } from '../../src/features/dashboards/catalogLoader';
+import { designDashboardHref } from '../../src/features/dashboards/designEmbed';
 import { getParam, useHarnessReady } from '../../src/utils/harnessRuntime';
 
 type CatalogResult = Awaited<ReturnType<ReturnType<typeof createCatalogLoader>['refresh']>>;
 type BrowserBoard = Extract<CatalogBoard, { kind: 'hosted-view' | 'built-in' }>;
+function opensNativeDesign(board?: CatalogBoard) {
+  return Platform.OS === 'ios' && board?.kind === 'built-in' && board.id === 'ui-review';
+}
+
 function browserBoard(board?: CatalogBoard): BrowserBoard | null {
   return board && (board.kind === 'hosted-view' || (board.kind === 'built-in' && board.id === 'ui-review')) ? board : null;
 }
@@ -54,8 +60,9 @@ export default function DashboardsScreen() {
   const { client, connectionState, refresh } = useDashboardHub(isFocused && hasHubBoards);
   const selectedId = activeId && Object.prototype.hasOwnProperty.call(registry, activeId) ? activeId : order[0] ?? null;
   const definition = selectedId ? registry[selectedId] ?? null : null;
+  const showNativeDesign = opensNativeDesign(definition?.catalogBoard);
   const Renderer = definition?.render;
-  useVoiceSurface({ page_id: 'dashboards', title: definition?.label || 'Dashboards', ...(selectedId ? { entity_id: selectedId } : {}) }, isFocused, { bottom: 47 + Math.max(insets.bottom, 22) + 17, top: Math.max(insets.top, TOP_INSET) + 72 });
+  useVoiceSurface({ page_id: 'dashboards', title: showNativeDesign ? 'Design' : definition?.label || 'Dashboards', ...(selectedId ? { entity_id: selectedId } : {}) }, isFocused, { bottom: 47 + Math.max(insets.bottom, 22) + 17, top: Math.max(insets.top, TOP_INSET) + 72 });
   const snapshot = definition && !definition.catalogBoard
     ? definition.resolve(client.getEnvelope(definition.hubKey), connectionState === 'connected', { batch: foreclosureBatch })
     : null;
@@ -191,10 +198,14 @@ export default function DashboardsScreen() {
     setHostedError(null);
     setActiveId(id);
     const board = registry[id].catalogBoard;
-    const target = browserBoard(board);
-    if (target) void openHosted(target);
+    if (opensNativeDesign(board)) {
+      router.push(designDashboardHref());
+    } else {
+      const target = browserBoard(board);
+      if (target) void openHosted(target);
+    }
   }, [registry, openHosted]);
-  const hostedBoard = browserBoard(definition?.catalogBoard);
+  const hostedBoard = showNativeDesign ? null : browserBoard(definition?.catalogBoard);
 
   const selector = useMemo(() => order.map((id) => {
     const item = registry[id];
@@ -208,7 +219,7 @@ export default function DashboardsScreen() {
         style={[styles.selectorButton, selected && styles.selectorButtonActive]}
         testID={`dashboard-selector-${id}`}
       >
-        <Text style={[styles.selectorText, selected && styles.selectorTextActive]}>{item.label}</Text>
+        <Text style={[styles.selectorText, selected && styles.selectorTextActive]}>{opensNativeDesign(item.catalogBoard) ? 'Design' : item.label}</Text>
       </Pressable>
     );
   }), [order, registry, selectedId, selectBoard]);
@@ -245,7 +256,12 @@ export default function DashboardsScreen() {
             <Text style={styles.emptyBody}>New dashboards will appear here when they are ready.</Text>
           </View>
         )}
-        {hostedBoard ? <View style={styles.statusCard} testID={`dashboard-board-${hostedBoard.id}`}>
+        {showNativeDesign ? <View style={styles.statusCard} testID={`dashboard-board-${selectedId}`}>
+          <Text style={styles.hostedTitle}>Design</Text>
+          <Pressable accessibilityRole="button" testID="dashboard-design-open" onPress={() => router.push(designDashboardHref())} style={styles.selectorButton}>
+            <Text style={styles.selectorText}>Open Design</Text>
+          </Pressable>
+        </View> : hostedBoard ? <View style={styles.statusCard} testID={`dashboard-board-${hostedBoard.id}`}>
           <Text style={styles.hostedTitle}>{hostedBoard.name}</Text>
           <Text style={styles.catalogVersion}>Opens in your system browser.</Text>
           {hostedError?.id === hostedBoard.id ? <Text style={styles.statusText} testID="dashboard-hosted-error">{hostedError.message}</Text> : null}

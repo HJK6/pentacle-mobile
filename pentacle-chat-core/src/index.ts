@@ -19,6 +19,7 @@ export * from './services/markdown';
 export * from './services/questionAnswerFormat';
 export * from './services/questionAnswerFormat.examples';
 export * from './services/questionPager';
+export * from './services/dashboardLinks';
 export * from './utils/telemetry';
 export * from './utils/telemetryEvents';
 

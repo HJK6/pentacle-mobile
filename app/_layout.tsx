@@ -1094,6 +1094,10 @@ export default function RootLayout() {
               }}
             />
             <Stack.Screen name="pentacle/session/[streamId]" options={{ headerShown: false }} />
+            <Stack.Screen
+              name="pentacle/dashboard/[dashboardId]"
+              options={{ gestureEnabled: true, fullScreenGestureEnabled: false }}
+            />
           </Stack>
         )}
         {(!locked || DISABLE_LOCAL_AUTH_FOR_TESTING) ? <><VoiceRecordingOverlay /><ConsentInbox /></> : null}

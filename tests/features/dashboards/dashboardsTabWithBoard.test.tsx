@@ -32,6 +32,7 @@ jest.mock('../../../src/features/dashboards/catalogLoader', () => ({
 }));
 jest.mock('../../../src/services/pentacleAssets', () => ({ listReportsBySpec: jest.fn(), getReportByOwner: jest.fn() }));
 jest.mock('@react-navigation/native', () => ({ useIsFocused: () => true }));
+jest.mock('expo-router', () => require('../../helpers/mocks/expoRouter').makeMock());
 jest.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ bottom: 0, left: 0, right: 0, top: 0 }) }));
 jest.mock('../../../src/components/Starfield', () => () => null);
 jest.mock('../../../src/services/mobileTabsTelemetry', () => ({ logFocusedTab: jest.fn() }));

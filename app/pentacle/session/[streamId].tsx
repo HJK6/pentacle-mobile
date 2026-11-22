@@ -74,6 +74,8 @@ import { AgentThreadHistoryModal, type AgentThreadHistoryTarget } from '../../..
 import { Spinner } from '../../../src/components/ArcaneAtoms';
 import { AttachmentBubble } from '../../../src/components/AttachmentBubble';
 import { ImageViewerModal } from '../../../src/components/ImageViewerModal';
+import { DesignLinkPreview } from '../../../src/features/dashboards/DesignLinkPreview';
+import { designDashboardHref } from '../../../src/features/dashboards/designEmbed';
 import { createImageGallery, type ImageGallery } from '../../../src/services/imageGallery';
 import ReportViewerModal from '../../../src/components/ReportViewerModal';
 import {
@@ -122,7 +124,7 @@ import type { InterruptSendResult, PendingSessionClose, StreamOpenEntrySource } 
 import { isPentacleSessionSendEligible } from '../../../src/services/sessionInputReadiness';
 import { useUserPreference } from '../../../src/services/userPreferences';
 import { getAssistantRole, getHostTheme, getChatMachineName } from '../../../src/config/local';
-import { interpretPentacleEvent, peekEventsForStream, invalidateSessionDetailCache, MAX_CHAT_ATTACHMENTS, SESSION_SENDING_VISIBLE_AFTER_MS, parsePeerAgentMessage, type ChatAttachment, type ChildAgent, type PentacleTranscriptItem } from 'pentacle-chat-core';
+import { interpretPentacleEvent, peekEventsForStream, invalidateSessionDetailCache, MAX_CHAT_ATTACHMENTS, SESSION_SENDING_VISIBLE_AFTER_MS, parsePeerAgentMessage, type ChatAttachment, type ChildAgent, type DesignTarget, type PentacleTranscriptItem } from 'pentacle-chat-core';
 import { parseMarkdown, parseInline, type MdInline, type MdBlock } from 'pentacle-chat-core';
 import { stripClaudeExpandHint } from 'pentacle-chat-core';
 import { MISSING_SESSION_REDIRECT_MS, shouldArmRedirectTimer } from '../../../src/services/sessionScreenRedirect';
@@ -2544,6 +2546,9 @@ export function SessionScreen(props: SessionScreenProps) {
       presentSendError(error);
     }
   }, [actions, presentSendError]);
+  const openDesign = useCallback((target?: DesignTarget) => {
+    router.push(designDashboardHref(target));
+  }, [router]);
   const renderTranscriptItem = useCallback(({ item }: { item: PentacleTranscriptItem }) => (
 	    <View style={[styles.machineGroup, harnessExpandedRowId === item.id && styles.harnessExpandedRow]}>
       {item.timestampLabel ? <Text {...NON_SELECTABLE_TEXT} style={styles.machineTimestamp}>{item.timestampLabel}</Text> : null}
@@ -2556,6 +2561,7 @@ export function SessionScreen(props: SessionScreenProps) {
         showTurnDuration={showTurnDuration}
         queuedWhileWorking={item.queuedWhileWorking === true}
         onPressAttachment={(_uri, attachmentIndex) => openImageViewer(item.id, attachmentIndex)}
+        onOpenDesign={openDesign}
         onRetry={retryFromChat}
         onDiscard={discardFromChat}
         canSendNow={item.queuedWhileWorking === true && Boolean(item.optimisticId) && (actions.canSendQueuedNow?.(streamId, item.optimisticId as string) ?? false)}
@@ -2578,7 +2584,7 @@ export function SessionScreen(props: SessionScreenProps) {
         })}
       />
     </View>
-	  ), [openImageViewer, chrome, copyFromChat, directChildForTranscript, discardFromChat, harnessExpandedRowId, latestThinkingRowId, retryFromChat, session?.session_generation, showTurnDuration, streamId, actions, composerNotice]);
+	  ), [openImageViewer, openDesign, chrome, copyFromChat, directChildForTranscript, discardFromChat, harnessExpandedRowId, latestThinkingRowId, retryFromChat, session?.session_generation, showTurnDuration, streamId, actions, composerNotice]);
   const loadedEarlierRemaining = detail?.remainingCount || 0;
   const loadEarlierAvailable = loadedEarlierRemaining > 0 || hasOlderHistoryPage;
   useEffect(() => {
@@ -4082,6 +4088,7 @@ export const TranscriptRow = memo(function TranscriptRow({
   attachments,
   queuedWhileWorking = false,
   onPressAttachment,
+  onOpenDesign,
   onAttachmentError,
   onRetry,
   onDiscard,
@@ -4102,6 +4109,7 @@ export const TranscriptRow = memo(function TranscriptRow({
   // Positive provider queue receipt, never inferred from a busy/origin hint.
   queuedWhileWorking?: boolean;
   onPressAttachment?: (uri: string, attachmentIndex: number) => void;
+  onOpenDesign?: (target?: DesignTarget) => void;
   onAttachmentError?: () => void;
   // FEAT-SEND-RETRY: tap-to-retry a "failed sending" row (re-arm → re-transmit).
   onRetry?: (optimisticId: string) => void;
@@ -4421,11 +4429,24 @@ export const TranscriptRow = memo(function TranscriptRow({
 
   const blocks = parseAssistantBlocks(item.text);
   const messageTargetId = messageCopyTargetId(item.id);
+  const dashboardLink = Platform.OS === 'ios' && onOpenDesign ? item.dashboardLink : undefined;
+  // The sender pairs a targeted link with one recorded preview attachment.
+  const previewIndex = dashboardLink?.target
+    ? (attachments?.findIndex(attachment => attachment.kind !== 'file' && Boolean(attachment.uri)) ?? -1)
+    : -1;
+  const hasOrdinaryAttachments = (attachments?.length ?? 0) > (previewIndex < 0 ? 0 : 1);
   return (
     <Animated.View style={[styles.assistantRow, animatedStyle]}>
-      {attachments?.length ? (
+      {dashboardLink && onOpenDesign ? <DesignLinkPreview
+        link={dashboardLink}
+        caption={item.text}
+        imageUri={attachments?.[previewIndex]?.uri}
+        onOpen={() => onOpenDesign(dashboardLink.target)}
+        onImageError={onAttachmentError}
+      /> : null}
+      {hasOrdinaryAttachments ? (
         <View style={styles.assistantAttachments} testID={`assistant-message-attachments-${item.id}`}>
-          {attachments.map((att, i) => (
+          {attachments?.map((att, i) => i === previewIndex ? null : (
             <AttachmentBubble
               key={i}
               kind={att.kind}
