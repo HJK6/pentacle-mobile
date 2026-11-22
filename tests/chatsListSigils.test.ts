@@ -8,7 +8,7 @@ jest.mock('expo-constants', () => require('./helpers/stubs/expoConstants.cjs'));
 beforeEach(() => {
   (globalThis as Record<string, unknown>).__PENTACLE_EXPO_CONFIG__ = {
     extra: {
-      wsUrl: 'ws://10.0.0.0:7791',
+      wsUrl: 'ws://192.0.2.11:7791',
       hosts: {
         assistant: { label: 'Zephyr', color: '#ff7ab8', sigil: 'djinni' },
         laptop: { label: 'Laptop', color: '#4da3ff', sigil: 'mage' },

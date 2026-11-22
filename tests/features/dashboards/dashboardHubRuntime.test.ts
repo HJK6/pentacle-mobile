@@ -3,7 +3,7 @@ import { loadDashboardHubRuntime } from '../../../src/features/dashboards/dashbo
 import { getPentacleDeviceToken } from '../../../src/services/deviceCredentialStore';
 
 jest.mock('expo-constants', () => ({ __esModule: true, default: { expoConfig: { extra: {} } } }));
-jest.mock('../../../src/config/local', () => ({ getBackendWsUrl: () => 'ws://10.0.0.0:7791/ws' }));
+jest.mock('../../../src/config/local', () => ({ getBackendWsUrl: () => 'ws://192.0.2.11:7791/ws' }));
 jest.mock('../../../src/services/deviceCredentialStore', () => ({
   getPentacleDeviceToken: jest.fn(),
   setPentacleDeviceToken: jest.fn(),
@@ -13,8 +13,8 @@ jest.mock('../../../src/utils/harnessRuntime', () => ({ getParam: jest.fn() }));
 test('derives the sample Hub port and reuses the test device credential', async () => {
   (getPentacleDeviceToken as jest.MockedFunction<typeof getPentacleDeviceToken>).mockResolvedValue('TEST');
   await expect(loadDashboardHubRuntime()).resolves.toEqual({
-    url: 'ws://10.0.0.0:7781',
-    controlUrl: 'http://10.0.0.0:7781',
+    url: 'ws://192.0.2.11:7781',
+    controlUrl: 'http://192.0.2.11:7781',
     deviceToken: 'TEST',
   });
 });

@@ -1,6 +1,6 @@
 const defaultConfig = {
   extra: {
-    wsUrl: 'ws://10.0.0.0:7791',
+    wsUrl: 'ws://192.0.2.11:7791',
     hosts: {
       'hosta': {
         label: 'Host A',

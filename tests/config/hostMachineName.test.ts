@@ -6,7 +6,7 @@ jest.mock('expo-constants', () => require('../helpers/stubs/expoConstants.cjs'))
 
 function setConfig(hosts: Record<string, unknown>, hostOrder: string[], features?: Record<string, unknown>) {
   (globalThis as Record<string, unknown>).__PENTACLE_EXPO_CONFIG__ = {
-    extra: { wsUrl: 'ws://10.0.0.0:7791', hosts, hostOrder, ...(features ? { features } : {}) },
+    extra: { wsUrl: 'ws://192.0.2.11:7791', hosts, hostOrder, ...(features ? { features } : {}) },
   };
 }
 

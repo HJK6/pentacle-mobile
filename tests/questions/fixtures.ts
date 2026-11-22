@@ -9,7 +9,7 @@ export const LEGACY_SESSION = 'hostb:codex:legacy';
 
 export const HOSTS_CONFIG = {
   extra: {
-    wsUrl: 'ws://10.0.0.0:7791',
+    wsUrl: 'ws://192.0.2.11:7791',
     hosts: {
       ['bar' + 't']: { label: 'Zephyr', color: '#ff7ab8', sigil: 'djinni' },
       hostc: { label: 'Host C', color: '#4da3ff', sigil: 'mage' },

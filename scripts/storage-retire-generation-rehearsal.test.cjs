@@ -2,7 +2,8 @@
 const assert=require('node:assert/strict'),test=require('node:test'),path=require('node:path'),fs=require('node:fs'),cp=require('node:child_process');
 const {identityGuard,sourceGuard}=require('./storage-retire-generation-rehearsal.cjs');
 const SHA='a'.repeat(40),ARGS=['502',SHA];
-const facts=()=>({uid:502,euid:502,username:'pmstoragerehearsal',home:'/Users/pmstoragerehearsal',userHome:'/Users/pmstoragerehearsal',environmentHome:'/Users/pmstoragerehearsal',execArgv:[],env:{}});
+const username='pmstoragerehearsal',home=path.posix.join('/Users',username);
+const facts=()=>({uid:502,euid:502,username,home,userHome:home,environmentHome:home,execArgv:[],env:{}});
 
 test('manual identity contract accepts only exact separately allocated real-account scalars',()=>{assert.deepEqual(identityGuard(ARGS,facts()),{uid:502,sha:SHA});});
 for(const [field,value] of [['uid',501],['uid',0],['uid',503],['euid',0],['username','other'],['home','/tmp/rehearsal'],['userHome','/tmp/overridden'],['environmentHome','/tmp/overridden'],['execArgv',['--require','/tmp/preload.cjs']]])test(`real-context guard refuses ${field}=${JSON.stringify(value)}`,()=>{assert.throws(()=>identityGuard(ARGS,{...facts(),[field]:value}),/REAL_ACCOUNT_REQUIRED|PRELOAD_FORBIDDEN/);});

@@ -41,7 +41,7 @@ const layout = fixedLayout();
 const sha = (text) => crypto.createHash('sha256').update(text).digest('hex');
 const records = () => state.listRecords('scheduler');
 const pending = () => records().find((entry) => !['committed', 'restored'].includes(entry.state));
-const priorPlist = `<?xml version="1.0" encoding="UTF-8"?>\n<plist version="1.0"><dict><key>Label</key><string>${scheduler.LABEL}</string><key>ProgramArguments</key><array><string>/stale/node</string><string>/Users/stale/repos/pentacle-mobile-private/scripts/storage-cli.cjs</string><string>storage:janitor</string><string>dry-run</string></array><key>StartInterval</key><integer>21600</integer></dict></plist>\n`;
+const priorPlist = `<?xml version="1.0" encoding="UTF-8"?>\n<plist version="1.0"><dict><key>Label</key><string>${scheduler.LABEL}</string><key>ProgramArguments</key><array><string>/stale/node</string><string>/Users/example/repos/pentacle-mobile-private/scripts/storage-cli.cjs</string><string>storage:janitor</string><string>dry-run</string></array><key>StartInterval</key><integer>21600</integer></dict></plist>\n`;
 
 
 function seed() {
@@ -237,7 +237,7 @@ function realUpdate() {
   const preload = path.join(process.env.HOME, 'scheduler-boundary.cjs');
   fs.writeFileSync(preload, `(${schedulerBoundary.toString()})(${JSON.stringify({ scenario, fixturePid: process.pid })});\n`);
   const loaded = path.join(process.env.HOME, 'loaded-model.json');
-  const priorModel = { content: priorPlist, argv: ['/stale/node', '/Users/stale/repos/pentacle-mobile-private/scripts/storage-cli.cjs', 'storage:janitor', 'dry-run'], cwd: process.env.HOME };
+  const priorModel = { content: priorPlist, argv: ['/stale/node', '/Users/example/repos/pentacle-mobile-private/scripts/storage-cli.cjs', 'storage:janitor', 'dry-run'], cwd: process.env.HOME };
   fs.writeFileSync(loaded, JSON.stringify(priorModel));
   if (scenario === 'real-error') fs.writeFileSync(path.join(layout.state, 'runs', `${crypto.randomUUID()}.json`), '{broken');
   const retained = () => Object.fromEntries(fs.readdirSync(path.join(layout.state, 'runs')).map((name) => [name, sha(fs.readFileSync(path.join(layout.state, 'runs', name)))]));
