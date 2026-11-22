@@ -7,11 +7,12 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const childProcess = require('node:child_process');
+const { printLoadedService } = require('./storage-launchctl-print-fixture.cjs');
 
 const [requestedScenario, phase = 'main'] = process.argv.slice(2);
 // Historical update/rollback cases now use the real report producer too.
 const scenario = { repoint: 'real-update', rollback: 'real-error' }[requestedScenario] || requestedScenario;
-const SCENARIOS = new Set(['repoint', 'refuse-private', 'rollback', 'interrupt-before-candidate', 'interrupt-after-candidate', 'normal-run', 'real-update', 'real-error', 'real-no-report', 'real-observe', 'real-observe-owner-race', 'real-observe-state-race', 'real-report-owner-race', 'real-report-state-race', 'real-report-content-race', 'real-report-commit-race', 'real-acquisition-epoch', 'real-occupied-legacy', 'real-ordinary', 'normal-legacy', 'real-negative-owner-epoch', 'real-negative-owner-live-wrong', 'real-negative-owner-dead', 'real-negative-epoch-unavailable', 'real-negative-lock-missing', 'real-negative-legacy-lock', 'real-negative-unknown-lock', 'real-negative-transaction-missing', 'real-negative-transaction-wrong', 'real-negative-generation', 'real-negative-digest', 'real-negative-transaction-state', 'real-negative-multiple', 'real-negative-root', 'real-negative-host', 'real-negative-uid', 'real-negative-seal']);
+const SCENARIOS = new Set(['repoint', 'refuse-private', 'rollback', 'interrupt-before-candidate', 'interrupt-after-candidate', 'normal-run', 'real-update', 'real-parked', 'real-parked-bare-print', 'real-parked-codesign-fail', 'real-error', 'real-no-report', 'real-observe', 'real-observe-owner-race', 'real-observe-state-race', 'real-report-owner-race', 'real-report-state-race', 'real-report-content-race', 'real-report-commit-race', 'real-acquisition-epoch', 'real-occupied-legacy', 'real-ordinary', 'normal-legacy', 'real-negative-owner-epoch', 'real-negative-owner-live-wrong', 'real-negative-owner-dead', 'real-negative-epoch-unavailable', 'real-negative-lock-missing', 'real-negative-legacy-lock', 'real-negative-unknown-lock', 'real-negative-transaction-missing', 'real-negative-transaction-wrong', 'real-negative-generation', 'real-negative-digest', 'real-negative-transaction-state', 'real-negative-multiple', 'real-negative-root', 'real-negative-host', 'real-negative-uid', 'real-negative-seal']);
 if (!SCENARIOS.has(scenario)) throw new Error('WORKER_ARGUMENT');
 fs.statfsSync = () => ({ blocks: 1n, bsize: 4096n });
 
@@ -23,7 +24,7 @@ const crashAt = { 'interrupt-before-candidate': 'bootout', 'interrupt-after-cand
 childProcess.spawnSync = (binary, args, options) => {
   if (binary !== '/bin/launchctl') return realSpawnSync(binary, args, options);
   const action = args[0];
-  if (action === 'print') return { status: fs.existsSync(loadedFlag) ? 0 : 113, stdout: '', stderr: '' };
+  if (action === 'print') return fs.existsSync(loadedFlag) ? { status: 0, stdout: printLoadedService('com.pentacle.mobile.storage-janitor', fs.existsSync(layout.launchAgent) ? fs.readFileSync(layout.launchAgent, 'utf8') : ''), stderr: '' } : { status: 113, stdout: '', stderr: `Could not find service "com.pentacle.mobile.storage-janitor" in domain for user gui: ${process.getuid()}` };
   fs.appendFileSync(mutationLog, `${action}\n`);
   if (phase === 'crash' && action === crashAt) process.exit(86);
   if (action === 'bootout') fs.rmSync(loadedFlag, { force: true });
@@ -182,9 +183,11 @@ function schedulerBoundary(config) {
   };
   const real = cp.spawnSync;
   cp.spawnSync = (binary, args, options) => {
+    if (scenario === 'real-parked-codesign-fail' && binary === '/usr/bin/codesign') return { status: 1, stdout: '', stderr: 'forced codesign failure' };
     if (binary !== '/bin/launchctl') return real(binary, args, options);
     const action = args[0];
-    if (action === 'print') return { status: fs.existsSync(loaded) ? 0 : 113, stdout: '', stderr: '' };
+    fs.appendFileSync(path.join(home, 'launchctl-actions.log'), `${action}\n`);
+    if (action === 'print') return fs.existsSync(loaded) ? { status: 0, stdout: scenario === 'real-parked-bare-print' ? 'gui/501/com.pentacle.mobile.storage-janitor = {\n\tstate = not running\n\tproperties = inferred program\n}\n' : require(config.printFixture).printLoadedService('com.pentacle.mobile.storage-janitor', read(loaded).content), stderr: '' } : { status: 113, stdout: '', stderr: `Could not find service "com.pentacle.mobile.storage-janitor" in domain for user gui: ${process.getuid()}` };
     if (action === 'bootout') fs.rmSync(loaded, { force: true });
     if (action === 'bootstrap') {
       const content = fs.readFileSync(args[2], 'utf8');
@@ -235,10 +238,11 @@ function realUpdate() {
   if (scenario === 'real-negative-owner-dead') { const exited = realSpawnSync(process.execPath, ['-e', ''], { encoding: 'utf8' }); fs.writeFileSync(path.join(process.env.HOME, 'dead-owner.json'), JSON.stringify({ pid: exited.pid })); }
   if (scenario === 'real-occupied-legacy') { const authority = state.readAuthorityState(); fs.writeFileSync(path.join(layout.state, 'scheduler.lock'), JSON.stringify({ schema: 1, token: crypto.randomUUID(), generation: authority.generation, host: authority.host, uid: authority.uid, pid: process.pid, created_at: new Date().toISOString() }), { mode: 0o600 }); }
   const preload = path.join(process.env.HOME, 'scheduler-boundary.cjs');
-  fs.writeFileSync(preload, `(${schedulerBoundary.toString()})(${JSON.stringify({ scenario, fixturePid: process.pid })});\n`);
+  fs.writeFileSync(preload, `(${schedulerBoundary.toString()})(${JSON.stringify({ scenario, fixturePid: process.pid, printFixture: path.join(__dirname, 'storage-launchctl-print-fixture.cjs') })});\n`);
   const loaded = path.join(process.env.HOME, 'loaded-model.json');
   const priorModel = { content: priorPlist, argv: ['/stale/node', '/Users/example/repos/pentacle-mobile-private/scripts/storage-cli.cjs', 'storage:janitor', 'dry-run'], cwd: process.env.HOME };
   fs.writeFileSync(loaded, JSON.stringify(priorModel));
+  if (scenario.startsWith('real-parked')) fs.rmSync(loaded, { force: true });
   if (scenario === 'real-error') fs.writeFileSync(path.join(layout.state, 'runs', `${crypto.randomUUID()}.json`), '{broken');
   const retained = () => Object.fromEntries(fs.readdirSync(path.join(layout.state, 'runs')).map((name) => [name, sha(fs.readFileSync(path.join(layout.state, 'runs', name)))]));
   const before = retained();
@@ -252,7 +256,7 @@ function realUpdate() {
   const transaction = records().find((entry) => entry.action === 'update');
   const controls = read(path.join(process.env.HOME, 'controls.jsonl'))?.trim().split('\n').map(JSON.parse) || [];
 
-  const evidence = { scenario, requestedScenario, fixturePid: process.pid, committed: transaction?.state === 'committed', plistRunsWrapper: runsWrapper(plist()), plistDigestMatchesRecord: transaction?.candidate_digest === sha(plist()), sealsUnchanged: JSON.stringify({ generation: JSON.parse(fs.readFileSync(path.join(layout.state, 'authority.json'), 'utf8')).generation, roots: JSON.parse(fs.readFileSync(path.join(layout.state, 'authority.json'), 'utf8')).roots }) === seals, authorityState: JSON.parse(fs.readFileSync(path.join(layout.state, 'authority.json'), 'utf8')).state, priorPreimageStored: transaction?.prior_content === priorPlist && transaction?.prior_loaded === true, reportBound: reports.length === 1 && reports[0].transaction_id === transaction?.id && reports[0].candidate_digest === transaction?.candidate_digest, interval: Number(/<key>StartInterval<\/key>\s*<integer>(\d+)<\/integer>/.exec(plist())[1]), error: update.stderr.trim(), priorLoadedAgain: fs.existsSync(loaded), transactionState: transaction?.state, retainedRun, controls, observedRunBefore: observedRun, observedRunAfter: observedRun ? state.readRecord('runs', observedRun.id) : null, retainedImagesUnchanged: JSON.stringify(priorImages) === JSON.stringify(imageHashes()), update: { pid: update.pid, status: update.status, stdout: update.stdout, stderr: update.stderr }, observations, wrapper: JSON.parse(read(path.join(process.env.HOME, 'wrapper-result.json')) || 'null'), janitorLog: read(path.join(layout.state, 'logs', 'janitor.stderr.log')), reports, transaction, authority: JSON.parse(fs.readFileSync(path.join(layout.state, 'authority.json'), 'utf8')), plistRestored: plist() === priorPlist, loadedModel: JSON.parse(read(loaded) || 'null'), priorModel, retainedUnchanged: JSON.stringify(before) === JSON.stringify(retained()), locks: fs.readdirSync(layout.state).filter((name) => name.endsWith('.lock')) };
+  const evidence = { scenario, requestedScenario, fixturePid: process.pid, committed: transaction?.state === 'committed', plistRunsWrapper: runsWrapper(plist()), plistDigestMatchesRecord: transaction?.candidate_digest === sha(plist()), sealsUnchanged: JSON.stringify({ generation: JSON.parse(fs.readFileSync(path.join(layout.state, 'authority.json'), 'utf8')).generation, roots: JSON.parse(fs.readFileSync(path.join(layout.state, 'authority.json'), 'utf8')).roots }) === seals, authorityState: JSON.parse(fs.readFileSync(path.join(layout.state, 'authority.json'), 'utf8')).state, priorPreimageStored: transaction?.prior_content === priorPlist && transaction?.prior_loaded === true, reportBound: reports.length === 1 && reports[0].transaction_id === transaction?.id && reports[0].candidate_digest === transaction?.candidate_digest, interval: Number(/<key>StartInterval<\/key>\s*<integer>(\d+)<\/integer>/.exec(plist())[1]), error: update.stderr.trim(), priorLoadedAgain: fs.existsSync(loaded), transactionState: transaction?.state, retainedRun, controls, observedRunBefore: observedRun, observedRunAfter: observedRun ? state.readRecord('runs', observedRun.id) : null, retainedImagesUnchanged: JSON.stringify(priorImages) === JSON.stringify(imageHashes()), update: { pid: update.pid, status: update.status, stdout: update.stdout, stderr: update.stderr }, observations, wrapper: JSON.parse(read(path.join(process.env.HOME, 'wrapper-result.json')) || 'null'), janitorLog: read(path.join(layout.state, 'logs', 'janitor.stderr.log')), reports, transaction, authority: JSON.parse(fs.readFileSync(path.join(layout.state, 'authority.json'), 'utf8')), plistRestored: plist() === priorPlist, loadedModel: JSON.parse(read(loaded) || 'null'), priorModel, retainedUnchanged: JSON.stringify(before) === JSON.stringify(retained()), locks: fs.readdirSync(layout.state).filter((name) => name.endsWith('.lock')), launchctlActions: (read(path.join(process.env.HOME, 'launchctl-actions.log')) || '').split('\n').filter(Boolean), plistHasSpawnConstraint: plist().includes('<key>SpawnConstraint</key>') };
   if (process.env.STORAGE_FIXTURE_RECEIPT) fs.writeFileSync(process.env.STORAGE_FIXTURE_RECEIPT, JSON.stringify(evidence, null, 2) + '\n');
   if (process.env.STORAGE_FIXTURE_RECEIPT_DIR) fs.writeFileSync(path.join(process.env.STORAGE_FIXTURE_RECEIPT_DIR, `${scenario}.json`), JSON.stringify(evidence, null, 2) + '\n');
   emit(evidence);

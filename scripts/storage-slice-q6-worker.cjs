@@ -4,6 +4,7 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const childProcess = require('node:child_process');
+const { printLoadedService } = require('./storage-launchctl-print-fixture.cjs');
 
 const [scenario, ...scenarioArgs] = process.argv.slice(2);
 const scenarios = new Set([
@@ -17,8 +18,11 @@ fs.statfsSync = () => ({ blocks: 1n, bsize: 4096n });
 
 let reportDirectory;
 let smokeBinding;
-childProcess.spawnSync = (binary, args) => {
+const realSpawnSync = childProcess.spawnSync;
+childProcess.spawnSync = (binary, args, options) => {
+  if (binary === '/usr/bin/codesign') return realSpawnSync(binary, args, options);
   const action = args?.[0];
+  if (binary === '/bin/launchctl' && action === 'print') return { status: 0, stdout: printLoadedService('com.pentacle.mobile.storage-janitor', fs.existsSync(fixedLayout().launchAgent) ? fs.readFileSync(fixedLayout().launchAgent, 'utf8') : ''), stderr: '' };
   if (scenario === 'bootout-failure' && action === 'bootout') return { status: 1, stderr: 'forced bootout failure' };
   if (action === 'kickstart') {
     const reportId = crypto.randomUUID();

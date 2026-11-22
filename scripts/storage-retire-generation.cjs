@@ -96,8 +96,11 @@ function hostPlatform(layout) {
       return { image: i['image-path'], writable: i.writeable, entities: i['system-entities'].map(e => ({ mount: e['mount-point'] || null, device: e['dev-entry'] || null })) };
     });
   };
+  // Read only the keys that are checked: `plutil -convert json` refuses the whole document once it carries the typed
+  // <data> of a SpawnConstraint, and scalar keys are extracted raw (json output requires a container).
+  const plistField = (bytes, key, format) => command('/usr/bin/plutil', ['-extract', key, format, '-o', '-', '--', '-'], bytes);
   const argvFromPlist = bytes => {
-    const p = plist(bytes), argv = p.ProgramArguments;
+    const p = { Label: plistField(bytes, 'Label', 'raw').replace(/\n$/, ''), WorkingDirectory: plistField(bytes, 'WorkingDirectory', 'raw').replace(/\n$/, ''), ProgramArguments: JSON.parse(plistField(bytes, 'ProgramArguments', 'json')) }, argv = p.ProgramArguments;
     const legacy = path.join(layout.repositories['pentacle-mobile'], 'scripts/storage-cli.cjs');
     const current = path.join(layout.schedulerRoot, 'scripts/storage-janitor-scheduled.cjs');
     if (p.Label !== LABEL || !Array.isArray(argv) || argv.length !== 4 || ![legacy, current].includes(argv[1])
