@@ -26,8 +26,19 @@ cp.spawnSync = (binary, args, options) => {
   fs.appendFileSync(actionsLog, `${action}\n`);
   const service = `gui/${process.getuid()}/${LABEL}`;
   if (action === 'print' && args.length === 2 && args[1] === service) {
-    if (!fs.existsSync(loadedFlag)) return { status: 113, stdout: '', stderr: 'not found' };
+    if (scenario === 'print-error') return { status: 5, stdout: '', stderr: 'Bad request.\nInput/output error' };
+    if (!fs.existsSync(loadedFlag)) return { status: 113, stdout: '', stderr: `Bad request.\nCould not find service "${LABEL}" in domain for user gui: ${process.getuid()}` };
     const text = fs.readFileSync(plistPath, 'utf8');
+    // The loaded job answers the bootstrap readiness print, then shows no constraint, then every later print (the rollback's) fails with an
+    // indeterminate status: launchd says nothing about whether the job is still loaded.
+    if (scenario === 'rollback-print-error') {
+      const counter = path.join(root, 'loaded-prints');
+      const seen = fs.existsSync(counter) ? Number(fs.readFileSync(counter, 'utf8')) : 0;
+      fs.writeFileSync(counter, String(seen + 1));
+      if (seen === 0) return { status: 0, stdout: printLoadedService(LABEL, text), stderr: '' };
+      if (seen === 1) return { status: 0, stdout: `gui/501/${LABEL} = {\n\tproperties = inferred program\n}\n`, stderr: '' };
+      return { status: 5, stdout: '', stderr: 'Bad request.\nInput/output error' };
+    }
     if (scenario === 'bare-print') return { status: 0, stdout: `gui/501/${LABEL} = {\n\tproperties = inferred program\n}\n`, stderr: '' };
     if (scenario === 'partial-import') return { status: 0, stdout: printLoadedService(LABEL, text).replace('properties = inferred program', 'properties = partial import | inferred program'), stderr: '' };
     if (scenario === 'two-entries') return { status: 0, stdout: printLoadedService(LABEL, text).replace('\t\t\t\t\t0 = \t\t\t\t]', '\t\t\t\t\t0 = \t\t\t\t\t1 = \t\t\t\t]'), stderr: '' };

@@ -142,6 +142,31 @@ test(`parked state: a constraint launchd cannot show (${scenario}) rolls back, r
 });
 }
 
+// A print that fails with anything but the missing-service answer says nothing about whether the job is loaded. Rollback must not
+// record 'restored' (or rewrite the plist) while the candidate may still be loaded.
+test('parked state: a rollback whose launchctl print fails indeterminately never records restored and leaves the candidate plist', { skip: !darwin }, (t) => {
+  const p = parked(t);
+  const result = p.update('rollback-print-error');
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /SCHEDULER_LAUNCHD_STATE_UNKNOWN/);
+  const transaction = p.records().find((record) => record.action === 'update');
+  assert.equal(transaction.state, 'rolling_back', 'rollback is incomplete, not restored');
+  assert.notEqual(fs.readFileSync(p.plistFile, 'utf8'), PRIOR_PLIST, 'the plist is not rewritten while the label may be loaded');
+  assert.deepEqual(p.actions().filter((action) => action !== 'print'), ['bootstrap'], 'no bootout was claimed, no kickstart ran');
+  assert.ok(fs.readFileSync(path.join(p.f.state, 'authority-reseal.json')).equals(p.journalBytes));
+  assert.equal(fs.readdirSync(p.f.state).filter((name) => name.endsWith('.lock')).length, 0, 'the lock is released so the owner can disposition the record');
+});
+
+test('parked state: a launchctl print that fails indeterminately before the update refuses it with no record, no plist write and no launchd mutation', { skip: !darwin }, (t) => {
+  const p = parked(t);
+  const result = p.update('print-error');
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /SCHEDULER_LAUNCHD_STATE_UNKNOWN/);
+  assert.equal(fs.readFileSync(p.plistFile, 'utf8'), PRIOR_PLIST);
+  assert.deepEqual(p.actions().filter((action) => action !== 'print'), []);
+  assert.equal(p.records().filter((record) => record.action === 'update').length, 0);
+});
+
 test('parked state: the update is refused and writes nothing when the committed journal no longer matches the authority', { skip: !darwin }, (t) => {
   const p = parked(t);
   const authority = JSON.parse(fs.readFileSync(p.f.authorityFile, 'utf8'));

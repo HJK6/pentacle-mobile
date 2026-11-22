@@ -93,15 +93,13 @@ function disposable(prefix, build) {
 const waitFor = (predicate, ms = 15000) => { const end = Date.now() + ms; while (Date.now() < end) { if (predicate()) return true; Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100); } return predicate(); };
 
 test('real launchd: the exact rendered plist loads, prints the fixture-shaped constraint and is not spawned', { skip: !NATIVE }, () => {
-  const marker = path.join(temporary('sc-native'), 'ran');
   const job = disposable('render', (label) => scheduler.renderPlist().replace(`<string>${scheduler.LABEL}</string>`, `<string>${label}</string>`));
   try {
     job.bootstrap();
     const printed = job.print();
     assert.ok(printed.includes(`\n${SPAWN_CONSTRAINT_BLOCK}\n`), 'launchd prints exactly the fixture block');
     assert.match(printed, /^\tproperties = .*\bhas spawn constraint\b/m);
-    assert.match(printed, /^\truns = 0$/m);
-    assert.equal(fs.existsSync(marker), false);
+    assert.match(printed, /^\truns = 0$/m, 'launchd itself reports no spawn (the rendered plist runs the real wrapper, so no marker applies)');
   } finally { job.cleanup(); }
 });
 

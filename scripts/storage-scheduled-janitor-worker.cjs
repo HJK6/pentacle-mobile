@@ -24,7 +24,7 @@ const crashAt = { 'interrupt-before-candidate': 'bootout', 'interrupt-after-cand
 childProcess.spawnSync = (binary, args, options) => {
   if (binary !== '/bin/launchctl') return realSpawnSync(binary, args, options);
   const action = args[0];
-  if (action === 'print') return fs.existsSync(loadedFlag) ? { status: 0, stdout: printLoadedService('com.pentacle.mobile.storage-janitor', fs.existsSync(layout.launchAgent) ? fs.readFileSync(layout.launchAgent, 'utf8') : ''), stderr: '' } : { status: 113, stdout: '', stderr: '' };
+  if (action === 'print') return fs.existsSync(loadedFlag) ? { status: 0, stdout: printLoadedService('com.pentacle.mobile.storage-janitor', fs.existsSync(layout.launchAgent) ? fs.readFileSync(layout.launchAgent, 'utf8') : ''), stderr: '' } : { status: 113, stdout: '', stderr: `Could not find service "com.pentacle.mobile.storage-janitor" in domain for user gui: ${process.getuid()}` };
   fs.appendFileSync(mutationLog, `${action}\n`);
   if (phase === 'crash' && action === crashAt) process.exit(86);
   if (action === 'bootout') fs.rmSync(loadedFlag, { force: true });
@@ -187,7 +187,7 @@ function schedulerBoundary(config) {
     if (binary !== '/bin/launchctl') return real(binary, args, options);
     const action = args[0];
     fs.appendFileSync(path.join(home, 'launchctl-actions.log'), `${action}\n`);
-    if (action === 'print') return fs.existsSync(loaded) ? { status: 0, stdout: scenario === 'real-parked-bare-print' ? 'gui/501/com.pentacle.mobile.storage-janitor = {\n\tstate = not running\n\tproperties = inferred program\n}\n' : require(config.printFixture).printLoadedService('com.pentacle.mobile.storage-janitor', read(loaded).content), stderr: '' } : { status: 113, stdout: '', stderr: '' };
+    if (action === 'print') return fs.existsSync(loaded) ? { status: 0, stdout: scenario === 'real-parked-bare-print' ? 'gui/501/com.pentacle.mobile.storage-janitor = {\n\tstate = not running\n\tproperties = inferred program\n}\n' : require(config.printFixture).printLoadedService('com.pentacle.mobile.storage-janitor', read(loaded).content), stderr: '' } : { status: 113, stdout: '', stderr: `Could not find service "com.pentacle.mobile.storage-janitor" in domain for user gui: ${process.getuid()}` };
     if (action === 'bootout') fs.rmSync(loaded, { force: true });
     if (action === 'bootstrap') {
       const content = fs.readFileSync(args[2], 'utf8');

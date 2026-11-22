@@ -209,7 +209,18 @@ function validateSmokeReport(value, filename, started, expected) {
 
 function launchDomain() { return `gui/${process.getuid()}/${LABEL}`; }
 
-function loaded() { return spawnSync('/bin/launchctl', ['print', launchDomain()]).status === 0; }
+// launchd answers a missing service with status 113 and a fixed "Could not find service" diagnostic (the form the retirement
+// readers also require). Any other failed print (a permission or I/O error, a changed diagnostic) says nothing about whether
+// the job is loaded, so it is an unknown state, never "not loaded".
+function launchState() {
+  const result = spawnSync('/bin/launchctl', ['print', launchDomain()], { encoding: 'utf8' });
+  if (!result.error && result.status === 0) return 'loaded';
+  const missing = `Could not find service "${LABEL}" in domain for user gui: ${process.getuid()}`;
+  if (!result.error && result.status === 113 && [missing, `Bad request.\n${missing}`].includes(String(result.stderr || '').trim())) return 'absent';
+  throw new Error(`SCHEDULER_LAUNCHD_STATE_UNKNOWN:${result.error ? result.error.code || 'spawn' : `status ${result.status}`}`);
+}
+
+function loaded() { return launchState() === 'loaded'; }
 
 function bootoutIfLoaded() {
   if (!loaded()) return false;
@@ -246,7 +257,7 @@ function installOrUpdate(action) {
   // Environment precondition FIRST: never adopt a label or plist that may belong to another
   // installed root. That check is about not harming someone else, so it precedes validating our
   // own configuration; ordering only decides which error surfaces when both are violated.
-  if (action === 'install' && (fs.existsSync(fixedLayout().launchAgent) || spawnSync('/bin/launchctl', ['print', `gui/${process.getuid()}/${LABEL}`]).status === 0)) throw new Error('SCHEDULER_EXISTING_LABEL_OR_PLIST');
+  if (action === 'install' && (fs.existsSync(fixedLayout().launchAgent) || launchState() === 'loaded')) throw new Error('SCHEDULER_EXISTING_LABEL_OR_PLIST');
   assertToolchainSafeLayout();
   assertPublicRoot();
   // Render (and prove the executable's code identity) once, before any lock, record or authority change: an unsigned or
@@ -274,7 +285,7 @@ function installOrUpdate(action) {
     const committedDigest = latestCommittedDigest();
     if (action === 'update' && !plistOwned(target, committedDigest)) throw new Error('SCHEDULER_UPDATE_UNOWNED');
     const priorText = action === 'update' ? fs.readFileSync(target, 'utf8') : null;
-    const priorLoaded = action === 'update' && spawnSync('/bin/launchctl', ['print', `gui/${process.getuid()}/${LABEL}`]).status === 0;
+    const priorLoaded = action === 'update' && loaded();
     if (require('./storage-state.cjs').listRecords('scheduler').some((entry) => !['committed', 'restored'].includes(entry.state))) throw new Error('SCHEDULER_TRANSACTION_INCOMPLETE');
     const id = generatedId();
     let transaction = createRecord('scheduler', { schema: 1, id, revision: 0, state: 'absent', action, generation: authority.generation, prior_owned: plistOwned(target, committedDigest), prior_content: priorText, prior_loaded: priorLoaded, created_at: new Date().toISOString() });

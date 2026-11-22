@@ -225,8 +225,10 @@ stdout receipt matching the stored transaction, owned plist and one error-free s
 the installed authority, current loaded job and absence of locks and temporary residue. A failure,
 interruption, ambiguous result or failed readback leaves the deployment with the owner. Preserve
 the files and command output, including when rollback restored the preimage or a transaction is
-already committed. A parked label remains out on a completed rollback. Schema-2 locks require
-owner disposition.
+already committed. A parked label remains out on a completed rollback. A `launchctl print` that
+fails with anything but the missing-service answer is an unknown state: the scheduler refuses to
+start, or leaves a rollback incomplete (record `rolling_back`, plist untouched) rather than recording
+`restored`. Schema-2 locks require owner disposition.
 The opt-in native proofs (`PENTACLE_LAUNCHD_PROOF=1 node --test scripts/storage-scheduler-spawn-constraint.test.cjs`)
 use disposable `com.pentacle.mobile.lwcrproof.*` labels only.
 
