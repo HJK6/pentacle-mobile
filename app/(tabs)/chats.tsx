@@ -46,6 +46,7 @@ import {
 } from '../../src/components/MobileQuestions';
 import usePentacleToken from '../../src/hooks/usePentacleToken';
 import useFluidWorkingSeconds from '../../src/hooks/useFluidWorkingSeconds';
+import { coldOutboxPreviewState } from '../../src/services/coldOutboxPresentation';
 import {
   selectOptimisticQuestionAnswerIdentities,
   usePentacleStreamActions,
@@ -237,6 +238,7 @@ export function selectVisibleChatList(
   filter: 'all' | string = 'all',
   optimisticAnswers: readonly { notificationId: string; questionId?: string }[] = selectOptimisticQuestionAnswerIdentities(state),
 ) {
+  state = coldOutboxPreviewState(state);
   const questionIndex = indexOpenQuestions(state.notifications as PentacleNotification[], optimisticAnswers);
   const questionStreamIds = questionIndex.streamIds;
   // Single pass: filter to visible + question-bearing rows AND record which streams are
@@ -463,6 +465,7 @@ export function selectSmartChatList(
   selectVisible: typeof selectVisibleChatList = selectVisibleChatList,
   assistantRole = getAssistantRole(),
 ): SmartChatListItem[] {
+  state = coldOutboxPreviewState(state);
   const harnessTiming = process.env.EXPO_PUBLIC_HARNESS === '1' && harnessRuntime.hasAction(ALL_CHATS_HARNESS_ACTION);
   const startedAt = harnessTiming ? globalThis.performance.now() : 0;
   const optimisticAnswers = selectOptimisticQuestionAnswerIdentities(state);

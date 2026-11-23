@@ -7,12 +7,13 @@ const expoRouter = require('expo-router');
 import usePentacleToken from '../src/hooks/usePentacleToken';
 import { usePentacleStreamActions, usePentacleStreamSelectorWhen } from '../src/services/pentacleStream';
 import { useUserPreference } from '../src/services/userPreferences';
-import type { PentacleSessionSummary, PentacleStreamState, TurnState } from 'pentacle-chat-core';
+import type { PentacleSessionSummary, PentacleStreamState, PentacleTranscriptItem, TurnState } from 'pentacle-chat-core';
 
 const STREAM_ID = 'hostc:claude:one';
 
 let mockParams: Record<string, unknown> = { streamId: encodeURIComponent(STREAM_ID) };
 let mockState: PentacleStreamState;
+let mockEarlierRow: PentacleTranscriptItem | undefined;
 
 const mockActions = {
   sendMessage: jest.fn(),
@@ -64,11 +65,17 @@ jest.mock('../src/services/pentacleStream', () => ({
   sameStreamEventsLoadState: jest.fn((a, b) => a.currentGenerationComplete === b.currentGenerationComplete && a.fresh === b.fresh && a.requestStatus === b.requestStatus),
   selectStreamSlice: jest.fn((state, streamId, options = {}) => {
     const core = require('pentacle-chat-core');
+    const detail = streamId ? core.selectSessionDetail(state, streamId, options) : null;
     return {
       connecting: state.connecting,
       hasHydrated: state.hasHydrated,
       session: state.sessions.find((item: any) => item.stream_id === streamId) || null,
-      detail: streamId ? core.selectSessionDetail(state, streamId, options) : null,
+      detail: detail && mockEarlierRow ? { ...detail, transcriptItems: [mockEarlierRow, ...detail.transcriptItems] } : detail,
+      ...(streamId && mockEarlierRow ? {
+        earlierLocalMessageIds: new Set([mockEarlierRow.optimisticId]),
+        earlierLocalScope: streamId,
+        ...(options.earlierLocalScope === streamId ? { earlierLocalRows: [mockEarlierRow] } : {}),
+      } : {}),
       workingState: state.workingStates?.[streamId],
       turn: state.workingByStream?.[streamId] ?? core.IDLE_TURN,
     };
@@ -113,6 +120,7 @@ function setTurn(turn: TurnState | undefined) {
 beforeEach(() => {
   jest.useFakeTimers({ now: new Date('2026-05-16T12:00:00.000Z') });
   mockParams = { streamId: encodeURIComponent(STREAM_ID) };
+  mockEarlierRow = undefined;
   mockState = {
     connected: true,
     connecting: false,
@@ -146,6 +154,29 @@ test('embedded SessionScreen renders the caller header instead of the combined h
   expect(screen.queryByTestId('combined-session-header')).toBeNull();
   expect(screen.queryByLabelText('Back to chats')).toBeNull();
   expect(screen.getByTestId('composer-input')).toBeTruthy();
+});
+
+test('earlier local text is disclosed with the original failed-message controls', () => {
+  mockEarlierRow = {
+    id: 'old-local', optimisticId: 'old-local', timestampLabel: '', label: 'You', source: '', provider: 'claude',
+    timestamp: '2026-05-14T12:00:00Z', kind: 'USER', isUser: true, tone: 'user', eventCase: 'user-text',
+    displayRule: 'bubble:user', text: 'Earlier synthetic text', pending: false, sendState: 'failed',
+  };
+  render(<SessionScreen streamId={STREAM_ID} header={<Text>Assistant</Text>} />);
+  const disclosure = () => screen.getByRole('button', { name: 'Earlier local messages (1)' });
+  expect(disclosure().props.accessibilityState.expanded).toBe(false);
+  expect(screen.queryByText('Earlier synthetic text')).toBeNull();
+
+  fireEvent.press(disclosure());
+  expect(disclosure().props.accessibilityState.expanded).toBe(true);
+  expect(screen.getByText('Earlier synthetic text')).toBeTruthy();
+  expect(screen.getByLabelText('Retry sending')).toBeTruthy();
+  expect(screen.getByLabelText('Cancel and delete')).toBeTruthy();
+
+  fireEvent.press(disclosure());
+  expect(screen.queryByText('Earlier synthetic text')).toBeNull();
+  expect(mockActions.sendMessage).not.toHaveBeenCalled();
+  expect(mockActions.sendTurn).not.toHaveBeenCalled();
 });
 
 test('the session route keeps its combined header', () => {

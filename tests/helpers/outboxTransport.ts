@@ -338,6 +338,7 @@ async function until(predicate: () => boolean) {
 export async function connect(
   sessions: Record<string, unknown>[] = [origin, other],
   serverOwned = false,
+  events: Record<string, unknown>[] = [],
 ) {
   jest.resetModules();
   global.WebSocket = MockWebSocket as unknown as typeof WebSocket;
@@ -358,9 +359,10 @@ export async function connect(
   socket.message({
     type: 'snapshot',
     sessions,
-    events: [],
+    events,
     capabilities: { outbound_commit_v1: serverOwned },
   });
+  const immediatelyAfterSnapshot = stream.getPentacleStreamState();
   voiceDelivery.setLifecycle({ foreground: true, unlocked: true });
   await voiceDelivery.initialize();
   expect(stream.voiceTransportSnapshot()).toMatchObject({
@@ -376,6 +378,7 @@ export async function connect(
     store,
     binding,
     socket,
+    immediatelyAfterSnapshot,
     cleanup: () => {
       voiceDelivery.dispose();
       unfocus();

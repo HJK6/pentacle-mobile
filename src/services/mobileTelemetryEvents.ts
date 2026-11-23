@@ -5,6 +5,7 @@ export const MOBILE_TELEMETRY_EVENTS = {
   SPAWN_PICKER_VISIBILITY: 'spawn:picker_visibility',
   CHAT_SEND_COMMITTED_PENDING: 'chat:send_committed_pending',
   OUTBOX_DELIVERY_LIFECYCLE: 'outbox:delivery_lifecycle',
+  OUTBOX_EARLIER_LOCAL_MESSAGES: 'outbox:earlier_local_messages',
   VOICE_DELIVERY_LIFECYCLE: 'voice_delivery:lifecycle',
   COMPOSER_INTERRUPT: 'chat:composer_interrupt',
   CHAT_MESSAGE_SELECTION_CHANGED: 'chat:message_selection_changed',
@@ -92,5 +93,6 @@ for (const event of [MOBILE_TELEMETRY_EVENTS.CHAT_MESSAGE_SELECTION_CHANGED, MOB
 (TELEMETRY_EVENT_BUG_REFS as Record<string, string>)[MOBILE_TELEMETRY_EVENTS.COMPOSER_INTERRUPT] = 'composer_send_default_queue_state_2026_10';
 
 (TELEMETRY_EVENT_BUG_REFS as Record<string, string>)[MOBILE_TELEMETRY_EVENTS.OUTBOX_DELIVERY_LIFECYCLE] = 'voice_server_side_send_after_upload';
+(TELEMETRY_EVENT_BUG_REFS as Record<string, string>)[MOBILE_TELEMETRY_EVENTS.OUTBOX_EARLIER_LOCAL_MESSAGES] = 'stale_failed_outbox_on_load_2026_11';
 
 (TELEMETRY_EVENT_BUG_REFS as Record<string, string>)[MOBILE_TELEMETRY_EVENTS.HOUSEHOLD_CALENDAR_DUE_OPENED] = 'household_due_reminders';

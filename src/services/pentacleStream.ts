@@ -1,6 +1,15 @@
 import { uuid } from 'expo-modules-core';
 import { getAppIdentity } from '../config/appIdentity';
 import { outboxStore, type OutboxEntry, type OutboxPhoto, type OutboxText } from './outboxStore';
+import {
+  coldOutboxPreviewState,
+  earlierLocalMessageIds,
+  hasObservedAuthoritativeUser,
+  isEarlierLocalMessage,
+  rememberColdRestoredFailure,
+  resetColdOutboxPresentation,
+  retireColdRestoredFailures,
+} from './coldOutboxPresentation';
 import type { ProcessedAsset } from './imageCapture';
 import { acceptBlobChunk, newBlobFetchBudget, type BlobFetchBudget } from './blobFetchBudget';
 import { useCallback, useSyncExternalStore } from 'react';
@@ -107,6 +116,7 @@ import type {
   PentacleSessionDetail,
   PentacleSessionSummary,
   PentacleStreamState,
+  PentacleTranscriptItem,
   PentacleUpdateMessage,
   TurnState,
   WorkingStateData,
@@ -339,6 +349,7 @@ function rememberVoiceClose(message: Record<string, unknown>) {
   emit();
 }
 function resetVoiceScope() {
+  resetColdOutboxPresentation();
   outboundCommitSupported = false;
   void synchronizeOutbox().catch(() => undefined);
   voiceScopeGeneration += 1;
@@ -1290,6 +1301,7 @@ type StreamSliceOptions = {
   visibleCount?: number | 'all';
   includeDraft?: boolean;
   showToolActions?: boolean;
+  earlierLocalScope?: string;
 };
 
 export type PentacleConnectionSlice = {
@@ -1340,6 +1352,9 @@ export type PentacleStreamSlice = {
   turn: TurnState;
   sending: boolean;
   sendingImmediate: boolean;
+  earlierLocalMessageIds?: ReadonlySet<string>;
+  earlierLocalScope?: string;
+  earlierLocalRows?: readonly PentacleTranscriptItem[];
   returnedToPromptDraft?: {
     optimisticId: string;
     text: string;
@@ -1845,6 +1860,9 @@ function setState(next: PentacleStreamState, notify = true) {
     }
   }
   next = withPendingClosePresentation(next);
+  if (next.optimisticSends !== state.optimisticSends || next.sessions !== state.sessions) {
+    retireColdRestoredFailures(next);
+  }
   if (shallowEqualState(state, next)) {
     return false;
   }
@@ -1947,6 +1965,11 @@ function sameStreamSlice(a: PentacleStreamSlice, b: PentacleStreamSlice) {
     a.turn === b.turn &&
     a.sending === b.sending &&
     a.sendingImmediate === b.sendingImmediate &&
+    a.earlierLocalScope === b.earlierLocalScope &&
+    a.earlierLocalMessageIds?.size === b.earlierLocalMessageIds?.size &&
+    (!a.earlierLocalMessageIds || [...a.earlierLocalMessageIds].every(id => b.earlierLocalMessageIds?.has(id))) &&
+    a.earlierLocalRows?.length === b.earlierLocalRows?.length &&
+    (!a.earlierLocalRows || a.earlierLocalRows.every((row, index) => row === b.earlierLocalRows?.[index])) &&
     a.returnedToPromptDraft?.optimisticId === b.returnedToPromptDraft?.optimisticId &&
     a.returnedToPromptDraft?.text === b.returnedToPromptDraft?.text
   );
@@ -1981,7 +2004,7 @@ export function selectSessionShellSlice(
   // A completed authoritative response, including a zero-row response, owns
   // the empty state and must replace any summary preview.
   const preview = retainedRows === 0 && request !== 'ready'
-    ? selectSafeSessionSummaryPreview(snapshot, streamId)
+    ? selectSafeSessionSummaryPreview(coldOutboxPreviewState(snapshot), streamId)
     : null;
   const value: PentacleSessionShellSlice = {
     connected: snapshot.connected,
@@ -2029,6 +2052,10 @@ export function selectStreamSlice(
     .filter((send) => send.stream_id === streamId && send.status === 'returned_to_prompt')
     .sort((left, right) => (right.returned_at ?? right.created_at) - (left.returned_at ?? left.created_at))[0];
   const detailStartedAt = monotonicNowMs();
+  const localIds = earlierLocalMessageIds(snapshot, streamId);
+  const earlierLocalScope = localIds.size
+    ? JSON.stringify([voiceScopeGeneration, streamId, session?.session_generation])
+    : undefined;
   const detail = selectSessionDetail(snapshot, streamId, {
     visibleCount: options.visibleCount,
     includeDraft: options.includeDraft,
@@ -2040,6 +2067,11 @@ export function selectStreamSlice(
     // optimistic-send reconciliation.
     emitRenderTelemetry: false,
   });
+  const earlierLocalRows = earlierLocalScope && options.earlierLocalScope === earlierLocalScope
+    ? selectSessionDetail(snapshot, streamId, {
+      visibleCount: 'all', includeDraft: false, showToolActions: options.showToolActions, emitRenderTelemetry: false,
+    })?.transcriptItems.filter(item => isEarlierLocalMessage(item, localIds))
+    : undefined;
   emitHarnessUiTrace('session_detail_select_timing', {
     stream_id: streamId,
     visible_count: options.visibleCount ?? 80,
@@ -2054,6 +2086,11 @@ export function selectStreamSlice(
     hasHydrated: snapshot.hasHydrated,
     session,
     detail,
+    ...(localIds.size ? {
+      earlierLocalMessageIds: localIds,
+      earlierLocalScope,
+      earlierLocalRows,
+    } : {}),
     hasOlderHistoryPage: canRequestOlderStreamEventsPage(streamId),
     specStatuses: snapshot.specStatuses ?? [],
     workingState: snapshot.workingStates?.[streamId],
@@ -6751,9 +6788,14 @@ export async function persistLegacyAnswer(args: {
   });
   return { id, dispatch: () => dispatchOutboxAnswer(id) };
 }
-function hydrateOutboxText(e: OutboxText | OutboxPhoto) {
+function hydrateOutboxText(e: OutboxText | OutboxPhoto, scopeHash: string): boolean {
   const id = String(e.frame.optimistic_id ?? e.frame.msg_id ?? '');
-  if (!id || state.optimisticSends?.[id]) return;
+  if (!id || state.optimisticSends?.[id]) return false;
+  const now = Date.now();
+  const restoresFailed = e.kind === 'text' && Boolean(e.error || now - e.createdAt > RECONNECT_REPLAY_MAX_AGE_MS);
+  // A scoped, already observed same-generation echo wins before the reducer
+  // can replace its event with a client-origin row for the same logical ID.
+  if (e.kind === 'text' && restoresFailed && hasObservedAuthoritativeUser(e, scopeHash, state)) return false;
   const attachments =
     e.kind === 'photo'
       ? e.attachments.map((a) => ({
@@ -6790,8 +6832,7 @@ function hydrateOutboxText(e: OutboxText | OutboxPhoto) {
             ? { reply_to_question_id: String(e.frame.reply_to_question_id) }
             : {}),
           ...(e.originGeneration !== undefined ? { origin_generation: e.originGeneration } : {}),
-          ...(e.kind === 'text' &&
-          (e.error || Date.now() - e.createdAt > RECONNECT_REPLAY_MAX_AGE_MS)
+          ...(restoresFailed
             ? { status: 'failed' as const, failure_reason: 'Delivery unconfirmed. Try again.' }
             : {}),
         },
@@ -6816,8 +6857,10 @@ function hydrateOutboxText(e: OutboxText | OutboxPhoto) {
         },
       });
   }
+  const folded = e.kind === 'text' && rememberColdRestoredFailure(e, scopeHash, state, next, now);
   setState(next);
   if (e.kind === 'text' && !e.error) queuedOptimisticDispatchRequests.add(id);
+  return folded;
 }
 async function restoreOutboxOnConnection() {
   const scope = currentOutboxScope();
@@ -6827,14 +6870,17 @@ async function restoreOutboxOnConnection() {
   outboxRestoreKey = key;
   const work = (async () => {
     await outboxStore.setScope(scope);
+    const scopeHash = voiceScopeHashForOutbox(scope);
     if (
-      voiceScopeHashForOutbox(scope) !== outboxStore.scopeHash() ||
+      scopeHash !== outboxStore.scopeHash() ||
       key !== `${voiceScopeGeneration}:${currentSocketGeneration}`
     )
       return;
+    let folded = 0;
     for (const e of outboxStore.snapshot().entries) {
-      if (e.kind === 'text' || e.kind === 'photo') hydrateOutboxText(e);
-      else if (e.kind === 'notification_resolve') {
+      if (e.kind === 'text' || e.kind === 'photo') {
+        if (hydrateOutboxText(e, scopeHash)) folded++;
+      } else if (e.kind === 'notification_resolve') {
         const v = e.survivor as unknown as (typeof pendingNotificationResolves)[string];
         if (!pendingNotificationResolves[v.notification_id])
           pendingNotificationResolves[v.notification_id] = {
@@ -6848,6 +6894,13 @@ async function restoreOutboxOnConnection() {
         void dispatchOutboxAnswer(e.id).catch(() => undefined);
       if (e.kind === 'photo' && voiceTransportSnapshot().ready)
         void drivePhotoEntry(e.id).catch(() => undefined);
+    }
+    if (folded) {
+      logTelemetry(MOBILE_TELEMETRY_EVENTS.OUTBOX_EARLIER_LOCAL_MESSAGES as Parameters<typeof logTelemetry>[0], {
+        subsystem: 'outbox',
+        bug_ref: 'stale_failed_outbox_on_load_2026_11',
+        count_bucket: folded === 1 ? '1' : folded <= 4 ? '2–4' : '5+',
+      });
     }
     dispatchOfflineQueuedSends(currentSocketGeneration);
     dispatchOfflineQueuedNotificationResolves(currentSocketGeneration);
