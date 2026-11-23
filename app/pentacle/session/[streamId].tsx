@@ -4,6 +4,7 @@ import React, { memo, useCallback, useEffect, useLayoutEffect, useMemo, useId, u
 import { useComposerDraft, draftRevision, restoreDraft } from '../../../src/services/composerDrafts';
 import { useStagedAttachments } from '../../../src/services/composerAttachments';
 import { getPentacleStreamState, voiceTransportSnapshot, voiceOriginStatus } from '../../../src/services/pentacleStream';
+import { presentEarlierLocalMessages } from '../../../src/services/coldOutboxPresentation';
 import { HOME_ROUTE } from '../../../src/services/homeRoute';
 import {
   ActivityIndicator,
@@ -1090,6 +1091,7 @@ export function SessionScreen(props: SessionScreenProps) {
   const [renameVisible, setRenameVisible] = useState(false);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   const [visibleRows, setVisibleRows] = useState(INITIAL_TRANSCRIPT_ROWS);
+  const [expandedEarlierLocalScope, setExpandedEarlierLocalScope] = useState<string>();
   const [loadingEarlier, setLoadingEarlier] = useState(false);
   const [transcriptReady, setTranscriptReady] = useState(false);
   const [dismissComposerToken, setDismissComposerToken] = useState(0);
@@ -1292,7 +1294,7 @@ export function SessionScreen(props: SessionScreenProps) {
       ? selectStreamSlice(
         state,
         isFocused ? streamId : '',
-        { visibleCount: visibleRows, includeDraft: false, showToolActions },
+        { visibleCount: visibleRows, includeDraft: false, showToolActions, earlierLocalScope: expandedEarlierLocalScope },
       )
       : selectStreamSlice(state, ''),
     Object.is,
@@ -1360,6 +1362,9 @@ export function SessionScreen(props: SessionScreenProps) {
     sending,
     sendingImmediate,
     returnedToPromptDraft,
+    earlierLocalMessageIds,
+    earlierLocalScope,
+    earlierLocalRows,
   } = streamSlice;
   useTranscriptQuestionBackfill(streamId, isFocused && connectionSlice.connected, detail?.transcriptItems);
   const historyFetchInFlight = historyLoadState.requestStatus === 'loading' ||
@@ -2097,11 +2102,12 @@ export function SessionScreen(props: SessionScreenProps) {
     () => assembleSessionTranscriptRows(
       authoritativeQuestionAnswerProjections,
       questionAnswerProjections,
-      detail?.transcriptItems ?? [],
+      presentEarlierLocalMessages(detail?.transcriptItems ?? [], earlierLocalMessageIds, earlierLocalRows),
       questionEventTimestamps,
       voiceState.takes.filter(t => t.streamId === streamId).map(voiceTakeRow),
     ),
-    [authoritativeQuestionAnswerProjections, detail?.transcriptItems, questionAnswerProjections, questionEventTimestamps, voiceState, streamId],
+    [authoritativeQuestionAnswerProjections, detail?.transcriptItems, earlierLocalMessageIds, earlierLocalRows,
+      questionAnswerProjections, questionEventTimestamps, voiceState, streamId],
   );
   const openImageViewer = useCallback((rowId: string, attachmentIndex: number) => {
     setViewerGallery(createImageGallery(transcriptData, rowId, attachmentIndex));
@@ -3599,7 +3605,25 @@ export function SessionScreen(props: SessionScreenProps) {
               keyExtractor={(item) => item.id}
               renderItem={renderTranscriptItem}
               ListFooterComponent={renderTranscriptFooter}
-              ListHeaderComponent={streamId === ASSISTANT_STREAM_ID && bottomItem ? <View testID="transcript-bottom-item">{bottomItem}</View> : undefined}
+              ListHeaderComponent={earlierLocalScope || (streamId === ASSISTANT_STREAM_ID && bottomItem) ? (
+                <>
+                  {earlierLocalScope && earlierLocalMessageIds ? (
+                    <Pressable
+                      testID="earlier-local-messages"
+                      accessibilityRole="button"
+                      accessibilityState={{ expanded: expandedEarlierLocalScope === earlierLocalScope }}
+                      onPress={() => setExpandedEarlierLocalScope(current => current === earlierLocalScope
+                        ? undefined : earlierLocalScope)}
+                      style={[styles.loadEarlierButton, { borderColor: chrome.border, backgroundColor: chrome.surface }]}
+                    >
+                      <Text style={[styles.loadEarlierText, { color: chrome.accent }]}>
+                        {'Earlier local messages (' + earlierLocalMessageIds.size + ')'}
+                      </Text>
+                    </Pressable>
+                  ) : null}
+                  {streamId === ASSISTANT_STREAM_ID && bottomItem ? <View testID="transcript-bottom-item">{bottomItem}</View> : null}
+                </>
+              ) : undefined}
               inverted
               keyboardShouldPersistTaps="always"
               keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}

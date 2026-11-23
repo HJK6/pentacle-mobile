@@ -4,7 +4,7 @@ import { assistantAccent } from '../../../src/components/assistant/assistantIden
 import { Modal } from 'react-native';
 import ChatsDrawer from '../../../src/components/assistant/ChatsDrawer';
 import SummonModal from '../../../src/components/SummonModal';
-import { act, fireEvent, render, screen } from '@testing-library/react-native';
+import { act, fireEvent, render, screen, within } from '@testing-library/react-native';
 import AssistantScreen from '../../../app/(tabs)/assistant';
 import { ASSISTANT_STREAM_ID } from '../../../src/services/assistantIdentity';
 const expoRouter = require('expo-router');
@@ -270,10 +270,15 @@ test('Questions toggles the bottom transcript card with an identical header butt
   "width": 40,
 }
 `);
-  expect(screen.getByTestId('question-deck-card')).toBeTruthy();
   const list = screen.UNSAFE_getByType(FlatList);
   expect(list.props.inverted).toBe(true);
-  expect(list.props.ListHeaderComponent.props.testID).toBe('transcript-bottom-item');
+  const bottom = within(list).getByTestId('transcript-bottom-item');
+  expect(within(bottom).getByTestId('question-deck-card')).toBeTruthy();
+  const header: React.ReactElement<{ children?: React.ReactNode }> | undefined = list.props.ListHeaderComponent;
+  const headerItems = header?.type === React.Fragment ? React.Children.toArray(header.props.children) : [header];
+  expect(headerItems.at(-1)).toEqual(expect.objectContaining({
+    props: expect.objectContaining({ testID: 'transcript-bottom-item' }),
+  }));
   expect(screen.queryByTestId('question-fab')).toBeNull();
   fireEvent.press(button);
   expect(screen.queryByTestId('question-deck-card')).toBeNull();

@@ -1,6 +1,7 @@
 import { QUESTION_SKIP_TEXT } from 'pentacle-chat-core';
 import HeaderVoiceMic from '../../src/components/voice/HeaderVoiceMic';
 import { useVoiceSurface } from '../../src/services/voicePresentation';
+import { coldOutboxPreviewState } from '../../src/services/coldOutboxPresentation';
 import VoiceRecordingOverlay from '../../src/components/voice/VoiceRecordingOverlay';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -215,6 +216,7 @@ function questionNote(answers: DurableQuestionAnswer[]) {
 }
 
 function selectUnifiedSlice(state: PentacleStreamState): UnifiedSlice {
+  state = coldOutboxPreviewState(state);
   const visibleSessions = selectDefaultVisibleSessions(state.sessions);
   const sessionsByStream = Object.fromEntries(state.sessions.map((session) => [session.stream_id, session]));
   const visibleSessionsByStream = Object.fromEntries(visibleSessions.map((session) => [session.stream_id, session]));

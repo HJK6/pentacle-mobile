@@ -416,15 +416,15 @@ test('the transcriptData memo delegates to the exported assembleSessionTranscrip
   expect(source).toContain("import { parseNotificationAnswerNotice } from 'pentacle-chat-core';");
   expect(source).toContain('export function assembleSessionTranscriptRows(');
 
-  // Scope to the transcriptData memo and assert it is a DIRECT delegation to the helper with the
-  // four inputs, with no reimplemented pipeline that could drift from the tested code.
+  // The screen delegates to the tested answer assembly with the projected transcript items.
+  // Earlier local messages are projected before assembly, alongside the other unchanged inputs.
   const memoStart = source.indexOf('const transcriptData = useMemo(');
   expect(memoStart).toBeGreaterThan(-1);
   const memoEnd = source.indexOf('useEffect(', memoStart);
   expect(memoEnd).toBeGreaterThan(memoStart);
   const memo = source.slice(memoStart, memoEnd);
   expect(memo).toMatch(
-    /assembleSessionTranscriptRows\(\s*authoritativeQuestionAnswerProjections,\s*questionAnswerProjections,\s*detail\?\.transcriptItems\s*\?\?\s*\[\],\s*questionEventTimestamps,\s*voiceState\.takes\.filter\(t => t\.streamId === streamId\)\.map\(voiceTakeRow\),\s*\)/,
+    /assembleSessionTranscriptRows\(\s*authoritativeQuestionAnswerProjections,\s*questionAnswerProjections,\s*presentEarlierLocalMessages\(\s*detail\?\.transcriptItems\s*\?\?\s*\[\],\s*earlierLocalMessageIds,\s*earlierLocalRows\s*\),\s*questionEventTimestamps,\s*voiceState\.takes\.filter\(t => t\.streamId === streamId\)\.map\(voiceTakeRow\),\s*\)/,
   );
   // The assembly primitives live ONLY in the helper now, never re-inlined in the memo.
   expect(memo.includes('orderSessionTranscriptRows(')).toBe(false);
