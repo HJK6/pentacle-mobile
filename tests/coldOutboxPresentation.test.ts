@@ -143,3 +143,44 @@ test.each(['history first', 'restore first'])('authoritative same-ID USER stays 
     fresh.cleanup();
   }
 });
+
+test('older inventory keeps the local preview folded while an authoritative same-body summary stays visible', async () => {
+  const now = Date.now();
+  const target = {
+    stream_id: STREAM, host: 'hostb', session_name: 'other', provider: 'codex',
+    session_generation: GENERATION, online: true, last_kind: 'ASSIST',
+    last_event_at: new Date(now - 3 * DAY).toISOString(), last_text: 'Older server summary',
+  };
+  const initial = await connect([target]);
+  const { outboxStore } = require('../src/services/outboxStore') as typeof import('../src/services/outboxStore');
+  await outboxStore.put(record(OLD, now - 2 * DAY));
+  initial.cleanup();
+
+  const fresh = await connect([target]);
+  try {
+    await flush();
+    const { coldOutboxPreviewState } = presentation();
+    const { createChatListSelector } = require('pentacle-chat-core') as typeof import('pentacle-chat-core');
+    const selectChatList = createChatListSelector();
+    const listPreview = () => selectChatList(coldOutboxPreviewState(fresh.stream.getPentacleStreamState()))
+      .find(row => row.streamId === STREAM)?.previewText;
+    const preview = () => coldOutboxPreviewState(fresh.stream.getPentacleStreamState()).sessions
+      .find(session => session.stream_id === STREAM);
+    expect(preview()?.last_text).toBe('Older server summary');
+    fresh.socket.message({ type: 'session.inventory', sessions: [target] });
+    await flush();
+    expect(preview()?.last_text).toBe('Older server summary');
+    expect(listPreview()).toBe('Older server summary');
+
+    const sameBody = { ...target, last_text: 'Synthetic text', last_kind: 'USER',
+      last_event_at: new Date(now - 2 * DAY - 1).toISOString() };
+    fresh.socket.message({ type: 'session.inventory', sessions: [sameBody] });
+    await flush();
+    expect(preview()).toMatchObject({ last_text: sameBody.last_text, last_event_at: sameBody.last_event_at });
+    expect(listPreview()).toBe(sameBody.last_text);
+    expect(fresh.stream.selectStreamSlice(fresh.stream.getPentacleStreamState(), STREAM).earlierLocalMessageIds?.has(OLD))
+      .toBe(true);
+  } finally {
+    fresh.cleanup();
+  }
+});

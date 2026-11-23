@@ -1,4 +1,4 @@
-import { mutatePentacleEventBuckets, peekEventsForStream } from 'pentacle-chat-core';
+import { mutatePentacleEventBuckets, peekEventsForStream, selectSafeSessionSummaryPreview } from 'pentacle-chat-core';
 import type { PentacleEvent, PentacleSessionSummary, PentacleStreamState, PentacleTranscriptItem } from 'pentacle-chat-core';
 import { getAssistantStreamId } from '../config/local';
 import type { OutboxText } from './outboxStore';
@@ -7,6 +7,15 @@ const DAY_MS = 86_400_000;
 const ASSISTANT_GENERATION = 'assistant-composite-v1';
 type Origin = { streamId: string; generation: string; requestId: string; composite: boolean };
 type Preview = Pick<PentacleSessionSummary, 'last_text' | 'last_kind' | 'last_event_at' | 'last_text_provenance'>;
+
+function previewOf(summary: PentacleSessionSummary): Preview {
+  return { last_text: summary.last_text, last_kind: summary.last_kind,
+    last_event_at: summary.last_event_at, last_text_provenance: summary.last_text_provenance };
+}
+
+function samePreviewStamp(a: Preview, b: Preview): boolean {
+  return a.last_text === b.last_text && a.last_kind === b.last_kind && a.last_event_at === b.last_event_at;
+}
 
 const restored = new Map<string, Origin>();
 const materialized = new Set<string>();
@@ -133,12 +142,34 @@ export function rememberColdRestoredFailure(
     && after.last_text === local.text && after.last_kind === local.kind) {
     // Only this exact object is known to carry a locally projected preview.
     // A later inventory can carry the same text verbatim and is authoritative.
-    localPreviews.set(after, { optimisticId: entry.id, prior: localPreviews.get(before)?.prior ?? {
-      last_text: before.last_text, last_kind: before.last_kind,
-      last_event_at: before.last_event_at, last_text_provenance: before.last_text_provenance,
-    } });
+    localPreviews.set(after, { optimisticId: entry.id, prior: localPreviews.get(before)?.prior ?? previewOf(before) });
   }
   return true;
+}
+
+export function carryColdOutboxPreviews(
+  previous: PentacleStreamState, next: PentacleStreamState, incoming: readonly PentacleSessionSummary[],
+) {
+  if (!restored.size) return;
+  const byStream = new Map(incoming.map(summary => [summary.stream_id, summary]));
+  const nextByStream = new Map(next.sessions.map(summary => [summary.stream_id, summary]));
+  for (const before of previous.sessions) {
+    const local = localPreviews.get(before);
+    if (!local) continue;
+    const origin = restored.get(local.optimisticId);
+    const current = nextByStream.get(before.stream_id);
+    const server = byStream.get(before.stream_id);
+    if (!origin || !current || !server || !matchesSession(origin, server) || !matchesSession(origin, current)) continue;
+    // The core can keep the previous preview fields while replacing the
+    // summary object. Transfer the origin only when that exact preview won
+    // the merge. Independently received server fields always keep authority.
+    if (!samePreviewStamp(current, before) || samePreviewStamp(server, current)) continue;
+    const serverAt = Date.parse(server.last_event_at);
+    const priorAt = Date.parse(local.prior.last_event_at);
+    const adoptServer = Number.isFinite(serverAt) && (!Number.isFinite(priorAt) || serverAt >= priorAt)
+      && selectSafeSessionSummaryPreview({ ...next, sessions: [server] }, server.stream_id);
+    localPreviews.set(current, { ...local, prior: adoptServer ? previewOf(server) : local.prior });
+  }
 }
 
 export function retireColdRestoredFailures(state: PentacleStreamState) {

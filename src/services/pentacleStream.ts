@@ -2,6 +2,7 @@ import { uuid } from 'expo-modules-core';
 import { getAppIdentity } from '../config/appIdentity';
 import { outboxStore, type OutboxEntry, type OutboxPhoto, type OutboxText } from './outboxStore';
 import {
+  carryColdOutboxPreviews,
   coldOutboxPreviewState,
   earlierLocalMessageIds,
   hasObservedAuthoritativeUser,
@@ -4283,7 +4284,11 @@ function handleMessageInner(raw: string) {
         events || [],
       );
     }
-    if (sessions) { sendInventoryGeneration = currentSocketGeneration; rememberVoiceInventory(sessions); }
+    if (sessions) {
+      sendInventoryGeneration = currentSocketGeneration;
+      rememberVoiceInventory(sessions);
+      carryColdOutboxPreviews(state, nextState, sessions);
+    }
     setState(nextState);
     dispatchOfflineQueuedSends(currentSocketGeneration);
     void restoreOutboxOnConnection().catch(() => undefined);
@@ -4382,10 +4387,9 @@ function handleMessageInner(raw: string) {
     const sessions = message.sessions as PentacleSessionSummary[];
     sendInventoryGeneration = currentSocketGeneration;
     rememberVoiceInventory(sessions);
-    setState(applyPentacleSessionInventory(
-      state,
-      sessions,
-    ));
+    const next = applyPentacleSessionInventory(state, sessions);
+    carryColdOutboxPreviews(state, next, sessions);
+    setState(next);
     dispatchOfflineQueuedSends(currentSocketGeneration);
     void restoreOutboxOnConnection().catch(() => undefined);
     void reconcilePendingSessionCloses(sessions, currentSocketGeneration);
