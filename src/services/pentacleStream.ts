@@ -2053,9 +2053,9 @@ export function selectStreamSlice(
     .filter((send) => send.stream_id === streamId && send.status === 'returned_to_prompt')
     .sort((left, right) => (right.returned_at ?? right.created_at) - (left.returned_at ?? left.created_at))[0];
   const detailStartedAt = monotonicNowMs();
-  const localIds = earlierLocalMessageIds(snapshot, streamId);
-  const earlierLocalScope = localIds.size
-    ? JSON.stringify([voiceScopeGeneration, streamId, session?.session_generation])
+  const localIds = earlierLocalMessageIds(snapshot, streamId, true);
+  const earlierLocalScope = localIds.size && session
+    ? JSON.stringify([voiceScopeGeneration, streamId, session.session_generation])
     : undefined;
   const detail = selectSessionDetail(snapshot, streamId, {
     visibleCount: options.visibleCount,

@@ -184,3 +184,44 @@ test('older inventory keeps the local preview folded while an authoritative same
     fresh.cleanup();
   }
 });
+
+test.each([GENERATION, 'replaced-generation'])(
+  'withholds qualified old rows until first inventory and opens recovery only for the matching generation (%s)',
+  async (advertisedGeneration) => {
+    const initial = await connect();
+    const { outboxStore } = require('../src/services/outboxStore') as typeof import('../src/services/outboxStore');
+    await outboxStore.put(record(OLD, Date.now() - 2 * DAY));
+    await outboxStore.put(record('recent', Date.now() - 31 * MINUTE));
+    initial.cleanup();
+
+    const fresh = await connect([{
+      stream_id: STREAM, host: 'hostb', session_name: 'other', provider: 'codex',
+      online: true, session_generation: advertisedGeneration,
+    }], false, [], async stream => {
+      await flush();
+      const state = stream.getPentacleStreamState();
+      const slice = stream.selectStreamSlice(state, STREAM);
+      expect(state.sessions).toHaveLength(0);
+      expect(state.optimisticSends?.[OLD]?.status).toBe('failed');
+      expect(state.optimisticSends?.recent?.status).toBe('failed');
+      expect(slice.earlierLocalScope).toBeUndefined();
+      expect(presentation().presentEarlierLocalMessages(slice.detail!.transcriptItems, slice.earlierLocalMessageIds)
+        .map(row => row.optimisticId)).toEqual(['recent']);
+    });
+    try {
+      await flush();
+      const slice = fresh.stream.selectStreamSlice(fresh.stream.getPentacleStreamState(), STREAM);
+      if (advertisedGeneration === GENERATION) {
+        expect(slice.earlierLocalScope).toBeDefined();
+        expect([...slice.earlierLocalMessageIds!]).toEqual([OLD]);
+      } else {
+        expect(slice.earlierLocalScope).toBeUndefined();
+        expect(slice.detail?.transcriptItems.some(row => row.optimisticId === OLD)).toBe(true);
+      }
+      expect(fresh.socket.sends()).toEqual([]);
+      expect(fresh.socket.frames('send.receipt.get')).toEqual([]);
+    } finally {
+      fresh.cleanup();
+    }
+  },
+);

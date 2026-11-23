@@ -109,13 +109,19 @@ export function presentEarlierLocalMessages(
 }
 
 const NO_IDS: ReadonlySet<string> = new Set();
-export function earlierLocalMessageIds(state: PentacleStreamState, streamId: string): ReadonlySet<string> {
+export function earlierLocalMessageIds(
+  state: PentacleStreamState, streamId: string, withholdBeforeInventory = false,
+): ReadonlySet<string> {
   if (!restored.size) return NO_IDS;
   const session = state.sessions.find(row => row.stream_id === streamId);
-  if (!session) return NO_IDS;
+  // Restore can finish before the first inventory. Keep the already qualified
+  // local row out of the synthetic transcript until its session is known.
+  if (!session && (!withholdBeforeInventory || state.hasHydrated)) return NO_IDS;
   const ids = new Set<string>();
   for (const [id, origin] of restored) {
-    if (origin.streamId === streamId && matchesSession(origin, session) && matchesRow(state, id, origin)) ids.add(id);
+    if (origin.streamId === streamId && (!session || matchesSession(origin, session)) && matchesRow(state, id, origin)) {
+      ids.add(id);
+    }
   }
   return ids.size ? ids : NO_IDS;
 }

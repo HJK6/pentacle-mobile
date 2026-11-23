@@ -339,6 +339,7 @@ export async function connect(
   sessions: Record<string, unknown>[] = [origin, other],
   serverOwned = false,
   events: Record<string, unknown>[] = [],
+  beforeInventory?: (stream: typeof import('../../src/services/pentacleStream')) => Promise<void>,
 ) {
   jest.resetModules();
   global.WebSocket = MockWebSocket as unknown as typeof WebSocket;
@@ -356,6 +357,7 @@ export async function connect(
   const socket = MockWebSocket.instances.at(-1)!;
   socket.serverSend = serverOwned;
   authenticate(socket);
+  if (beforeInventory) await beforeInventory(stream);
   socket.message({
     type: 'snapshot',
     sessions,
