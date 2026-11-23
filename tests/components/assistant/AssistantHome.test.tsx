@@ -272,9 +272,13 @@ test('Questions toggles the bottom transcript card with an identical header butt
 `);
   const list = screen.UNSAFE_getByType(FlatList);
   expect(list.props.inverted).toBe(true);
-  expect(list.props.ListHeaderComponent).toBeDefined();
   const bottom = within(list).getByTestId('transcript-bottom-item');
   expect(within(bottom).getByTestId('question-deck-card')).toBeTruthy();
+  const header: React.ReactElement<{ children?: React.ReactNode }> | undefined = list.props.ListHeaderComponent;
+  const headerItems = header?.type === React.Fragment ? React.Children.toArray(header.props.children) : [header];
+  expect(headerItems.at(-1)).toEqual(expect.objectContaining({
+    props: expect.objectContaining({ testID: 'transcript-bottom-item' }),
+  }));
   expect(screen.queryByTestId('question-fab')).toBeNull();
   fireEvent.press(button);
   expect(screen.queryByTestId('question-deck-card')).toBeNull();
