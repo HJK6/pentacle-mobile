@@ -134,7 +134,7 @@ export default function SettingsScreen() {
         <View style={[styles.center, styles.emptyState]}>
           <Text style={styles.emptyTitle}>Pentacle settings are unavailable until this device is enrolled.</Text>
           <Text style={styles.emptyBody}>
-            Enroll this device from a Pentacle enrollment link. Once the stream token is stored behind Face ID, live machine status and stats will appear here.
+            Enroll this device from a Pentacle enrollment link. Once the device credential is stored, live machine status and stats will appear here.
           </Text>
         <AppVersionRow version={appIdentity.version} buildNumber={appIdentity.buildNumber} />
         </View>

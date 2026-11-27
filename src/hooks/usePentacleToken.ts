@@ -36,7 +36,15 @@ let snapshot: Snapshot = {
 let loadPromise: Promise<void> | null = null;
 let harnessLoadGeneration = 0;
 let tokenReadBackgrounded = false;
+// Bumped by every explicit write so a slower load that started earlier cannot overwrite it.
+let writeGeneration = 0;
 const listeners = new Set<() => void>();
+
+// A read that failed or found nothing is re-read on every foreground: the credential may have
+// become readable (unlock, restored copy) while the app was away, and the screen has no other exit.
+function credentialMissing() {
+  return snapshot.isReady && !snapshot.token;
+}
 
 function emit() {
   listeners.forEach((listener) => listener());
@@ -48,6 +56,7 @@ function updateSnapshot(next: Partial<Snapshot>) {
 }
 
 async function loadFromSecureStore(force = false, harnessGeneration: number | null = null) {
+  const startedAtWrite = writeGeneration;
   const defaultWsUrl = getBackendWsUrl();
   const harnessWsUrl =
     process.env.EXPO_PUBLIC_HARNESS === '1' ? tokenHarness?.getHarnessWsUrl() : null;
@@ -105,6 +114,7 @@ async function loadFromSecureStore(force = false, harnessGeneration: number | nu
     // An ancillary endpoint read must not discard a successfully read token.
     const storedWsUrl = await SecureStore.getItemAsync(WS_URL_KEY, WS_URL_STORE_OPTIONS).catch(() => null);
     if (harnessGeneration !== null && harnessGeneration !== harnessLoadGeneration) return;
+    if (startedAtWrite !== writeGeneration) return;
     const wsUrl = harnessWsUrl || storedWsUrl?.trim() || defaultWsUrl;
     setPentacleAuthToken(tokenValue);
     setPentacleWsUrl(wsUrl);
@@ -116,6 +126,7 @@ async function loadFromSecureStore(force = false, harnessGeneration: number | nu
     });
   } catch {
     if (harnessGeneration !== null && harnessGeneration !== harnessLoadGeneration) return;
+    if (startedAtWrite !== writeGeneration) return;
     setPentacleAuthToken(null);
     setPentacleWsUrl(defaultOrHarnessWsUrl);
     updateSnapshot({
@@ -158,7 +169,7 @@ export default function usePentacleToken() {
     // The local biometric lock can unmount every token consumer in background.
     // Preserve that transition until a consumer mounts after the normal unlock.
     const foregroundRetry = AppState.currentState === 'active'
-      && tokenReadBackgrounded && snapshot.error === 'token_read_failed';
+      && tokenReadBackgrounded && credentialMissing();
     if (AppState.currentState === 'active') tokenReadBackgrounded = false;
     if (AppState.currentState === 'background') tokenReadBackgrounded = true;
     void ensureLoaded(foregroundRetry && !loadPromise);
@@ -169,7 +180,7 @@ export default function usePentacleToken() {
       if (nextState === 'active') tokenReadBackgrounded = false;
       // Face ID inactivity is not a background return. Shared load ownership
       // also prevents multiple consumers from starting additional reads.
-      if (foreground && snapshot.error === 'token_read_failed' && !loadPromise) {
+      if (foreground && credentialMissing() && !loadPromise) {
         void ensureLoaded(true);
       }
     });
@@ -192,7 +203,9 @@ export default function usePentacleToken() {
         return;
       }
     }
+    writeGeneration += 1;
     await setPentacleDeviceToken(value);
+    writeGeneration += 1;
     setPentacleAuthToken(value);
     updateSnapshot({ token: value, isReady: true, error: null });
   }, []);
@@ -205,7 +218,9 @@ export default function usePentacleToken() {
         return;
       }
     }
+    writeGeneration += 1;
     await deletePentacleDeviceToken();
+    writeGeneration += 1;
     // Sign-out also forgets the enrolled endpoint so a stale host is recoverable.
     await SecureStore.deleteItemAsync(WS_URL_KEY, WS_URL_STORE_OPTIONS);
     setPentacleAuthToken(null);
@@ -215,6 +230,7 @@ export default function usePentacleToken() {
 
   const setWsUrl = useCallback(async (value: string) => {
     const normalized = value.trim();
+    writeGeneration += 1;
     if (!normalized) {
       const defaultWsUrl = getBackendWsUrl();
       await SecureStore.deleteItemAsync(WS_URL_KEY, WS_URL_STORE_OPTIONS);

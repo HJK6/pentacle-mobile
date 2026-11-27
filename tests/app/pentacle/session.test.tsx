@@ -210,9 +210,13 @@ test('renders locked and unenrolled access states', () => {
   expect(loading.getByText('Unlocking Pentacle…')).toBeTruthy();
   loading.unmount();
 
-  (usePentacleToken as jest.Mock).mockReturnValue({ isReady: true, token: null });
+  const reload = jest.fn().mockResolvedValue(undefined);
+  (usePentacleToken as jest.Mock).mockReturnValue({ isReady: true, token: null, reload });
   render(<SessionScreen />);
   expect(screen.getByText('Pentacle access is unavailable on this device.')).toBeTruthy();
+  // The state is never a dead end: Try again re-reads the device credential.
+  fireEvent.press(screen.getByTestId('credential-retry'));
+  expect(reload).toHaveBeenCalledTimes(1);
 });
 
 test('cold renders seeded transcript fixture', async () => {

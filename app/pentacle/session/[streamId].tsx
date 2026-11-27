@@ -154,6 +154,7 @@ import {
 } from '../../../src/services/agentQuestionNotifications';
 import { handleChatCopy, type ChatCopyKind } from '../../../src/utils/chatCopy';
 import MessageSelectableText, { MessageTextRow } from '../../../src/components/MessageSelectableText';
+import CredentialRetry from '../../../src/components/CredentialRetry';
 import {
   mobileQuestionItems,
   QuestionFab,
@@ -1080,7 +1081,7 @@ export function SessionScreen(props: SessionScreenProps) {
     streamId === `fixture:report-viewer:${reportViewerHarnessRunId}` &&
     activeHarnessRuntime?.isArmed() === true &&
     activeHarnessRuntime.hasAction('open_report_viewer');
-  const { token, isReady } = usePentacleToken();
+  const { token, isReady, reload: reloadToken } = usePentacleToken();
   const actions = usePentacleStreamActions();
   const [isDragging, setIsDragging] = useState(false);
   const [menuVisible, setMenuVisible] = useState(false);
@@ -3325,6 +3326,7 @@ export function SessionScreen(props: SessionScreenProps) {
       <View style={[styles.center, styles.container]}>
         <Starfield />
         <Text {...NON_SELECTABLE_TEXT} style={styles.centerText}>Pentacle access is unavailable on this device.</Text>
+        <CredentialRetry onRetry={reloadToken} />
       </View>
     );
   }
