@@ -27,14 +27,21 @@ function legacyOptions(): SecureStore.SecureStoreOptions {
 }
 
 async function readDeviceToken(): Promise<string | null> {
-  const durable = await SecureStore.getItemAsync(PENTACLE_DEVICE_TOKEN_DURABLE_KEY, durableOptions()).catch(() => null);
+  let durableError: unknown = null;
+  const durable = await SecureStore.getItemAsync(PENTACLE_DEVICE_TOKEN_DURABLE_KEY, durableOptions())
+    .catch((error) => { durableError = error; return null; });
   if (durable) return durable;
   const legacy = await SecureStore.getItemAsync(PENTACLE_DEVICE_TOKEN_KEY, legacyOptions());
   if (legacy) {
     // Migration is best effort: a failed write must not discard a credential that was just read.
-    await SecureStore.setItemAsync(PENTACLE_DEVICE_TOKEN_DURABLE_KEY, legacy, durableOptions()).catch(() => undefined);
+    const migrated = await SecureStore.setItemAsync(PENTACLE_DEVICE_TOKEN_DURABLE_KEY, legacy, durableOptions())
+      .then(() => true, () => false);
+    if (migrated) await SecureStore.deleteItemAsync(PENTACLE_DEVICE_TOKEN_KEY, legacyOptions()).catch(() => undefined);
+    return legacy;
   }
-  return legacy;
+  // A failed durable read is not "no credential": surface it so it is retried and never cached as null.
+  if (durableError) throw durableError;
+  return null;
 }
 
 export function getPentacleDeviceToken(force = false) {

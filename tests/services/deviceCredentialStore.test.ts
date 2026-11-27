@@ -60,6 +60,25 @@ test('migrates a credential held only in the old biometry-bound item', async () 
   keychain[PENTACLE_DEVICE_TOKEN_KEY] = 'old-token';
   await expect(getPentacleDeviceToken(true)).resolves.toBe('old-token');
   expect(keychain[PENTACLE_DEVICE_TOKEN_DURABLE_KEY]).toBe('old-token');
+  expect(keychain[PENTACLE_DEVICE_TOKEN_KEY]).toBeUndefined();
+});
+
+test('keeps the old item when the migration write fails so the next read can retry', async () => {
+  keychain[PENTACLE_DEVICE_TOKEN_KEY] = 'old-token';
+  setItem.mockRejectedValueOnce(new Error('write failed'));
+  await expect(getPentacleDeviceToken(true)).resolves.toBe('old-token');
+  expect(keychain[PENTACLE_DEVICE_TOKEN_KEY]).toBe('old-token');
+});
+
+test('a failed durable read with no old item is surfaced and never cached as no credential', async () => {
+  getItem.mockImplementation(async (key) => {
+    if (key === PENTACLE_DEVICE_TOKEN_DURABLE_KEY) throw new Error('keychain unavailable');
+    return null;
+  });
+  await expect(getPentacleDeviceToken(true)).rejects.toThrow('keychain unavailable');
+  keychain[PENTACLE_DEVICE_TOKEN_DURABLE_KEY] = 'later-token';
+  getItem.mockImplementation(async (key) => keychain[key] ?? null);
+  await expect(getPentacleDeviceToken(true)).resolves.toBe('later-token');
 });
 
 test('keeps a credential read from the old item when the migration write fails', async () => {

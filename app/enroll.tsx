@@ -43,7 +43,7 @@ export default function PentacleEnrollScreen() {
           ws || undefined,
         );
         if (!active) return;
-        setStatus('Storing device credential behind Face ID…');
+        setStatus('Storing device credential…');
         await setToken(result.token);
         if (!active) return;
         router.replace(HOME_ROUTE as any);

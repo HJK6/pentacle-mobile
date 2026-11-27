@@ -531,3 +531,18 @@ test('foreground retry survives the biometric screen unmount without retrying an
   expect(credentialReads()).toBe(2);
   expect(secureStore().deleteItemAsync).not.toHaveBeenCalled();
 });
+
+test('a slower foreground read cannot overwrite a credential stored by enrollment in the meantime', async () => {
+  const useToken = loadHook();
+  const hook = renderHook(() => useToken());
+  await waitFor(() => expect(hook.result.current.isReady).toBe(true));
+  let release: () => void = () => undefined;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  secureStore().getItemAsync.mockImplementationOnce(async () => { await gate; return null; });
+  await act(async () => { emitAppState('background'); emitAppState('active'); });
+  // Enrollment redeems a code while the foreground read is still in flight.
+  await act(async () => { await hook.result.current.setToken('enrolled-token'); });
+  await act(async () => { release(); for (let i = 0; i < 20; i++) await Promise.resolve(); });
+  expect(hook.result.current.token).toBe('enrolled-token');
+  expect(mockSetPentacleAuthToken).toHaveBeenLastCalledWith('enrolled-token');
+});
