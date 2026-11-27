@@ -25,6 +25,7 @@ let mockHarnessParams = new Map<string, string>();
 
 jest.mock('expo-secure-store', () => ({
   WHEN_UNLOCKED_THIS_DEVICE_ONLY: 'WHEN_UNLOCKED_THIS_DEVICE_ONLY',
+  AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY: 'AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY',
   getItemAsync: jest.fn(),
   setItemAsync: jest.fn(),
   deleteItemAsync: jest.fn(),
@@ -61,11 +62,25 @@ function loadHook() {
   }));
   const hook = require('../../src/hooks/usePentacleToken').default as typeof import('../../src/hooks/usePentacleToken').default;
   const secureStore = require('expo-secure-store');
-  secureStore.getItemAsync.mockResolvedValue(null);
-  secureStore.setItemAsync.mockResolvedValue(undefined);
-  secureStore.deleteItemAsync.mockResolvedValue(undefined);
+  // Keychain stand-in keyed by service, with per-key one-shot read failures.
+  keychain = {};
+  readFailures = {};
+  secureStore.getItemAsync.mockImplementation(async (key: string) => {
+    const failure = readFailures[key]?.shift();
+    if (failure) throw failure;
+    return keychain[key] ?? null;
+  });
+  secureStore.setItemAsync.mockImplementation(async (key: string, value: string) => { keychain[key] = value; });
+  secureStore.deleteItemAsync.mockImplementation(async (key: string) => { delete keychain[key]; });
   return hook;
 }
+
+const DURABLE_KEY = 'pentacle-stream-token-durable';
+const LEGACY_KEY = 'pentacle-stream-token';
+let keychain: Record<string, string | undefined> = {};
+let readFailures: Record<string, Error[]> = {};
+// Every credential read attempt starts with exactly one durable-copy read.
+const credentialReads = () => secureStore().getItemAsync.mock.calls.filter(([key]: [string]) => key === DURABLE_KEY).length;
 
 function secureStore() {
   return require('expo-secure-store');
@@ -180,23 +195,20 @@ test('treats an absent token as ready but unenrolled', async () => {
 test('resolves a present token from SecureStore', async () => {
   mockGetPentacleWsUrl.mockReturnValueOnce('ws://saved.example/ws');
   const usePentacleToken = loadHook();
-  secureStore().getItemAsync
-    .mockResolvedValueOnce('token-123')
-    .mockResolvedValueOnce('ws://saved.example/ws');
+  keychain[DURABLE_KEY] = 'token-123';
+  keychain['pentacle-stream-ws-url'] = 'ws://saved.example/ws';
 
   const { result } = renderHook(() => usePentacleToken());
 
   await waitFor(() => expect(result.current.token).toBe('token-123'));
   expect(mockSetPentacleWsUrl).toHaveBeenCalledWith('ws://saved.example/ws');
-  // Production builds (no EXPO_PUBLIC_HARNESS) MUST keep the biometric gate
-  // on the token keychain item — flipping it to false in production would
-  // weaken token-at-rest protection. The harness exception is covered by
-  // the two harness-mode tests below.
+  // The credential lives in a copy with no biometry binding, so a Face ID set change cannot
+  // make it unreadable; the app keeps its own Face ID lock for the UI.
   expect(secureStore().getItemAsync).toHaveBeenCalledWith(
-    'pentacle-stream-token',
+    DURABLE_KEY,
     expect.objectContaining({
-      requireAuthentication: true,
-      keychainAccessible: 'WHEN_UNLOCKED_THIS_DEVICE_ONLY',
+      requireAuthentication: false,
+      keychainAccessible: 'AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY',
     }),
   );
 });
@@ -279,9 +291,9 @@ test('setToken writes SecureStore and updates stream auth state', async () => {
   });
 
   expect(secureStore().setItemAsync).toHaveBeenCalledWith(
-    'pentacle-stream-token',
+    DURABLE_KEY,
     'next-token',
-    expect.objectContaining({ keychainService: 'pentacle-stream-token' }),
+    expect.objectContaining({ keychainService: DURABLE_KEY }),
   );
   expect(mockSetPentacleAuthToken).toHaveBeenCalledWith('next-token');
   expect(result.current.token).toBe('next-token');
@@ -324,15 +336,13 @@ test('harness mode reads SecureStore without biometric gate when runtime is not 
   // requireAuthentication is forced false in harness builds.
   process.env.EXPO_PUBLIC_HARNESS = '1';
   const usePentacleToken = loadHook();
-  secureStore().getItemAsync
-    .mockResolvedValueOnce('token-123')
-    .mockResolvedValueOnce(null);
+  keychain[DURABLE_KEY] = 'token-123';
 
   const { result } = renderHook(() => usePentacleToken());
 
   await waitFor(() => expect(result.current.token).toBe('token-123'));
   expect(secureStore().getItemAsync).toHaveBeenCalledWith(
-    'pentacle-stream-token',
+    DURABLE_KEY,
     expect.objectContaining({ requireAuthentication: false }),
   );
 });
@@ -342,15 +352,13 @@ test('harness mode reads SecureStore without biometric gate when armed without d
   mockHarnessArmed = true;
   mockHarnessActions = new Set(['force_ws_reconnect']);
   const usePentacleToken = loadHook();
-  secureStore().getItemAsync
-    .mockResolvedValueOnce('token-123')
-    .mockResolvedValueOnce(null);
+  keychain[DURABLE_KEY] = 'token-123';
 
   const { result } = renderHook(() => usePentacleToken());
 
   await waitFor(() => expect(result.current.token).toBe('token-123'));
   expect(secureStore().getItemAsync).toHaveBeenCalledWith(
-    'pentacle-stream-token',
+    DURABLE_KEY,
     expect.objectContaining({ requireAuthentication: false }),
   );
 });
@@ -406,9 +414,9 @@ test('harness install_device_token persists the credential and connects the real
   await waitFor(() => expect(result.current.token).toBe('pentacle-auth-v2:sim-envelope'));
   // Persisted through the device-credential store (not the auth-disabled sentinel).
   expect(secureStore().setItemAsync).toHaveBeenCalledWith(
-    'pentacle-stream-token',
+    DURABLE_KEY,
     'pentacle-auth-v2:sim-envelope',
-    expect.objectContaining({ keychainService: 'pentacle-stream-token' }),
+    expect.objectContaining({ keychainService: DURABLE_KEY }),
   );
   expect(mockSetPentacleAuthToken).toHaveBeenCalledWith('pentacle-auth-v2:sim-envelope');
   expect(mockSetPentacleAuthToken).not.toHaveBeenCalledWith(null);
@@ -429,7 +437,8 @@ test('keeps a corrupt SecureStore read fail closed with a sanitized error', asyn
 
 test('saved URL read failure preserves the valid token and uses the default endpoint', async () => {
   const useToken = loadHook();
-  secureStore().getItemAsync.mockResolvedValueOnce('synthetic-valid-token').mockRejectedValueOnce(new Error('synthetic URL failure'));
+  keychain[DURABLE_KEY] = 'synthetic-valid-token';
+  readFailures['pentacle-stream-ws-url'] = [new Error('synthetic URL failure')];
   const hook = renderHook(() => useToken());
   await waitFor(() => expect(hook.result.current.isReady).toBe(true));
   expect(hook.result.current.token).toBe('synthetic-valid-token');
@@ -439,72 +448,75 @@ test('saved URL read failure preserves the valid token and uses the default endp
   expect(secureStore().deleteItemAsync).not.toHaveBeenCalled();
 });
 
-test('token read errors expose only a fixed class and explicit reload retries with biometric protection', async () => {
+test('token read errors expose only a fixed class and explicit reload retries', async () => {
   const useToken = loadHook();
-  secureStore().getItemAsync.mockRejectedValueOnce(Object.assign(new Error('synthetic-private-message'), {code:'synthetic-private-code'}));
+  readFailures[LEGACY_KEY] = [Object.assign(new Error('synthetic-private-message'), {code:'synthetic-private-code'})];
   const hook = renderHook(() => useToken());
   await waitFor(() => expect(hook.result.current.isReady).toBe(true));
   expect(hook.result.current.token).toBeNull();
   expect(hook.result.current.error).toBe('token_read_failed');
-  expect(secureStore().getItemAsync).toHaveBeenCalledTimes(1);
-  secureStore().getItemAsync.mockResolvedValueOnce('synthetic-recovered-token').mockResolvedValueOnce(null);
+  expect(credentialReads()).toBe(1);
+  keychain[DURABLE_KEY] = 'synthetic-recovered-token';
   await act(async () => { await hook.result.current.reload(); });
   expect(hook.result.current.token).toBe('synthetic-recovered-token');
   expect(hook.result.current.error).toBeNull();
-  expect(secureStore().getItemAsync).toHaveBeenNthCalledWith(2, 'pentacle-stream-token', expect.objectContaining({
-    requireAuthentication:true, keychainService:'pentacle-stream-token', keychainAccessible:'WHEN_UNLOCKED_THIS_DEVICE_ONLY',
+  // The old Face ID-bound item is still read with its biometric protection when no durable copy exists.
+  expect(secureStore().getItemAsync).toHaveBeenCalledWith(LEGACY_KEY, expect.objectContaining({
+    requireAuthentication:true, keychainService:LEGACY_KEY, keychainAccessible:'WHEN_UNLOCKED_THIS_DEVICE_ONLY',
   }));
   expect(secureStore().deleteItemAsync).not.toHaveBeenCalled();
 });
 
 test('foreground retries a failed token read once without a loop or remount retry', async () => {
   const useToken = loadHook();
-  secureStore().getItemAsync.mockRejectedValueOnce(new Error('synthetic read failure'));
+  readFailures[LEGACY_KEY] = [new Error('synthetic read failure')];
   const first = renderHook(() => useToken());
   await waitFor(() => expect(first.result.current.isReady).toBe(true));
   first.unmount();
   const hook = renderHook(() => useToken());
   await act(async () => { await Promise.resolve(); });
-  expect(secureStore().getItemAsync).toHaveBeenCalledTimes(1);
+  expect(credentialReads()).toBe(1);
   await act(async () => { emitAppState('inactive'); emitAppState('active'); });
-  expect(secureStore().getItemAsync).toHaveBeenCalledTimes(1);
-  secureStore().getItemAsync.mockRejectedValueOnce(new Error('synthetic retry failure'));
+  expect(credentialReads()).toBe(1);
+  readFailures[LEGACY_KEY] = [new Error('synthetic retry failure')];
   await act(async () => {
     emitAppState('background'); emitAppState('active');
     for(let i=0;i<20;i++) await Promise.resolve();
   });
-  expect(secureStore().getItemAsync).toHaveBeenCalledTimes(2);
+  expect(credentialReads()).toBe(2);
   expect(hook.result.current.error).toBe('token_read_failed');
   await act(async () => { emitAppState('active'); for(let i=0;i<20;i++) await Promise.resolve(); });
-  expect(secureStore().getItemAsync).toHaveBeenCalledTimes(2);
-  secureStore().getItemAsync.mockResolvedValueOnce('synthetic-foreground-token').mockResolvedValueOnce(null);
+  expect(credentialReads()).toBe(2);
+  keychain[DURABLE_KEY] = 'synthetic-foreground-token';
   await act(async () => { emitAppState('background'); emitAppState('inactive'); emitAppState('active'); });
   expect(hook.result.current.token).toBe('synthetic-foreground-token');
   expect(hook.result.current.error).toBeNull();
-  expect(secureStore().getItemAsync).toHaveBeenCalledTimes(4);
+  expect(credentialReads()).toBe(3);
   await act(async () => { emitAppState('background'); emitAppState('active'); });
-  expect(secureStore().getItemAsync).toHaveBeenCalledTimes(4);
+  expect(credentialReads()).toBe(3);
   expect(secureStore().deleteItemAsync).not.toHaveBeenCalled();
   hook.unmount();
   expect(mockAppStateListeners.size).toBe(0);
 });
 
-test('missing token remains distinct from a read error and foreground never deletes or retries it', async () => {
+test('a missing token stays distinct from a read error, is never deleted, and is re-read on foreground', async () => {
   const useToken = loadHook();
   const hook = renderHook(() => useToken());
   await waitFor(() => expect(hook.result.current.isReady).toBe(true));
   expect(hook.result.current.token).toBeNull();
   expect(hook.result.current.error).toBeNull();
-  const reads = secureStore().getItemAsync.mock.calls.length;
+  const reads = credentialReads();
+  // The credential becomes readable while the app is away (restored copy or unlock).
+  keychain[DURABLE_KEY] = 'synthetic-restored-token';
   await act(async () => { emitAppState('background'); emitAppState('active'); });
-  expect(secureStore().getItemAsync).toHaveBeenCalledTimes(reads);
+  expect(credentialReads()).toBe(reads + 1);
+  expect(hook.result.current.token).toBe('synthetic-restored-token');
   expect(secureStore().deleteItemAsync).not.toHaveBeenCalled();
 });
 
-
 test('foreground retry survives the biometric screen unmount without retrying an ordinary remount', async () => {
   const useToken = loadHook();
-  secureStore().getItemAsync.mockRejectedValueOnce(new Error('synthetic token read failure'));
+  readFailures[LEGACY_KEY] = [new Error('synthetic token read failure')];
   const first = renderHook(() => useToken());
   await waitFor(() => expect(first.result.current.isReady).toBe(true));
   act(() => emitAppState('background'));
@@ -512,10 +524,10 @@ test('foreground retry survives the biometric screen unmount without retrying an
   // RootLayout replaces the screens with its biometric lock while backgrounded.
   // The token hook is mounted again only after the normal local app unlock.
   act(() => { emitAppState('inactive'); emitAppState('active'); });
-  secureStore().getItemAsync.mockResolvedValueOnce('synthetic-unlocked-token').mockResolvedValueOnce(null);
+  keychain[DURABLE_KEY] = 'synthetic-unlocked-token';
   const second = renderHook(() => useToken());
   await waitFor(() => expect(second.result.current.token).toBe('synthetic-unlocked-token'));
   expect(second.result.current.error).toBeNull();
-  expect(secureStore().getItemAsync).toHaveBeenCalledTimes(3);
+  expect(credentialReads()).toBe(2);
   expect(secureStore().deleteItemAsync).not.toHaveBeenCalled();
 });

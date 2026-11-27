@@ -78,6 +78,7 @@ import { logFocusedTab } from '../../src/services/mobileTabsTelemetry';
 import * as harnessRuntime from '../../src/utils/harnessRuntime';
 import { plainInlineMarkdown } from '../../src/utils/plainInlineMarkdown';
 import ReportViewerModal from '../../src/components/ReportViewerModal';
+import CredentialRetry from '../../src/components/CredentialRetry';
 import { reportUnreadCount, useSessionReports } from '../../src/services/pentacleAssets';
 import { MOBILE_TELEMETRY_EVENTS } from '../../src/services/mobileTelemetryEvents';
 import { CHAT_ROW_SWIPE_OPEN_THRESHOLD } from '../../src/services/chatRowSwipeSettle';
@@ -620,7 +621,7 @@ export default function ChatsScreen() {
   const harnessReady = harnessRuntime.useHarnessReady();
   const allChatsHarnessActive = process.env.EXPO_PUBLIC_HARNESS === '1' &&
     harnessReady && harnessRuntime.hasAction(ALL_CHATS_HARNESS_ACTION);
-  const { token, isReady } = usePentacleToken();
+  const { token, isReady, reload: reloadToken } = usePentacleToken();
   const actions = usePentacleStreamActions();
   const [filter, setFilter] = useState<'all' | string>('all');
   const [refreshing, setRefreshing] = useState(false);
@@ -1104,6 +1105,7 @@ export default function ChatsScreen() {
         <Text {...SELECTABLE_TEXT} style={styles.emptyBody}>
           Pentacle access is unavailable on this device.
         </Text>
+        <CredentialRetry onRetry={reloadToken} />
       </View>
     );
   }

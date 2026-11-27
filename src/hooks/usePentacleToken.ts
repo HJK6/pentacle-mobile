@@ -38,6 +38,12 @@ let harnessLoadGeneration = 0;
 let tokenReadBackgrounded = false;
 const listeners = new Set<() => void>();
 
+// A read that failed or found nothing is re-read on every foreground: the credential may have
+// become readable (unlock, restored copy) while the app was away, and the screen has no other exit.
+function credentialMissing() {
+  return snapshot.isReady && !snapshot.token;
+}
+
 function emit() {
   listeners.forEach((listener) => listener());
 }
@@ -158,7 +164,7 @@ export default function usePentacleToken() {
     // The local biometric lock can unmount every token consumer in background.
     // Preserve that transition until a consumer mounts after the normal unlock.
     const foregroundRetry = AppState.currentState === 'active'
-      && tokenReadBackgrounded && snapshot.error === 'token_read_failed';
+      && tokenReadBackgrounded && credentialMissing();
     if (AppState.currentState === 'active') tokenReadBackgrounded = false;
     if (AppState.currentState === 'background') tokenReadBackgrounded = true;
     void ensureLoaded(foregroundRetry && !loadPromise);
@@ -169,7 +175,7 @@ export default function usePentacleToken() {
       if (nextState === 'active') tokenReadBackgrounded = false;
       // Face ID inactivity is not a background return. Shared load ownership
       // also prevents multiple consumers from starting additional reads.
-      if (foreground && snapshot.error === 'token_read_failed' && !loadPromise) {
+      if (foreground && credentialMissing() && !loadPromise) {
         void ensureLoaded(true);
       }
     });
