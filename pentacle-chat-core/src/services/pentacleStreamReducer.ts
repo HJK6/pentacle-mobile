@@ -2454,6 +2454,7 @@ type FetchedStreamEventsOptions = {
   requestedStreamId?: string | null | undefined;
   mode?: 'live' | 'fetch' | 'current-tail';
   ingressSource?: string;
+  latestWindow?: { requestLimit: number; cachedNewestSeq: number; page: PentacleEvent[] };
 };
 
 type EventFreshnessTuple = {
@@ -2638,8 +2639,22 @@ export function applyFetchedStreamEvents(
     beforeFingerprints.set(streamId, streamContentFingerprint(state.events, streamId));
   }
 
+  const latest = typeof optionsOrLimit === 'number' ? undefined : optionsOrLimit.latestWindow;
+  const pageSeqs = latest?.page.map((event) => (
+    event.stream_id === requestedStreamId && typeof event.daemon_seq === 'number' && Number.isFinite(event.daemon_seq)
+      ? event.daemon_seq : undefined
+  ));
+  const replaceStaleWindow = Boolean(
+    requestedStreamId && latest && Number.isInteger(latest.requestLimit) && latest.requestLimit > 0 &&
+    latest.page.length === latest.requestLimit && pageSeqs?.every((seq) => seq !== undefined) &&
+    Math.min(...(pageSeqs as number[])) > latest.cachedNewestSeq,
+  );
+  const retained = replaceStaleWindow && latest
+    ? state.events.filter((event) => event.stream_id !== requestedStreamId || event.client_origin === true ||
+      typeof event.daemon_seq !== 'number' || event.daemon_seq > latest.cachedNewestSeq)
+    : state.events;
   const events = dedupeRecentEventsByStream(
-    [...state.events, ...acceptedIncoming.map(freezeEventInDev)],
+    [...retained, ...acceptedIncoming.map(freezeEventInDev)],
     limit,
     assistantCompositeStreamIds(state.sessions),
   );

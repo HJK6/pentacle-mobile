@@ -286,3 +286,98 @@ describe('pentacleStream terminal history replies for an absent target', () => {
     expect(socket.readyState).toBe(MockWebSocket.CLOSED);
   });
 });
+
+describe('full latest-window refetch after a long disconnect', () => {
+  const streamId = 'mock-host:mock-session';
+  const rows = (first: number, count: number) => Array.from({ length: count }, (_, index) => ({
+    ...event(first + index), timestamp: '2026-07-09T05:14:00.000Z',
+  }));
+
+  async function journey(purpose: 'focused-refetch' | 'mount-fetch' | 'older-page', cached: number[], page: ReturnType<typeof rows>, chunks = false) {
+    const stream = loadStream();
+    const socket = openSocket(stream);
+    socket.message({ type: 'snapshot', sessions: [{ stream_id: streamId, host: 'mock-host', provider: 'codex', session_name: 'mock-session' }], events: cached.map(seq => rows(seq, 1)[0]) });
+    const pending = stream.requestStreamEvents(streamId, 300, { purpose });
+    const request = lastRequestFrame(socket);
+    if (chunks) {
+      socket.message({ type: 'request_stream_events.chunk', request_id: request.request_id, stream_id: streamId, events: page.slice(0, 150), complete: false });
+      socket.message({ type: 'request_stream_events.chunk', request_id: request.request_id, stream_id: streamId, events: page.slice(150), complete: false });
+    }
+    socket.message({ type: 'request_stream_events.ok', request_id: request.request_id, stream_id: streamId, events: chunks ? [] : page, complete: true });
+    await pending;
+    return { stream, socket };
+  }
+
+  it.each(['focused-refetch', 'mount-fetch'] as const)('replaces a disconnected full page and paginates from its new oldest row for %s', async purpose => {
+    const { stream, socket } = await journey(purpose, [1, 2, 3, 4, 5], rows(401, 300), true);
+    expect(stream.getPentacleStreamState().events.map(item => item.daemon_seq)).toEqual(rows(401, 300).map(item => item.daemon_seq));
+    const older = stream.requestStreamEvents(streamId, 300, { purpose: 'older-page' });
+    const olderFrame = lastRequestFrame(socket);
+    expect(olderFrame).toMatchObject({ before_daemon_seq: 401 });
+    socket.message({ type: 'request_stream_events.ok', request_id: olderFrame.request_id, stream_id: streamId, events: rows(101, 300), complete: true });
+    await older;
+    expect(stream.getPentacleStreamState().events.map(item => item.daemon_seq).sort((a, b) => a - b)).toEqual(rows(101, 600).map(item => item.daemon_seq));
+  });
+
+  it('merges an overlapping full page without duplicates', async () => {
+    const { stream } = await journey('focused-refetch', [1, 2, 3, 4, 5], rows(3, 300));
+    expect(stream.getPentacleStreamState().events.map(item => item.daemon_seq)).toEqual(rows(1, 302).map(item => item.daemon_seq));
+  });
+
+  it('merges a short non-overlapping page', async () => {
+    const { stream } = await journey('focused-refetch', [1, 2, 3, 4, 5], rows(401, 10));
+    expect(stream.getPentacleStreamState().events.map(item => item.daemon_seq)).toEqual([...rows(1, 5), ...rows(401, 10)].map(item => item.daemon_seq));
+  });
+
+  it('reopens older history after replacement even if the prior cache was exhausted', async () => {
+    const stream = loadStream();
+    const socket = openSocket(stream);
+    socket.message({ type: 'snapshot', sessions: [{ stream_id: streamId, host: 'mock-host', provider: 'codex', session_name: 'mock-session' }], events: rows(1, 5) });
+    const initial = stream.requestStreamEvents(streamId, 300, { purpose: 'mount-fetch' });
+    let request = lastRequestFrame(socket);
+    socket.message({ type: 'request_stream_events.ok', request_id: request.request_id, stream_id: streamId, events: rows(1, 5), complete: true });
+    await initial;
+    expect(stream.selectStreamSlice(stream.getPentacleStreamState(), streamId).hasOlderHistoryPage).toBe(false);
+    const refresh = stream.requestStreamEvents(streamId, 300, { purpose: 'focused-refetch' });
+    request = lastRequestFrame(socket);
+    socket.message({ type: 'request_stream_events.ok', request_id: request.request_id, stream_id: streamId, events: rows(401, 300), complete: true });
+    await refresh;
+    expect(stream.selectStreamSlice(stream.getPentacleStreamState(), streamId).hasOlderHistoryPage).toBe(true);
+  });
+
+  it('retains pending optimistic rows and other streams when replacing stale cached rows', async () => {
+    const stream = loadStream();
+    const socket = openSocket(stream);
+    const other = { ...rows(20, 1)[0], stream_id: 'mock-host:other-session' };
+    socket.message({ type: 'snapshot', sessions: [{ stream_id: streamId, host: 'mock-host', provider: 'codex', session_name: 'mock-session' }], events: [...rows(1, 5), other] });
+    const optimisticId = stream.appendOptimisticUserMessage(streamId, 'pending local message');
+    const refresh = stream.requestStreamEvents(streamId, 300, { purpose: 'focused-refetch' });
+    const request = lastRequestFrame(socket);
+    socket.message({ type: 'request_stream_events.ok', request_id: request.request_id, stream_id: streamId, events: rows(401, 300), complete: true });
+    await refresh;
+    const state = stream.getPentacleStreamState();
+    expect(state.events.some(item => item.optimistic_id === optimisticId)).toBe(true);
+    expect(state.events.some(item => item.stream_id === other.stream_id && item.daemon_seq === 20)).toBe(true);
+    expect(state.events.some(item => item.stream_id === streamId && item.daemon_seq === 1)).toBe(false);
+  });
+
+  it('preserves a live row received after the latest-window request began', async () => {
+    const stream = loadStream();
+    const socket = openSocket(stream);
+    socket.message({ type: 'snapshot', sessions: [{ stream_id: streamId, host: 'mock-host', provider: 'codex', session_name: 'mock-session' }], events: rows(1, 5) });
+    const refresh = stream.requestStreamEvents(streamId, 300, { purpose: 'mount-fetch' });
+    const request = lastRequestFrame(socket);
+    socket.message({ type: 'chat.event', event: rows(350, 1)[0] });
+    jest.advanceTimersByTime(100);
+    socket.message({ type: 'request_stream_events.ok', request_id: request.request_id, stream_id: streamId, events: rows(401, 300), complete: true });
+    await refresh;
+    const seqs = stream.getPentacleStreamState().events.map(item => item.daemon_seq);
+    expect(seqs).toContain(350);
+    expect(seqs).not.toContain(1);
+  });
+
+  it('merges a full non-overlapping older page', async () => {
+    const { stream } = await journey('older-page', [401, 402, 403, 404, 405], rows(1, 300));
+    expect(stream.getPentacleStreamState().events.map(item => item.daemon_seq)).toEqual([...rows(401, 5), ...rows(1, 300)].map(item => item.daemon_seq));
+  });
+});

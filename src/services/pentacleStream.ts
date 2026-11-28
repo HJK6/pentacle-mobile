@@ -1,3 +1,4 @@
+import { classifyWelcomeRange } from './clientProtocolRange';
 import { uuid } from 'expo-modules-core';
 import { getAppIdentity } from '../config/appIdentity';
 import { outboxStore, type OutboxEntry, type OutboxPhoto, type OutboxText } from './outboxStore';
@@ -728,7 +729,7 @@ const PENDING_CLOSE_ABSENCE_GRACE_MS = OPTIMISTIC_INVENTORY_GRACE_MS;
 const PING_INTERVAL_MS = 15_000;
 const WATCHDOG_NO_FRAME_MS = PING_INTERVAL_MS * 2;
 const FOCUSED_HEARTBEAT_INTERVAL_MS = 1_500;
-const FOCUSED_PROBE_TIMEOUT_MS = 1_000;
+const FOCUSED_PROBE_TIMEOUT_MS = 4_500;
 // Opening a busy chat can issue a 300-event history refetch whose first frame
 // takes longer than the normal dead-socket window. Only that request kind gets
 // the lenient window; a pending send must still surface as ambiguous promptly.
@@ -799,6 +800,7 @@ type PendingRequest = {
   streamEventsStreamId?: string;
   streamEventsPurpose?: StreamEventsRequestPurpose;
   streamEventsLimit?: number;
+  streamEventsCachedNewestSeq?: number;
   streamEventsEntrySource?: StreamOpenEntrySource;
   streamEventsHadResumeCursor?: boolean;
   streamEventsWindow?: EventBucketRequestWindow;
@@ -818,6 +820,8 @@ type CurrentTailApplyOutcome = {
 
 let ws: WebSocket | null = null;
 let currentSocketGeneration = 0;
+let snapshotReceivedGeneration: number | null = null;
+let socketOpenedAt: number | null = null;
 let sendInventoryGeneration: number | null = null;
 let reconnectAttempt = 0;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -3037,7 +3041,7 @@ function usesLenientFocusedProbeWindow(generation: number, socket: WebSocket) {
 }
 
 function focusedProbeTimeoutMs(generation: number, socket: WebSocket) {
-  return usesLenientFocusedProbeWindow(generation, socket)
+  return snapshotReceivedGeneration !== generation || usesLenientFocusedProbeWindow(generation, socket)
     ? FOCUSED_HISTORY_PROBE_TIMEOUT_MS
     : FOCUSED_PROBE_TIMEOUT_MS;
 }
@@ -3052,7 +3056,9 @@ function sendFocusedLivenessProbe(
   source: 'focused_heartbeat' | 'focused_interaction',
   timeoutOverrideMs?: number,
 ) {
-  const timeoutMs = timeoutOverrideMs ?? focusedProbeTimeoutMs(generation, socket);
+  const timeoutMs = snapshotReceivedGeneration !== generation
+    ? FOCUSED_HISTORY_PROBE_TIMEOUT_MS
+    : timeoutOverrideMs ?? focusedProbeTimeoutMs(generation, socket);
   if (source === 'focused_heartbeat') {
     logTelemetry(TELEMETRY_EVENTS.CHAT_FOCUSED_LIVENESS_PROBE, {
       source,
@@ -3209,6 +3215,10 @@ function handlePentacleAppStateChange(nextState: AppStateStatus) {
   refreshHeartbeatTimer();
   if (nextState !== 'active') return;
   if (previous === 'active') return;
+  if (state.lastError === 'app_too_old' || state.lastError === 'daemon_too_old') {
+    reconnectPentacleStream();
+    return;
+  }
   requestFocusedProbe('foreground');
   scheduleForegroundResync();
   void restoreOutboxOnConnection().catch(() => undefined);
@@ -3298,6 +3308,7 @@ function applyRequestStreamEvents(
   currentTailOptions?: CurrentTailReducerOptions,
   currentTailOutcome?: CurrentTailApplyOutcome,
   finalizeState?: (next: PentacleStreamState) => PentacleStreamState,
+  latestWindow?: { requestLimit: number; cachedNewestSeq: number; page: PentacleEvent[]; streamId: string },
 ) {
   const beforeEvents = selectPentacleDerivedEventIndex(state).chronological;
   const before = state;
@@ -3335,10 +3346,21 @@ function applyRequestStreamEvents(
     acceptedEvents,
     source === 'chat.event'
       ? { mode: 'live' }
-      : currentTailOptions
-        ? { requestedStreamId: currentTailOptions.requestedStreamId, mode: 'fetch' }
-        : undefined,
+      : latestWindow
+        ? { requestedStreamId: latestWindow.streamId, mode: 'fetch', latestWindow }
+        : currentTailOptions
+          ? { requestedStreamId: currentTailOptions.requestedStreamId, mode: 'fetch' }
+          : undefined,
   ), acceptedEvents);
+  if (latestWindow && before.events.some((event) => event.stream_id === latestWindow.streamId &&
+      event.client_origin !== true && event.daemon_seq === latestWindow.cachedNewestSeq) &&
+      !reducedState.events.some((event) => event.stream_id === latestWindow.streamId &&
+        event.client_origin !== true && event.daemon_seq === latestWindow.cachedNewestSeq)) {
+    const oldest = Math.min(...latestWindow.page.map((event) => event.daemon_seq));
+    streamEventsResumeBeforeByStream.set(latestWindow.streamId, oldest);
+    streamEventsOlderExhaustedByStream.delete(latestWindow.streamId);
+    emitStreamEventsCursorChanged(latestWindow.streamId, false);
+  }
   const reconciled = reconcileAcceptedUserEchoes(
     reducedState,
     acceptedEvents,
@@ -4200,6 +4222,11 @@ function handleMessageInner(raw: string) {
   }
 
   if (message.type === 'snapshot') {
+    if (ws?.readyState === WebSocket.OPEN && socketOpenedAt !== null && snapshotReceivedGeneration !== currentSocketGeneration) {
+      snapshotReceivedGeneration = currentSocketGeneration;
+      const arrivalMs = monotonicNowMs() - socketOpenedAt;
+      console.info('Pentacle snapshot received', { bytes: utf8ByteLength(raw), arrival_ms: arrivalMs });
+    }
     replaceScheduledFromSnapshot(message);
     const capabilities = message.capabilities as Record<string, unknown> | undefined;
     outboundCommitSupported = capabilities?.outbound_commit_v1 === true;
@@ -5027,7 +5054,14 @@ function handleMessageInner(raw: string) {
         ? noteCompletedStreamEventsRequest(token.streamId, acceptedEvents, pending, false, false)
         : updateStreamEventsResumeCursor(token.streamId, acceptedEvents, false);
     }
-    const terminalEvents = token.window === 'history' ? events : acceptedEvents;
+    const latestPurpose = pending.streamEventsPurpose === 'mount-fetch' ||
+      pending.streamEventsPurpose === 'focused-refetch' || pending.streamEventsPurpose === 'freshness-guard';
+    const latestWindow = result.authoritativeAccepted && latestPurpose && !pending.streamEventsHadResumeCursor &&
+      typeof pending.streamEventsLimit === 'number' && pending.streamEventsCachedNewestSeq !== undefined
+      ? { requestLimit: pending.streamEventsLimit, cachedNewestSeq: pending.streamEventsCachedNewestSeq,
+          page: accumulated, streamId: token.streamId }
+      : undefined;
+    const terminalEvents = latestWindow ? acceptedEvents : token.window === 'history' ? events : acceptedEvents;
     let stateChanged = false;
     if (result.commit !== 'none') {
       stateChanged = applyRequestStreamEvents(
@@ -5037,6 +5071,7 @@ function handleMessageInner(raw: string) {
         token.window === 'current-tail' ? currentTailOptions : undefined,
         undefined,
         (next) => applyStreamEventsFinalState(next, token, result),
+        latestWindow,
       );
     } else {
       stateChanged = setState(applyStreamEventsFinalState(state, token, result), false);
@@ -5147,6 +5182,7 @@ function connect() {
   }
   const socket = ws;
   const myGen = ++currentSocketGeneration;
+  socketOpenedAt = null;
   let connectionReady = false;
   const teardownPreOpenSocket = (reason: string) => {
     if (!socketGenerationMatches(myGen) || socket !== ws) return;
@@ -5261,6 +5297,7 @@ function connect() {
 
   ws.onopen = async () => {
     if (!socketGenerationMatches(myGen) || socket !== ws) return;
+    socketOpenedAt = monotonicNowMs();
     if (preOpenConnectTimer) {
       clearTimeout(preOpenConnectTimer);
       preOpenConnectTimer = null;
@@ -5357,6 +5394,12 @@ function connect() {
           });
           throw new Error('operator_auth_v2_required');
         }
+        const range = classifyWelcomeRange(message);
+        if (range === 'invalid') throw new Error('operator_auth_v2_required');
+        if (range !== 'compatible') {
+          failOperatorAuthV2(range);
+          return;
+        }
         completeOpen({ auth_v2: createOperatorAuthV2Hello(v2Credential, message) });
         if (boundaryBase) emitHarnessWsOnMessageBoundary({
           stage: 'early-return',
@@ -5441,6 +5484,11 @@ function connect() {
       was_clean: Boolean(event?.wasClean),
       subscriber_count: subscribers,
 	    });
+	    if (operatorAuthFailure === 'app_too_old' || operatorAuthFailure === 'daemon_too_old') {
+	      failPendingRequests(new Error(operatorAuthFailure));
+	      updateState({ connected: false, connecting: false, lastError: operatorAuthFailure });
+	      return;
+	    }
 	    updateState({ connected: false, connecting: true });
 	    const pendingErrorMessage = livenessCloseGeneration === myGen
 	      ? livenessCloseErrorMessage
@@ -5883,6 +5931,13 @@ export async function requestStreamEvents(
       pending.streamEventsPurpose = purpose;
       pending.streamEventsWindow = window;
       pending.streamEventsLimit = limit;
+      if ((purpose === 'mount-fetch' || purpose === 'focused-refetch' || purpose === 'freshness-guard') &&
+          !Object.prototype.hasOwnProperty.call(payload, 'before_daemon_seq')) {
+        const cachedSeqs = peekEventsForStream(state, trimmed)
+          .filter((event) => event.client_origin !== true && typeof event.daemon_seq === 'number' && Number.isFinite(event.daemon_seq))
+          .map((event) => event.daemon_seq);
+        pending.streamEventsCachedNewestSeq = cachedSeqs.length ? Math.max(...cachedSeqs) : undefined;
+      }
       pending.streamEventsBefore = before;
       pending.streamEventsEntrySource = options.entrySource;
       pending.streamEventsHadResumeCursor = Object.prototype.hasOwnProperty.call(payload, 'before_daemon_seq');

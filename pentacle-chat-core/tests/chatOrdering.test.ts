@@ -836,3 +836,19 @@ test('bounded transcript keeps an older pending send visible in chronological po
   assert.deepEqual(rows.map(row => row.id), ['optimistic_pending_older', '50']);
   assert.equal(rows[0].pending, true);
 });
+
+test('a full latest window replaces only stale rows from its stream', () => {
+  const other = event({ stream_id: 'synthetic:other', daemon_seq: 3, text: 'other stream' });
+  const cached = applyPentacleSnapshotMessage(buildState(), {
+    sessions: [session()], events: [event({ daemon_seq: 1, text: 'cached one' }), event({ daemon_seq: 2, text: 'cached two' }), other],
+  });
+  const page = [10, 11, 12].map(seq => event({ daemon_seq: seq, text: `new ${seq}` }));
+  const ordinary = applyFetchedStreamEvents(cached, page, { mode: 'fetch', requestedStreamId: STREAM_ID });
+  assert.equal(ordinary.events.some(item => item.stream_id === STREAM_ID && item.daemon_seq === 1), true);
+  const next = applyFetchedStreamEvents(cached, page, {
+    mode: 'fetch', requestedStreamId: STREAM_ID,
+    latestWindow: { requestLimit: 3, cachedNewestSeq: 2, page },
+  });
+  assert.deepEqual(next.events.filter(item => item.stream_id === STREAM_ID).map(item => item.daemon_seq), [10, 11, 12]);
+  assert.equal(next.events.some(item => item.stream_id === other.stream_id), true);
+});
