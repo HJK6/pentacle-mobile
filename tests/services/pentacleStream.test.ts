@@ -2268,6 +2268,7 @@ test('foreground re-arm force-closes a stale open socket when the probe is silen
   const unregister = stream.registerFocusedPentacleStream('hostc:codex:one');
   const { unsubscribe, socket } = subscribeAndCreateSocket(stream);
   socket.open();
+  socket.message({ type: 'snapshot', sessions: [], events: [] });
   const initialRequest = sentFrames(socket, 'request_stream_events')[0];
   socket.message({
     type: 'request_stream_events.ok',
@@ -2292,7 +2293,7 @@ test('foreground re-arm force-closes a stale open socket when the probe is silen
   await flushMicrotasks();
   clock.advance(500);
   expect(stream.requestFocusedPentacleLivenessProbe('tap')).toBe(true);
-  jest.advanceTimersByTime(1_000);
+  jest.advanceTimersByTime(4_500);
 
   expect(socket.readyState).toBe(MockWebSocket.CLOSED);
   expect(stream.getPentacleStreamState().connected).toBe(false);
@@ -2311,6 +2312,7 @@ test('foreground probe reconnects when close returns but native onclose is silen
   const unregister = stream.registerFocusedPentacleStream('hostc:codex:one');
   const { unsubscribe, socket } = subscribeAndCreateSocket(stream);
   socket.open();
+  socket.message({ type: 'snapshot', sessions: [], events: [] });
   const initialRequest = sentFrames(socket, 'request_stream_events')[0];
   socket.message({
     type: 'request_stream_events.ok',
@@ -2336,7 +2338,7 @@ test('foreground probe reconnects when close returns but native onclose is silen
   await flushMicrotasks();
   clock.advance(500);
   expect(stream.requestFocusedPentacleLivenessProbe('tap')).toBe(true);
-  jest.advanceTimersByTime(1_000);
+  jest.advanceTimersByTime(4_500);
 
   expect(socket.readyState).toBe(MockWebSocket.OPEN);
   expect(stream.getPentacleStreamState().connected).toBe(false);
@@ -2348,12 +2350,13 @@ test('foreground probe reconnects when close returns but native onclose is silen
   clock.restore();
 });
 
-test('production-mode focused heartbeat closes a silent half-open socket after one second', async () => {
+test('production-mode focused heartbeat closes a silent half-open socket after the focused allowance', async () => {
   expect(process.env.EXPO_PUBLIC_HARNESS).toBeUndefined();
   expect(process.env.EXPO_PUBLIC_HARNESS_FORCE_WS_RECONNECT).toBeUndefined();
   const stream = loadStream();
   const { unsubscribe, socket } = subscribeAndCreateSocket(stream);
   socket.open();
+  socket.message({ type: 'snapshot', sessions: [], events: [] });
   stream.__handlePentacleAppStateChangeForTests('active');
   const unregister = stream.registerFocusedPentacleStream('hostc:codex:one');
   socket.message({ type: 'pong' });
@@ -2375,7 +2378,7 @@ test('production-mode focused heartbeat closes a silent half-open socket after o
   expect(sentFrames(socket, 'ping')).toHaveLength(1);
   expect(socket.readyState).toBe(MockWebSocket.OPEN);
 
-  jest.advanceTimersByTime(999);
+  jest.advanceTimersByTime(4_499);
   expect(stream.getPentacleStreamState().connected).toBe(true);
   jest.advanceTimersByTime(1);
 
@@ -2388,10 +2391,11 @@ test('production-mode focused heartbeat closes a silent half-open socket after o
   unsubscribe();
 });
 
-test('focused interaction probe closes a silent half-open socket after one second', async () => {
+test('focused interaction probe closes a silent half-open socket after the focused allowance', async () => {
   const stream = loadStream();
   const { unsubscribe, socket } = subscribeAndCreateSocket(stream);
   socket.open();
+  socket.message({ type: 'snapshot', sessions: [], events: [] });
   stream.__handlePentacleAppStateChangeForTests('active');
   const unregister = stream.registerFocusedPentacleStream('hostc:codex:one');
   socket.message({ type: 'pong' });
@@ -2410,7 +2414,7 @@ test('focused interaction probe closes a silent half-open socket after one secon
 
   expect(stream.requestFocusedPentacleLivenessProbe('tap')).toBe(true);
   expect(sentFrames(socket, 'ping')).toHaveLength(1);
-  jest.advanceTimersByTime(1_000);
+  jest.advanceTimersByTime(4_500);
 
   expect(stream.getPentacleStreamState().connected).toBe(false);
   jest.advanceTimersByTime(1_000);
@@ -2572,6 +2576,7 @@ test('unacked send timeout reconnects with a receipt lookup, not a duplicate sen
   const stream = loadStream();
   const { unsubscribe, socket } = subscribeAndCreateSocket(stream);
   socket.open();
+  socket.message({ type: 'snapshot', sessions: [], events: [] });
   stream.__handlePentacleAppStateChangeForTests('active');
   const unregister = stream.registerFocusedPentacleStream('hostc:codex:one');
   socket.message({ type: 'session.inventory', sessions: [sessionSummary('hostc:codex:one', { working: false })] });
@@ -2586,7 +2591,7 @@ test('unacked send timeout reconnects with a receipt lookup, not a duplicate sen
 
   jest.advanceTimersByTime(500);
   expect(stream.requestFocusedPentacleLivenessProbe('send')).toBe(true);
-  jest.advanceTimersByTime(1_000);
+  jest.advanceTimersByTime(4_500);
   await sendExpectation;
   expect(socket.readyState).toBe(MockWebSocket.CLOSED);
   expect(stream.getPentacleStreamState().connected).toBe(false);
@@ -6934,7 +6939,7 @@ describe('durable voice transport boundary controls', () => {
     await flushMicrotasks();
     clock.advance(4_000);
     stream.requestFocusedPentacleLivenessProbe('interaction');
-    jest.advanceTimersByTime(2_001);
+    jest.advanceTimersByTime(4_501);
     expect(socket.readyState).toBe(MockWebSocket.CLOSED);
     unfocus(); unsubscribe(); clock.restore();
   });
@@ -7321,4 +7326,120 @@ test('voice X leaves no transcript fallback after an unconfirmed hydrated intent
   const detail = require('pentacle-chat-core').selectSessionDetail(stream.getPentacleStreamState(), VOICE_STREAM_ID);
   expect(detail.transcriptItems.filter((item: { isUser?: boolean }) => item.isUser)).toEqual([]);
   unsubscribe();
+});
+
+test.each([
+  ['after snapshot', true, 4400, 200],
+  ['before snapshot', false, 5900, 200],
+])('focused allowance accepts a pong at the edge %s', async (_label, snapshot, before) => {
+  const clock = mockMonotonicNow();
+  const stream = loadStream();
+  const { unsubscribe, socket } = subscribeAndCreateSocket(stream);
+  socket.open();
+  stream.__handlePentacleAppStateChangeForTests('active');
+  const unregister = stream.registerFocusedPentacleStream('hostc:codex:one');
+  jest.advanceTimersByTime(250);
+  const initialRequest = sentFrames(socket, 'request_stream_events').at(-1);
+  if (initialRequest) socket.message({ type: 'request_stream_events.ok', request_id: initialRequest.request_id, stream_id: 'hostc:codex:one', events: [] });
+  if (snapshot) socket.message({ type: 'snapshot', sessions: [], events: [] });
+  socket.message({ type: 'pong' });
+  await flushMicrotasks();
+  clock.advance(500);
+  stream.requestFocusedPentacleLivenessProbe('tap');
+  jest.advanceTimersByTime(before);
+  expect(stream.getPentacleStreamState().connected).toBe(true);
+  clock.advance(before);
+  socket.message({ type: 'pong' });
+  expect(socket.readyState).toBe(MockWebSocket.OPEN);
+  unregister(); unsubscribe(); clock.restore();
+});
+
+test.each([
+  ['after snapshot', true, 4400],
+  ['before snapshot', false, 5900],
+])('focused allowance closes after the edge %s', async (_label, snapshot, before) => {
+  const clock = mockMonotonicNow();
+  const stream = loadStream();
+  const { unsubscribe, socket } = subscribeAndCreateSocket(stream);
+  socket.open();
+  const close = jest.spyOn(socket, 'close');
+  stream.__handlePentacleAppStateChangeForTests('active');
+  const unregister = stream.registerFocusedPentacleStream('hostc:codex:one');
+  jest.advanceTimersByTime(250);
+  const initialRequest = sentFrames(socket, 'request_stream_events').at(-1);
+  if (initialRequest) socket.message({ type: 'request_stream_events.ok', request_id: initialRequest.request_id, stream_id: 'hostc:codex:one', events: [] });
+  if (snapshot) socket.message({ type: 'snapshot', sessions: [], events: [] });
+  socket.message({ type: 'pong' });
+  await flushMicrotasks();
+  clock.advance(500);
+  stream.requestFocusedPentacleLivenessProbe('tap');
+  jest.advanceTimersByTime(before);
+  expect(stream.getPentacleStreamState().connected).toBe(true);
+  jest.advanceTimersByTime(200);
+  expect(socket.readyState).toBe(MockWebSocket.CLOSED);
+  expect(close).toHaveBeenCalledWith(4000, 'focused_interaction_timeout');
+  unregister(); unsubscribe(); clock.restore();
+});
+
+test('focused allowance logs the first snapshot size and elapsed arrival time once per socket', () => {
+  const clock = mockMonotonicNow();
+  const log = jest.spyOn(console, 'info').mockImplementation(() => {});
+  const stream = loadStream();
+  const { unsubscribe, socket } = subscribeAndCreateSocket(stream);
+  socket.open();
+  clock.advance(1234);
+  const snapshot = { type: 'snapshot', sessions: [], events: [], note: 'é' };
+  socket.message(snapshot);
+  socket.message(snapshot);
+  expect(log).toHaveBeenCalledTimes(1);
+  expect(log).toHaveBeenCalledWith('Pentacle snapshot received', {
+    bytes: Buffer.byteLength(JSON.stringify(snapshot), 'utf8'), arrival_ms: 1234,
+  });
+  log.mockRestore(); unsubscribe(); clock.restore();
+});
+
+test('focused allowance uses the pre-snapshot window for send probes', async () => {
+  const clock = mockMonotonicNow();
+  const stream = loadStream();
+  const { unsubscribe, socket } = subscribeAndCreateSocket(stream);
+  socket.open();
+  stream.__handlePentacleAppStateChangeForTests('active');
+  const unregister = stream.registerFocusedPentacleStream('hostc:codex:one');
+  jest.advanceTimersByTime(250);
+  const history = sentFrames(socket, 'request_stream_events').at(-1);
+  if (history) socket.message({ type: 'request_stream_events.ok', request_id: history.request_id, stream_id: 'hostc:codex:one', events: [] });
+  socket.message({ type: 'pong' });
+  await flushMicrotasks();
+  clock.advance(500);
+  stream.requestFocusedPentacleLivenessProbe('send');
+  jest.advanceTimersByTime(5900);
+  expect(stream.getPentacleStreamState().connected).toBe(true);
+  jest.advanceTimersByTime(200);
+  expect(socket.readyState).toBe(MockWebSocket.CLOSED);
+  unregister(); unsubscribe(); clock.restore();
+});
+
+test('focused allowance resets the snapshot window on a new connection', async () => {
+  const clock = mockMonotonicNow();
+  const stream = loadStream();
+  const { unsubscribe, socket } = subscribeAndCreateSocket(stream);
+  socket.open();
+  socket.message({ type: 'snapshot', sessions: [], events: [] });
+  stream.reconnectPentacleStream();
+  const retry = MockWebSocket.instances.at(-1)!;
+  retry.open();
+  stream.__handlePentacleAppStateChangeForTests('active');
+  const unregister = stream.registerFocusedPentacleStream('hostc:codex:one');
+  jest.advanceTimersByTime(250);
+  const history = sentFrames(retry, 'request_stream_events').at(-1);
+  if (history) retry.message({ type: 'request_stream_events.ok', request_id: history.request_id, stream_id: 'hostc:codex:one', events: [] });
+  retry.message({ type: 'pong' });
+  await flushMicrotasks();
+  clock.advance(500);
+  stream.requestFocusedPentacleLivenessProbe('tap');
+  jest.advanceTimersByTime(5900);
+  expect(stream.getPentacleStreamState().connected).toBe(true);
+  jest.advanceTimersByTime(200);
+  expect(retry.readyState).toBe(MockWebSocket.CLOSED);
+  unregister(); unsubscribe(); clock.restore();
 });
