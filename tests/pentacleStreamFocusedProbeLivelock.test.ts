@@ -45,7 +45,7 @@ type StreamModule = typeof import('../src/services/pentacleStream');
 
 const STREAM_ID = 'hostc:codex:slow-history';
 const FOCUSED_HEARTBEAT_AT_MS = 1_500;
-const FOCUSED_PROBE_WINDOW_MS = 1_000;
+const FOCUSED_PROBE_WINDOW_MS = 4_500;
 const FOCUSED_HISTORY_PROBE_WINDOW_MS = 6_000;
 const FOCUSED_PROBE_BOUNDARY_MS = FOCUSED_HEARTBEAT_AT_MS + FOCUSED_HISTORY_PROBE_WINDOW_MS;
 
@@ -121,9 +121,10 @@ afterEach(() => {
   jest.useRealTimers();
 });
 
-test('focused heartbeat closes a dead socket at one second when history is settled', async () => {
+test('focused heartbeat closes a dead socket after the focused allowance when history is settled', async () => {
   const stream = loadStream();
   const { unregister, unsubscribe, socket, request } = openFocusedStream(stream);
+  socket.message({ type: 'snapshot', sessions: [], events: [] });
   deliverHistory(socket, request, 'settled history');
   await flushMicrotasks();
 
@@ -138,7 +139,7 @@ test('focused heartbeat closes a dead socket at one second when history is settl
   unsubscribe();
 });
 
-test('focused heartbeat preserves an in-flight history refetch past the one-second dead-socket window', () => {
+test('focused heartbeat preserves an in-flight history refetch past the ordinary focused allowance', () => {
   const stream = loadStream();
   const { unregister, unsubscribe, socket } = openFocusedStream(stream);
 
@@ -151,9 +152,10 @@ test('focused heartbeat preserves an in-flight history refetch past the one-seco
   unsubscribe();
 });
 
-test('send intent re-arms a lenient history probe and fast-fails the pending send after one second', async () => {
+test('send intent re-arms a lenient history probe and closes a pending send after the focused allowance', async () => {
   const stream = loadStream();
   const { unregister, unsubscribe, socket } = openFocusedStream(stream);
+  socket.message({ type: 'snapshot', sessions: [], events: [] });
   socket.message({
     type: 'session.inventory',
     sessions: [{
@@ -259,6 +261,7 @@ test('repeated reconnect attempts with slow history do not become a probe-driven
 test('user interaction probe still fast-fails a half-open send with a request pending', async () => {
   const stream = loadStream();
   const { unregister, unsubscribe, socket, request } = openFocusedStream(stream);
+  socket.message({ type: 'snapshot', sessions: [], events: [] });
   deliverHistory(socket, request, 'initial history');
   socket.message({
     type: 'session.inventory',
@@ -350,6 +353,7 @@ async function startUpload(stream: StreamModule, socket: MockWebSocket) {
 test('an armed focused probe yields to upload and ordinary focused liveness resumes afterward', async () => {
   const stream = loadStream();
   const { unregister, unsubscribe, socket, request } = openFocusedStream(stream);
+  socket.message({ type: 'snapshot', sessions: [], events: [] });
   deliverHistory(socket, request, 'settled');
   jest.advanceTimersByTime(1_500);
   expect(sentFrames(socket, 'ping')).toHaveLength(1);
@@ -359,7 +363,7 @@ test('an armed focused probe yields to upload and ordinary focused liveness resu
   expect(sentFrames(socket, 'ping')).toHaveLength(1);
   socket.message({ type: 'upload_blob.ok', request_id: id, blob_sha: 'a'.repeat(64) });
   await result;
-  jest.advanceTimersByTime(3_000);
+  jest.advanceTimersByTime(6_000);
   expect(socket.readyState).toBe(MockWebSocket.CLOSED);
   unregister(); unsubscribe();
 });
@@ -418,8 +422,9 @@ test('old upload ownership and callbacks do not shield a replacement socket', as
   socket.close(1006); expect(await result).toMatchObject({ message: 'Pentacle stream disconnected' });
   jest.advanceTimersByTime(1_100);
   const next = MockWebSocket.instances.at(-1)!; next.open();
+  next.message({ type: 'snapshot', sessions: [], events: [] });
   const tail = sentFrames(next, 'request_stream_events').at(-1)!; deliverHistory(next, tail, 'fresh');
-  jest.advanceTimersByTime(2_501);
+  jest.advanceTimersByTime(6_001);
   expect(next.readyState).toBe(MockWebSocket.CLOSED);
   unregister(); unsubscribe();
 });
