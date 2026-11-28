@@ -38,6 +38,14 @@ def main():
         run('git', 'clone', '--quiet', 'https://github.com/HJK6/pentacle.git', str(checkout))
         checkout_ref = 'origin/main' if requested == 'main' else requested
         run('git', '-C', str(checkout), 'checkout', '--quiet', '--detach', checkout_ref)
+        # Disposable RED proof: remove history rows from the checked-out daemon.
+        server = checkout / 'services/chat-stream-v2/server.py'
+        source = server.read_text()
+        original = '                page = rows[-quota:] if has_more else rows[:quota]\n'
+        if source.count(original) != 1:
+            raise RuntimeError('RED patch target changed')
+        server.write_text(source.replace(original, original + '                page = []\n', 1))
+        run('git', '-C', str(checkout), 'diff', '--stat')
         head = subprocess.check_output(['git', '-C', str(checkout), 'rev-parse', 'HEAD'], text=True).strip()
         print(f'checked-out HEAD: {head}', flush=True)
         if not os.environ.get('PENTACLE_DAEMON_REF') and head != requested:
