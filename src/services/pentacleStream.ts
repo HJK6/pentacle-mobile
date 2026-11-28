@@ -728,7 +728,7 @@ const PENDING_CLOSE_ABSENCE_GRACE_MS = OPTIMISTIC_INVENTORY_GRACE_MS;
 const PING_INTERVAL_MS = 15_000;
 const WATCHDOG_NO_FRAME_MS = PING_INTERVAL_MS * 2;
 const FOCUSED_HEARTBEAT_INTERVAL_MS = 1_500;
-const FOCUSED_PROBE_TIMEOUT_MS = 1_000;
+const FOCUSED_PROBE_TIMEOUT_MS = 4_500;
 // Opening a busy chat can issue a 300-event history refetch whose first frame
 // takes longer than the normal dead-socket window. Only that request kind gets
 // the lenient window; a pending send must still surface as ambiguous promptly.
@@ -818,6 +818,8 @@ type CurrentTailApplyOutcome = {
 
 let ws: WebSocket | null = null;
 let currentSocketGeneration = 0;
+let snapshotReceivedGeneration: number | null = null;
+let socketOpenedAt: number | null = null;
 let sendInventoryGeneration: number | null = null;
 let reconnectAttempt = 0;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -3037,7 +3039,7 @@ function usesLenientFocusedProbeWindow(generation: number, socket: WebSocket) {
 }
 
 function focusedProbeTimeoutMs(generation: number, socket: WebSocket) {
-  return usesLenientFocusedProbeWindow(generation, socket)
+  return snapshotReceivedGeneration !== generation || usesLenientFocusedProbeWindow(generation, socket)
     ? FOCUSED_HISTORY_PROBE_TIMEOUT_MS
     : FOCUSED_PROBE_TIMEOUT_MS;
 }
@@ -3052,7 +3054,9 @@ function sendFocusedLivenessProbe(
   source: 'focused_heartbeat' | 'focused_interaction',
   timeoutOverrideMs?: number,
 ) {
-  const timeoutMs = timeoutOverrideMs ?? focusedProbeTimeoutMs(generation, socket);
+  const timeoutMs = snapshotReceivedGeneration !== generation
+    ? FOCUSED_HISTORY_PROBE_TIMEOUT_MS
+    : timeoutOverrideMs ?? focusedProbeTimeoutMs(generation, socket);
   if (source === 'focused_heartbeat') {
     logTelemetry(TELEMETRY_EVENTS.CHAT_FOCUSED_LIVENESS_PROBE, {
       source,
@@ -4200,6 +4204,11 @@ function handleMessageInner(raw: string) {
   }
 
   if (message.type === 'snapshot') {
+    if (ws?.readyState === WebSocket.OPEN && socketOpenedAt !== null && snapshotReceivedGeneration !== currentSocketGeneration) {
+      snapshotReceivedGeneration = currentSocketGeneration;
+      const arrivalMs = monotonicNowMs() - socketOpenedAt;
+      console.info('Pentacle snapshot received', { bytes: utf8ByteLength(raw), arrival_ms: arrivalMs });
+    }
     replaceScheduledFromSnapshot(message);
     const capabilities = message.capabilities as Record<string, unknown> | undefined;
     outboundCommitSupported = capabilities?.outbound_commit_v1 === true;
@@ -5147,6 +5156,7 @@ function connect() {
   }
   const socket = ws;
   const myGen = ++currentSocketGeneration;
+  socketOpenedAt = null;
   let connectionReady = false;
   const teardownPreOpenSocket = (reason: string) => {
     if (!socketGenerationMatches(myGen) || socket !== ws) return;
@@ -5261,6 +5271,7 @@ function connect() {
 
   ws.onopen = async () => {
     if (!socketGenerationMatches(myGen) || socket !== ws) return;
+    socketOpenedAt = monotonicNowMs();
     if (preOpenConnectTimer) {
       clearTimeout(preOpenConnectTimer);
       preOpenConnectTimer = null;
