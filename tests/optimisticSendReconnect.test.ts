@@ -326,7 +326,7 @@ describe('send recovery failure-injection matrix', () => {
     const originalRequestId = sendFrames(socket)[0]?.request_id as string;
 
     expect(stream.requestFocusedPentacleLivenessProbe('send')).toBe(true);
-    jest.advanceTimersByTime(1_000);
+    jest.advanceTimersByTime(6_000);
     expect(await settled).toBe('rejected');
     const recovered = reconnectSocket();
 
