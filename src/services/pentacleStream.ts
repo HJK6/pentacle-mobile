@@ -1,3 +1,4 @@
+import { classifyWelcomeRange } from './clientProtocolRange';
 import { uuid } from 'expo-modules-core';
 import { getAppIdentity } from '../config/appIdentity';
 import { outboxStore, type OutboxEntry, type OutboxPhoto, type OutboxText } from './outboxStore';
@@ -3214,6 +3215,10 @@ function handlePentacleAppStateChange(nextState: AppStateStatus) {
   refreshHeartbeatTimer();
   if (nextState !== 'active') return;
   if (previous === 'active') return;
+  if (state.lastError === 'app_too_old' || state.lastError === 'daemon_too_old') {
+    reconnectPentacleStream();
+    return;
+  }
   requestFocusedProbe('foreground');
   scheduleForegroundResync();
   void restoreOutboxOnConnection().catch(() => undefined);
@@ -5389,6 +5394,12 @@ function connect() {
           });
           throw new Error('operator_auth_v2_required');
         }
+        const range = classifyWelcomeRange(message);
+        if (range === 'invalid') throw new Error('operator_auth_v2_required');
+        if (range !== 'compatible') {
+          failOperatorAuthV2(range);
+          return;
+        }
         completeOpen({ auth_v2: createOperatorAuthV2Hello(v2Credential, message) });
         if (boundaryBase) emitHarnessWsOnMessageBoundary({
           stage: 'early-return',
@@ -5473,6 +5484,11 @@ function connect() {
       was_clean: Boolean(event?.wasClean),
       subscriber_count: subscribers,
 	    });
+	    if (operatorAuthFailure === 'app_too_old' || operatorAuthFailure === 'daemon_too_old') {
+	      failPendingRequests(new Error(operatorAuthFailure));
+	      updateState({ connected: false, connecting: false, lastError: operatorAuthFailure });
+	      return;
+	    }
 	    updateState({ connected: false, connecting: true });
 	    const pendingErrorMessage = livenessCloseGeneration === myGen
 	      ? livenessCloseErrorMessage

@@ -1,3 +1,4 @@
+import { protocolMismatchMessage } from '../../src/services/clientProtocolRange';
 import { QUESTION_SKIP_TEXT } from 'pentacle-chat-core';
 import HeaderVoiceMic from '../../src/components/voice/HeaderVoiceMic';
 import { useVoiceSurface } from '../../src/services/voicePresentation';
@@ -1125,10 +1126,10 @@ export default function ChatsScreen() {
       return (
         <View style={styles.stateCard} testID="chats-unreachable">
           <Text {...SELECTABLE_TEXT} style={styles.emptyTitle}>
-            tailnet unreachable
+            {protocolMismatchMessage(feed.lastError) ? 'Connection unavailable' : 'tailnet unreachable'}
           </Text>
           <Text {...SELECTABLE_TEXT} style={styles.emptyBody}>
-            {feed.lastError}
+            {protocolMismatchMessage(feed.lastError) || feed.lastError}
           </Text>
           <Pressable
             testID="chats-retry"
@@ -1215,7 +1216,7 @@ export default function ChatsScreen() {
         ListHeaderComponent={
           feed.lastError && chats.length > 0 ? (
             <Text {...SELECTABLE_TEXT} style={styles.errorText} testID="chats-error-banner">
-              tailnet unreachable — pull to retry
+              {protocolMismatchMessage(feed.lastError) || 'tailnet unreachable — pull to retry'}
             </Text>
           ) : null
         }

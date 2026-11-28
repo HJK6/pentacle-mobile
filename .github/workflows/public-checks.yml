@@ -3,10 +3,19 @@ on:
   push:
     branches: [main]
   pull_request:
+  schedule:
+    - cron: '17 10 * * *'
+  workflow_dispatch:
+    inputs:
+      daemon_ref:
+        description: Daemon ref for the report-only run
+        required: false
+        type: string
 permissions:
   contents: read
 jobs:
   checks:
+    if: github.event_name == 'push' || github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -54,3 +63,56 @@ jobs:
       - name: Remove synthetic local config
         if: always()
         run: rm -f pentacle.config.local.ts
+
+  daemon-pinned:
+    if: github.event_name == 'push' || github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: npm ci
+      - run: cp pentacle.config.example.ts pentacle.config.local.ts
+      - name: Pinned daemon journey
+        run: python3 scripts/test-pinned-daemon.py
+
+  daemon-main-report:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: npm ci
+      - run: cp pentacle.config.example.ts pentacle.config.local.ts
+      - name: Report daemon compatibility
+        id: journey
+        env:
+          PENTACLE_DAEMON_REF: ${{ inputs.daemon_ref || 'main' }}
+        run: |
+          set -o pipefail
+          python3 scripts/test-pinned-daemon.py 2>&1 | tee "$RUNNER_TEMP/daemon-report.log"
+      - name: Summarize daemon compatibility
+        if: always()
+        env:
+          JOURNEY_OUTCOME: ${{ steps.journey.outcome }}
+        run: |
+          report="$RUNNER_TEMP/daemon-report.log"
+          runtime_sha=''
+          stage=''
+          if [ -f "$report" ]; then
+            runtime_sha=$(sed -n 's/^.*welcome runtime_sha: //p' "$report" | tail -n 1)
+            stage=$(sed -n 's/^stage: //p' "$report" | tail -n 1)
+          fi
+          echo "Result: ${JOURNEY_OUTCOME:-not run}; runtime_sha: ${runtime_sha:-unavailable}; first failing step: $([ "$JOURNEY_OUTCOME" = success ] && echo none || echo "${stage:-setup}")" >> "$GITHUB_STEP_SUMMARY"
