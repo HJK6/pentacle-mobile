@@ -567,3 +567,10 @@ upload-then-background, kill/relaunch, cancel, restart, old-daemon compatibility
 ASR failure, text/photo interruption, exact answers, voice with images and frozen
 voice answers. Retain per-path baseline/source qualification and raw failures.
 P3 owns transfer while JS is suspended and locked-device file/credential proof.
+
+## Pinned daemon compatibility
+
+The `daemon-pinned` CI job runs the mobile transport against the daemon commit
+in `config/pentacle-daemon-pin.json`. To update the daemon, change the full
+commit in that file in its own PR; review the pinned journey before merging.
+The runner is restricted to GitHub Actions and creates disposable daemon state.

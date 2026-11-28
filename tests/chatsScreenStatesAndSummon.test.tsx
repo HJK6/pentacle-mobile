@@ -313,3 +313,24 @@ test('an online machine renders its grid entry enabled and offline peers disable
   expect(screen.getByTestId('summon-machine-hostb').props.accessibilityState?.disabled).toBe(true);
   expect(screen.queryByTestId('summon-machine-home')).toBeNull();
 });
+
+test.each([
+  ['app_too_old', 'This app is too old for your Pentacle daemon. Update the app.'],
+  ['daemon_too_old', 'Your Pentacle daemon is too old for this app. Update the daemon.'],
+])('shows the protocol mismatch message for %s', (error, copy) => {
+  mockState.connected = false;
+  mockState.lastError = error;
+  render(<ChatsScreen />);
+  expect(screen.getByText(copy)).toBeTruthy();
+});
+
+test.each([
+  ['app_too_old', 'This app is too old for your Pentacle daemon. Update the app.'],
+  ['daemon_too_old', 'Your Pentacle daemon is too old for this app. Update the daemon.'],
+])('shows the protocol mismatch in the populated list for %s', (error, copy) => {
+  mockState.connected = false;
+  mockState.lastError = error;
+  mockState.sessions = [session('hostc:claude:example', 'Example chat')];
+  render(<ChatsScreen />);
+  expect(screen.getByTestId('chats-error-banner')).toHaveTextContent(copy);
+});
