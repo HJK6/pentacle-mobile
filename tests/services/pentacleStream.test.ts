@@ -7443,3 +7443,87 @@ test('focused allowance resets the snapshot window on a new connection', async (
   expect(retry.readyState).toBe(MockWebSocket.CLOSED);
   unregister(); unsubscribe(); clock.restore();
 });
+
+test.each([
+  ['absent', {}, null],
+  ['equal', { min_protocol_version: 2, max_protocol_version: 2 }, null],
+  ['overlap', { min_protocol_version: 2, max_protocol_version: 3 }, null],
+  ['app old', { min_protocol_version: 3, max_protocol_version: 3 }, 'app_too_old'],
+  ['daemon old', { min_protocol_version: 1, max_protocol_version: 1 }, 'daemon_too_old'],
+  ['min only', { min_protocol_version: 2 }, 'operator_auth_v2_required'],
+  ['max only', { max_protocol_version: 2 }, 'operator_auth_v2_required'],
+  ['noninteger', { min_protocol_version: 2, max_protocol_version: 2.5 }, 'operator_auth_v2_required'],
+  ['min noninteger', { min_protocol_version: 1.5, max_protocol_version: 2 }, 'operator_auth_v2_required'],
+  ['reversed', { min_protocol_version: 3, max_protocol_version: 2 }, 'operator_auth_v2_required'],
+])('v2 protocol range: %s', (_label, range, error) => {
+  const stream = loadStream();
+  stream.setPentacleAuthToken(OPERATOR_V2_ENVELOPE);
+  const { unsubscribe, socket } = subscribeAndCreateSocket(stream);
+  socket.open();
+  socket.message({ ...operatorV2Welcome(), ...range });
+  if (error) {
+    expect(sentFrames(socket, 'hello')).toEqual([]);
+    expect(stream.getPentacleStreamState().connected).toBe(false);
+    expect(stream.getPentacleStreamState().lastError).toBe(error);
+  } else {
+    expect(sentFrames(socket, 'hello')).toHaveLength(1);
+    expect(stream.getPentacleStreamState().connected).toBe(true);
+  }
+  unsubscribe();
+});
+
+test('v2 protocol range holds a queued action through mismatch and malformed retry', async () => {
+  const stream = loadStream();
+  stream.setPentacleAuthToken(OPERATOR_V2_ENVELOPE);
+  const { unsubscribe, socket: first } = subscribeAndCreateSocket(stream);
+  first.open();
+  first.message(operatorV2Welcome());
+  first.message({ type: 'session.inventory', sessions: [sessionSummary('hostc:codex:one', { working: false })] });
+  first.closeFromServer();
+  const id = stream.appendOptimisticUserMessage('hostc:codex:one', 'queued range control');
+  await stream.sendPentacleMessage({ host: 'hostc', sessionName: 'one', text: 'queued range control' }).catch(() => {});
+  jest.advanceTimersByTime(1000);
+  const mismatch = MockWebSocket.instances.at(-1)!;
+  mismatch.open();
+  expect(sentFrames(mismatch, 'send')).toHaveLength(0);
+  mismatch.message({ ...operatorV2Welcome(), min_protocol_version: 3, max_protocol_version: 3 });
+  expect(stream.getPentacleStreamState().lastError).toBe('app_too_old');
+  expect(sentFrames(mismatch, 'send')).toHaveLength(0);
+  expect(stream.getPentacleStreamState().optimisticSends?.[id]?.status).toBe('queued');
+  jest.advanceTimersByTime(30000);
+  expect(MockWebSocket.instances.at(-1)).toBe(mismatch);
+  stream.reconnectPentacleStream();
+  const malformed = MockWebSocket.instances.at(-1)!;
+  malformed.open();
+  malformed.message({ ...operatorV2Welcome(), min_protocol_version: 2 });
+  expect(sentFrames(malformed, 'send')).toHaveLength(0);
+  stream.reconnectPentacleStream();
+  const compatible = MockWebSocket.instances.at(-1)!;
+  compatible.open();
+  expect(sentFrames(compatible, 'send')).toHaveLength(0);
+  compatible.message({ ...operatorV2Welcome(), min_protocol_version: 2, max_protocol_version: 2 });
+  compatible.message({ type: 'session.inventory', sessions: [sessionSummary('hostc:codex:one', { working: false })] });
+  await flushMicrotasks(40);
+  expect(sentFrames(compatible, 'send')).toHaveLength(1);
+  expect(stream.getPentacleStreamState().lastError).toBeUndefined();
+  unsubscribe();
+});
+
+test('v2 protocol mismatch retries when the app returns to foreground', () => {
+  const stream = loadStream();
+  stream.setPentacleAuthToken(OPERATOR_V2_ENVELOPE);
+  const { unsubscribe, socket } = subscribeAndCreateSocket(stream);
+  socket.open();
+  socket.message({ ...operatorV2Welcome(), min_protocol_version: 1, max_protocol_version: 1 });
+  jest.advanceTimersByTime(30000);
+  expect(MockWebSocket.instances.at(-1)).toBe(socket);
+  stream.__handlePentacleAppStateChangeForTests('background');
+  stream.__handlePentacleAppStateChangeForTests('active');
+  const retry = MockWebSocket.instances.at(-1)!;
+  expect(retry).not.toBe(socket);
+  retry.open();
+  retry.message({ ...operatorV2Welcome(), min_protocol_version: 2, max_protocol_version: 3 });
+  expect(stream.getPentacleStreamState().connected).toBe(true);
+  expect(stream.getPentacleStreamState().lastError).toBeUndefined();
+  unsubscribe();
+});

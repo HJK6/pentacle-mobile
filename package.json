@@ -42,7 +42,8 @@
     "storage:janitor": "node scripts/storage-cli.cjs storage:janitor",
     "storage:restore": "node scripts/storage-cli.cjs storage:restore",
     "storage:uninstall": "node scripts/storage-cli.cjs storage:uninstall",
-    "gate:certified": "node scripts/storage-cli.cjs gate:certified"
+    "gate:certified": "node scripts/storage-cli.cjs gate:certified",
+    "test:daemon-pinned": "jest --config test/daemon-pinned/jest.config.cjs --runInBand"
   },
   "dependencies": {
     "@expo-google-fonts/cinzel": "^0.4.2",
