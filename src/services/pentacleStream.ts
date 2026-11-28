@@ -799,6 +799,7 @@ type PendingRequest = {
   streamEventsStreamId?: string;
   streamEventsPurpose?: StreamEventsRequestPurpose;
   streamEventsLimit?: number;
+  streamEventsCachedNewestSeq?: number;
   streamEventsEntrySource?: StreamOpenEntrySource;
   streamEventsHadResumeCursor?: boolean;
   streamEventsWindow?: EventBucketRequestWindow;
@@ -3298,6 +3299,7 @@ function applyRequestStreamEvents(
   currentTailOptions?: CurrentTailReducerOptions,
   currentTailOutcome?: CurrentTailApplyOutcome,
   finalizeState?: (next: PentacleStreamState) => PentacleStreamState,
+  latestWindow?: { requestLimit: number; cachedNewestSeq: number; page: PentacleEvent[]; streamId: string },
 ) {
   const beforeEvents = selectPentacleDerivedEventIndex(state).chronological;
   const before = state;
@@ -3335,10 +3337,21 @@ function applyRequestStreamEvents(
     acceptedEvents,
     source === 'chat.event'
       ? { mode: 'live' }
-      : currentTailOptions
-        ? { requestedStreamId: currentTailOptions.requestedStreamId, mode: 'fetch' }
-        : undefined,
+      : latestWindow
+        ? { requestedStreamId: latestWindow.streamId, mode: 'fetch', latestWindow }
+        : currentTailOptions
+          ? { requestedStreamId: currentTailOptions.requestedStreamId, mode: 'fetch' }
+          : undefined,
   ), acceptedEvents);
+  if (latestWindow && before.events.some((event) => event.stream_id === latestWindow.streamId &&
+      event.client_origin !== true && event.daemon_seq === latestWindow.cachedNewestSeq) &&
+      !reducedState.events.some((event) => event.stream_id === latestWindow.streamId &&
+        event.client_origin !== true && event.daemon_seq === latestWindow.cachedNewestSeq)) {
+    const oldest = Math.min(...latestWindow.page.map((event) => event.daemon_seq));
+    streamEventsResumeBeforeByStream.set(latestWindow.streamId, oldest);
+    streamEventsOlderExhaustedByStream.delete(latestWindow.streamId);
+    emitStreamEventsCursorChanged(latestWindow.streamId, false);
+  }
   const reconciled = reconcileAcceptedUserEchoes(
     reducedState,
     acceptedEvents,
@@ -5027,7 +5040,14 @@ function handleMessageInner(raw: string) {
         ? noteCompletedStreamEventsRequest(token.streamId, acceptedEvents, pending, false, false)
         : updateStreamEventsResumeCursor(token.streamId, acceptedEvents, false);
     }
-    const terminalEvents = token.window === 'history' ? events : acceptedEvents;
+    const latestPurpose = pending.streamEventsPurpose === 'mount-fetch' ||
+      pending.streamEventsPurpose === 'focused-refetch' || pending.streamEventsPurpose === 'freshness-guard';
+    const latestWindow = result.authoritativeAccepted && latestPurpose && !pending.streamEventsHadResumeCursor &&
+      typeof pending.streamEventsLimit === 'number' && pending.streamEventsCachedNewestSeq !== undefined
+      ? { requestLimit: pending.streamEventsLimit, cachedNewestSeq: pending.streamEventsCachedNewestSeq,
+          page: accumulated, streamId: token.streamId }
+      : undefined;
+    const terminalEvents = latestWindow ? acceptedEvents : token.window === 'history' ? events : acceptedEvents;
     let stateChanged = false;
     if (result.commit !== 'none') {
       stateChanged = applyRequestStreamEvents(
@@ -5037,6 +5057,7 @@ function handleMessageInner(raw: string) {
         token.window === 'current-tail' ? currentTailOptions : undefined,
         undefined,
         (next) => applyStreamEventsFinalState(next, token, result),
+        latestWindow,
       );
     } else {
       stateChanged = setState(applyStreamEventsFinalState(state, token, result), false);
@@ -5883,6 +5904,13 @@ export async function requestStreamEvents(
       pending.streamEventsPurpose = purpose;
       pending.streamEventsWindow = window;
       pending.streamEventsLimit = limit;
+      if ((purpose === 'mount-fetch' || purpose === 'focused-refetch' || purpose === 'freshness-guard') &&
+          !Object.prototype.hasOwnProperty.call(payload, 'before_daemon_seq')) {
+        const cachedSeqs = peekEventsForStream(state, trimmed)
+          .filter((event) => event.client_origin !== true && typeof event.daemon_seq === 'number' && Number.isFinite(event.daemon_seq))
+          .map((event) => event.daemon_seq);
+        pending.streamEventsCachedNewestSeq = cachedSeqs.length ? Math.max(...cachedSeqs) : undefined;
+      }
       pending.streamEventsBefore = before;
       pending.streamEventsEntrySource = options.entrySource;
       pending.streamEventsHadResumeCursor = Object.prototype.hasOwnProperty.call(payload, 'before_daemon_seq');
